@@ -115,6 +115,10 @@ Existing homebrew is not adopted merely because its directory matches.
 <details>
 <summary>Catalogs — connection attempts, fallback and offline use</summary>
 
+A catalog can also extract icons, background images, video and sound from
+release EBOOTs and host them as previews. The reference catalog does this
+automatically, so the PSP can show apps before downloading their packages.
+
 Use **Add catalog** for an HTTPS `catalog.json` URL, or **Add GitHub
 repository** for a repository URL or `owner/repo`. A new source is checked
 before it is saved in `sources.txt`. Text lists remain supported, and the
