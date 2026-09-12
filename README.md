@@ -35,9 +35,13 @@ done right, in a hello world.
 
 ## What an app is
 
-A repository that says so. [manifest.md](manifest.md) is the format,
-[`schema/v1.pspdx`](schema/v1.pspdx) the schema,
-[architecture.md](architecture.md) the why.
+A repository that says so. The format lives in its own repository now, at
+[pspdx](https://github.com/chriopter/pspdx):
+[manifest.md](https://github.com/chriopter/pspdx/blob/master/manifest.md) is
+what a `.pspdx` says,
+[`schema/v1.pspdx`](https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx)
+the schema every one of them names. [architecture.md](architecture.md) is
+this client's why.
 
 <details>
 <summary><b><code>.pspdx</code></b> — the author's consent and words. Everything that changes comes from the release and the EBOOT.</summary>
