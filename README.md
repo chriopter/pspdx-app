@@ -113,8 +113,9 @@ missing images use defaults, missing video/sound does not play.
 
 ## The PSPDX standard
 
-Publish a `.pspdx` in your repository to make your homebrew available to
-PSPDX; the [demo app](https://github.com/chriopter/pspdx-demo) is a complete example.
+Add a `.pspdx` to your repository to make your homebrew installable and
+updatable through PSPDX; the [demo app](https://github.com/chriopter/pspdx-demo)
+is a complete example.
 
 ```json
 {
