@@ -55,15 +55,6 @@ A transaction journal covers files, manifest and state. Staging and backups
 stay beside the destination for PSP directory renames; recovery touches only
 journaled paths. Old databases and caches are not migrated or removed.
 
-On the startup device (`ms0:` or `ef0:`), `PSP/PSPDX/INSTALLED/` holds each
-app's original `.pspdx` and `state.json`, keyed by app ID:
-
-| State | Stored fields |
-|---|---|
-| Identity | `source`, `added_from` (catalog, repository or INBOX) |
-| `installed` | `version`, `published_at`, `installdir` |
-| `latest` | `version`, `published_at`, `download_url`, `size`, optional `sha256`, `checked_at`, `checked_from` |
-
 **×** install/update · **△** options · **○** back · **□** basket ·
 **START** run · **L/R** or **←/→** switch tabs.
 
@@ -127,6 +118,76 @@ apps without fresh entries are checked directly at their saved GitHub source.
 If GitHub also fails, the previous release data and check time remain; cached
 results do not prove an app is current. Deleting either cache does not remove
 installed-app records.
+
+</details>
+
+<details>
+<summary>Data Structure</summary>
+
+Example on the startup device (`ms0:` or `ef0:`). App names and hashes are
+illustrative; temporary and debug files appear only when used.
+
+```text
+ms0:/
+└── PSP/
+    ├── GAME/
+    │   ├── PSPDX/
+    │   │   └── EBOOT.PBP                  # The downloader
+    │   ├── Cathedral/
+    │   │   ├── EBOOT.PBP                  # Installed homebrew
+    │   │   └── ...                        # Other files from its package
+    │   ├── .pspdx-stage/                  # Temporary installation
+    │   │   └── EBOOT.PBP
+    │   └── Cathedral.old/                 # Temporary rollback backup
+    │       └── EBOOT.PBP
+    └── PSPDX/
+        ├── sources.txt                   # Catalogs and direct repositories
+        ├── INBOX/
+        │   └── demo.pspdx                 # Awaiting import
+        ├── INSTALLED/
+        │   ├── io.github.chriopter.pspdx.pspdx
+        │   ├── io.github.chriopter.pspcathedral.pspdx
+        │   └── state.json                # Installed and last-known releases
+        ├── CACHE/
+        │   ├── catalogs/
+        │   │   └── <url-sha1>.json        # Cached catalog response
+        │   └── media/
+        │       ├── <app-id>-icon-<hash>.png
+        │       ├── <app-id>-picture-<hash>.png
+        │       ├── <app-id>-film-<hash>.pmf
+        │       └── <app-id>-sound-<hash>.at3
+        ├── TMP/
+        │   ├── download.zip              # Package being installed
+        │   └── transaction.json          # Recovery journal
+        ├── LOGS/
+        │   ├── pspdx.log                 # App log
+        │   ├── http.txt                  # HTTP diagnostics
+        │   └── wolf.log                  # TLS diagnostics
+        ├── DEBUG/
+        │   ├── PSPDX.BMP                 # Screenshot
+        │   ├── PSPDX.KEYS                # Scripted test inputs
+        │   ├── PSPDX.REPLAY               # Entropy replay
+        │   ├── PSPDX.TRACE                # Entropy trace
+        │   ├── PSPDX_REC/                # Entropy recordings
+        │   ├── font/
+        │   │   └── ltn8.pgf              # Optional test font
+        │   └── ...                       # Other test markers/screenshots
+        └── CRYPTO/
+            └── seed.bin                  # Saved entropy seed
+```
+
+`INSTALLED/*.pspdx` retains each app's source. `state.json` is keyed by app ID:
+
+| State | Stored fields |
+|---|---|
+| Identity | `source`, `added_from` (catalog, repository or INBOX) |
+| `installed` | `version`, `published_at`, `installdir` |
+| `latest` | `version`, `published_at`, `download_url`, `size`, optional `sha256`, `checked_at`, `checked_from` |
+
+Recoverable writes may leave `.new` or `.bak` siblings until recovery.
+Staging and rollback directories stay under `GAME/` because PSP directory
+renames require the same parent. Keep `INSTALLED/` for update tracking;
+`CACHE/` can be rebuilt. Do not remove a pending transaction's files.
 
 </details>
 
