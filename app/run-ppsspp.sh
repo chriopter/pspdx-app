@@ -1,13 +1,14 @@
 #!/bin/sh
 # Runs EBOOT.PBP under the PPSSPP flatpak, without needing a visible desktop,
-# and leaves PSPDX.LOG and PSPDX.BMP (as shot.png) next to this script.
+# and leaves PSPDX.LOG and every screenshot the client took (shot.png,
+# shot0.png, shot1.png, shot2.png) next to this script.
 #
 #   sh app/run-ppsspp.sh [seconds] [--sweep] [--keys FILE] [--slow [KB/s]]
 #
 # --keys FILE scripts input: one "<ms> <key>" per line, counted from the
 # moment the catalog is up; keys are up, down, cross, circle, square,
 # triangle, start, select and shot, the last of which leaves a settled
-# screenshot as shot1.png next to shot.png.
+# screenshot as shot1.png.
 #
 # --slow [KB/s] paces the client's network down to a PSP-1004's, 180 KB/s by
 # default, which is what its 802.11b radio and TCP stack were measured at.
@@ -28,6 +29,11 @@
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 MS="$HOME/.var/app/org.ppsspp.PPSSPP/config/ppsspp"
+# The client keeps everything a rig hands it or takes from it under one
+# directory on the stick; nothing is left in the root any more.
+DBG="$MS/PSP/PSPDX/DEBUG"
+LOGS="$MS/PSP/PSPDX/LOGS"
+SEED="$MS/PSP/PSPDX/CRYPTO/seed.bin"
 SECS=25
 SWEEP=0
 KEYS=""
@@ -53,8 +59,8 @@ cp "${EBOOT:-$HERE/EBOOT.PBP}" "$MS/PSP/GAME/pspdx/EBOOT.PBP"
 # font comes out of the PSP's own firmware and nothing is copied.
 FONTS="$(flatpak info --show-location org.ppsspp.PPSSPP 2>/dev/null)/files/share/ppsspp/assets/flash0/font"
 if [ -f "$FONTS/ltn8.pgf" ]; then
-	mkdir -p "$MS/PSP/PSPDX/font"
-	cp "$FONTS/ltn8.pgf" "$MS/PSP/PSPDX/font/ltn8.pgf"
+	mkdir -p "$DBG/font"
+	cp "$FONTS/ltn8.pgf" "$DBG/font/ltn8.pgf"
 fi
 
 # Clips the catalog repo holds but the published catalog does not link yet
@@ -67,24 +73,25 @@ for clip in "$HERE"/../catalog/apps/*/video.mp4; do
 	cp "$clip" "$MS/PSP/PSPDX/cache/$id.mp4"
 done
 
+mkdir -p "$DBG" "$LOGS" "$MS/PSP/PSPDX/CRYPTO"
 if [ "$SWEEP" = 1 ]; then
-	cp "$HERE/testdata/sweep.trace" "$MS/PSPDX.TRACE"
-	touch "$MS/PSPDX.REPLAY"
-	rm -f "$MS/PSPDX.SEED"
+	cp "$HERE/testdata/sweep.trace" "$DBG/PSPDX.TRACE"
+	touch "$DBG/PSPDX.REPLAY"
+	rm -f "$SEED"
 else
-	rm -f "$MS/PSPDX.REPLAY"
+	rm -f "$DBG/PSPDX.REPLAY"
 	# 20 bytes, the pool size. Only written when missing: the client ratchets
 	# the file forward on every run, and a rig that kept resetting it would
 	# hide a bug in that.
-	[ -f "$MS/PSPDX.SEED" ] || printf 'PSPDX-TEST-SEED-0000' >"$MS/PSPDX.SEED"
+	[ -f "$SEED" ] || printf 'PSPDX-TEST-SEED-0000' >"$SEED"
 fi
-rm -f "$MS/PSPDX.LOG" "$MS/PSPDX.BMP" "$MS/PSPDX1.BMP" "$MS/PSPDX.BENCH" "$MS/PSPDX.KEYS" \
-      "$MS/PSPDX.SLOW"
-[ -n "$KEYS" ] && cp "$KEYS" "$MS/PSPDX.KEYS"
+rm -f "$LOGS/pspdx.log" "$DBG/PSPDX.BMP" "$DBG/PSPDX0.BMP" "$DBG/PSPDX1.BMP" \
+      "$DBG/PSPDX2.BMP" "$DBG/PSPDX.BENCH" "$DBG/PSPDX.KEYS" "$DBG/PSPDX.SLOW"
+[ -n "$KEYS" ] && cp "$KEYS" "$DBG/PSPDX.KEYS"
 # The emulator borrows the host's network; a PSP-1004 has 802.11b and its own
 # TCP stack, which together managed about 180 KB/s. --slow holds the client to
 # that, so a film takes as long to arrive here as it does on the hardware.
-[ -n "$SLOW" ] && printf '%s' "$SLOW" >"$MS/PSPDX.SLOW"
+[ -n "$SLOW" ] && printf '%s' "$SLOW" >"$DBG/PSPDX.SLOW"
 
 # Native: the emulator renders the PSP's own 480x272 and only the window
 # scales it, so what is on screen is what a PSP shows, pixel for pixel.
@@ -125,8 +132,13 @@ done
 kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
 sleep 2
 
-cp "$MS/PSPDX.LOG" "$HERE/PSPDX.LOG" 2>/dev/null || echo "no log written"
-[ -f "$MS/PSPDX.BMP" ] && magick "$MS/PSPDX.BMP" -scale 200% "$HERE/shot.png"
-rm -f "$HERE/shot1.png"
-[ -f "$MS/PSPDX1.BMP" ] && magick "$MS/PSPDX1.BMP" -scale 200% "$HERE/shot1.png"
+cp "$LOGS/pspdx.log" "$HERE/PSPDX.LOG" 2>/dev/null || echo "no log written"
+# Every shot the client leaves, at the name it left it under: PSPDX.BMP is
+# the settled catalog, PSPDX0.BMP the screen a few seconds in, PSPDX1.BMP
+# what the scripted keys led to, PSPDX2.BMP a settled row.
+rm -f "$HERE"/shot.png "$HERE"/shot0.png "$HERE"/shot1.png "$HERE"/shot2.png
+for n in "" 0 1 2; do
+	[ -f "$DBG/PSPDX$n.BMP" ] &&
+		magick "$DBG/PSPDX$n.BMP" -scale 200% "$HERE/shot$n.png"
+done
 cat "$HERE/PSPDX.LOG" 2>/dev/null

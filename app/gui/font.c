@@ -2,6 +2,7 @@
 #include <pspiofilemgr.h>
 #include <intraFont.h>
 #include <stdarg.h>
+#include <string.h>
 #include <stdio.h>
 
 #include "gui/font.h"
@@ -116,10 +117,27 @@ static unsigned g_color;
 static void use(enum font_style style, unsigned color) {
     color = gfx_veiled(color);
     if ((int)style == g_styled && color == g_color) return;
-    intraFontSetStyle(g_font, STYLES[style].size, color,
-                      gfx_veiled(STYLES[style].shadow), 0.0f, INTRAFONT_ALIGN_LEFT);
+    /* No shadow from intraFont: the console's ltn8.pgf carries no shadow
+       glyphs, and asked for one anyway intraFont reads and writes past a
+       zero-length table -- the shadow comes out as whatever the heap held,
+       which was black boxes the size of the row. The shadow is drawn here
+       instead, as a second print. */
+    intraFontSetStyle(g_font, STYLES[style].size, color, 0, 0.0f, INTRAFONT_ALIGN_LEFT);
     g_styled = style;
     g_color = color;
+}
+
+/* The shadow is the same word a pixel down and right in the style's own
+   dark, printed first so the face lies over it: the bevel the XMB gives its
+   text, from two prints instead of a shadow map the font does not have. */
+static float shadowed(enum font_style style, float x, float y, unsigned color,
+                      const char *text, int len) {
+    if (STYLES[style].shadow >> 24) {
+        use(style, STYLES[style].shadow);
+        intraFontPrintEx(g_font, x + 1.0f, y + 1.0f, text, len);
+    }
+    use(style, color);
+    return intraFontPrintEx(g_font, x, y, text, len);
 }
 
 int font_init(void) {
@@ -156,8 +174,7 @@ int font_ready(void) { return g_font != 0; }
 float font_print(enum font_style style, float x, float y, unsigned color,
                  const char *text) {
     if (!g_font || !text) return x;
-    use(style, color);
-    return intraFontPrint(g_font, x, y, text);
+    return shadowed(style, x, y, color, text, (int)strlen(text));
 }
 
 float font_printf(enum font_style style, float x, float y, unsigned color,
@@ -174,10 +191,9 @@ float font_print_clipped(enum font_style style, float x, float y, float width,
                          unsigned color, const char *text) {
     if (!g_font || !text) return x;
     if (width < 0.0f) return x;         /* no column left to print into */
-    use(style, color);
     /* Print down to the last character that still fits and stop there; the
        column printers wrap or scroll instead, and this UI wants neither. */
-    return intraFontPrintEx(g_font, x, y, text, measure(style, text, width)->fit);
+    return shadowed(style, x, y, color, text, measure(style, text, width)->fit);
 }
 
 float font_width(enum font_style style, const char *text) {
