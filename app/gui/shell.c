@@ -760,11 +760,13 @@ static void draw_picture(float t) {
         fw = film->w * fit;
         fh = film->h * fit;
     }
-    /* A film takes the still's place once it is up, whatever size it is: the
-       still is the same picture standing larger, and the two of them at once
-       is one picture too many. The still is what is there until the film
-       arrives, and then it goes. */
-    int covered = film && film_alpha >= 250;
+    /* The film takes the still's place the moment it has a picture, not at
+       the end of a fade: for the length of that fade a small clip stood in
+       front of the large picture it was cut from, which is the one thing
+       this is meant to avoid. And with nothing to cross with, the fade is
+       dropped too -- the still is simply what is there until the film is. */
+    int covered = film != 0;
+    if (covered) film_alpha = 255;
     if (still || film) {
         /* The reflection first and under everything: it runs down over the
            water where the lines below the card are about to be written, and
