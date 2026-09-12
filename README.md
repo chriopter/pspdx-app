@@ -2,12 +2,12 @@
 
 **[Get PSPDX App →](https://github.com/chriopter/pspdx/releases/latest)**
 
-**PSP Download Index** — a portable JSON file that points to PlayStation
-Portable homebrew at its source.
+**PSP Download Index** — browse, install, run and update homebrew directly
+on your PlayStation Portable.
 
-Add a `.pspdx` file to PSPDX App on your PSP to download homebrew and keep
-track of updates. Or add a catalog to browse multiple apps and keep them
-up to date.
+PSPDX combines a downloader app, a reference catalog and an open file format.
+Browse the included catalog, add your own, or import a `.pspdx` file to
+download homebrew from its original source.
 
 <img width="480" alt="PSPDX App browsing homebrew and available updates" src="images/pspdx-app.png" />
 
@@ -16,12 +16,12 @@ up to date.
 PSP homebrew is scattered across repositories and websites. I wanted to find
 and update it without relying on another catalog staying maintained.
 
-PSPDX is decentralized: a homebrew author publishes a `.pspdx` in their
-GitHub repository. Add that file directly to your PSPDX downloader, or use
-a catalog that collects multiple apps. Anyone can publish a catalog.
+Catalogs help you discover apps; a small `.pspdx` file points each one to
+its source. The downloader installs the author's releases and can check
+that source directly for updates, even if the catalog disappears.
 
-Once added, your PSP can check the original source for updates and keep
-your homebrew up to date, independently of the catalog.
+Anyone can share these files or build a catalog. No central registry is
+required — downloads and updates stay with the homebrew authors.
 
 - **[Downloader app](#the-pspdx-client)** — install, run and update homebrew on your PSP. [Latest release](https://github.com/chriopter/pspdx/releases/latest).
 - **[Reference catalog](https://chriopter.github.io/pspdx-catalog/)** — browse apps; or [build your own catalog](https://github.com/chriopter/pspdx-catalog).
@@ -104,8 +104,7 @@ and an `apps` array. Each app carries `id`, `name`, `author`, `summary`,
 `sound` when present. Relative media URLs resolve against the catalog URL.
 
 The catalog schema identifier is
-`https://github.com/chriopter/pspdx/blob/master/schema/manifest.md`.
-That file points to this specification.
+`https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx`.
 
 The reference builder checks releases hourly, reuses unchanged entries and
 publishes only when its index changes. Manifest-only edits require a new

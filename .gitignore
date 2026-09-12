@@ -12,20 +12,25 @@ dist/
 
 # Locally built dependencies. wolfssl-psp/build.sh reproduces the prefix;
 # the prefix itself is 1.7 MB of static library and does not belong in git.
-app/wolfssl-psp/prefix/
+/app/wolfssl-psp/prefix/
+/app/wolfssl-psp/work/
+/app/util/version.h
 
 # Editor and OS noise
 *.swp
+*.swo
 .DS_Store
-app/wolfssl-psp/work/
+
+# Local emulator output
 ppsspp.out
 PSPDX.LOG
+pspdx.log
 shot.png
 shot1.png
 shot-install.png
 shot-updates.png
 .claude/
 
-# Python caches from app/tools
+# Python caches
 __pycache__/
-app/util/version.h
+*.py[cod]
