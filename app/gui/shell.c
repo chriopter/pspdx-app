@@ -863,17 +863,21 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
 
 /* PIC1.PNG, 480 by 272, which is the size of the screen because that is what
    an EBOOT carries it for: the picture that stands behind everything while
-   the thing it belongs to is the one picked out. It goes in behind the water
-   and the list, held down far enough that the lettering over it still reads
-   -- and left alone, as the interface fades, it comes up to its own
-   brightness, which is the room turning into the app. */
+   the thing it belongs to is the one picked out.
+
+   Not while there is anything to read, though: behind a list it is a busy
+   picture under lettering, and the room the water makes is the better place
+   to read in. It comes up only as the interface goes -- left alone, the
+   veil takes the list and the tabs and leaves this, whole and at its own
+   brightness, with the film playing on the row. The room turns into the app
+   the cursor is on, and a key brings the list back over it. */
 static void draw_backdrop(void) {
     int alpha;
+    if (g_veil <= 0.0f) return;
     const struct gfx_texture *pic = preview_still(&alpha);
     if (!pic || alpha <= 0) return;
-    int lit = 105 + (int)(150.0f * g_veil);
     gfx_texture_draw(pic, 0, 0, SCR_W, SCR_H,
-                     RGBA(255, 255, 255, alpha * lit / 255));
+                     RGBA(255, 255, 255, alpha * (int)(255.0f * g_veil) / 255));
 }
 
 /* The open row's picture alone, with the room behind it: what is left when
