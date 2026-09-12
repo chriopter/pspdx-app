@@ -14,7 +14,8 @@ from the release and the EBOOT and never written by hand.
   "author":     "chriopter",
   "summary":    "Ten churches, and the sun through their glass.",
   "category":   "demo",
-  "license":    "BSD-3-Clause"
+  "license":    "BSD-3-Clause",
+  "installdir": "PSP/GAME/Cathedral"
 }
 ```
 
@@ -27,6 +28,7 @@ version 2 gets a new name without making a single old file wrong.
 | `schema` | required | |
 | `name` | required, under 40 characters | |
 | `category` | required: `game`, `emulator`, `app`, `plugin`, `demo`, one word for what this one app is | |
+| `installdir` | required: where the package goes on the stick. In version 1 it is `PSP/GAME/<folder>`, and the folder is the name the XMB shows | |
 | `summary` | one line, at most 60 characters | the repository's description |
 | `license` | an SPDX identifier | what GitHub reports |
 | `author` | a name | the repository's owner |
@@ -43,7 +45,7 @@ ignored.
 | `rev` | the release's `published_at` as unix seconds. Integers compare; version strings do not. **The higher `rev` wins.** |
 | `url`, `size` | the zip on the release, of which there must be exactly one |
 | `sha256` | computed by whoever downloads the whole zip: the cache |
-| the package | the directory in the zip that holds the one `EBOOT.PBP`, and its name is the folder the app gets under `PSP/GAME/`; its `PARAM.SFO` must say `CATEGORY` `MG`, a game or app for the Memory Stick |
+| the package | the directory in the zip that holds the one `EBOOT.PBP`, with everything beside and below it; its `PARAM.SFO` must say `CATEGORY` `MG`, a game or app for the Memory Stick |
 | icon, picture, film, sound | `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3` inside the EBOOT, where Sony put them and where the XMB reads them |
 
 A release that is a pre-release or a draft is not seen. Nothing is ever
@@ -95,13 +97,13 @@ over TLS, which is the trust there is. An installed app is pictured from
 its own EBOOT on the stick whether or not any cache ever was.
 
 An install fetches the zip, checks the size (and the hash when it has one),
-and copies the contents of the package into `PSP/GAME/` under the
-package's own name, subfolders and all. Whatever the zip holds outside
-that directory, a licence or a readme at the top, is left behind, and
-nothing from a zip is ever written anywhere else. An app whose package
-directory is called something else in a later release moves on the stick:
-the record says where the old one was, and the update takes it away. Then
-it writes `PSP/PSPDX/db/<id>.json`:
+and copies the package into `installdir`, subfolders and all. Whatever
+the zip holds outside the package, a licence or a readme at the top, is
+left behind, and a path that does not begin with `PSP/GAME/` is refused,
+so nothing from a zip is ever written anywhere else on the stick. An app
+that names a different directory in a later release moves: the record
+says where the old one was, and the update takes it away. Then it writes
+`PSP/PSPDX/db/<id>.json`:
 `id`, `rev`, `dir`, `version`, `repo`. An update is a larger `rev` for the
 same id from any source. The first list to name an id wins.
 
@@ -114,24 +116,21 @@ and which release is current is GitHub's own answer: the latest one that
 is not a draft and not a pre-release. A tag can still be frozen, by the
 curator, with `@tag` on the list line.
 
-**A glob for the package, and a field naming the folder.** In version 1 a
-release carries exactly one zip, and that zip holds exactly one
-`EBOOT.PBP` inside a directory, or the app is not listed. That directory
-is the package and its name is the folder on the stick, which is what a
-person copying the zip by hand gets too. Two zips, two EBOOTs, or an
-EBOOT lying loose at the top are questions for the author.
+**A glob for the package.** In version 1 a release carries exactly one
+zip, and that zip holds exactly one `EBOOT.PBP`, or the app is not listed.
+Two of either is a question for the author.
+
+**Anywhere but `PSP/GAME/`.** `installdir` is written out in full so that
+a later version can allow other places on the stick, but version 1 refuses
+anything else: a plugin that belongs in `seplugins` and wants a line in
+`plugins.txt` is a different way of installing, with its own rules, and a
+path that can reach `PSP/SYSTEM` is a path that can break a console.
 
 **A place in the repository for the pictures.** The EBOOT already carries
 them, every author already packs them, and a second copy in the repository
 is a second copy to keep in step. A console reading a repository directly
 therefore shows no picture until the app is installed, and then reads the
 EBOOT on the stick; a catalog has the zip in its hands anyway.
-
-**Anything outside `PSP/GAME/`.** A plugin that belongs in `seplugins` and
-wants a line in `plugins.txt`, a folder of ROMs beside an emulator, a
-savedata template: a different way of installing, with its own rules, and
-a path field bent far enough to reach it would be a path field that can
-reach anything. Version 2 can have a kind of its own for that.
 
 **The repository in the file.** Whoever reads the file knows where it came
 from, and a file that named a repository would let a fork claim the
