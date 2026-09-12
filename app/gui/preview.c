@@ -432,15 +432,10 @@ void preview_poke(void) { wake(); }
 
 const struct gfx_texture *preview_still(int *alpha) {
     const struct gfx_texture *t = g_still_pub;
-    /* Only where there is no film. The still is fetched first, because it is
-       the cheap one and the card would otherwise stand empty; but an entry
-       with a film shows the film and nothing else, and letting the picture
-       come up for the moment the clip takes to arrive is exactly the shuffle
-       the card should not do. So it is held back until the film has said
-       whether it exists -- which for an entry that links none it says at
-       once, out of the cache that is not there. It is still fetched and
-       kept: a film that fails leaves the still as what there is. */
-    if (g_film_state != FILM_FAILED) { *alpha = 0; return 0; }
+    /* Held back from nothing any more: the still is PIC1.PNG, the picture an
+       EBOOT carries to stand behind the screen, and that is where it goes.
+       The film plays on the row and the two are never in the same place, so
+       neither waits for the other. */
     if (g_still_state != STILL_READY || !t) { *alpha = 0; return 0; }
     *alpha = (int)(g_still_alpha * 255.0f);
     return t;
@@ -458,13 +453,8 @@ int preview_playing(void) {
 
 enum preview_state preview_state(void) {
     if (g_nothing) return PREVIEW_MISSING;
-    if (g_film_state == FILM_PLAYING) return PREVIEW_SHOWING;
-    /* A still held back for a film that may still arrive is not something
-       the card is showing: it is still loading, and says so. */
-    if (g_film_state == FILM_FAILED) {
-        if (g_still_state == STILL_READY) return PREVIEW_SHOWING;
-        if (g_still_state == STILL_FAILED) return PREVIEW_MISSING;
-    }
+    if (g_still_state == STILL_READY || g_film_state == FILM_PLAYING) return PREVIEW_SHOWING;
+    if (g_still_state == STILL_FAILED) return PREVIEW_MISSING;
     if (g_shown_gen != 0) return PREVIEW_LOADING;
     return PREVIEW_EMPTY;
 }

@@ -861,6 +861,21 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
     }
 }
 
+/* PIC1.PNG, 480 by 272, which is the size of the screen because that is what
+   an EBOOT carries it for: the picture that stands behind everything while
+   the thing it belongs to is the one picked out. It goes in behind the water
+   and the list, held down far enough that the lettering over it still reads
+   -- and left alone, as the interface fades, it comes up to its own
+   brightness, which is the room turning into the app. */
+static void draw_backdrop(void) {
+    int alpha;
+    const struct gfx_texture *pic = preview_still(&alpha);
+    if (!pic || alpha <= 0) return;
+    int lit = 105 + (int)(150.0f * g_veil);
+    gfx_texture_draw(pic, 0, 0, SCR_W, SCR_H,
+                     RGBA(255, 255, 255, alpha * lit / 255));
+}
+
 /* The open row's picture alone, with the room behind it: what is left when
    the interface goes under the veil. Drawn through no veil at all. */
 static void draw_picture(float t) {
@@ -1390,6 +1405,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     gfx_frame_begin(0xFF000000);
     gfx_vgrad(0, 0, SCR_W, SCR_H, rgb_pack(rgb_mix(NIGHT_TOP, g_tint, 0.05f), 255),
               rgb_pack(rgb_mix(NIGHT_BOTTOM, g_tint, 0.18f), 255));
+    draw_backdrop();
     lattice_draw(t, g_tint);
     draw_water_light(t);
     unsigned t1 = now_us();
