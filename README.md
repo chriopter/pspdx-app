@@ -4,6 +4,7 @@
 on your PlayStation Portable. **[→ Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)**
 
 PSPDX is a homebrew downloader app built around an open file format.
+The reference catalog comes preconfigured, so you can start browsing right away.
 Anyone can share apps or publish a catalog. Each `.pspdx` points to the
 original source, so downloads and updates remain independent of any catalog.
 
