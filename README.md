@@ -1,9 +1,7 @@
 # PSPDX
 
-**[Get PSPDX App →](https://github.com/chriopter/pspdx/releases/latest)**
-
 **PSP Download Index** — browse, install, run and update homebrew directly
-on your PlayStation Portable.
+on your PlayStation Portable. **[→ Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)**
 
 PSPDX combines a downloader app, a reference catalog and an open file format.
 Browse the included catalog, add your own, or import a `.pspdx` file to
