@@ -130,10 +130,28 @@ its successful check time is not advanced. Offline browsing uses cached
 catalogs and locally stored installed-app records; a saved result is the
 last known release, not proof that the app is current.
 
-Catalogs can provide preview media. Direct GitHub checks do not download
-separate previews: the client uses the installed EBOOT, existing media cache
-or a placeholder. Catalog and media caches can be deleted without losing
-installed-app tracking.
+Catalog and media caches can be deleted without losing installed-app tracking.
+
+</details>
+
+<details>
+<summary>Media — catalog previews and installed EBOOTs</summary>
+
+When browsing a catalog, the client loads icons and selected-app previews
+from its media URLs and caches them in `PSP/PSPDX/CACHE/media/`. The reference
+catalog extracts these from each release's EBOOT: `ICON0.PNG` (icon),
+`PIC1.PNG` (background), `ICON1.PMF` (video) and `SND0.AT3` (sound).
+Browsing does not require downloading each app's ZIP.
+
+Apps added directly through a repository URL or INBOX do not fetch separate
+previews from GitHub. Before installation, they use any available cached
+media or a placeholder. Once installed, icons and previews are read from
+the app's own `EBOOT.PBP`; local EBOOT media also takes priority for apps
+installed through a catalog.
+
+All media is optional. Missing images use the default presentation; missing
+video or sound simply does not play. Offline browsing uses installed EBOOTs
+and media already in the cache.
 
 </details>
 
