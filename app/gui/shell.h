@@ -45,6 +45,13 @@ enum shell_tab_kind shell_tab_kind(void);
    below zero like the no-such-row answer, so anything that only ever wanted
    a package goes on being right by asking for one. */
 #define SHELL_ROW_ACTION (-2)
+
+/* Under the gear the rows are not packages but the things this session can
+   do to itself: shell_view_index() answers SHELL_ROW_SETTING minus the
+   row's number for them, so the one list draws and walks both kinds. */
+#define SHELL_ROW_SETTING (-100)
+#define SHELL_SETTINGS 7
+const char *shell_setting(int n);
 int shell_view_action(int row);
 
 /* What the action row would do, counted over the rows under it: what can be
@@ -129,8 +136,9 @@ void shell_menu(const char *title, const char *const *items,
    swept again. action is which of them the cursor is on, in that order.
    Drawn while open, and nothing more -- what moves that cursor and what
    takes the row under it is read in the main loop. */
-#define SHELL_INFO_ACTIONS 6
-void shell_info(int open, int action);
+/* The band of facts about the session, which the last row under the gear
+   opens. It says and does nothing else; O closes it. */
+void shell_info(int open);
 
 /* Idle: the package's own picture rises behind the interface, which stays
    where it is. Nothing is hidden by it. */

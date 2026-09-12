@@ -135,8 +135,7 @@ static signed char g_menu_key[MENU_MAX];
 static int g_menu_count, g_menu_cursor;
 static float g_menu_slide;              /* 0 off the right edge, 1 in place */
 static int g_menu_leaving;              /* sliding out; count drops at 0 */
-#define INFO_ACTIONS SHELL_INFO_ACTIONS
-static int g_info, g_info_action;
+static int g_info;
 static const struct app_entry *g_details;   /* the package the band is about */
 static int g_resting;                   /* left alone: where the picture is going */
 static float g_rest;                    /* 0 no picture, 1 the picture whole */
@@ -232,7 +231,7 @@ static void build_view(int restart) {
     for (int i = 0; i < g_view_of->count; i++) {
         int take;
         if (tab == TAB_STICK) take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
-        else if (tab == TAB_GEAR) take = 1;     /* the list stays under the band */
+        else if (tab == TAB_GEAR) take = 0;     /* its rows are not packages */
         else if (tab == TAB_BASKET) take = shell_basket_has(i);
         else take = !TAB_KEY[tab][0] ||
                     strcmp(g_view_of->apps[i].category, TAB_KEY[tab]) == 0;
@@ -307,11 +306,16 @@ int shell_tabs_refresh(void) {
     return kept;
 }
 
-int shell_view_count(void) { return g_view_count + g_view_action; }
+int shell_view_count(void) {
+    if (g_tabs && g_tab[g_tab_at] == TAB_GEAR) return SHELL_SETTINGS;
+    return g_view_count + g_view_action;
+}
 
 int shell_view_action(int row) { return g_view_action && row == 0; }
 
 int shell_view_index(int row) {
+    if (g_tabs && g_tab[g_tab_at] == TAB_GEAR)
+        return row >= 0 && row < SHELL_SETTINGS ? SHELL_ROW_SETTING - row : -1;
     if (shell_view_action(row)) return SHELL_ROW_ACTION;
     row -= g_view_action;
     return row >= 0 && row < g_view_count ? g_view[row] : -1;
@@ -566,6 +570,22 @@ static void draw_action_row(int y, int selected, float t) {
     font_print_clipped(FONT_META, NAME_X, y + 25, w, g_dim, action_line());
 }
 
+/* A row under the gear: a word and, where the word is about something that
+   is fetched, the sign that names it. The sign sits where a package's icon
+   sits, so the column reads as one column whichever tab it is. */
+static void draw_setting_row(int n, int y, int selected, float t) {
+    static const signed char SIGN[SHELL_SETTINGS] = {
+        MARK_UPDATE, MARK_DOWNLOAD, MARK_DOWNLOAD, MARK_BASKET,
+        MARK_UPDATE, MARK_STICK, MARK_INFO,
+    };
+    float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
+    enum mark m = (enum mark)SIGN[n];
+    mark_draw(m, gx, gy, selected ? g_text : faded(g_dim, 170),
+              selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+    font_print_clipped(FONT_BODY, NAME_X, y + 21, LIST_X + LIST_W - NAME_X,
+                       selected ? g_text : g_dim, shell_setting(n));
+}
+
 static void draw_list(const struct catalog *catalog, int cursor, float t) {
     int count = shell_view_count();
     if (cursor < g_first) g_first = cursor;
@@ -608,6 +628,10 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
         int selected = i == cursor;
         int index = shell_view_index(i);
         if (index == SHELL_ROW_ACTION) { draw_action_row(y, selected, t); continue; }
+        if (index <= SHELL_ROW_SETTING) {
+            draw_setting_row(SHELL_ROW_SETTING - index, y, selected, t);
+            continue;
+        }
         if (index < 0) continue;
         const struct app_entry *entry = &catalog->apps[index];
 
@@ -1136,16 +1160,22 @@ static void read_storage(void) {
     if (all) g_storage_used = 1.0f - (float)((double)left / (double)all);
 }
 
-/* The things the band does rather than says. Which one X takes is the
-   cursor's, and the cursor is the main loop's. */
-static const char *const INFO_ACTION[INFO_ACTIONS] = {
+/* What the gear holds: the things this session can do to itself, and last
+   the band that says what it is. A row here is read and taken the way a
+   package's row is, because at this depth nothing is deeper. */
+static const char *const SETTING[SHELL_SETTINGS] = {
     "Update catalog",
     "Add catalog",
     "Add GitHub repository",
     "Read INBOX",
     "Check original sources",
     "Discard entropy and sweep again",
+    "Info",
 };
+
+const char *shell_setting(int n) {
+    return n >= 0 && n < SHELL_SETTINGS ? SETTING[n] : "";
+}
 
 /* Four rows at the foot leave the facts above them 18 pixels apart rather
    than 24, which the small face reads at without touching. */
@@ -1214,22 +1244,8 @@ static void draw_info(void) {
     }
 
     band_rule(INFO_Y + 134, 160, 120);
-    int first=g_info_action>=4?g_info_action-3:0;
-    for (int i = first; i < INFO_ACTIONS && i<first+4; i++) {
-        int y = ACTION_Y + (i-first) * ACTION_H;
-        int on = i == g_info_action;
-        if (on) {
-            gfx_glow(SCR_W / 2, y - 5, 380, 32, rgb_pack(g_tint, 110));
-            gfx_glow(SCR_W / 2, y + 5, 320, 9,
-                     rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 140));
-        }
-        float w = hint_width(MARK_CROSS, INFO_ACTION[i]);
-        float x = SCR_W / 2 - w / 2;
-        if (on) mark_draw(MARK_CROSS, x + mark_width(MARK_CROSS) / 2.0f, y - 4,
-                          g_accent, MARK_PLAIN, 0, 0);
-        font_print(FONT_META, x + mark_width(MARK_CROSS) + HINT_GAP, y,
-                   on ? g_accent : g_dim, INFO_ACTION[i]);
-    }
+    float w = hint_width(MARK_CIRCLE, "Back");
+    draw_hint(SCR_W / 2 - w / 2, INFO_Y + 156, MARK_CIRCLE, "Back", g_dim);
 }
 
 /* --------------------------------------------------------------- details */
@@ -1403,9 +1419,12 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     gfx_frame_begin(0xFF000000);
     gfx_vgrad(0, 0, SCR_W, SCR_H, rgb_pack(rgb_mix(NIGHT_TOP, g_tint, 0.05f), 255),
               rgb_pack(rgb_mix(NIGHT_BOTTOM, g_tint, 0.18f), 255));
-    draw_backdrop();
     lattice_draw(t, g_tint);
     draw_water_light(t);
+    /* Over the water and under everything that is read: the picture is the
+       room the interface stands in while nobody is working it, which is
+       where the XMB puts a game's picture too. */
+    draw_backdrop();
     unsigned t1 = now_us();
     /* Left alone, the picture of the package under the cursor rises behind
        everything, over about two seconds; a key takes it down again in a
@@ -1428,7 +1447,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     } else {
         font_print(FONT_BODY, LIST_X, 120, g_dim, "The catalog came back empty.");
     }
-    if (g_info || (g_tabs && g_tab[g_tab_at] == TAB_GEAR)) draw_info();
+    if (g_info) draw_info();
     if (g_details) draw_details();
     if (g_menu_count) draw_menu();
     if (g_installing) draw_install();
@@ -1536,10 +1555,9 @@ void shell_menu(const char *title, const char *const *items,
 
 void shell_rest(int resting) { g_resting = resting; }
 
-void shell_info(int open, int action) {
+void shell_info(int open) {
     if (open && !g_info) read_storage();
     g_info = open;
-    g_info_action = action;
 }
 
 /* ---------------------------------------------------------------- install */

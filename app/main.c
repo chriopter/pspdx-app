@@ -785,7 +785,7 @@ int main(int argc, char *argv[]) {
     int refreshing = 0;                 /* SELECT, with the list already up */
     char keep[96] = "";                 /* the entry to come back to after one */
     int automatic = -1;
-    int info = 0, action = 0;           /* the info band and the row X takes */
+    int info = 0;                       /* the band of facts, over the list */
     int resting = 0;                    /* idle: the picture behind the shell */
     int details = 0;                    /* the band about one package */
     unsigned idle_since = now_ms();     /* the last time a key was down */
@@ -956,8 +956,7 @@ int main(int argc, char *argv[]) {
             shell_tab_move(pressed & (PSP_CTRL_RTRIGGER | PSP_CTRL_RIGHT) ? 1 : -1);
             cues_post(CUE_MOVE, cursor = 0);
             count = shell_view_count();
-            info = shell_tab_kind() == SHELL_TAB_GEAR;
-            shell_info(info, action = 0);
+
         }
         modal = modal || info;
         /* The list is a ring: past the last entry comes the first. */
@@ -1032,37 +1031,51 @@ int main(int argc, char *argv[]) {
                 }
             }
         } else if (info) {
-            if (pressed & PSP_CTRL_DOWN)
-                shell_info(1, action = (action + 1) % SHELL_INFO_ACTIONS);
-            if (pressed & PSP_CTRL_UP)
-                shell_info(1, action = (action + SHELL_INFO_ACTIONS - 1) %
-                                       SHELL_INFO_ACTIONS);
-            /* O steps off the band's tab onto the one after it, and so
-               does taking any of the band's actions: all of them leave the
-               browser standing in a list again. */
-            if (pressed & (PSP_CTRL_CIRCLE | PSP_CTRL_CROSS)) {
-                shell_info(info = 0, action);
-                shell_tab_move(1);
-                cues_post(CUE_MOVE, cursor = 0);
-                count = shell_view_count();
+            /* The band says and does nothing: what there is to do sits in
+               the list behind it, under the gear. */
+            if (pressed & (PSP_CTRL_CIRCLE | PSP_CTRL_CROSS)) shell_info(info = 0);
+        } else if (details) {
+            if (pressed & PSP_CTRL_CIRCLE) {
+                shell_details(0);
+                details = 0;
             }
-            if (pressed & PSP_CTRL_CROSS) {
-                int refetch = 0;
-                if (action == 0 && synced) refetch = 1;
-                else if ((action == 1 || action == 2) && synced) refetch = type_source(action == 2);
-                else if(action==3 && synced)ask_inbox();
-                else if(action==4 && synced){catalog_force_sources();refetch=1;}
+        } else if (count > 0) {
+            int at = shell_view_index(cursor);
+            if ((pressed & PSP_CTRL_CROSS) && at <= SHELL_ROW_SETTING) {
+                /* A row under the gear does what it says. The three that
+                   fetch all end in the same place: the list gives way to
+                   the word and the status line and comes back with what is
+                   now published, the cursor on the package it was on if
+                   that package is still there. The sync thread and the
+                   media thread share the one HTTPS stack and the one asset
+                   buffer, so the media thread steps aside for the length of
+                   it, as it does for an install. */
+                int which = SHELL_ROW_SETTING - at, refetch = 0;
+                if (which == 0 && synced) refetch = 1;
+                else if ((which == 1 || which == 2) && synced)
+                    refetch = type_source(which == 2);
+                else if (which == 3 && synced) ask_inbox();
+                else if (which == 4 && synced) { catalog_force_sources(); refetch = 1; }
+                else if (which == 5 && synced) {
+                    /* The field drains and is swept again, in the room the
+                       browser was already standing in. The old pool is set
+                       aside rather than thrown away until the new one is
+                       made: a sweep takes half a minute of stick work and
+                       this one is two presses from the list, so it has to
+                       be possible to leave, and leaving may not hand the
+                       rest of the session a pool of nothing to make its
+                       keys from. */
+                    entropy_stash();
+                    entropy_init();
+                    if (entropy_screen_run() == 0) entropy_restore();
+                    entropy_save(entropy_screen_is_replay());
+                } else if (which == 6) {
+                    shell_info(info = 1);
+                }
                 if (refetch) {
-                    /* The catalog is fetched again from where the browser
-                       stands: the list gives way to the word and the status
-                       line, and comes back with whatever is now published,
-                       the cursor on the package it was on if that package is
-                       still there. The sync thread and the media thread share
-                       the one HTTPS stack and the one asset buffer, so the
-                       media thread steps aside for the length of it, as it
-                       does for an install. */
-                    int at = shell_view_index(cursor);
-                    snprintf(keep, sizeof(keep), "%s", at >= 0 ? catalog.apps[at].id : "");
+                    int was = shell_view_index(cursor);
+                    snprintf(keep, sizeof(keep), "%s",
+                             was >= 0 ? catalog.apps[was].id : "");
                     preview_quiesce();
                     shell_word("Refreshing");
                     if (sync_start(&catalog) == 0) {
@@ -1073,31 +1086,8 @@ int main(int argc, char *argv[]) {
                         g_wanted_url[0] = '\0';
                         preview_resume();
                     }
-                } else if (action == 5 && synced) {
-                    /* The field drains and is swept again, in the room the
-                       browser was already standing in. The old pool is set
-                       aside rather than thrown away until the new one is
-                       made: a sweep takes half a minute of stick work and
-                       this one is two presses from the list, so it has to be
-                       possible to leave -- and leaving may not hand the rest
-                       of the session a pool of nothing to make its keys
-                       from. O puts the old field back, and either way the
-                       session leaves with a seed written from whichever
-                       pool it ended up with. */
-                    entropy_stash();
-                    entropy_init();
-                    if (entropy_screen_run() == 0) entropy_restore();
-                    entropy_save(entropy_screen_is_replay());
                 }
-            }
-        } else if (details) {
-            if (pressed & PSP_CTRL_CIRCLE) {
-                shell_details(0);
-                details = 0;
-            }
-        } else if (count > 0) {
-            int at = shell_view_index(cursor);
-            if (pressed & PSP_CTRL_CROSS) {
+            } else if (pressed & PSP_CTRL_CROSS) {
                 /* X is the one thing there is to do to the package: have
                    it, or have the newer one. With nothing of that to do it
                    opens the options, as triangle does. */
