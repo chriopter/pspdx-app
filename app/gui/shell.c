@@ -727,6 +727,8 @@ static void draw_picture(float t) {
     card.h = SHOT_H;
     card.yaw = 0.0f;
     card.pitch = 0.0f;
+    /* A picture, not lettering: it gets the frame and the shadow. */
+    card.bare = 0;
     /* No mirrored strip under the card: what the picture is reflected in is
        the water, which is under it anyway and moving. */
     card.reflect_h = 0;
@@ -744,26 +746,52 @@ static void draw_picture(float t) {
     const struct gfx_texture *still = preview_still(&still_alpha);
     const struct gfx_texture *film = preview_film(&film_alpha);
     enum preview_state picture = preview_state();
+    /* The film at the size it was made. An ICON1.PMF is 144 by 80, which is
+       what the XMB plays and what its author framed; across the card's width
+       it would be those pixels blown up half again and stretched besides,
+       since the card carries the screen's shape and the clip does not. Only
+       a film larger than the card is scaled, and then by the same amount in
+       both directions. */
+    float fw = 0.0f, fh = 0.0f;
+    if (film) {
+        float fit = 1.0f;
+        if (film->w > SHOT_W) fit = (float)SHOT_W / film->w;
+        if (film->h * fit > SHOT_H) fit = (float)SHOT_H / film->h;
+        fw = film->w * fit;
+        fh = film->h * fit;
+    }
+    /* A film the size of the card takes the still's place once it is up. A
+       smaller one plays over the still, which is the picture it was cut from
+       and a better thing to stand on than the empty plate. */
+    int covered = film && film_alpha >= 250 &&
+                  fw >= SHOT_W - 1.0f && fh >= SHOT_H - 1.0f;
     if (still || film) {
         /* The reflection first and under everything: it runs down over the
            water where the lines below the card are about to be written, and
            it belongs behind them. The same two pictures in the same order as
            on the card, so a still crossing into a film crosses in the water
-           at the same moment. */
-        if (still && !(film && film_alpha >= 250))
+           at the same moment, and the film's reflection is as wide as the
+           film is. */
+        if (still && !covered)
             lattice_mirror(still, still_alpha, PANEL_X, SHOT_Y + SHOT_H,
                            SHOT_W, SHOT_H);
         if (film)
-            lattice_mirror(film, film_alpha, PANEL_X, SHOT_Y + SHOT_H,
-                           SHOT_W, SHOT_H);
+            lattice_mirror(film, film_alpha, card.cx - fw / 2,
+                           SHOT_Y + SHOT_H, fw, fh);
         /* The still first, the film fading in over it. */
-        if (still && !(film && film_alpha >= 250)) {
+        if (still && !covered) {
             card.alpha = still_alpha;
             gfx_card_draw(still, &card);
         }
         if (film) {
-            card.alpha = film_alpha;
-            gfx_card_draw(film, &card);
+            struct gfx_card screen = card;
+            screen.w = fw;
+            screen.h = fh;
+            /* No frame and no shadow of its own while the still is behind
+               it: two black frames a finger apart read as a mistake. */
+            screen.bare = still && !covered;
+            screen.alpha = film_alpha;
+            gfx_card_draw(film, &screen);
         }
     } else {
         card.alpha = 255;
