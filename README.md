@@ -45,7 +45,7 @@ A repository that says so. [manifest.md](manifest.md) is the format,
 ```json
 {
   "schema":   "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
-  "repo":     "https://github.com/chriopter/pspdx-demo",
+  "source":     "https://github.com/chriopter/pspdx-demo",
   "name":     "PSPDX Demo",
   "summary":  "Hello, PSP: the smallest thing PSPDX can list.",
   "category": "demo",
@@ -54,7 +54,7 @@ A repository that says so. [manifest.md](manifest.md) is the format,
 }
 ```
 
-Required: `schema`, `repo`, `name`, `category`, `installdir`. The repository
+Required: `schema`, `source`, `name`, `category`, `installdir`. The source
 URL lets a standalone file point back to its project. Optional summary,
 licence and author default to GitHub metadata. Pictures, film and sound
 come from the EBOOT. Version, date, download size and hash come from the
