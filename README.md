@@ -3,9 +3,9 @@
 **PSP Download Index** — browse, install, run and update homebrew directly
 on your PlayStation Portable. **[→ Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)**
 
-PSPDX combines a downloader app, a reference catalog and an open file format.
-Browse the included catalog, add your own, or import a `.pspdx` file to
-download homebrew from its original source.
+PSPDX is a homebrew downloader app built around an open file format.
+Anyone can share apps or publish a catalog. Each `.pspdx` points to the
+original source, so downloads and updates remain independent of any catalog.
 
 <img width="480" alt="PSPDX App browsing homebrew and available updates" src="images/pspdx-app.png" />
 
