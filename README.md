@@ -4,9 +4,10 @@
 on your PlayStation Portable. **[→ Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)**
 
 PSPDX is a homebrew downloader app built around an open file format.
-The reference catalog comes preconfigured, so you can start browsing right away.
-Anyone can share apps or publish a catalog. Each `.pspdx` points to the
-original source, so downloads and updates remain independent of any catalog.
+A reference catalog comes preconfigured; anyone can publish another or share
+`.pspdx` files directly. Each file points to the author's GitHub repository,
+where downloads and updates come from. Once an app is added, PSPDX can check
+that repository directly — even if the catalog disappears.
 
 <img width="480" alt="PSPDX App browsing homebrew and available updates" src="images/pspdx-app.png" />
 
