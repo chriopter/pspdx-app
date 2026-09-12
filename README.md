@@ -3,35 +3,35 @@
 **PSP Download Index** — browse, install, update homebrew directly
 on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspdx/releases/latest)**
 
-PSPDX is a PSP app with the PSPDX Catalog preconfigured for store-like
-browsing. You can add more catalogs and use them together. Installing an app
-saves its `.pspdx` file, which points to the author's repository for updates.
+PSPDX comes with the PSPDX Catalog ready to browse like a store. Add other
+catalogs or `.pspdx` files directly. Each installed app keeps its source, so
+updates can come directly from the author even if a catalog disappears.
 
-You can also add `.pspdx` files directly or build a catalog by copying the
-[PSPDX catalog's workflows](https://github.com/chriopter/pspdx-catalog).
-The `.pspdx` format is open; downloads and updates come from the authors, even
-if a catalog disappears. Authors: [make your homebrew available through PSPDX](#the-pspdx-standard).
+- **[Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)** — the PSP app.
+- **[PSPDX Catalog](https://github.com/chriopter/pspdx-catalog)** — [browse homebrew](https://chriopter.github.io/pspdx-catalog/) or copy its workflows to build your own catalog.
+- **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete example for authors using the [open `.pspdx` format](#the-pspdx-standard).
 
 <img width="480" alt="PSPDX App browsing homebrew and available updates" src="images/pspdx-app.png" />
 
-## Why?
+## Getting started
 
-I wanted one place to browse and update homebrew on the PSP without creating
-a download mirror or a single point of failure.
+You need a PSP that can run homebrew and a working Wi-Fi connection saved
+in the PSP's Network Settings. PSPDX currently uses the **first saved profile**.
 
-Anyone can build a catalog to help people discover homebrew. After installing
-an app, PSPDX remembers its original repository and can download updates
-directly from there, even if the catalog is no longer available.
-
-- **[Downloader app](https://github.com/chriopter/pspdx/releases/latest)** — install, run and update homebrew on your PSP.
-- **[PSPDX catalog](https://github.com/chriopter/pspdx-catalog)** — [browse apps](https://chriopter.github.io/pspdx-catalog/); or build your own catalog.
-- **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete example for homebrew authors.
+1. Download **`pspdx.zip`** from the [latest release](https://github.com/chriopter/pspdx/releases/latest)
+   and extract it to the root of your Memory Stick or internal storage.
+   The app should be at `PSP/GAME/PSPDX/EBOOT.PBP`.
+2. Enable WLAN and launch **PSPDX** from **Game → Memory Stick** (or internal
+   storage). On first launch, follow the analog-stick prompt to initialize randomness.
+3. Wait for the catalog to load, select a homebrew and press **×** to install.
+   Confirm the download; once installed, press **START** to run it.
+4. To check for updates later, open settings and select **Update catalog**.
+   Select an available update and confirm with **×**. **Check original sources**
+   checks installed apps directly at GitHub if a catalog stops being maintained.
 
 ## The PSPDX client
 
-Browse homebrew catalogs in PSPDX App or add `.pspdx` files directly.
-Once an app is installed, PSPDX remembers its source and can get updates
-directly from the author, independently of the catalog.
+How sources, installation, updates and local files work:
 
 <details>
 <summary>Browse Catalogs</summary>
@@ -92,6 +92,7 @@ to stop between packages. Self-updates run last; restart PSPDX to run the new ve
 <details>
 <summary>Connect — TLS 1.3</summary>
 
+PSPDX connects through the first saved PSP network profile.
 Catalog lookup, direct GitHub checks and package downloads all use HTTPS.
 One catalog request supplies release data for many apps. Direct checks read
 `.pspdx` from `raw.githubusercontent.com` and release data from
