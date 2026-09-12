@@ -784,11 +784,14 @@ static void draw_picture(float t) {
             gfx_card_draw(still, &card);
         }
         if (film) {
-            /* Its own card, at its own size: frame, shadow and all, since
-               it stands alone once it is up. */
+            /* Plain: the film's own pixels and nothing around them. A frame
+               and a shadow the size of the clip, inside the space the card
+               keeps, read as a box in a box; the XMB puts the film on the
+               screen, not in a picture frame. */
             struct gfx_card screen = card;
             screen.w = fw;
             screen.h = fh;
+            screen.bare = 1;
             screen.alpha = film_alpha;
             gfx_card_draw(film, &screen);
         }
