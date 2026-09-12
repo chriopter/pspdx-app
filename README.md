@@ -15,8 +15,9 @@ updates can come directly from the author even if a catalog disappears.
 
 ## Getting started
 
-You need a PSP that can run homebrew and a working Wi-Fi connection saved
-in the PSP's Network Settings. PSPDX currently uses the **first saved profile**.
+Use a PSP running [ARK-5](https://github.com/PSP-Arkfive/ARK-5) with WPA2
+support enabled. Save a working Wi-Fi connection in the PSP's Network Settings;
+PSPDX currently uses the **first saved profile**.
 
 1. Download **`pspdx.zip`** from the [latest release](https://github.com/chriopter/pspdx/releases/latest)
    and extract it to the root of your Memory Stick or internal storage.
