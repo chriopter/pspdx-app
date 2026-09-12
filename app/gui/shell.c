@@ -760,11 +760,11 @@ static void draw_picture(float t) {
         fw = film->w * fit;
         fh = film->h * fit;
     }
-    /* A film the size of the card takes the still's place once it is up. A
-       smaller one plays over the still, which is the picture it was cut from
-       and a better thing to stand on than the empty plate. */
-    int covered = film && film_alpha >= 250 &&
-                  fw >= SHOT_W - 1.0f && fh >= SHOT_H - 1.0f;
+    /* A film takes the still's place once it is up, whatever size it is: the
+       still is the same picture standing larger, and the two of them at once
+       is one picture too many. The still is what is there until the film
+       arrives, and then it goes. */
+    int covered = film && film_alpha >= 250;
     if (still || film) {
         /* The reflection first and under everything: it runs down over the
            water where the lines below the card are about to be written, and
@@ -784,12 +784,11 @@ static void draw_picture(float t) {
             gfx_card_draw(still, &card);
         }
         if (film) {
+            /* Its own card, at its own size: frame, shadow and all, since
+               it stands alone once it is up. */
             struct gfx_card screen = card;
             screen.w = fw;
             screen.h = fh;
-            /* No frame and no shadow of its own while the still is behind
-               it: two black frames a finger apart read as a mistake. */
-            screen.bare = still && !covered;
             screen.alpha = film_alpha;
             gfx_card_draw(film, &screen);
         }
