@@ -10,6 +10,7 @@ from the release and the EBOOT and never written by hand.
 ```json
 {
   "schema":     "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
+  "repo":       "https://github.com/chriopter/psp-cathedral",
   "name":       "Lux Aeterna",
   "author":     "chriopter",
   "summary":    "Ten churches, and the sun through their glass.",
@@ -26,12 +27,16 @@ version 2 gets a new name without making a single old file wrong.
 | field | | otherwise |
 |---|---|---|
 | `schema` | required | |
+| `repo` | required: the project's HTTPS GitHub repository URL | |
 | `name` | required, under 40 characters | |
 | `category` | required: `game`, `emulator`, `app`, `plugin`, `demo`, one word for what this one app is | |
 | `installdir` | required: where the package goes on the stick. In version 1 it is `PSP/GAME/<folder>`, and the folder is the name the XMB shows | |
 | `summary` | one line, at most 60 characters | the repository's description |
 | `license` | an SPDX identifier | what GitHub reports |
 | `author` | a name | the repository's owner |
+
+The repository URL stays in the file so a downloaded `.pspdx` can point
+back to its project. Client handling and validation will follow separately.
 
 Unknown fields are refused, so a misspelt one is noticed rather than
 ignored.
@@ -139,10 +144,6 @@ them, every author already packs them, and a second copy in the repository
 is a second copy to keep in step. A console reading a repository directly
 therefore shows no picture until the app is installed, and then reads the
 EBOOT on the stick; a catalog has the zip in its hands anyway.
-
-**The repository in the file.** Whoever reads the file knows where it came
-from, and a file that named a repository would let a fork claim the
-original.
 
 **Signatures.** The trust is in the release on the author's own account and
 in whoever wrote the list.

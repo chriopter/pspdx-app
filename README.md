@@ -45,22 +45,20 @@ A repository that says so. [manifest.md](manifest.md) is the format,
 ```json
 {
   "schema":   "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
+  "repo":     "https://github.com/chriopter/pspdx-demo",
   "name":     "PSPDX Demo",
   "summary":  "Hello, PSP: the smallest thing PSPDX can list.",
-  "category": "demos",
+  "category": "demo",
   "license":  "MIT",
-  "media":    "media/"
+  "installdir": "PSP/GAME/PSPDXDemo"
 }
 ```
 
-Required: `schema`, `name`, `category`. The rest is optional and derived
-when absent: the summary from the repository's description, the licence
-from GitHub, the author from the owner, the pictures from `ICON0.PNG`,
-`PIC1.PNG`, `ICON1.PMF` and `SND0.AT3` in the media directory or, failing
-that, inside the EBOOT. Never in the file: the version, the date, the zip,
-its size and hash, which the release knows, and the id, which is the
-repository URL. A file that has to be touched at every release is touched
-at none.
+Required: `schema`, `repo`, `name`, `category`, `installdir`. The repository
+URL lets a standalone file point back to its project. Optional summary,
+licence and author default to GitHub metadata. Pictures, film and sound
+come from the EBOOT. Version, date, download size and hash come from the
+release; the id is derived from the repository URL.
 
 </details>
 
