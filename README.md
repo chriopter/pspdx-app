@@ -26,9 +26,8 @@ PSPDX currently uses the **first saved profile**.
    storage). On first launch, follow the analog-stick prompt to initialize randomness.
 3. Wait for the catalog to load, select a homebrew and press **×** to install.
    Confirm the download; once installed, press **START** to run it.
-4. To check for updates later, open settings and select **Update catalog**.
-   Select an available update and confirm with **×**. **Check original sources**
-   checks installed apps directly at GitHub if a catalog stops being maintained.
+4. PSPDX checks for updates automatically at startup. Select an available
+   update and confirm with **×** to install it.
 
 ## The PSPDX client
 
@@ -64,7 +63,8 @@ the directory containing the single `EBOOT.PBP` into `installdir`.
 The manifest and installed release are saved together for future updates.
 Unmanaged folders are neither adopted nor overwritten.
 
-**Check updates:** refresh the sources. PSPDX compares each installed
+**Check updates:** PSPDX refreshes sources automatically at startup;
+**Update catalog** in settings repeats the check. It compares each installed
 release's publication time with the available release; a newer timestamp
 marks an update, rather than comparing version strings.
 
@@ -215,10 +215,16 @@ app's state, without an outer app-ID key:
 | `installed` | `version`, `published_at`, `installdir` |
 | `latest` | `version`, `published_at`, `download_url`, `size`, optional `sha256`, `checked_at`, `checked_from` |
 
-`installed` changes after a successful installation; `latest` records the
-last known available release and where/when it was checked. `added_from`
-records how the app was added; it does not lock updates to that catalog.
-A check or installation writes only the affected app's state file.
+Installing an app creates its state file. Successful installs and updates
+write `installed`; successful catalog/GitHub checks write `latest` without
+changing `installed`. Browsing an uninstalled app creates no installation record.
+PSPDX registers its own running version on startup.
+
+For example, `installed.version = 1.0` and `latest.version = 1.1` means the
+installed version is still 1.0. Only a successful update changes it to 1.1.
+Update detection compares the corresponding `published_at` timestamps.
+`added_from` records the original import route, not a required update source.
+Each operation writes only the affected app's state file.
 
 Recoverable writes may leave `.new` or `.bak` siblings until recovery.
 Staging and rollback directories stay under `GAME/` because PSP directory
