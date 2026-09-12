@@ -11,15 +11,13 @@ original source, so downloads and updates remain independent of any catalog.
 
 ## Why?
 
-PSP homebrew is scattered across repositories and websites. I wanted to find
-and update it without relying on another catalog staying maintained.
+PSP homebrew is scattered across repositories and websites. I wanted to
+browse and update it on the PSP without depending on another catalog
+staying maintained.
 
-Catalogs help you discover apps; a small `.pspdx` file points each one to
-its source. The downloader installs the author's releases and can check
-that source directly for updates, even if the catalog disappears.
-
-Anyone can share these files or build a catalog. No central registry is
-required — downloads and updates stay with the homebrew authors.
+With PSPDX, catalogs handle discovery and authors keep control of their
+releases. Once an app is added, the PSP knows where to check for updates —
+even if the catalog disappears.
 
 - **[Downloader app](https://github.com/chriopter/pspdx/releases/latest)** — install, run and update homebrew on your PSP.
 - **[Reference catalog](https://chriopter.github.io/pspdx-catalog/)** — browse apps; or [build your own catalog](https://github.com/chriopter/pspdx-catalog).
