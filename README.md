@@ -49,7 +49,7 @@ the EBOOT provides media. Authors need not edit the file for every release.
 Version 1 supports GitHub repositories with a root `.pspdx` and a published
 release containing exactly one ZIP with exactly one `EBOOT.PBP`.
 
-[Schema](schema/v1.pspdx)
+[Manifest schema](schema/v1.pspdx) · [Catalog schema](schema/catalog-v1.json)
 
 <a id="format-specification"></a>
 
@@ -103,8 +103,8 @@ and an `apps` array. Each app carries `id`, `name`, `author`, `summary`,
 `url`, `size`, `sha256`); media URLs use `icon`, `screenshot`, `video` and
 `sound` when present. Relative media URLs resolve against the catalog URL.
 
-The catalog schema identifier is
-`https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx`.
+The [catalog schema](schema/catalog-v1.json) uses the identifier
+`https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json`.
 
 The reference builder checks releases hourly, reuses unchanged entries and
 publishes only when its index changes. Manifest-only edits require a new

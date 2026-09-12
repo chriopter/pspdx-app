@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json",
+  "title": "PSPDX catalog v1",
+  "description": "Aggregated homebrew metadata, release packages and optional EBOOT media. Individual source manifests use schema/v1.pspdx.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generated",
+    "apps"
+  ],
+  "properties": {
+    "schema": {
+      "const": "https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json"
+    },
+    "generated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Time the catalog was generated."
+    },
+    "apps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/app"
+      }
+    }
+  },
+  "$defs": {
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "author",
+        "summary",
+        "category",
+        "license",
+        "repo",
+        "installdir",
+        "release"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 39,
+          "description": "what the list shows"
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 39,
+          "description": "a name; the repository's owner otherwise"
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "one line; the repository's description otherwise"
+        },
+        "category": {
+          "enum": [
+            "game",
+            "emulator",
+            "app",
+            "plugin",
+            "demo"
+          ],
+          "description": "what this one app is; the list shows the plural"
+        },
+        "license": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "an SPDX identifier; what GitHub reports otherwise"
+        },
+        "installdir": {
+          "type": "string",
+          "pattern": "^PSP/GAME/(?![.]{1,2}$)[A-Za-z0-9_.-]{1,32}(?![\\s\\S])",
+          "description": "where the package goes on the Memory Stick: the directory in the zip that holds the EBOOT.PBP, with everything beside and below it, is copied here. In version 1 it is PSP/GAME/<folder>, and the folder is the name the XMB shows; a later version may allow other places on the stick."
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^io\\.github\\.[a-z0-9]+\\.[a-z0-9]+(?![\\s\\S])",
+          "description": "Repository identity: lowercase owner and repository with non-alphanumeric characters removed."
+        },
+        "repo": {
+          "type": "string",
+          "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?(?![\\s\\S])",
+          "description": "The project source URL. Version 1 supports HTTPS GitHub repository URLs."
+        },
+        "release": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rev",
+            "version",
+            "url",
+            "size",
+            "sha256"
+          ],
+          "properties": {
+            "rev": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Release publication time as Unix seconds."
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Release tag without a leading v."
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://",
+              "description": "Release ZIP download URL."
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "ZIP size in bytes."
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+            }
+          }
+        },
+        "icon": {
+          "type": "string",
+          "minLength": 1,
+          "format": "uri-reference",
+          "description": "Optional EBOOT media URL, absolute or relative to the catalog URL."
+        },
+        "screenshot": {
+          "type": "string",
+          "minLength": 1,
+          "format": "uri-reference",
+          "description": "Optional EBOOT media URL, absolute or relative to the catalog URL."
+        },
+        "video": {
+          "type": "string",
+          "minLength": 1,
+          "format": "uri-reference",
+          "description": "Optional EBOOT media URL, absolute or relative to the catalog URL."
+        },
+        "sound": {
+          "type": "string",
+          "minLength": 1,
+          "format": "uri-reference",
+          "description": "Optional EBOOT media URL, absolute or relative to the catalog URL."
+        }
+      }
+    }
+  }
+}
