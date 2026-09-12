@@ -15,9 +15,9 @@ and downloads come from the authors rather than a central mirror.
 I wanted one place to browse and update homebrew on the PSP without creating
 a download mirror or a single point of failure.
 
-PSPDX lets anyone share apps and build catalogs while downloads and updates
-come from the authors' repositories. Catalogs help you find apps; keeping
-them up to date does not depend on a catalog staying online.
+Anyone can build a catalog to help people discover homebrew. After installing
+an app, PSPDX remembers its original repository and can download updates
+directly from there, even if the catalog is no longer available.
 
 - **[Downloader app](https://github.com/chriopter/pspdx/releases/latest)** — install, run and update homebrew on your PSP.
 - **[Reference catalog](https://github.com/chriopter/pspdx-catalog)** — [browse apps](https://chriopter.github.io/pspdx-catalog/); or build your own catalog.
