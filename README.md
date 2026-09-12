@@ -36,10 +36,10 @@ done right, in a hello world.
 ## What an app is
 
 A repository that says so. The format lives in its own repository now, at
-[pspdx](https://github.com/chriopter/pspdx):
-[manifest.md](https://github.com/chriopter/pspdx/blob/master/manifest.md) is
+[pspdx-schema](https://github.com/chriopter/pspdx-schema):
+[manifest.md](https://github.com/chriopter/pspdx-schema/blob/master/manifest.md) is
 what a `.pspdx` says,
-[`schema/v1.pspdx`](https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx)
+[`schema/v1.pspdx`](https://github.com/chriopter/pspdx-schema/blob/master/schema/v1.pspdx)
 the schema every one of them names. [architecture.md](architecture.md) is
 this client's why.
 
@@ -48,7 +48,7 @@ this client's why.
 
 ```json
 {
-  "schema":   "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
+  "schema":   "https://github.com/chriopter/pspdx-schema/blob/master/schema/v1.pspdx",
   "source":     "https://github.com/chriopter/pspdx-demo",
   "name":     "PSPDX Demo",
   "summary":  "Hello, PSP: the smallest thing PSPDX can list.",

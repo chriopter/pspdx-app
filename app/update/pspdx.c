@@ -7,7 +7,7 @@
 /* The one line that says which file this is. A version 2 gets a new name,
    so an old console simply does not recognise it and says so, rather than
    reading fields that have moved. */
-#define SCHEMA_V1 "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx"
+#define SCHEMA_V1 "https://github.com/chriopter/pspdx-schema/blob/master/schema/v1.pspdx"
 
 /* The five of schema/v1.pspdx, spelled as the schema spells them: one word
    for what this one app is, singular. The tabs above them are plural because
