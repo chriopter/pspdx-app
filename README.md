@@ -6,6 +6,10 @@ Gives you a [catalog](https://chriopter.github.io/pspdx-catalog/) of sick & curr
 
 **[Browse the catalog →](https://chriopter.github.io/pspdx-catalog/)**
 
+- **[Format & schema](https://github.com/chriopter/pspdx-schema)** — what a `.pspdx` says, and the schema every one of them names.
+- **[Reference catalog](https://chriopter.github.io/pspdx-catalog/)** — browse apps; or [build your own catalog](https://github.com/chriopter/pspdx-catalog).
+- **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete example for homebrew authors.
+
 <img src="pspdx.webp" width="480" alt="Start, the entropy sweep, the catalog, three moves down the list, the info menu">
 
 The same twenty seconds [with sound](pspdx.mp4): the tune, and the notes the list plays.
