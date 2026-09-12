@@ -38,7 +38,7 @@
     },
     "license": {
       "type": "string",
-      "maxLength": 15,
+      "maxLength": 64,
       "description": "an SPDX identifier; what GitHub reports otherwise"
     },
     "author": {
