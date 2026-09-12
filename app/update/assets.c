@@ -52,10 +52,14 @@ static void cache_path(enum asset_kind kind, const char *id, const char *url,
             safe[n++] = ok ? c : '_';
         }
         safe[n] = '\0';
-        /* At the origin the served name is Sony's -- every app's picture is
-           called ICON0.PNG -- so the id goes in front of it or the first
-           app's icon would be shown for all of them. A catalog's name
-           already begins with the id and is left as it is, hash and all. */
+        /* Served names are not unique on their own: at the origin the name
+           is Sony's -- every app's picture is called ICON0.PNG -- and a
+           catalog keeps each app's files in a directory of its own, where
+           they are called icon-<sha8>.png and the like. Either way the id
+           goes in front unless the name already carries it, which is what
+           the catalog served before it had a directory an app. The hash
+           stays in the name, so a changed picture still arrives as a file
+           this stick has never seen. */
         if (strncmp(safe, id, strlen(id)) != 0)
             snprintf(out, size, CACHE_DIR "/%s-%s", id, safe);
         else

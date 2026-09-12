@@ -1435,9 +1435,13 @@ def catalog_hostile_strings(world):
             entry["name"] = app.name
             entries.append(entry)
         entries[0]["summary"] = long_summary
-        entries[3]["icon"] = "icons/does-not-exist.png"
-        entries[3]["screenshot"] = "shots/does-not-exist.png"
-        entries[3]["video"] = "vids/does-not-exist.mp4"
+        # Shaped like the catalog's own paths, one directory an app, so what
+        # the client is handed here is a real path that answers with a 404
+        # and not a path it would never meet.
+        gone = "apps/%s/" % entries[3]["id"]
+        entries[3]["icon"] = gone + "icon-00000000.png"
+        entries[3]["screenshot"] = gone + "picture-00000000.png"
+        entries[3]["video"] = gone + "film-00000000.pmf"
         cat["apps"] = cat["apps"] + entries
         catalog_write(ctx, cat)
         for app in (big, dup1, missing):

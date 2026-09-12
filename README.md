@@ -90,9 +90,9 @@ The id is the repository URL in the reverse-domain style of Flatpak ids:
 `github.com/chriopter/psp-rust-raytracer` (the dashes go). Nobody types
 it, so it cannot be wrong. Lowercase letters, digits, dots and dashes,
 at most eighty characters, no `..`. The rules are strict because the same
-string becomes a URL (`icons/<id>.png`), a file in the cache
-(`PSP/PSPDX/cache/<id>.mp4`) and a record on the stick, so it has to be a
-path component everywhere. It is not the directory under `PSP/GAME`: that
+string becomes a directory on the catalog (`apps/<id>/icon-<sha8>.png`), a
+file in the cache (`PSP/PSPDX/cache/<id>-icon-<sha8>.png`) and a record on
+the stick, so it has to be a path component everywhere. It is not the directory under `PSP/GAME`: that
 one comes out of the archive, and the record remembers it.
 
 What is installed lives in `PSP/PSPDX/db/<id>.json`, one file per app,
@@ -383,7 +383,7 @@ that works on a real PSP, and on a host whose desktop is locked.
 | `PSPDX.KEYS` | scripted input, one `<ms> <key>` per line from the moment the catalog is up: `up`, `down`, `left`, `right`, `cross`, `circle`, `square`, `triangle`, `ltrigger`, `rtrigger`, `select`, `start`, or `shot` |
 | `PSPDX.INSTALL` | a repository URL here installs that app unattended, for testing |
 | `PSP/PSPDX/sources.txt` | the lists, one URL a line, the built-in one first |
-| `PSP/PSPDX/cache/<served name>` | a picture once fetched, so it costs one handshake per stick, not per run. The catalog serves every asset under `<id>-<sha8>.<ext>`, a name that carries the bytes, so a changed picture arrives under a new name and the old file is simply never asked for again. An entry that links nothing is looked up as `<id>.<ext>`, which is where the rig plants a clip |
+| `PSP/PSPDX/cache/<served name>` | a picture once fetched, so it costs one handshake per stick, not per run. The catalog keeps an app's files in `apps/<id>/` and calls them `icon-<sha8>.png`, `picture-`, `film-`, `sound-`; the id goes in front of a served name that does not already carry it, so the file here is `<id>-icon-<sha8>.png`. The hash is in the name, so a changed picture arrives as a file this stick has never seen and the old one is simply never asked for again. An entry that links nothing is looked up as `<id>.<ext>`, which is where the rig plants a clip |
 | `PSP/PSPDX/font/ltn8.pgf` | never written by the client: where it looks for the system font when `flash0:` has none |
 | `PSP/PSPDX/db/<id>.json` | what was installed: rev, directory, manifest URL |
 

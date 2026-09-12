@@ -70,12 +70,20 @@ consent.
 ## The cache
 
 A workflow at the list's repository, hourly and on request, walks the
-list: reads each `.pspdx`, asks GitHub for the repository and its release,
-downloads the zip, hashes it, checks the EBOOT, takes the pictures and the
-sound out of the PBP, and writes one `catalog.json` with the pictures
-beside it under names that carry their bytes (`icons/<id>-<sha8>.png`).
-Stateless: nothing is committed, the next run reads it all again. What
-fails is reported with the reason and left out.
+list: asks GitHub for each release, reads the `.pspdx`, downloads the zip,
+hashes it, checks the EBOOT, takes the pictures and the sound out of the
+PBP, and writes one `catalog.json` with everything of an app in one
+directory beside it: `apps/<id>/icon-<sha8>.png`, `picture-`, `film-`,
+`sound-`, and the `.pspdx` it read. The hash is in each name, so a changed
+icon arrives under a name no console has cached.
+
+Stateless: nothing is committed, and what is published is the memory. A
+repository whose release is already in the published catalog is copied out
+of it and not fetched at all, so a quiet hour costs one small question an
+app; a run whose catalog says nothing new publishes nothing. What fails is
+reported with the reason and left out. An author who edits their `.pspdx`
+without publishing a release is therefore not seen until they do, or until
+the workflow is asked for a full read.
 
 `catalog.json` is `{"schema", "generated", "apps": [...]}`; each app carries
 `id`, `name`, `author`, `summary`, `category`, `license`, `repo`, `release`

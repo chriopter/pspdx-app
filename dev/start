@@ -88,7 +88,12 @@ cp "$APP/EBOOT.PBP" "$MS/PSP/GAME/pspdx/"
 FONTS="$(flatpak info --show-location org.ppsspp.PPSSPP 2>/dev/null)/files/share/ppsspp/assets/flash0/font"
 [ -f "$FONTS/ltn8.pgf" ] && cp "$FONTS/ltn8.pgf" "$MS/PSP/PSPDX/font/ltn8.pgf"
 
-for clip in "$HERE"/../pspdx-catalog/apps/*/video.mp4 "$HERE"/catalog/apps/*/video.mp4; do
+# The films out of a catalog site built next door, planted under the name an
+# entry that links no film is looked up by, so a row has something to play
+# before anything is fetched. The catalog keeps one directory an app, and the
+# directory is the id.
+for clip in "$HERE"/../pspdx-catalog/site/apps/*/film-*.pmf \
+            "$HERE"/catalog/site/apps/*/film-*.pmf; do
 	[ -f "$clip" ] || continue
 	cp "$clip" "$MS/PSP/PSPDX/cache/$(basename "$(dirname "$clip")").mp4"
 done
