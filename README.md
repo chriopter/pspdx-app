@@ -98,30 +98,35 @@ Cached results describe the last known state; they do not confirm freshness.
 <details>
 <summary>Catalog — releases, previews and caching</summary>
 
-- **App index:** names, authors, descriptions, categories, licenses, source
-  repositories and installation paths in one `catalog.json` request.
-- **Releases:** version, publication time, ZIP URL, size and SHA-256.
-  The client compares publication times with its installed state to show
-  available updates. Packages download from the author's GitHub release.
-- **Refresh:** the reference builder checks hourly, reuses unchanged entries
-  and publishes changes. Manifest-only edits need a new release or forced
-  rebuild; a push or manual workflow run forces a full read.
-- **Previews:** the builder extracts `ICON0.PNG` (icon), `PIC1.PNG` (background),
-  `ICON1.PMF` (video) and `SND0.AT3` (sound) from release EBOOTs and hosts them
-  separately. The PSP fetches icons and selected-app previews without app ZIPs.
-  All media is optional; missing images use defaults, missing video/sound
-  does not play.
-- **Local cache:** catalog JSON in `PSP/PSPDX/CACHE/catalogs/`, previews in
-  `PSP/PSPDX/CACHE/media/`. Offline browsing uses these and installed-app records.
-  Both caches can be deleted without losing installation tracking.
-- **Local media:** installed EBOOTs take priority over cache/catalog previews.
-  Direct repository or INBOX additions fetch no separate GitHub previews;
-  before installation, only existing cache or placeholders are available.
-- **Fallback:** installed apps without fresh catalog entries are checked at
-  their saved GitHub source. If that also fails, previous release data and
-  check time remain; cached data does not confirm that an app is current.
-- **Web browsing:** the reference catalog also publishes an overview and app
-  pages with previews, release details, source links and downloads.
+A catalog lets the PSP browse many apps and check for updates with one
+request, instead of contacting every repository separately. It collects app
+descriptions, release details and preview URLs in `catalog.json`.
+
+**How updates appear:** the reference catalog's GitHub workflow checks the
+listed repositories hourly. It records each release's version, publication
+time, ZIP URL, size and SHA-256. When PSPDX refreshes the catalog, it compares
+those publication times with the installed releases in `state.json`. A newer
+release appears as an available update. Selecting it downloads the ZIP from
+the author's GitHub release; the catalog does not host the app packages.
+The update becomes visible after both the catalog build and the PSP's refresh.
+
+**How previews appear:** the workflow downloads changed releases and extracts
+EBOOT icons, backgrounds, video and sound (`ICON0.PNG`, `PIC1.PNG`,
+`ICON1.PMF`, `SND0.AT3`). It hosts these separately, so browsing needs no app
+ZIP downloads. Unchanged entries are reused. Manifest-only edits require a
+new release or forced rebuild; a push or manual workflow run forces a full read.
+The same data also feeds the catalog's website and app pages.
+
+**On the PSP:** catalog data is cached in `PSP/PSPDX/CACHE/catalogs/`, media
+in `PSP/PSPDX/CACHE/media/`. Installed EBOOT media takes priority. Direct
+repository/INBOX additions fetch no separate GitHub previews; they use local
+media or placeholders. Images, video and sound are all optional.
+
+**If the catalog disappears:** browsing retains the cached list, and installed
+apps without fresh entries are checked directly at their saved GitHub source.
+If GitHub also fails, the previous release data and check time remain; cached
+results do not prove an app is current. Deleting either cache does not remove
+installed-app records.
 
 </details>
 
