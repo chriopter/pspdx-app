@@ -24,9 +24,9 @@ them up to date does not depend on a catalog staying online.
 
 ## The PSPDX client
 
-PSPDX App lets you browse, install, run and update homebrew on your PSP.
-Add `.pspdx` files through INBOX, subscribe to catalogs or enter a GitHub
-repository URL; installed apps retain their source for future updates.
+Browse homebrew catalogs in PSPDX App or add `.pspdx` files directly.
+Once an app is installed, PSPDX remembers its source and can get updates
+directly from the author, independently of the catalog.
 
 <details>
 <summary>Browse Catalogs</summary>
