@@ -67,7 +67,7 @@
    knows has black troughs and a white edge on every crest. So the normal is
    leant this much further than the shape it came from, which is what a bump
    map is and costs the same as not doing it. */
-#define SLOPE_GAIN 2.5f
+#define SLOPE_GAIN 2.1f
 #define DZ_LEAST 0.18f
 
 /* The wave equation on the cells. C is c^2 dt^2 / dx^2 and has to stay well
@@ -643,7 +643,11 @@ static void step_water(float t) {
     float sa1[NZ], ca1[NZ], sa2[NZ], ca2[NZ];
     float sb1[NX], cb1[NX], sb2[NX], cb2[NX];
     for (int i = 0; i < NZ; i++) {
-        float a1 = g_row[i].a1 - t * 0.80f, a2 = g_row[i].a2 + t * 0.55f;
+        /* How fast the two swells walk. Slower than the sea would be: this
+           water stands under a list somebody is reading, and a surface that
+           moves faster than the eye can ignore is a surface the eye keeps
+           going back to. */
+        float a1 = g_row[i].a1 - t * 0.52f, a2 = g_row[i].a2 + t * 0.36f;
         sa1[i] = fsin(a1); ca1[i] = fcos(a1);
         sa2[i] = fsin(a2); ca2[i] = fcos(a2);
     }
@@ -678,9 +682,13 @@ static void step_water(float t) {
 
             float s1 = a1 * cb1[j] + b1 * sb1[j];
             float s2 = a2 * cb2[j] + b2 * sb2[j];
-            float s = 0.58f * s1 + 0.30f * s2 + nh;
+            /* Low: two thirds of the swell there was. What the water is
+               for is the light in the room and the reflection of the list,
+               and both of those read better on a calm surface than on a
+               choppy one. */
+            float s = 0.38f * s1 + 0.20f * s2 + nh;
             /* Water is not a sine: crests stand up and troughs lie flat. */
-            hh[j] = (s + 0.20f * s * (s < 0 ? -s : s)) * w;
+            hh[j] = (s + 0.14f * s * (s < 0 ? -s : s)) * w;
         }
     }
 }
