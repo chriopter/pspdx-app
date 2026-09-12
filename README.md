@@ -32,18 +32,16 @@ Add `.pspdx` files through INBOX, subscribe to catalogs or enter a GitHub
 repository URL; installed apps retain their source for future updates.
 
 <details>
-<summary>Browse — catalogs and repositories</summary>
+<summary>Browse Catalogs</summary>
 
 - **Add catalog:** HTTPS `catalog.json` URL; the reference catalog is preconfigured.
 - **Add GitHub repository:** repository URL or `owner/repo`.
 - Sources are validated before saving to `sources.txt`; text lists also work.
-- Offline: browse the last usable catalog and installed-app records. Deleting
-  catalog or media caches does not remove installation records.
 
 </details>
 
 <details>
-<summary>Install — INBOX, checks and local state</summary>
+<summary>Install &amp; Update Brews</summary>
 
 **Read INBOX** validates `PSP/PSPDX/INBOX/*.pspdx` and installs valid apps
 sequentially after one confirmation. Conflicts are skipped; only successful
@@ -69,11 +67,6 @@ app's original `.pspdx` and `state.json`, keyed by app ID:
 **×** install/update · **△** options · **○** back · **□** basket ·
 **START** run · **L/R** or **←/→** switch tabs.
 
-</details>
-
-<details>
-<summary>Update — catalog first, original source as fallback</summary>
-
 A refresh uses fresh catalog entries; a newer release publication time marks
 an update. **×** downloads and installs it from the author's release.
 
@@ -88,7 +81,25 @@ Cached results describe the last known state; they do not confirm freshness.
 </details>
 
 <details>
-<summary>Preview — EBOOT images, video and sound</summary>
+<summary>Connect — TLS 1.3</summary>
+
+- **TLS:** wolfSSL, bundled CAs, chain/hostname verification, X25519 preferred.
+  Analog-stick entropy and a saved seed feed the random generator.
+  Certificate date checks are bypassed for unset PSP clocks; other checks remain.
+- **Requests:** one catalog request supplies many apps' metadata. Direct lookup
+  reads manifests from `raw.githubusercontent.com`, releases from `api.github.com`;
+  downloads follow GitHub asset redirects. Each request opens a new connection;
+  no keep-alive or connection reuse.
+- **Scheduling:** background synchronization; media pauses while other work
+  needs the network. No package signatures: sources must be trusted.
+
+</details>
+
+<details>
+<summary>Catalog Caching</summary>
+
+Catalog responses are cached for offline browsing alongside installed-app
+records. Deleting catalog or media caches does not remove installation records.
 
 The reference catalog extracts EBOOT media and hosts it separately:
 `ICON0.PNG` (icon), `PIC1.PNG` (background), `ICON1.PMF` (video),
@@ -100,21 +111,6 @@ Direct repository or INBOX additions fetch no separate GitHub previews:
 before installation, only existing cache or placeholders are available.
 Offline, only local EBOOTs and cache are used. All media is optional;
 missing images use defaults, missing video/sound does not play.
-
-</details>
-
-<details>
-<summary>Connect — TLS 1.3 and GitHub access</summary>
-
-- **TLS:** wolfSSL, bundled CAs, chain/hostname verification, X25519 preferred.
-  Analog-stick entropy and a saved seed feed the random generator.
-  Certificate date checks are bypassed for unset PSP clocks; other checks remain.
-- **Requests:** one catalog request supplies many apps' metadata. Direct lookup
-  reads manifests from `raw.githubusercontent.com`, releases from `api.github.com`;
-  downloads follow GitHub asset redirects. Each request opens a new connection;
-  no keep-alive or connection reuse.
-- **Scheduling:** background synchronization; media pauses while other work
-  needs the network. No package signatures: sources must be trusted.
 
 </details>
 
