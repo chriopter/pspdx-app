@@ -35,28 +35,21 @@
 #define FOOTER_BASE (FOOTER_Y + 11)     /* the hints' baseline, clear of the edge */
 
 #define LIST_X 16
-/* The whole width: there is nothing beside the list any more. What used to
-   stand on the right -- a card with the picture, the name under it -- is the
-   open row now, where the thing it describes is. */
-#define LIST_W (SCR_W - 2 * LIST_X)
+#define LIST_W 200
 #define LIST_Y 44
-#define ITEM_H 28
-/* A row the cursor is not on carries its icon small, the way a list carries
-   a thumbnail. The row it is on opens to the icon's own size: an ICON0.PNG
-   is 144 by 80, its film in the EBOOT beside it is the same, and the film
-   plays over the icon, which is where the XMB plays it. */
+#define ITEM_H 32
+/* The bundle's icon, 144x80 shown at a third: as tall as the row allows
+   with a little air, and the name starts after it. */
 #define ICON_W 43
 #define ICON_H 24
-#define BIG_W 144
-#define BIG_H 80
-#define SEL_H (BIG_H + 10)
-/* One column for the lettering, whether a row is open or closed: it begins
-   where the icon's box ends, and the box ends in the same place always. */
-#define OPEN_X (LIST_X + BIG_W + 14)
-#define OPEN_W (LIST_X + LIST_W - OPEN_X - 8)
-#define LIST_H (FOOTER_Y - 6 - LIST_Y)
-/* The open row, and as many closed ones as fit beside it. */
-#define VISIBLE (1 + (LIST_H - SEL_H) / ITEM_H)
+#define NAME_X (LIST_X + ICON_W + 9)
+#define VISIBLE ((FOOTER_Y - 6 - LIST_Y) / ITEM_H)
+
+#define PANEL_X 232
+#define SHOT_W 224
+#define SHOT_H (SHOT_W * SCR_H / SCR_W)     /* the screen's own 480:272 */
+#define SHOT_Y 43
+#define REFLECT_H 18
 
 /* ------------------------------------------------------------------ colour */
 
@@ -551,147 +544,301 @@ static const char *action_line(void) {
     return line;
 }
 
-/* How far each row is open: one where the cursor is, nothing everywhere
-   else, and chased rather than set. A row that took its full height the
-   moment the cursor reached it would push everything under it down in one
-   jump, and the list would slide about under the eye. A quarter of the way
-   a frame is the settle the light behind the row has, so the row and its
-   light arrive together. */
-static float g_open_amt[MAX_APPS + 2];
-#define OPEN_ROWS ((int)(sizeof(g_open_amt) / sizeof(*g_open_amt)))
-
-static float row_open(int i) {
-    return i >= 0 && i < OPEN_ROWS ? g_open_amt[i] : 0.0f;
-}
-
-static float row_h(int i) { return ITEM_H + row_open(i) * (SEL_H - ITEM_H); }
-
-static void ease_rows(int count, int cursor) {
-    int n = count < OPEN_ROWS ? count : OPEN_ROWS;
-    for (int i = 0; i < n; i++) {
-        float want = i == cursor ? 1.0f : 0.0f;
-        g_open_amt[i] += (want - g_open_amt[i]) * 0.25f;
-        if (g_open_amt[i] < 0.002f) g_open_amt[i] = 0.0f;
-        if (g_open_amt[i] > 0.998f) g_open_amt[i] = 1.0f;
-    }
-}
-
-/* The top of a row, which is the list's top plus every row above it -- and
-   those have their own heights while one of them is opening or closing. */
-static float row_top(int to) {
-    float y = LIST_Y;
-    for (int i = g_first; i < to; i++) y += row_h(i);
-    return y;
-}
-
-/* The row the tab itself sits on. Closed it is a heading with its tally
-   under it -- at this width the two do not fit on a line together in the
-   list's own face. Open it is the bill: every package that would come down,
-   what each weighs, the total, and how long that is over a PSP's own radio.
-   There is no picture for it, since a row standing for several packages has
-   no one screenshot and the last package's would be a lie about what X is
-   going to fetch; the tab's own sign stands where an icon would, and slides
-   out to the middle of the icon's box as the row opens. */
-static void draw_action_row(const struct catalog *catalog, float y, float h,
-                            float amt, float t) {
-    struct shell_plan plan;
-    char value[48], size[24];
+/* The row the tab itself sits on. Two lines rather than one: at this width
+   the heading and the tally do not fit on a line together in the list's own
+   face, and stacked they read as a heading with its tally under it, which is
+   what they are. Where a package would have its icon, the tab's own sign. */
+static void draw_action_row(int y, int selected, float t) {
     int updates = shell_tab_kind() == SHELL_TAB_STICK;
-    int open = (int)(255 * amt), shut = 255 - open;
-    float gx = LIST_X + BIG_W - (ICON_W + (BIG_W - ICON_W) * amt) / 2.0f;
-    float gy = y + h / 2.0f;
-
-    shell_action_plan(&plan);
-    if (amt > 0.0f)
-        gfx_glow(gx, gy, BIG_W + 60, BIG_H + 40,
-                 rgb_pack(g_tint, (int)(70 * amt * update_pulse(t))));
+    float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     if (updates)
         mark_draw(MARK_UPDATE, gx, gy,
-                  faded(UPDATE_RGB, (int)((170 + 85 * amt) * update_pulse(t))),
-                  amt > 0.5f ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
+                  faded(UPDATE_RGB, (int)((selected ? 255 : 170) * update_pulse(t))),
+                  selected ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
     else
-        mark_draw(MARK_BASKET, gx, gy, amt > 0.5f ? g_text : g_dim,
-                  amt > 0.5f ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
-
-    /* The two forms cross: the heading and its tally fade out where they
-       stood, the bill fades in where it stands. */
-    if (shut > 0) {
-        font_print_clipped(FONT_BODY, OPEN_X, y + 13, OPEN_W, faded(g_dim, shut),
-                           action_title());
-        font_print_clipped(FONT_META, OPEN_X, y + 25, OPEN_W, faded(g_dim, shut),
-                           action_line());
-    }
-    if (open <= 0) return;
-    font_print_clipped(FONT_H1, OPEN_X, y + 16, OPEN_W, faded(g_text, open),
+        mark_draw(MARK_BASKET, gx, gy, selected ? g_text : g_dim,
+                  selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+    int w = LIST_X + LIST_W - NAME_X;
+    font_print_clipped(FONT_BODY, NAME_X, y + 13, w, selected ? g_text : g_dim,
                        action_title());
+    font_print_clipped(FONT_META, NAME_X, y + 25, w, g_dim, action_line());
+}
+
+static void draw_list(const struct catalog *catalog, int cursor, float t) {
+    int count = shell_view_count();
+    if (cursor < g_first) g_first = cursor;
+    if (cursor >= g_first + VISIBLE) g_first = cursor - VISIBLE + 1;
+    if (g_first < 0) g_first = 0;
+
+    /* The bar chases the selection rather than jumping to it. A quarter of
+       the remaining distance per frame settles in about a fifth of a second
+       and never overshoots. */
+    float target = LIST_Y + (cursor - g_first) * ITEM_H;
+    g_sel_y += (target - g_sel_y) * 0.25f;
+
+    int rows = count < VISIBLE ? count : VISIBLE;
+    draw_shade(LIST_X + LIST_W / 2, LIST_Y + rows * ITEM_H / 2, LIST_W, rows * ITEM_H);
+
+    /* The selected row glows: a breathing light behind it and a thin
+       streak of light under it, nothing with a corner. */
+    float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
+    float mid = g_sel_y + ITEM_H / 2 - 1;
+    gfx_glow(LIST_X + 60, mid, LIST_W + 170, ITEM_H * 3.4f,
+             rgb_pack(g_tint, (int)(130 * breathe)));
+    gfx_glow(LIST_X + 40, mid, LIST_W + 40, ITEM_H * 1.2f,
+             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), (int)(70 * breathe)));
+    gfx_glow(LIST_X + LIST_W / 2, g_sel_y + ITEM_H - 3, LIST_W + 30, 10,
+             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 160));
+
+    /* The icons module counts in catalog entries, so the rows on screen are
+       handed over as the entries they stand for -- and the action row stands
+       for none, so it asks for nothing. */
+    int wanted[VISIBLE], want_count = 0;
+    for (int i = g_first; i < count && i < g_first + VISIBLE; i++) {
+        int index = shell_view_index(i);
+        if (index >= 0) wanted[want_count++] = index;
+    }
+    icons_bind(catalog);
+    if (icons_want(wanted, want_count)) preview_poke();
+
+    for (int i = g_first; i < count && i < g_first + VISIBLE; i++) {
+        int y = LIST_Y + (i - g_first) * ITEM_H;
+        int selected = i == cursor;
+        int index = shell_view_index(i);
+        if (index == SHELL_ROW_ACTION) { draw_action_row(y, selected, t); continue; }
+        if (index < 0) continue;
+        const struct app_entry *entry = &catalog->apps[index];
+
+        /* The bundle's own icon, dimmed with the name; a dark plate where
+           it has not arrived, so the column reads as a column. */
+        const struct gfx_texture *icon = icons_get(index);
+        int iy = y + (ITEM_H - ICON_H) / 2;
+        if (icon)
+            gfx_texture_draw(icon, LIST_X, iy, ICON_W, ICON_H,
+                             selected ? RGB(255, 255, 255) : RGB(150, 150, 150));
+        else
+            gfx_rect(LIST_X, iy, ICON_W, ICON_H, RGBA(255, 255, 255, selected ? 24 : 12));
+
+        /* Marks, not words, at the end of the row, read from the outside in:
+           where the package stands -- the line ticked off when it is on the
+           stick, the system's turning arrows when a newer one waits, nothing
+           for the rest -- and then, inside that, the basket if this session
+           has set the package aside. */
+        float mx = LIST_X + LIST_W - 8, my = y + ITEM_H / 2 - 1;
+        int name_w = LIST_X + LIST_W - NAME_X;
+        /* Two marks, read from the outside in: the update arrows where a
+           newer package waits, the tick where the package is on the stick.
+           The basket says nothing here; it has its own tab. */
+        if (entry->state == APP_UPDATE) {
+            mark_draw(MARK_UPDATE, mx, my,
+                      faded(UPDATE_RGB, (int)((selected ? 255 : 170) * update_pulse(t))),
+                      selected ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
+            name_w -= 21;
+        } else if (entry->state != APP_NOT_INSTALLED) {
+            /* On the stick: a quiet tick, the way a list ticks off what is
+               done. The catalog is mostly what is not, so that is what
+               carries no mark. */
+            mark_draw(MARK_TICK, mx, my, selected ? g_accent : faded(g_dim, 150),
+                      selected ? MARK_PLAIN : MARK_DIM, 0, t);
+            name_w -= 19;
+        }
+
+        font_print_clipped(FONT_BODY, NAME_X, y + 21, name_w,
+                           selected ? g_text : g_dim, entry->name);
+    }
+
+    if (count > VISIBLE) {
+        int track = FOOTER_Y - 6 - LIST_Y;
+        int knob = track * VISIBLE / count;
+        int at = track * g_first / count;
+        gfx_rect(LIST_X + LIST_W + 10, LIST_Y, 2, track, RGBA(255, 255, 255, 24));
+        gfx_rect(LIST_X + LIST_W + 10, LIST_Y + at, 2, knob, g_accent);
+    }
+}
+
+/* ------------------------------------------------------------------ panel */
+
+/* The card's half of the screen when the cursor is on the action row. There
+   is no picture: a row that stands for several packages has no one screenshot
+   to show, and a card left holding the last package's would be a lie about
+   what X is going to fetch. What the space is worth instead is the bill --
+   every package that would come down, what each weighs, the total, and how
+   long that is over a PSP's own radio. */
+static void draw_action_panel(const struct catalog *catalog, float t) {
+    struct shell_plan plan;
+    char value[48], size[24];
+    int y = SHOT_Y + 14;
+
+    shell_action_plan(&plan);
+    draw_shade(PANEL_X + SHOT_W / 2, y + 70, SHOT_W, 170);
+    gfx_glow(PANEL_X + SHOT_W / 2, y + 60, SHOT_W + 90, 200,
+             rgb_pack(g_tint, (int)(70 * update_pulse(t))));
+
+    font_print(FONT_H1, PANEL_X, y, g_text, action_title());
     if (plan.apps > 0) {
         size_mb(plan.bytes, size, sizeof(size));
         download_time(plan.bytes, value, sizeof(value));
-        font_printf(FONT_META, OPEN_X, y + 34, faded(g_dim, open),
-                    "%s to download, about %s", size, value);
+        font_printf(FONT_META, PANEL_X, y + 20, g_dim, "%s to download, about %s",
+                    size, value);
     } else {
-        font_print(FONT_META, OPEN_X, y + 34, faded(g_dim, open),
+        font_print(FONT_META, PANEL_X, y + 20, g_dim,
                    "nothing here has a release with a size");
     }
     /* One line a package, in the order they would be fetched, for as many as
-       the open row holds; the rest are counted rather than named. */
-    int line = 0, room = (SEL_H - 48) / 13;
+       the panel holds; the rest are counted rather than named. */
+    int line = 0, room = (FOOTER_Y - 20 - (y + 40)) / 14;
     for (int row = 0; row < shell_view_count(); row++) {
         int index = shell_view_index(row);
         if (index < 0) continue;
         const struct app_entry *entry = &catalog->apps[index];
         if (!entry->has_release || !entry->release.size) continue;
         if (line >= room) {
-            font_printf(FONT_META, OPEN_X, y + 48 + line * 13, faded(g_dim, open),
+            font_printf(FONT_META, PANEL_X, y + 40 + line * 14, g_dim,
                         "and %d more", plan.apps - line);
+            line++;
             break;
         }
         size_mb(entry->release.size, size, sizeof(size));
         float sw = font_width(FONT_META, size);
-        font_print_clipped(FONT_META, OPEN_X, y + 48 + line * 13, OPEN_W - sw - 10,
-                           faded(entry->state == APP_UPDATE ? UPDATE_RGB : g_text, open),
+        font_print_clipped(FONT_META, PANEL_X, y + 40 + line * 14,
+                           SHOT_W - sw - 10,
+                           entry->state == APP_UPDATE ? UPDATE_RGB : g_text,
                            entry->name);
-        font_print(FONT_META, OPEN_X + OPEN_W - sw, y + 48 + line * 13,
-                   faded(g_dim, open), size);
+        font_print(FONT_META, PANEL_X + SHOT_W - sw, y + 40 + line * 14,
+                   g_dim, size);
         line++;
     }
+    if (plan.skipped)
+        font_printf(FONT_META, PANEL_X, y + 46 + line * 14, g_dim,
+                    "%d without a release, left out", plan.skipped);
 }
 
-/* The marks at the end of a row, read from the outside in: where the package
-   stands -- the system's turning arrows when a newer one waits, the quiet
-   tick when it is on the stick, nothing for the rest. Returns what is left
-   of the row's width for the name. */
-static int draw_row_marks(const struct app_entry *entry, float amt,
-                          float my, int width, float t) {
-    float mx = LIST_X + LIST_W - 8;
-    int lit = amt > 0.5f;
-    if (entry->state == APP_UPDATE) {
-        mark_draw(MARK_UPDATE, mx, my,
-                  faded(UPDATE_RGB, (int)((170 + 85 * amt) * update_pulse(t))),
-                  lit ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
-        return width - 21;
-    }
-    if (entry->state != APP_NOT_INSTALLED) {
-        /* On the stick: a quiet tick, the way a list ticks off what is done.
-           The catalog is mostly what is not, so that is what carries no
-           mark. */
-        mark_draw(MARK_TICK, mx, my, lit ? g_accent : faded(g_dim, 150),
-                  lit ? MARK_PLAIN : MARK_DIM, 0, t);
-        return width - 19;
-    }
-    return width;
+/* The picture alone: the card with the still or the film on it and its
+   reflection in the water. It is the one thing the idle veil leaves
+   standing, so it is drawn through no veil at all. */
+/* PIC1.PNG, 480 by 272, which is the size of the screen because that is what
+   an EBOOT carries it for. Not while there is anything to read -- behind a
+   list it is a busy picture under lettering, and the room the water makes is
+   the better place to read in. It comes up only as the interface goes: the
+   idle veil takes the tabs and the rows, and what is left is the picture
+   whole, with the film still playing on the card. */
+static void draw_backdrop(void) {
+    int alpha;
+    if (g_veil <= 0.0f) return;
+    const struct gfx_texture *pic = preview_still(&alpha);
+    if (!pic || alpha <= 0) return;
+    gfx_texture_draw(pic, 0, 0, SCR_W, SCR_H,
+                     RGBA(255, 255, 255, alpha * (int)(255.0f * g_veil) / 255));
 }
 
-/* One line saying where a package stands: what is installed, what waits, or
-   what it would weigh to fetch. Kept between frames because it is the same
-   line until the package or its state changes. */
-static const char *state_line(const struct app_entry *entry, unsigned *color) {
+static void draw_picture(float t) {
+    int veil = (int)(256.0f * (1.0f - g_veil));
+    /* The card stands still: a picture that drifts is a picture that is
+       hard to look at. What moves is the light over it. */
+    struct gfx_card card;
+    card.cx = PANEL_X + SHOT_W / 2;
+    card.cy = SHOT_Y + SHOT_H / 2;
+    card.w = SHOT_W;
+    card.h = SHOT_H;
+    card.yaw = 0.0f;
+    card.pitch = 0.0f;
+    /* A picture, not lettering: it gets the frame and the shadow. */
+    card.bare = 0;
+    /* No mirrored strip under the card: what the picture is reflected in is
+       the water, which is under it anyway and moving. */
+    card.reflect_h = 0;
+    /* No sweep across the glass: a highlight travelling over a picture reads
+       as a smear on the screen rather than as light in the room. The light
+       that used to cross the card crosses the water now, where it has a
+       surface to lie on. */
+    card.gloss = -1.0f;
+
+    /* Backlit: the light sits behind the picture and leaks out around it. */
+    gfx_glow(card.cx, card.cy, SHOT_W + 130, SHOT_H + 120, rgb_pack(g_tint, 100));
+    gfx_veil(256);
+
+    int still_alpha, film_alpha;
+    const struct gfx_texture *still = preview_still(&still_alpha);
+    const struct gfx_texture *film = preview_film(&film_alpha);
+    enum preview_state picture = preview_state();
+    /* The film at the size it was made. An ICON1.PMF is 144 by 80, which is
+       what the XMB plays and what its author framed; across the card's width
+       it would be those pixels blown up half again and stretched besides,
+       since the card carries the screen's shape and the clip does not. Only
+       a film larger than the card is scaled, and then by the same amount in
+       both directions. */
+    float fw = 0.0f, fh = 0.0f;
+    if (film) {
+        float fit = 1.0f;
+        if (film->w > SHOT_W) fit = (float)SHOT_W / film->w;
+        if (film->h * fit > SHOT_H) fit = (float)SHOT_H / film->h;
+        fw = film->w * fit;
+        fh = film->h * fit;
+    }
+    /* One or the other on the card, never both: where there is a film it is
+       the film, at full strength from its first frame rather than fading in
+       over the picture it was cut from. The picture is not lost -- it is the
+       room's own backdrop once the interface goes. */
+    if (film) film_alpha = 255;
+    int only_film = film != 0;
+    if (still || film) {
+        /* The reflection first and under everything: it runs down over the
+           water where the lines below the card are about to be written, and
+           it belongs behind them. Whichever of the two is on the card, at
+           the width it is drawn: the film's reflection is as wide as the
+           film, not as wide as the card. */
+        if (still && !only_film)
+            lattice_mirror(still, still_alpha, PANEL_X, SHOT_Y + SHOT_H,
+                           SHOT_W, SHOT_H);
+        if (film)
+            lattice_mirror(film, film_alpha, card.cx - fw / 2,
+                           SHOT_Y + SHOT_H, fw, fh);
+        if (still && !only_film) {
+            card.alpha = still_alpha;
+            gfx_card_draw(still, &card);
+        }
+        if (film) {
+            /* Plain: the film's own pixels and nothing around them. A frame
+               and a shadow the size of the clip, inside the space the card
+               keeps, read as a box in a box; the XMB puts the film on the
+               screen, not in a picture frame. */
+            struct gfx_card screen = card;
+            screen.w = fw;
+            screen.h = fh;
+            screen.bare = 1;
+            screen.alpha = film_alpha;
+            gfx_card_draw(film, &screen);
+        }
+    } else {
+        card.alpha = 255;
+        gfx_card_draw(0, &card);
+        if (picture == PREVIEW_LOADING)
+            gfx_glow(card.cx, card.cy, 90 + sinf(t * 4) * 20, 50 + sinf(t * 4) * 12,
+                     rgb_pack(g_tint, 120));
+        const char *note = picture == PREVIEW_LOADING ? "loading"
+                         : picture == PREVIEW_MISSING ? "no picture" : "";
+        font_print(FONT_META, card.cx - font_width(FONT_META, note) / 2,
+                   card.cy + 4, g_dim, note);
+    }
+    gfx_veil(veil);
+}
+
+static void draw_panel(const struct app_entry *entry, float t) {
+    draw_picture(t);
+
+    /* Under the picture, the way the system does it under an icon: the
+       name, and one line saying where it stands -- what is installed, what
+       waits, or what it would weigh to fetch. The summary, dimmer, once and
+       clipped; a card is not a page. */
+    int y = SHOT_Y + SHOT_H + REFLECT_H + 16;
+    draw_shade(PANEL_X + SHOT_W / 2, y + 6, SHOT_W, 40);
+
     static char line[64];
     static const struct app_entry *line_of;
     static enum app_state line_state;
     static int line_basket;
     int in_basket = shell_basket_has((int)(entry - g_catalog->apps));
-    *color = g_dim;
+    unsigned state_color = g_dim;
     if (entry != line_of || entry->state != line_state || in_basket != line_basket) {
         line_of = entry;
         line_state = entry->state;
@@ -704,6 +851,8 @@ static const char *state_line(const struct app_entry *entry, unsigned *color) {
             snprintf(line, sizeof(line), "Update to %s   %s", entry->remote_version, size);
             break;
         case APP_UNKNOWN:
+            snprintf(line, sizeof(line), "Installed %s", entry->local_version);
+            break;
         case APP_CURRENT:
             snprintf(line, sizeof(line), "Installed %s", entry->local_version);
             break;
@@ -713,184 +862,21 @@ static const char *state_line(const struct app_entry *entry, unsigned *color) {
             break;
         }
     }
-    if (entry->state == APP_UPDATE) *color = RGB(140, 255, 170);
-    return line;
-}
-
-/* Where the open row's icon stands, kept for the veil: left alone, the
-   interface goes and this is the one thing that stays. */
-static int g_open_y = LIST_Y;
-
-/* The picture on a row: the film where the row is open and the entry has one
-   playing, the icon otherwise. The box grows with the row, from the
-   thumbnail a closed row carries to 144 by 80, which is what an ICON0.PNG is
-   and what its film is; the film itself is only put on once the row is all
-   the way open, so it is never shown at a size it was not made for.
-   Mirrored in the water below, whichever of the two it is. */
-static void draw_row_picture(float y, float h, float amt,
-                             const struct gfx_texture *icon) {
-    int film_alpha;
-    const struct gfx_texture *film = amt >= 1.0f ? preview_film(&film_alpha) : 0;
-    const struct gfx_texture *show = film ? film : icon;
-    /* The box hangs from its right edge, which never moves: an icon that
-       grew from the left would push the lettering along with it, and text
-       that slides sideways every time the cursor moves is the one thing in
-       a list the eye cannot forgive. It grows to the left instead, into the
-       space a closed row leaves empty. */
-    float bw = ICON_W + (BIG_W - ICON_W) * amt;
-    float bh = ICON_H + (BIG_H - ICON_H) * amt;
-    float bx = LIST_X + BIG_W - bw;
-    float by = y + (h - bh) / 2.0f;
-    int shade = 150 + (int)(105 * amt);
-    if (!show) {
-        gfx_rect(bx, by, bw, bh, RGBA(255, 255, 255, 12 + (int)(12 * amt)));
-        return;
+    if (entry->state == APP_UPDATE) state_color = RGB(140, 255, 170);
+    /* The state on the name's own line, after it, the way the size stands
+       after a title in the system's lists; the summary under both. */
+    float nw = font_width(FONT_H1, entry->name), sw = font_width(FONT_META, line);
+    if (nw + 10 + sw <= SHOT_W) {
+        float x = font_print(FONT_H1, PANEL_X, y, g_text, entry->name);
+        font_print(FONT_META, x + 10, y, state_color, line);
+    } else {
+        /* A long name keeps its line whole; the state takes the next. */
+        font_print_clipped(FONT_H1, PANEL_X, y, SHOT_W, g_text, entry->name);
+        y += 20;
+        font_print_clipped(FONT_META, PANEL_X, y, SHOT_W, state_color, line);
     }
-    float w = bw, hh = bh;
-    if (film) {
-        /* At the size it was made, in the middle of the box: the clip is
-           144 by 80 and the box now is too, and anything larger comes down
-           to it by the same amount both ways. */
-        w = show->w; hh = show->h;
-        if (w > bw || hh > bh) {
-            float fit = bw / w;
-            if (hh * fit > bh) fit = bh / hh;
-            w *= fit; hh *= fit;
-        }
-    }
-    float x = bx + (bw - w) / 2.0f, iy = by + (bh - hh) / 2.0f;
-    lattice_mirror(show, 110 + (int)(145 * amt), x, iy + hh, w, hh);
-    gfx_texture_draw(show, x, iy, w, hh, RGB(shade, shade, shade));
-}
-
-static void draw_list(const struct catalog *catalog, int cursor, float t) {
-    int count = shell_view_count();
-    if (cursor < g_first) g_first = cursor;
-    if (cursor >= g_first + VISIBLE) g_first = cursor - VISIBLE + 1;
-    if (g_first < 0) g_first = 0;
-    ease_rows(count, cursor);
-
-    int rows = count < VISIBLE ? count : VISIBLE;
-    int tall = rows * ITEM_H + (rows > 0 ? SEL_H - ITEM_H : 0);
-    draw_shade(LIST_X + LIST_W / 2, LIST_Y + tall / 2, LIST_W, tall);
-
-    /* The light behind the open row rides on the row itself, which is
-       already easing into place, so the two never disagree. */
-    g_sel_y = row_top(cursor);
-    float open_h = row_h(cursor);
-    float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
-    float mid = g_sel_y + open_h / 2 - 1;
-    gfx_glow(LIST_X + 110, mid, LIST_W + 120, open_h * 1.6f,
-             rgb_pack(g_tint, (int)(130 * breathe)));
-    gfx_glow(LIST_X + 70, mid, LIST_W / 2, open_h * 1.1f,
-             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), (int)(70 * breathe)));
-    gfx_glow(LIST_X + LIST_W / 2, g_sel_y + open_h - 3, LIST_W + 30, 10,
-             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 160));
-
-    /* The icons module counts in catalog entries, so the rows on screen are
-       handed over as the entries they stand for -- and the action row stands
-       for none, so it asks for nothing. */
-    int wanted[VISIBLE + 1], want_count = 0;
-    for (int i = g_first; i < count && i < g_first + VISIBLE + 1; i++) {
-        int index = shell_view_index(i);
-        if (index >= 0) wanted[want_count++] = index;
-    }
-    icons_bind(catalog);
-    if (icons_want(wanted, want_count)) preview_poke();
-
-    /* One row past the window: while a row is closing and the next opening,
-       the ones under them are on their way up and the last would otherwise
-       tear off the bottom. */
-    float y = LIST_Y;
-    for (int i = g_first; i < count && i < g_first + VISIBLE + 1; i++) {
-        float amt = row_open(i);
-        float h = row_h(i);
-        if (y >= LIST_Y + LIST_H) break;
-        int index = shell_view_index(i);
-        if (index == SHELL_ROW_ACTION) {
-            draw_action_row(catalog, y, h, amt, t);
-            y += h;
-            continue;
-        }
-        if (index < 0) { y += h; continue; }
-        const struct app_entry *entry = &catalog->apps[index];
-
-        draw_row_picture(y, h, amt, icons_get(index));
-        if (amt >= 1.0f) g_open_y = (int)(y + (h - BIG_H) / 2);
-
-        int open = (int)(255 * amt), shut = 255 - open;
-        /* The name crosses from where a closed row carries it to where an
-           open one does, in the face each of them uses. */
-        if (shut > 0) {
-            int w = draw_row_marks(entry, amt, y + h / 2 - 1, OPEN_W, t);
-            font_print_clipped(FONT_BODY, OPEN_X, y + h / 2 + 5, w,
-                               faded(g_dim, shut), entry->name);
-        }
-        if (open > 0) {
-            unsigned color;
-            const char *line = state_line(entry, &color);
-            int w = draw_row_marks(entry, amt, y + h / 2 - 1, OPEN_W, t);
-            float nw = font_width(FONT_H1, entry->name);
-            float sw = font_width(FONT_META, line);
-            float ty = y + 20;
-            if (nw + 10 + sw <= w) {
-                float x = font_print(FONT_H1, OPEN_X, ty, faded(g_text, open),
-                                     entry->name);
-                font_print(FONT_META, x + 10, ty, faded(color, open), line);
-            } else {
-                /* A long name keeps its line whole; the state takes the
-                   next. */
-                font_print_clipped(FONT_H1, OPEN_X, ty, w, faded(g_text, open),
-                                   entry->name);
-                ty += 19;
-                font_print_clipped(FONT_META, OPEN_X, ty, w, faded(color, open),
-                                   line);
-            }
-            font_print_clipped(FONT_META, OPEN_X, ty + 22, w,
-                               faded(g_dim, open * 170 / 255), entry->summary);
-        }
-        y += h;
-    }
-
-    if (count > VISIBLE) {
-        int track = LIST_H;
-        int knob = track * VISIBLE / count;
-        int at = track * g_first / count;
-        gfx_rect(SCR_W - 6, LIST_Y, 2, track, RGBA(255, 255, 255, 24));
-        gfx_rect(SCR_W - 6, LIST_Y + at, 2, knob, g_accent);
-    }
-}
-
-/* PIC1.PNG, 480 by 272, which is the size of the screen because that is what
-   an EBOOT carries it for: the picture that stands behind everything while
-   the thing it belongs to is the one picked out.
-
-   Not while there is anything to read, though: behind a list it is a busy
-   picture under lettering, and the room the water makes is the better place
-   to read in. It comes up only as the interface goes -- left alone, the
-   veil takes the list and the tabs and leaves this, whole and at its own
-   brightness, with the film playing on the row. The room turns into the app
-   the cursor is on, and a key brings the list back over it. */
-static void draw_backdrop(void) {
-    int alpha;
-    if (g_veil <= 0.0f) return;
-    const struct gfx_texture *pic = preview_still(&alpha);
-    if (!pic || alpha <= 0) return;
-    gfx_texture_draw(pic, 0, 0, SCR_W, SCR_H,
-                     RGBA(255, 255, 255, alpha * (int)(255.0f * g_veil) / 255));
-}
-
-/* The open row's picture alone, with the room behind it: what is left when
-   the interface goes under the veil. Drawn through no veil at all. */
-static void draw_picture(float t) {
-    (void)t;
-    int veil = (int)(256.0f * (1.0f - g_veil));
-    gfx_glow(LIST_X + BIG_W / 2, g_open_y + BIG_H / 2, BIG_W + 130, BIG_H + 120,
-             rgb_pack(g_tint, 100));
-    gfx_veil(256);
-    int index = shell_view_index(g_cursor);
-    draw_row_picture(g_open_y, BIG_H, 1.0f, index >= 0 ? icons_get(index) : 0);
-    gfx_veil(veil);
+    font_print_clipped(FONT_META, PANEL_X, y + 22, SHOT_W, faded(g_dim, 170),
+                       entry->summary);
 }
 
 /* --------------------------------------------------------------- overlays */
@@ -1432,7 +1418,11 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     gfx_veil((int)(256.0f * (1.0f - g_veil)));
     draw_chrome(catalog, t);
     if (catalog->count > 0 && shell_view_count() > 0) {
+        int rows = shell_view_count();
+        int index = shell_view_index(cursor < rows ? cursor : 0);
         draw_list(catalog, cursor, t);
+        if (index == SHELL_ROW_ACTION) draw_action_panel(catalog, t);
+        else if (index >= 0) draw_panel(&catalog->apps[index], t);
     } else if (g_status[0]) {
         /* Nothing to browse yet: the word stands in the room, lit from
            behind; what it is waiting for is said in the strip below. */
@@ -1471,14 +1461,10 @@ void shell_draw(const struct catalog *catalog, int cursor) {
 }
 
 int shell_settled(void) {
-    /* The rows are where they are going when the one under the cursor is all
-       the way open and no other is left standing: that is the whole of the
-       list's movement now. */
-    int moving = row_open(g_cursor) < 1.0f;
-    for (int i = 0; i < OPEN_ROWS && !moving; i++)
-        if (i != g_cursor && g_open_amt[i] > 0.0f) moving = 1;
+    float target = LIST_Y + (g_cursor - g_first) * ITEM_H;
+    float bar = g_sel_y - target;
     int picture_done = !g_catalog || g_catalog->count <= 0 || preview_settled();
-    return g_fade <= 0 && picture_done && !moving;
+    return g_fade <= 0 && picture_done && bar > -1.0f && bar < 1.0f;
 }
 
 /* ------------------------------------------------------------- screenshot */
