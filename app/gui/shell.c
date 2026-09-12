@@ -50,7 +50,8 @@
 #define BIG_W 144
 #define BIG_H 80
 #define SEL_H (BIG_H + 10)
-#define NAME_X (LIST_X + ICON_W + 9)
+/* One column for the lettering, whether a row is open or closed: it begins
+   where the icon's box ends, and the box ends in the same place always. */
 #define OPEN_X (LIST_X + BIG_W + 14)
 #define OPEN_W (LIST_X + LIST_W - OPEN_X - 8)
 #define LIST_H (FOOTER_Y - 6 - LIST_Y)
@@ -597,7 +598,7 @@ static void draw_action_row(const struct catalog *catalog, float y, float h,
     char value[48], size[24];
     int updates = shell_tab_kind() == SHELL_TAB_STICK;
     int open = (int)(255 * amt), shut = 255 - open;
-    float gx = LIST_X + (ICON_W + (BIG_W - ICON_W) * amt) / 2.0f;
+    float gx = LIST_X + BIG_W - (ICON_W + (BIG_W - ICON_W) * amt) / 2.0f;
     float gy = y + h / 2.0f;
 
     shell_action_plan(&plan);
@@ -615,10 +616,9 @@ static void draw_action_row(const struct catalog *catalog, float y, float h,
     /* The two forms cross: the heading and its tally fade out where they
        stood, the bill fades in where it stands. */
     if (shut > 0) {
-        int w = LIST_X + LIST_W - NAME_X;
-        font_print_clipped(FONT_BODY, NAME_X, y + 13, w, faded(g_dim, shut),
+        font_print_clipped(FONT_BODY, OPEN_X, y + 13, OPEN_W, faded(g_dim, shut),
                            action_title());
-        font_print_clipped(FONT_META, NAME_X, y + 25, w, faded(g_dim, shut),
+        font_print_clipped(FONT_META, OPEN_X, y + 25, OPEN_W, faded(g_dim, shut),
                            action_line());
     }
     if (open <= 0) return;
@@ -732,12 +732,18 @@ static void draw_row_picture(float y, float h, float amt,
     int film_alpha;
     const struct gfx_texture *film = amt >= 1.0f ? preview_film(&film_alpha) : 0;
     const struct gfx_texture *show = film ? film : icon;
+    /* The box hangs from its right edge, which never moves: an icon that
+       grew from the left would push the lettering along with it, and text
+       that slides sideways every time the cursor moves is the one thing in
+       a list the eye cannot forgive. It grows to the left instead, into the
+       space a closed row leaves empty. */
     float bw = ICON_W + (BIG_W - ICON_W) * amt;
     float bh = ICON_H + (BIG_H - ICON_H) * amt;
+    float bx = LIST_X + BIG_W - bw;
     float by = y + (h - bh) / 2.0f;
     int shade = 150 + (int)(105 * amt);
     if (!show) {
-        gfx_rect(LIST_X, by, bw, bh, RGBA(255, 255, 255, 12 + (int)(12 * amt)));
+        gfx_rect(bx, by, bw, bh, RGBA(255, 255, 255, 12 + (int)(12 * amt)));
         return;
     }
     float w = bw, hh = bh;
@@ -752,7 +758,7 @@ static void draw_row_picture(float y, float h, float amt,
             w *= fit; hh *= fit;
         }
     }
-    float x = LIST_X + (bw - w) / 2.0f, iy = by + (bh - hh) / 2.0f;
+    float x = bx + (bw - w) / 2.0f, iy = by + (bh - hh) / 2.0f;
     lattice_mirror(show, 110 + (int)(145 * amt), x, iy + hh, w, hh);
     gfx_texture_draw(show, x, iy, w, hh, RGB(shade, shade, shade));
 }
@@ -816,9 +822,8 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
         /* The name crosses from where a closed row carries it to where an
            open one does, in the face each of them uses. */
         if (shut > 0) {
-            int w = draw_row_marks(entry, amt, y + h / 2 - 1,
-                                   LIST_X + LIST_W - NAME_X, t);
-            font_print_clipped(FONT_BODY, NAME_X, y + h / 2 + 5, w,
+            int w = draw_row_marks(entry, amt, y + h / 2 - 1, OPEN_W, t);
+            font_print_clipped(FONT_BODY, OPEN_X, y + h / 2 + 5, w,
                                faded(g_dim, shut), entry->name);
         }
         if (open > 0) {
