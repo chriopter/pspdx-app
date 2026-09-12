@@ -149,12 +149,13 @@ static int g_cursor;
 /* --------------------------------------------------------------- the view */
 
 /* The tabs, in the order they are shown. The first takes everything; the
-   rest match the catalog's own lowercase category word. */
+   rest match the catalog's own category word, which schema/v1.pspdx spells
+   in the singular: a tab holds many, an app is one. */
 static const char *const TAB_NAME[] = {
     "All", "Games", "Demos", "Apps", "Emulators", "Plugins"
 };
 static const char *const TAB_KEY[] = {
-    "", "games", "demos", "apps", "emulators", "plugins"
+    "", "game", "demo", "app", "emulator", "plugin"
 };
 #define TAB_ALL 6
 

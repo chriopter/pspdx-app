@@ -64,7 +64,7 @@ IDLE_MS = 10000
 # -------------------------------------------------------------------- tabs
 
 # shell.c: TAB_NAME / TAB_KEY, and the three tabs that are not categories.
-TAB_KEY = ("", "games", "demos", "apps", "emulators", "plugins")
+TAB_KEY = ("", "game", "demo", "app", "emulator", "plugin")
 TAB_ALL = 6
 TAB_GEAR = -3                   # the band about the session; always leftmost
 TAB_STICK = -2                  # what is installed, updates first

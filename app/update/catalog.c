@@ -504,11 +504,18 @@ static int fetch_source(struct catalog *catalog, int at, const char *url) {
         return taken;
     }
     sources_parse_list(response, &list);
-    if (list.cache[0]) cached = take_cache(catalog, list.cache);
+    /* The built-in list is the built-in cache's own list, so that cache is
+       taken whether or not the file names it: a `cache` line dropped over
+       there would otherwise cost every console on it a walk of the whole
+       list at the origin, where there are no pictures and no hashes. A list
+       somebody else keeps is trusted only for what it says. */
+    const char *cache = list.cache[0] ? list.cache
+                      : strcmp(url, SOURCES_DEFAULT) == 0 ? CATALOG_URL : 0;
+    if (cache) cached = take_cache(catalog, cache);
     taken = walk_list(catalog, &list, &asked, &refused);
     logline("source %d: list of %d, cache %s%d apps, origin %d asked, %d apps, %d refused",
             at, list.count,
-            !list.cache[0] ? "none, " : cached < 0 ? "unreachable, " : "",
+            !cache ? "none, " : cached < 0 ? "unreachable, " : "",
             cached > 0 ? cached : 0, asked, taken, refused);
     return (cached > 0 ? cached : 0) + taken;
 }

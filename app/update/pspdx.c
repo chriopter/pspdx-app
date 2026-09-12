@@ -9,7 +9,11 @@
    reading fields that have moved. */
 #define SCHEMA_V1 "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx"
 
-static const char *CATEGORY[] = { "games", "emulators", "apps", "plugins", "demos" };
+/* The five of schema/v1.pspdx, spelled as the schema spells them: one word
+   for what this one app is, singular. The tabs above them are plural because
+   a tab holds many; the word in the file names the app and is never the
+   tab's. */
+static const char *CATEGORY[] = { "game", "emulator", "app", "plugin", "demo" };
 
 /* An optional string, cut to what the field holds rather than refused for
    being long: the cache is where a summary over sixty characters is
