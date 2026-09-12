@@ -79,7 +79,10 @@ arrows for the d-pad and I/J/K/L for the analog stick.
 
 PSPDX uses the storage device it started from (`ms0:` or `ef0:`).
 
-Each installed app keeps its original `.pspdx`. `state.json` stores:
+Each installed app keeps its original `.pspdx` in `PSP/PSPDX/INSTALLED/`.
+The accompanying `PSP/PSPDX/INSTALLED/state.json` records what is installed,
+where it came from and the last known release information. It lets PSPDX
+track updates independently of the catalog:
 
 ```text
 <App-ID>
