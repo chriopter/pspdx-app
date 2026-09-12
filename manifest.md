@@ -13,7 +13,7 @@ from the release and the EBOOT and never written by hand.
   "name":       "Lux Aeterna",
   "author":     "chriopter",
   "summary":    "Ten churches, and the sun through their glass.",
-  "category":   "demos",
+  "category":   "demo",
   "license":    "BSD-3-Clause",
   "installdir": "Cathedral"
 }
@@ -27,7 +27,7 @@ version 2 gets a new name without making a single old file wrong.
 |---|---|---|
 | `schema` | required | |
 | `name` | required, under 40 characters | |
-| `category` | required: `games`, `emulators`, `apps`, `plugins`, `demos` | |
+| `category` | required: `game`, `emulator`, `app`, `plugin`, `demo`, one word for what this one app is | |
 | `installdir` | required: the folder the app gets under `PSP/GAME/`, which is the name the XMB shows | |
 | `summary` | one line, at most 60 characters | the repository's description |
 | `license` | an SPDX identifier | what GitHub reports |

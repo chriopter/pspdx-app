@@ -28,12 +28,13 @@
     },
     "category": {
       "enum": [
-        "games",
-        "emulators",
-        "apps",
-        "plugins",
-        "demos"
-      ]
+        "game",
+        "emulator",
+        "app",
+        "plugin",
+        "demo"
+      ],
+      "description": "what this one app is; the list shows the plural"
     },
     "license": {
       "type": "string",
