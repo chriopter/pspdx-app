@@ -21,7 +21,7 @@ releases. Once an app is added, the PSP knows where to check for updates —
 even if the catalog disappears.
 
 - **[Downloader app](https://github.com/chriopter/pspdx/releases/latest)** — install, run and update homebrew on your PSP.
-- **[Reference catalog](https://chriopter.github.io/pspdx-catalog/)** — browse apps; or [build your own catalog](https://github.com/chriopter/pspdx-catalog).
+- **[Reference catalog](https://github.com/chriopter/pspdx-catalog)** — [browse apps](https://chriopter.github.io/pspdx-catalog/); or build your own catalog.
 - **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete example for homebrew authors.
 
 ## The PSPDX client
