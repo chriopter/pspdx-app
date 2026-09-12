@@ -8,7 +8,7 @@
  * Each glyph is a bitmap drawn at the size it is shown at -- eleven pixels
  * for a button, fifteen for a tab -- which is the only way a two-pixel stroke
  * stays two pixels. The bitmaps live in assets/marks as PNG and reach the
- * build through marks_data.h; see assets/marks/README.md.
+ * build through marks_data.h; see the root README, "Regenerating icons and EBOOT media".
  *
  * Sizes are not uniform and must be asked for: a face button is 11x11, a
  * tab 15x15, START and SELECT are 17x7 pills, L and R are 13x9, the Memory
