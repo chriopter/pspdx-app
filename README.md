@@ -31,28 +31,26 @@ Add `.pspdx` files through INBOX, subscribe to catalogs or enter a GitHub
 repository URL; installed apps retain their source for future updates.
 
 <details>
-<summary>Connection — TLS 1.3 and GitHub requests</summary>
+<summary>Browse — add catalogs and discover homebrew</summary>
 
-The client uses wolfSSL for TLS 1.3, with bundled CA certificates, certificate
-chain and hostname verification, and X25519 preferred for key exchange.
-The analog-stick entropy sweep and saved seed feed its random generator.
-Certificate date checks are currently bypassed to tolerate an unset PSP clock;
-other certificate verification failures are rejected.
+A catalog can also extract icons, background images, video and sound from
+release EBOOTs and host them as previews. The reference catalog does this
+automatically, so the PSP can show apps before downloading their packages.
 
-A catalog supplies release metadata for many apps in one HTTP request.
-Direct source checks read manifests from `raw.githubusercontent.com` and
-release metadata from `api.github.com`; release downloads can redirect to
-GitHub's asset hosts. Each request currently opens its own connection:
-HTTP keep-alive and connection reuse are not implemented.
+Use **Add catalog** for an HTTPS `catalog.json` URL, or **Add GitHub
+repository** for a repository URL or `owner/repo`. A new source is checked
+before it is saved in `sources.txt`. Text lists remain supported, and the
+app starts with the reference list configured.
 
-Synchronization runs in the background. Media work pauses while another
-operation needs the shared networking stack. There are no package signatures;
-adding a source means trusting it.
+If a catalog is unreachable or invalid, its last usable local copy remains
+available for browsing, alongside locally stored installed-app records.
+
+Catalog and media caches can be deleted without losing installed-app tracking.
 
 </details>
 
 <details>
-<summary>PSPDX processing — import, installation and files</summary>
+<summary>Install — import apps and manage local files</summary>
 
 Copy `.pspdx` files into `PSP/PSPDX/INBOX/` and select **Read INBOX** in
 settings. The client validates each file, including its source and installation
@@ -79,9 +77,7 @@ The emulator key mapping is in `dev/ppsspp/controls.ini`. `dev/start` installs
 it: × S, ○ D, □ A, △ W, START Enter, SELECT Space, L Q, R E;
 arrows for the d-pad and I/J/K/L for the analog stick.
 
-PSPDX uses the storage device it started from (`ms0:` or `ef0:`):
-
-```
+PSPDX uses the storage device it started from (`ms0:` or `ef0:`).
 
 Each installed app keeps its original `.pspdx`. `state.json` stores:
 
@@ -113,34 +109,28 @@ Existing homebrew is not adopted merely because its directory matches.
 </details>
 
 <details>
-<summary>Catalogs — connection attempts, fallback and offline use</summary>
+<summary>Update — keep apps current, even without their catalog</summary>
 
-A catalog can also extract icons, background images, video and sound from
-release EBOOTs and host them as previews. The reference catalog does this
-automatically, so the PSP can show apps before downloading their packages.
+PSPDX keeps each installed app's `.pspdx` and original source, together with
+its installed version and release publication time. During a refresh, it
+uses fresh catalog information to check for newer releases. Updates are
+identified by a newer publication time; press **×** to download and install
+an available update from the author's release.
 
-Use **Add catalog** for an HTTPS `catalog.json` URL, or **Add GitHub
-repository** for a repository URL or `owner/repo`. A new source is checked
-before it is saved in `sources.txt`. Text lists remain supported, and the
-app starts with the reference list configured.
+If a catalog disappears, is unreachable or supplies no fresh entry for an
+installed app, PSPDX checks that app's saved GitHub source directly. The
+catalog is not needed to keep updating it, as long as the source and its
+releases remain available. **Check original sources** forces this lookup
+even when the catalog is reachable.
 
-The client first reads its configured sources and uses available catalog
-entries. If a catalog is unreachable or invalid, its last usable local copy
-remains available. Installed apps without fresh catalog information are
-checked directly at their saved GitHub source. **Check original sources**
-also bypasses a reachable catalog.
-
-If GitHub fails too, the previous release information stays available and
-its successful check time is not advanced. Offline browsing uses cached
-catalogs and locally stored installed-app records; a saved result is the
-last known release, not proof that the app is current.
-
-Catalog and media caches can be deleted without losing installed-app tracking.
+If GitHub is unavailable too, PSPDX retains the previous release information
+without advancing its successful check time. Offline information is the
+last known state, not confirmation that an app is up to date.
 
 </details>
 
 <details>
-<summary>Media — catalog previews and installed EBOOTs</summary>
+<summary>Preview — icons, backgrounds, video and sound</summary>
 
 When browsing a catalog, the client loads icons and selected-app previews
 from its media URLs and caches them in `PSP/PSPDX/CACHE/media/`. The reference
@@ -157,6 +147,27 @@ installed through a catalog.
 All media is optional. Missing images use the default presentation; missing
 video or sound simply does not play. Offline browsing uses installed EBOOTs
 and media already in the cache.
+
+</details>
+
+<details>
+<summary>Connect — TLS 1.3 and GitHub access</summary>
+
+The client uses wolfSSL for TLS 1.3, with bundled CA certificates, certificate
+chain and hostname verification, and X25519 preferred for key exchange.
+The analog-stick entropy sweep and saved seed feed its random generator.
+Certificate date checks are currently bypassed to tolerate an unset PSP clock;
+other certificate verification failures are rejected.
+
+A catalog supplies release metadata for many apps in one HTTP request.
+Direct source checks read manifests from `raw.githubusercontent.com` and
+release metadata from `api.github.com`; release downloads can redirect to
+GitHub's asset hosts. Each request currently opens its own connection:
+HTTP keep-alive and connection reuse are not implemented.
+
+Synchronization runs in the background. Media work pauses while another
+operation needs the shared networking stack. There are no package signatures;
+adding a source means trusting it.
 
 </details>
 
