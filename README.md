@@ -3,7 +3,7 @@
 **PSP Download Index** — browse, install, update homebrew directly
 on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspdx/releases/latest)**
 
-PSPDX ships with a catalog. Add others or share `.pspdx` files directly:
+PSPDX ships with a catalog. Add other catalogs or share `.pspdx` files directly:
 their open format links to authors' GitHub repositories for downloads and
 updates, even if the catalog disappears.
 
