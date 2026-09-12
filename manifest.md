@@ -80,7 +80,7 @@ fails is reported with the reason and left out.
 `catalog.json` is `{"schema", "generated", "apps": [...]}`; each app carries
 `id`, `name`, `author`, `summary`, `category`, `license`, `repo`, `release`
 (`rev`, `url`, `sha256`, `size`, `version`) and `icon`, `screenshot`,
-`video`, `sound` where there was one, and `install` where the file had it.
+`video`, `sound` where the EBOOT had them, and `installdir`.
 
 ## The console
 
