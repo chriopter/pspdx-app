@@ -94,21 +94,32 @@ Cached results describe the last known state; they do not confirm freshness.
 </details>
 
 <details>
-<summary>Catalog Caching</summary>
+<summary>Catalog — releases, previews and caching</summary>
 
-Catalog responses are cached for offline browsing alongside installed-app
-records. Deleting catalog or media caches does not remove installation records.
-
-The reference catalog extracts EBOOT media and hosts it separately:
-`ICON0.PNG` (icon), `PIC1.PNG` (background), `ICON1.PMF` (video),
-`SND0.AT3` (sound). Browsing fetches icons and selected-app previews into
-`PSP/PSPDX/CACHE/media/`, without downloading app ZIPs.
-
-Installed apps use their own EBOOT media first, then cache/catalog media.
-Direct repository or INBOX additions fetch no separate GitHub previews:
-before installation, only existing cache or placeholders are available.
-Offline, only local EBOOTs and cache are used. All media is optional;
-missing images use defaults, missing video/sound does not play.
+- **App index:** names, authors, descriptions, categories, licenses, source
+  repositories and installation paths in one `catalog.json` request.
+- **Releases:** version, publication time, ZIP URL, size and SHA-256.
+  The client compares publication times with its installed state to show
+  available updates. Packages download from the author's GitHub release.
+- **Refresh:** the reference builder checks hourly, reuses unchanged entries
+  and publishes changes. Manifest-only edits need a new release or forced
+  rebuild; a push or manual workflow run forces a full read.
+- **Previews:** the builder extracts `ICON0.PNG` (icon), `PIC1.PNG` (background),
+  `ICON1.PMF` (video) and `SND0.AT3` (sound) from release EBOOTs and hosts them
+  separately. The PSP fetches icons and selected-app previews without app ZIPs.
+  All media is optional; missing images use defaults, missing video/sound
+  does not play.
+- **Local cache:** catalog JSON in `PSP/PSPDX/CACHE/catalogs/`, previews in
+  `PSP/PSPDX/CACHE/media/`. Offline browsing uses these and installed-app records.
+  Both caches can be deleted without losing installation tracking.
+- **Local media:** installed EBOOTs take priority over cache/catalog previews.
+  Direct repository or INBOX additions fetch no separate GitHub previews;
+  before installation, only existing cache or placeholders are available.
+- **Fallback:** installed apps without fresh catalog entries are checked at
+  their saved GitHub source. If that also fails, previous release data and
+  check time remain; cached data does not confirm that an app is current.
+- **Web browsing:** the reference catalog also publishes an overview and app
+  pages with previews, release details, source links and downloads.
 
 </details>
 
