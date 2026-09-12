@@ -9,13 +9,13 @@ from the release and the EBOOT and never written by hand.
 
 ```json
 {
-  "schema":   "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
-  "name":     "Lux Aeterna",
-  "summary":  "Ten churches, and the sun through their glass.",
-  "category": "demos",
-  "license":  "BSD-3-Clause",
-  "media":    "media/",
-  "dir":      "Cathedral"
+  "schema":     "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
+  "name":       "Lux Aeterna",
+  "author":     "chriopter",
+  "summary":    "Ten churches, and the sun through their glass.",
+  "category":   "demos",
+  "license":    "BSD-3-Clause",
+  "installdir": "Cathedral"
 }
 ```
 
@@ -28,11 +28,10 @@ version 2 gets a new name without making a single old file wrong.
 | `schema` | required | |
 | `name` | required, under 40 characters | |
 | `category` | required: `games`, `emulators`, `apps`, `plugins`, `demos` | |
-| `dir` | required: the folder the app gets under `PSP/GAME/`, which is the name the XMB shows | |
+| `installdir` | required: the folder the app gets under `PSP/GAME/`, which is the name the XMB shows | |
 | `summary` | one line, at most 60 characters | the repository's description |
 | `license` | an SPDX identifier | what GitHub reports |
 | `author` | a name | the repository's owner |
-| `media` | a directory holding `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF`, `SND0.AT3` under Sony's names, case not mattering | the repository root; the EBOOT for whatever is missing |
 
 Unknown fields are refused, so a misspelt one is noticed rather than
 ignored.
@@ -47,7 +46,7 @@ ignored.
 | `url`, `size` | the zip on the release, of which there must be exactly one |
 | `sha256` | computed by whoever downloads the whole zip: the cache |
 | the package | the directory in the zip that holds the one `EBOOT.PBP`; its `PARAM.SFO` must say `CATEGORY` `MG`, a game or app for the Memory Stick |
-| icon, picture, film, sound | the media directory; `ICON0`, `PIC1`, `ICON1`, `SND0` inside the EBOOT for what is not there |
+| icon, picture, film, sound | `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3` inside the EBOOT, where Sony put them and where the XMB reads them |
 
 A release that is a pre-release or a draft is not seen. Nothing is ever
 compared but `rev`.
@@ -72,8 +71,8 @@ consent.
 
 A workflow at the list's repository, hourly and on request, walks the
 list: reads each `.pspdx`, asks GitHub for the repository and its release,
-downloads the zip, hashes it, checks the EBOOT, takes the pictures from the
-media directory or the PBP, and writes one `catalog.json` with the pictures
+downloads the zip, hashes it, checks the EBOOT, takes the pictures and the
+sound out of the PBP, and writes one `catalog.json` with the pictures
 beside it under names that carry their bytes (`icons/<id>-<sha8>.png`).
 Stateless: nothing is committed, the next run reads it all again. What
 fails is reported with the reason and left out.
@@ -90,8 +89,9 @@ first; a repository URL is a list of one, and that is how a single app in no
 catalog gets in, typed as `owner/repo` on the firmware's keyboard. For every
 list: the cache is taken when it answers; every repository the cache did
 not cover, and every repository when there is no cache, is read at the
-origin: its `.pspdx` and its pictures from `raw.githubusercontent.com`,
-its release from GitHub's API. No hash that way: the console checks the
+origin: its `.pspdx` from `raw.githubusercontent.com`, its release from
+GitHub's API. There are no pictures that way, since they sit in a package
+it has not fetched. No hash that way: the console checks the
 size of what it downloads, and the zip comes from the author's own account
 over TLS, which is the trust there is. An installed app is pictured from
 its own EBOOT on the stick whether or not any cache ever was.
@@ -116,6 +116,12 @@ curator, with `@tag` on the list line.
 **A glob for the package.** In version 1 a release carries exactly one
 zip, and that zip holds exactly one `EBOOT.PBP`, or the app is not listed.
 Two of either is a question for the author.
+
+**A place in the repository for the pictures.** The EBOOT already carries
+them, every author already packs them, and a second copy in the repository
+is a second copy to keep in step. A console reading a repository directly
+therefore shows no picture until the app is installed, and then reads the
+EBOOT on the stick; a catalog has the zip in its hands anyway.
 
 **Anything outside `PSP/GAME/`.** A plugin that belongs in `seplugins` and
 wants a line in `plugins.txt`, a folder of ROMs beside an emulator, a

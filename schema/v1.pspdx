@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
   "title": ".pspdx",
-  "description": "What a PSP homebrew repository says about itself to PSPDX. The version, the date, the package and its size come from the latest release; the id from the repository; the pictures and the sound from the media directory or, failing that, out of the EBOOT.",
+  "description": "What a PSP homebrew repository says about itself to PSPDX. The version, the date, the package and its size come from the latest release; the id from the repository; the icon, the picture, the film and the sound out of the EBOOT.",
   "type": "object",
   "required": [
     "schema",
     "name",
     "category",
-    "dir"
+    "installdir"
   ],
   "additionalProperties": false,
   "properties": {
@@ -45,21 +45,11 @@
       "maxLength": 39,
       "description": "a name; the repository's owner otherwise"
     },
-    "media": {
-      "$ref": "#/$defs/path",
-      "description": "a directory holding ICON0.PNG (144x80), PIC1.PNG (480x272), ICON1.PMF (144x80 PSMF) and SND0.AT3 (ATRAC3), matched without regard to case; the repository root otherwise; the EBOOT for whatever is missing"
-    },
-    "dir": {
+    "installdir": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_.-]{1,32}$",
-      "description": "the folder the app gets under PSP/GAME/, which is what the XMB shows; the package is the directory in the zip that holds the one EBOOT.PBP, and its contents go there"
+      "description": "the folder the app gets under PSP/GAME/, which is the name the XMB shows; the package is the directory in the zip that holds the one EBOOT.PBP, and its contents go there"
     }
   },
-  "$defs": {
-    "path": {
-      "type": "string",
-      "pattern": "^[^/\\\\][^\\0]*$",
-      "description": "a directory in the repository, relative to its root, on the default branch"
-    }
-  }
+  "$defs": {}
 }
