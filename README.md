@@ -6,8 +6,9 @@ on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspd
 PSPDX ships with a catalog of homebrew you can browse like a store. Installing an app also saves its
 `.pspdx` file, which points to the original repository for future updates.
 
-You can add `.pspdx` files manually or use other catalogs: the format is open,
-and downloads come from the authors rather than a central mirror.
+You can add `.pspdx` files manually, use other catalogs or build your own by
+copying the [reference catalog's workflows](https://github.com/chriopter/pspdx-catalog).
+The format is open, and downloads come from the authors rather than a central mirror.
 
 <img width="480" alt="PSPDX App browsing homebrew and available updates" src="images/pspdx-app.png" />
 
