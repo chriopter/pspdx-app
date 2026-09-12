@@ -9,7 +9,7 @@ from the release and the EBOOT and never written by hand.
 
 ```json
 {
-  "schema":     "https://github.com/chriopter/pspdx/blob/master/v1.pspdx",
+  "schema":     "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
   "source":       "https://github.com/chriopter/psp-cathedral",
   "name":       "Lux Aeterna",
   "author":     "chriopter",

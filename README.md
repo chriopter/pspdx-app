@@ -31,7 +31,7 @@ your homebrew up to date, independently of the catalog.
 
 ```json
 {
-  "schema":     "https://github.com/chriopter/pspdx/blob/master/v1.pspdx",
+  "schema":     "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
   "source":     "https://github.com/chriopter/psp-cathedral",
   "name":       "Lux Aeterna",
   "author":     "chriopter",
@@ -49,4 +49,4 @@ the EBOOT provides media. Authors need not edit the file for every release.
 Version 1 supports GitHub repositories with a root `.pspdx` and a published
 release containing exactly one ZIP with exactly one `EBOOT.PBP`.
 
-[Format specification](manifest.md) · [Schema](v1.pspdx)
+[Format specification](manifest.md) · [Schema](schema/v1.pspdx)

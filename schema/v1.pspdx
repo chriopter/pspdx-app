@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/chriopter/pspdx/blob/master/v1.pspdx",
+  "$id": "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
   "title": ".pspdx",
   "description": "What a PSP homebrew repository says about itself to PSPDX. The version, the date, the package and its size come from the latest release; the id from the repository; the icon, the picture, the film and the sound out of the EBOOT.",
   "type": "object",
@@ -14,7 +14,7 @@
   "additionalProperties": false,
   "properties": {
     "schema": {
-      "const": "https://github.com/chriopter/pspdx/blob/master/v1.pspdx"
+      "const": "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx"
     },
     "source": {
       "type": "string",
