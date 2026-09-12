@@ -40,7 +40,7 @@ ignored.
 
 | | source |
 |---|---|
-| `id` | the repository URL: `io.github.<owner>.<repo>`, lower case, `[a-z0-9]` in the last part, dashes and dots dropped. Nobody types it, so it cannot be wrong, and a fork is its own app. |
+| `id` | the repository URL: `io.github.<owner>.<repo>`, both the owner and the name lower case and stripped to `[a-z0-9]`, so no dash of a name lands in a segment of a reverse domain. Nobody types it, so it cannot be wrong, and a fork is its own app. |
 | `version` | the release tag without its `v` |
 | `rev` | the release's `published_at` as unix seconds. Integers compare; version strings do not. **The higher `rev` wins.** |
 | `url`, `size` | the zip on the release, of which there must be exactly one |
