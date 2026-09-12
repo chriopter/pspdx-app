@@ -50,13 +50,10 @@
 #define BIG_W 144
 #define BIG_H 80
 #define SEL_H (BIG_H + 10)
-/* The lettering has the left of the row and keeps it, open or closed. The
-   picture hangs from the row's right edge, which never moves either, and
-   grows to the left as the row opens -- into the room the text does not use.
-   Between them the marks, at the end of the lettering's own column. */
-#define TEXT_X LIST_X
-#define TEXT_W (LIST_W - BIG_W - 14)
-#define PIC_R (LIST_X + LIST_W)
+/* One column for the lettering, whether a row is open or closed: it begins
+   where the icon's box ends, and the box ends in the same place always. */
+#define OPEN_X (LIST_X + BIG_W + 14)
+#define OPEN_W (LIST_X + LIST_W - OPEN_X - 8)
 #define LIST_H (FOOTER_Y - 6 - LIST_Y)
 /* The open row, and as many closed ones as fit beside it. */
 #define VISIBLE (1 + (LIST_H - SEL_H) / ITEM_H)
@@ -601,7 +598,7 @@ static void draw_action_row(const struct catalog *catalog, float y, float h,
     char value[48], size[24];
     int updates = shell_tab_kind() == SHELL_TAB_STICK;
     int open = (int)(255 * amt), shut = 255 - open;
-    float gx = PIC_R - (ICON_W + (BIG_W - ICON_W) * amt) / 2.0f;
+    float gx = LIST_X + BIG_W - (ICON_W + (BIG_W - ICON_W) * amt) / 2.0f;
     float gy = y + h / 2.0f;
 
     shell_action_plan(&plan);
@@ -619,21 +616,21 @@ static void draw_action_row(const struct catalog *catalog, float y, float h,
     /* The two forms cross: the heading and its tally fade out where they
        stood, the bill fades in where it stands. */
     if (shut > 0) {
-        font_print_clipped(FONT_BODY, TEXT_X, y + 13, TEXT_W, faded(g_dim, shut),
+        font_print_clipped(FONT_BODY, OPEN_X, y + 13, OPEN_W, faded(g_dim, shut),
                            action_title());
-        font_print_clipped(FONT_META, TEXT_X, y + 25, TEXT_W, faded(g_dim, shut),
+        font_print_clipped(FONT_META, OPEN_X, y + 25, OPEN_W, faded(g_dim, shut),
                            action_line());
     }
     if (open <= 0) return;
-    font_print_clipped(FONT_H1, TEXT_X, y + 16, TEXT_W, faded(g_text, open),
+    font_print_clipped(FONT_H1, OPEN_X, y + 16, OPEN_W, faded(g_text, open),
                        action_title());
     if (plan.apps > 0) {
         size_mb(plan.bytes, size, sizeof(size));
         download_time(plan.bytes, value, sizeof(value));
-        font_printf(FONT_META, TEXT_X, y + 34, faded(g_dim, open),
+        font_printf(FONT_META, OPEN_X, y + 34, faded(g_dim, open),
                     "%s to download, about %s", size, value);
     } else {
-        font_print(FONT_META, TEXT_X, y + 34, faded(g_dim, open),
+        font_print(FONT_META, OPEN_X, y + 34, faded(g_dim, open),
                    "nothing here has a release with a size");
     }
     /* One line a package, in the order they would be fetched, for as many as
@@ -645,16 +642,16 @@ static void draw_action_row(const struct catalog *catalog, float y, float h,
         const struct app_entry *entry = &catalog->apps[index];
         if (!entry->has_release || !entry->release.size) continue;
         if (line >= room) {
-            font_printf(FONT_META, TEXT_X, y + 48 + line * 13, faded(g_dim, open),
+            font_printf(FONT_META, OPEN_X, y + 48 + line * 13, faded(g_dim, open),
                         "and %d more", plan.apps - line);
             break;
         }
         size_mb(entry->release.size, size, sizeof(size));
         float sw = font_width(FONT_META, size);
-        font_print_clipped(FONT_META, TEXT_X, y + 48 + line * 13, TEXT_W - sw - 10,
+        font_print_clipped(FONT_META, OPEN_X, y + 48 + line * 13, OPEN_W - sw - 10,
                            faded(entry->state == APP_UPDATE ? UPDATE_RGB : g_text, open),
                            entry->name);
-        font_print(FONT_META, TEXT_X + TEXT_W - sw, y + 48 + line * 13,
+        font_print(FONT_META, OPEN_X + OPEN_W - sw, y + 48 + line * 13,
                    faded(g_dim, open), size);
         line++;
     }
@@ -666,9 +663,7 @@ static void draw_action_row(const struct catalog *catalog, float y, float h,
    of the row's width for the name. */
 static int draw_row_marks(const struct app_entry *entry, float amt,
                           float my, int width, float t) {
-    /* At the end of the lettering's column, which is where a line of it
-       ends: the row's own right edge belongs to the picture now. */
-    float mx = LIST_X + TEXT_W - 8;
+    float mx = LIST_X + LIST_W - 8;
     int lit = amt > 0.5f;
     if (entry->state == APP_UPDATE) {
         mark_draw(MARK_UPDATE, mx, my,
@@ -737,14 +732,14 @@ static void draw_row_picture(float y, float h, float amt,
     int film_alpha;
     const struct gfx_texture *film = amt >= 1.0f ? preview_film(&film_alpha) : 0;
     const struct gfx_texture *show = film ? film : icon;
-    /* The box hangs from the row's right edge, which never moves: an icon
-       that grew from a fixed left edge would push whatever is beside it
-       along, and anything that slides sideways every time the cursor moves
-       is the one thing in a list the eye cannot forgive. It grows to the
-       left instead, into the space a closed row leaves empty. */
+    /* The box hangs from its right edge, which never moves: an icon that
+       grew from the left would push the lettering along with it, and text
+       that slides sideways every time the cursor moves is the one thing in
+       a list the eye cannot forgive. It grows to the left instead, into the
+       space a closed row leaves empty. */
     float bw = ICON_W + (BIG_W - ICON_W) * amt;
     float bh = ICON_H + (BIG_H - ICON_H) * amt;
-    float bx = PIC_R - bw;
+    float bx = LIST_X + BIG_W - bw;
     float by = y + (h - bh) / 2.0f;
     int shade = 150 + (int)(105 * amt);
     if (!show) {
@@ -827,31 +822,31 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
         /* The name crosses from where a closed row carries it to where an
            open one does, in the face each of them uses. */
         if (shut > 0) {
-            int w = draw_row_marks(entry, amt, y + h / 2 - 1, TEXT_W, t);
-            font_print_clipped(FONT_BODY, TEXT_X, y + h / 2 + 5, w,
+            int w = draw_row_marks(entry, amt, y + h / 2 - 1, OPEN_W, t);
+            font_print_clipped(FONT_BODY, OPEN_X, y + h / 2 + 5, w,
                                faded(g_dim, shut), entry->name);
         }
         if (open > 0) {
             unsigned color;
             const char *line = state_line(entry, &color);
-            int w = draw_row_marks(entry, amt, y + h / 2 - 1, TEXT_W, t);
+            int w = draw_row_marks(entry, amt, y + h / 2 - 1, OPEN_W, t);
             float nw = font_width(FONT_H1, entry->name);
             float sw = font_width(FONT_META, line);
             float ty = y + 20;
             if (nw + 10 + sw <= w) {
-                float x = font_print(FONT_H1, TEXT_X, ty, faded(g_text, open),
+                float x = font_print(FONT_H1, OPEN_X, ty, faded(g_text, open),
                                      entry->name);
                 font_print(FONT_META, x + 10, ty, faded(color, open), line);
             } else {
                 /* A long name keeps its line whole; the state takes the
                    next. */
-                font_print_clipped(FONT_H1, TEXT_X, ty, w, faded(g_text, open),
+                font_print_clipped(FONT_H1, OPEN_X, ty, w, faded(g_text, open),
                                    entry->name);
                 ty += 19;
-                font_print_clipped(FONT_META, TEXT_X, ty, w, faded(color, open),
+                font_print_clipped(FONT_META, OPEN_X, ty, w, faded(color, open),
                                    line);
             }
-            font_print_clipped(FONT_META, TEXT_X, ty + 22, w,
+            font_print_clipped(FONT_META, OPEN_X, ty + 22, w,
                                faded(g_dim, open * 170 / 255), entry->summary);
         }
         y += h;
@@ -871,7 +866,7 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
 static void draw_picture(float t) {
     (void)t;
     int veil = (int)(256.0f * (1.0f - g_veil));
-    gfx_glow(PIC_R - BIG_W / 2, g_open_y + BIG_H / 2, BIG_W + 130, BIG_H + 120,
+    gfx_glow(LIST_X + BIG_W / 2, g_open_y + BIG_H / 2, BIG_W + 130, BIG_H + 120,
              rgb_pack(g_tint, 100));
     gfx_veil(256);
     int index = shell_view_index(g_cursor);
