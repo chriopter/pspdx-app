@@ -82,11 +82,11 @@ else
 fi
 [ -f "$APP/EBOOT.PBP" ] || { echo "no EBOOT.PBP" >&2; exit 1; }
 
-mkdir -p "$MS/PSP/GAME/pspdx" "$MS/PSP/PSPDX/font" "$MS/PSP/PSPDX/cache"
+mkdir -p "$MS/PSP/PSPDX/CRYPTO" "$MS/PSP/PSPDX/LOGS" "$MS/PSP/PSPDX/DEBUG" "$MS/PSP/GAME/pspdx" "$MS/PSP/PSPDX/DEBUG/font" "$MS/PSP/PSPDX/CACHE/media"
 cp "$APP/EBOOT.PBP" "$MS/PSP/GAME/pspdx/"
 
 FONTS="$(flatpak info --show-location org.ppsspp.PPSSPP 2>/dev/null)/files/share/ppsspp/assets/flash0/font"
-[ -f "$FONTS/ltn8.pgf" ] && cp "$FONTS/ltn8.pgf" "$MS/PSP/PSPDX/font/ltn8.pgf"
+[ -f "$FONTS/ltn8.pgf" ] && cp "$FONTS/ltn8.pgf" "$MS/PSP/PSPDX/DEBUG/font/ltn8.pgf"
 
 # The films out of a catalog site built next door, planted under the name an
 # entry that links no film is looked up by, so a row has something to play
@@ -95,29 +95,17 @@ FONTS="$(flatpak info --show-location org.ppsspp.PPSSPP 2>/dev/null)/files/share
 for clip in "$HERE"/../pspdx-catalog/site/apps/*/film-*.pmf \
             "$HERE"/catalog/site/apps/*/film-*.pmf; do
 	[ -f "$clip" ] || continue
-	cp "$clip" "$MS/PSP/PSPDX/cache/$(basename "$(dirname "$clip")").mp4"
+	cp "$clip" "$MS/PSP/PSPDX/CACHE/media/$(basename "$(dirname "$clip")").mp4"
 done
 
-rm -f "$MS/PSPDX.REPLAY" "$MS/PSPDX.KEYS" "$MS/PSPDX.INSTALL" "$MS/PSPDX.SLOW"
-# Tux Racer is always behind: its record is set to revision 1 when it is
-# installed, so the catalog's release counts as newer and the list has one
-# row with the update arrows on it to look at.
-TUX="$MS/PSP/PSPDX/db/io.github.chriopter.extremetuxracer.json"
-[ -f "$TUX" ] && python3 - "$TUX" <<'PY'
-import json, sys
-p = sys.argv[1]
-r = json.load(open(p))
-r["rev"] = 1
-r["version"] = "0.0.1"
-open(p, "w").write(json.dumps(r, separators=(",", ":")) + "\n")
-PY
+rm -f "$MS/PSP/PSPDX/DEBUG/PSPDX.REPLAY" "$MS/PSP/PSPDX/DEBUG/PSPDX.KEYS" "$MS/PSP/PSPDX/DEBUG/PSPDX.INSTALL" "$MS/PSP/PSPDX/DEBUG/PSPDX.SLOW"
 # The host's network is ten times a PSP's; with the file there the client
 # holds every fetch to what the 1004's radio and stack actually deliver.
-[ "$SLOW" = 1 ] && printf '180' >"$MS/PSPDX.SLOW"
+[ "$SLOW" = 1 ] && printf '180' >"$MS/PSP/PSPDX/DEBUG/PSPDX.SLOW"
 if [ "$RESET" = 1 ]; then
-	rm -f "$MS/PSPDX.SEED"
+	rm -f "$MS/PSP/PSPDX/CRYPTO/seed.bin"
 else
-	[ -f "$MS/PSPDX.SEED" ] || printf 'PSPDX-TEST-SEED-0000' >"$MS/PSPDX.SEED"
+	[ -f "$MS/PSP/PSPDX/CRYPTO/seed.bin" ] || printf 'PSPDX-TEST-SEED-0000' >"$MS/PSP/PSPDX/CRYPTO/seed.bin"
 fi
 
 if [ "$MOCK" = 1 ]; then

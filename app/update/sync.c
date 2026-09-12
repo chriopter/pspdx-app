@@ -20,13 +20,9 @@ static SceUID g_thread = -1;
 static int run(SceSize args, void *argp) {
     (void)args; (void)argp;
     g_state = SYNC_CONNECTING;
-    if (net_up() < 0) {
-        logline("network failed");
-        snprintf(g_message, sizeof(g_message), "no network");
-        g_state = SYNC_FAILED;
-        return 0;
-    }
-    logline("net up");
+    int online=net_up()>=0;
+    catalog_offline(!online);
+    if(!online)logline("offline: using saved catalogs and installed apps");
     g_state = SYNC_FETCHING;
     int count = catalog_fetch(g_catalog);
     if (count < 0) {
@@ -38,7 +34,7 @@ static int run(SceSize args, void *argp) {
     g_catalog->count = count;
     g_state = SYNC_CHECKING;
     if (count > 0) catalog_check_updates(g_catalog);
-    g_message[0] = '\0';
+    snprintf(g_message,sizeof(g_message),"%s",online?"":"Offline: last known releases");
     g_state = SYNC_DONE;
     return 0;
 }
@@ -79,6 +75,6 @@ const char *sync_message(void) {
     case SYNC_FETCHING:   return progress[0] ? progress : phase[0] ? phase : "catalog";
     case SYNC_CHECKING:   return "checking for updates";
     case SYNC_FAILED:     return g_message;
-    default:              return "";
+    default:              return g_message;
     }
 }

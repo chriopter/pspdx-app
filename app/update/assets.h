@@ -24,6 +24,6 @@ enum asset_kind {
    two. url may be empty, in which case only the cache is tried. Returns
    NULL and logs if there is nothing to show. */
 const void *asset_fetch(enum asset_kind kind, const char *id, const char *url,
-                        size_t *len);
+                        int cached_only, size_t *len);
 
 #endif

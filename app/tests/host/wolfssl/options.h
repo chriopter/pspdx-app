@@ -1,0 +1,1 @@
+/* Host tests use OpenSSL only as the SHA implementation. */

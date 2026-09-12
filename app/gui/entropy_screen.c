@@ -1,3 +1,4 @@
+#include "util/storage.h"
 /*
  * The entropy sweep. The field the browser stands on starts dry; the stick
  * carries a source of water over it, and where the source goes water is
@@ -30,9 +31,9 @@
 
 
 #define TRACE_MAX 5000
-#define TRACE_FILE  "ms0:/PSPDX.TRACE"
-#define REPLAY_FILE "ms0:/PSPDX.REPLAY"
-#define REC_DIR "ms0:/PSPDX_REC"
+#define TRACE_FILE  storage_path("PSP/PSPDX/DEBUG/PSPDX.TRACE")
+#define REPLAY_FILE storage_path("PSP/PSPDX/DEBUG/PSPDX.REPLAY")
+#define REC_DIR storage_path("PSP/PSPDX/DEBUG/PSPDX_REC")
 #define REC_EVERY 4
 
 /* The room before there is a catalog to colour it: the shell's own default. */
@@ -110,7 +111,7 @@ void entropy_screen_reset_cache(void) {
 
 void entropy_screen_prepare(void) {
     trace_load();
-    int fd = sceIoOpen("ms0:/PSPDX.RECORD", PSP_O_RDONLY, 0777);
+    int fd = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.RECORD"), PSP_O_RDONLY, 0777);
     if (fd < 0) return;
     sceIoClose(fd);
     recording = 1;
@@ -122,7 +123,7 @@ int entropy_screen_is_replay(void) { return replaying; }
 static void record_frame(int frame) {
     if (!recording || frame % REC_EVERY) return;
     char path[64];
-    snprintf(path, sizeof(path), REC_DIR "/F%05d.BMP", frame / REC_EVERY);
+    snprintf(path, sizeof(path), "%s/F%05d.BMP", REC_DIR, frame / REC_EVERY);
     gfx_screenshot(path);
 }
 

@@ -50,7 +50,7 @@ enum film_state { FILM_NONE, FILM_LOADING, FILM_PLAYING, FILM_FAILED };
    the bytes are the app's own rather than what a catalog says about it. */
 struct request {
     char id[96], shot_url[256], video_url[256], sound_url[256];
-    int installed;
+    int installed, cached_only;
     char pbp[128];                      /* the thread's, empty in g_want */
     volatile unsigned gen;
 };
@@ -98,7 +98,7 @@ static void load_still(const struct request *req, unsigned gen, struct gfx_textu
     }
     if (decoded != 0) {
         size_t len = 0;
-        const void *png = asset_fetch(ASSET_SHOT, req->id, req->shot_url, &len);
+        const void *png = asset_fetch(ASSET_SHOT, req->id, req->shot_url, req->cached_only, &len);
         if (stale(gen)) return;
         if (!png || image_decode_png(png, len, into) != 0) {
             g_still_state = STILL_FAILED;
@@ -170,7 +170,7 @@ static void load_film(const struct request *req, unsigned gen) {
         }
     }
     size_t len = 0;
-    const unsigned char *mp4 = asset_fetch(ASSET_VIDEO, req->id, req->video_url, &len);
+    const unsigned char *mp4 = asset_fetch(ASSET_VIDEO, req->id, req->video_url, req->cached_only, &len);
     if (stale(gen)) return;
     if (!mp4) { g_film_state = FILM_FAILED; return; }
     /* The bytes say what they are, not the name they were served under. */
@@ -218,7 +218,7 @@ static void load_sound(const struct request *req, unsigned gen) {
         }
     }
     size_t len = 0;
-    const void *at3 = asset_fetch(ASSET_SOUND, req->id, req->sound_url, &len);
+    const void *at3 = asset_fetch(ASSET_SOUND, req->id, req->sound_url, req->cached_only, &len);
     if (!at3 || stale(gen)) return;
     audio_sound_play(at3, len);
     if (stale(gen)) audio_sound_stop();
@@ -380,6 +380,7 @@ void preview_show(const struct app_entry *entry, int immediately) {
        not a shorter request, it is a request for the wrong thing. */
     if (strcmp(g_want.id, entry ? entry->id : "") == 0) return;
     snprintf(g_want.id, sizeof(g_want.id), "%s", entry ? entry->id : "");
+    g_want.cached_only = entry ? entry->media_cached_only : 1;
     snprintf(g_want.shot_url, sizeof(g_want.shot_url), "%s",
              entry ? entry->screenshot : "");
     snprintf(g_want.video_url, sizeof(g_want.video_url), "%s",

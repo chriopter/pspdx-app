@@ -132,8 +132,8 @@ def mock_plan():
     for i, (name, category, _author, _kinds) in enumerate(mc.ROWS[:mc.COUNT]):
         rows.append({
             "index": i,
-            "id": "%s%02d.%s" % (mc.ID_PREFIX, i, mc.slug(name).lower()),
-            "dir": "%s%02d%s" % (mc.DIR_PREFIX, i, mc.slug(name)),
+            "id": "%sapp%02d%s" % (mc.ID_PREFIX, i, mc.slug(name).lower()[:32]),
+            "dir": "%s%02d%s" % (mc.DIR_PREFIX, i, mc.slug(name)[:21]),
             "name": name,
             "category": category,
             "rev": mc.REV_BASE + i * 1000,

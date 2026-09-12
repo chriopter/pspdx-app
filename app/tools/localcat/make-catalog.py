@@ -23,8 +23,11 @@ for a in apps:
 out = []
 for i in range(40):
     a = dict(apps[i % len(apps)])
-    a["id"] = "%s.n%02d" % (a["id"], i)
+    a["id"] = "io.github.pspdxfixture.app%02d" % i
+    a["repo"] = "https://github.com/pspdxfixture/app%02d" % i
+    a["installdir"] = "PSP/GAME/Fixture%02d" % i
     a["name"] = "%s %d" % (a["name"], i + 1)
+    a["_test_manifest"]=dict(schema="https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",source=a["repo"],name=a["name"][:39],category=a["category"],installdir=a["installdir"])
     out.append(a)
 
 # Two more, for the installer: the same EBOOT in the two archive layouts the
@@ -47,6 +50,9 @@ def entry(id, name, members):
     open(os.path.join(site, rel), "wb").write(blob)
     a = dict(src)
     a["id"] = id; a["name"] = name
+    a["repo"] = "https://github.com/chriopter/" + id.rsplit(".",1)[1]
+    a["installdir"] = "PSP/GAME/" + id.rsplit(".",1)[1]
+    a["_test_manifest"]=dict(schema="https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",source=a["repo"],name=name,category=a["category"],installdir=a["installdir"])
     a["release"] = dict(src["release"], url="https://127.0.0.1:8443/" + rel,
                         sha256=hashlib.sha256(blob).hexdigest(), size=len(blob))
     return a

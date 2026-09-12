@@ -5,7 +5,7 @@
 #include "install/install.h"
 
 #define MAX_APPS 64
-#define MAX_SUMMARY 60
+#define MAX_SUMMARY 241
 
 /* PSPDX is an app in its own catalog, and a few things have to know which row
    is the client itself: the one that cannot be removed while it is running,
@@ -17,11 +17,11 @@ enum app_state { APP_UNKNOWN, APP_NOT_INSTALLED, APP_CURRENT, APP_UPDATE };
 
 struct app_entry {
     char id[96];
-    char name[40];
-    char author[40];
+    char name[157];
+    char author[157];
     char summary[MAX_SUMMARY];
     char category[12];
-    char license[16];
+    char license[257];
     /* The release the entry installs from, as a cache derived it or as
        GitHub answered at the origin, so what is current is known without
        a fetch per app. repo is the repository it came from: it goes into
@@ -29,6 +29,8 @@ struct app_entry {
        entry are known to be the same app. */
     struct manifest release;
     int has_release;
+    int fresh;
+    int media_cached_only;
     char repo[256];
     /* Absolute already: the catalog serves these relative to itself, and
        resolving them once at parse time keeps the base URL in this file. */
@@ -55,6 +57,10 @@ struct catalog {
    there is no cache, is asked at the origin. Returns the number of apps,
    or -1 when no source answered at all. */
 int catalog_fetch(struct catalog *catalog);
+void catalog_offline(int value);
+void catalog_force_sources(void);
+int catalog_prepare(struct app_entry *entry);
+int catalog_validate_source(const char *url,int repository);
 
 /* One repository asked at the origin and put into the catalog, for the
    unattended install: the index of its entry, which may have been there

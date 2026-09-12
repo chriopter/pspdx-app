@@ -95,10 +95,13 @@ int zip_next(struct zipread *z, struct zipentry *e) {
 
     uint16_t take = nlen < sizeof(e->name) - 1 ? nlen : (uint16_t)(sizeof(e->name) - 1);
     if (read_at(z->fd, z->cd_pos + 46, e->name, take) < 0) return -1;
+    if(memchr(e->name,0,take))return -1;
     e->name[take] = '\0';
     e->name_truncated = take != nlen;
 
-    z->cd_pos += 46u + nlen + xlen + clen;
+    unsigned long long next=(unsigned long long)z->cd_pos+46u+nlen+xlen+clen;
+    if(next>(unsigned long long)z->cd_off+z->cd_size)return -1;
+    z->cd_pos=(uint32_t)next;
     z->index++;
     return 1;
 }
@@ -129,7 +132,9 @@ int zip_extract(struct zipread *z, const struct zipentry *e,
     unsigned char lh[30];
     if (read_at(z->fd, e->local_off, lh, sizeof(lh)) < 0) return -1;
     if (rd32(lh) != SIG_LOCAL) { logline("zip: bad local header"); return -1; }
-    uint32_t data = e->local_off + 30u + rd16(lh + 26) + rd16(lh + 28);
+    unsigned long long offset=(unsigned long long)e->local_off+30u+rd16(lh+26)+rd16(lh+28);
+    if(offset+e->csize>z->cd_off)return -1;
+    uint32_t data=(uint32_t)offset;
     if (sceIoLseek32(z->fd, (int)data, PSP_SEEK_SET) != (int)data) return -1;
 
     static unsigned char in[32 * 1024];
@@ -142,8 +147,10 @@ int zip_extract(struct zipread *z, const struct zipentry *e,
         while (left) {
             int n = sceIoRead(z->fd, in, left < sizeof(in) ? left : sizeof(in));
             if (n <= 0) return -1;
+            if((uint32_t)n > e->usize - written)return -1;
             if (sink(ctx, in, (size_t)n) != 0) return -1;
             sum = crc32(sum, in, (uInt)n);
+            if((uint32_t)n > e->usize - written)return -1;
             written += (uint32_t)n;
             left -= (uint32_t)n;
         }
@@ -171,7 +178,7 @@ int zip_extract(struct zipread *z, const struct zipentry *e,
         /* A deflate stream can claim any expansion ratio it likes. Writing
            past the size the central directory declared is how a 42 MB archive
            fills a Memory Stick, so it ends the entry rather than the stick. */
-        if (written + got > e->usize) {
+        if (got > e->usize - written) {
             logline("zip: %s expands past its declared size", e->name);
             break;
         }

@@ -1,3 +1,4 @@
+#include "util/storage.h"
 #include <pspiofilemgr.h>
 #include <intraFont.h>
 #include <stdarg.h>
@@ -16,7 +17,7 @@
 static const char *CANDIDATES[] = {
     "flash0:/font/ltn8.pgf",
     "flash0:/font/ltn0.pgf",
-    "ms0:/PSP/PSPDX/font/ltn8.pgf",
+    NULL,
 };
 
 static intraFont *g_font;
@@ -127,9 +128,9 @@ int font_init(void) {
         return 0;
     }
     for (unsigned i = 0; i < sizeof(CANDIDATES) / sizeof(*CANDIDATES); i++) {
-        g_font = intraFontLoad(CANDIDATES[i], INTRAFONT_CACHE_ALL);
+        g_font = intraFontLoad((CANDIDATES[i] ? CANDIDATES[i] : storage_path("PSP/PSPDX/DEBUG/font/ltn8.pgf")), INTRAFONT_CACHE_ALL);
         if (g_font) {
-            logline("font: %s", CANDIDATES[i]);
+            logline("font: %s", (CANDIDATES[i] ? CANDIDATES[i] : storage_path("PSP/PSPDX/DEBUG/font/ltn8.pgf")));
             g_styled = -1;
             forget_measurements();
             return 1;

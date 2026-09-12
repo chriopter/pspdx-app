@@ -1,3 +1,5 @@
+#include <time.h>
+#include "util/storage.h"
 /*
  * The browser: a list of names on the left, the selected package on the
  * right, both standing on the lattice. Layout lives here; everything that
@@ -1126,7 +1128,7 @@ static void read_storage(void) {
     struct { struct ms_info *at; } command = { &info };
     memset(&info, 0, sizeof(info));
     g_storage_used = -1.0f;
-    if (sceIoDevctl("ms0:", 0x02425818, &command, sizeof(command), NULL, 0) < 0) {
+    if (sceIoDevctl(storage_device(), 0x02425818, &command, sizeof(command), NULL, 0) < 0) {
         snprintf(g_storage, sizeof(g_storage), "unknown");
         return;
     }
@@ -1141,8 +1143,10 @@ static void read_storage(void) {
    cursor's, and the cursor is the main loop's. */
 static const char *const INFO_ACTION[INFO_ACTIONS] = {
     "Update catalog",
-    "Add a list or repository",
-    "Install from GitHub",
+    "Add catalog",
+    "Add GitHub repository",
+    "Read INBOX",
+    "Check original sources",
     "Discard entropy and sweep again",
 };
 
@@ -1213,8 +1217,9 @@ static void draw_info(void) {
     }
 
     band_rule(INFO_Y + 134, 160, 120);
-    for (int i = 0; i < INFO_ACTIONS; i++) {
-        int y = ACTION_Y + i * ACTION_H;
+    int first=g_info_action>=4?g_info_action-3:0;
+    for (int i = first; i < INFO_ACTIONS && i<first+4; i++) {
+        int y = ACTION_Y + (i-first) * ACTION_H;
         int on = i == g_info_action;
         if (on) {
             gfx_glow(SCR_W / 2, y - 5, 380, 32, rgb_pack(g_tint, 110));
@@ -1298,8 +1303,14 @@ static void draw_details(void) {
     }
     fact(y + 80, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, "Id", e->id);
 
-    band_rule(y + 100, 160, 120);
-    draw_wrapped(FONT_META, 40, y + 118, SCR_W - 80, 16, 3, g_dim, e->summary);
+    if(e->release.checked_at){
+        time_t checked=e->release.checked_at;struct tm *date=gmtime(&checked);
+        char when[24]="unknown";if(date)strftime(when,sizeof(when),"%Y-%m-%d %H:%M UTC",date);
+        snprintf(value,sizeof(value),"%s%s",e->fresh?"":"Saved: ",when);
+    }else snprintf(value,sizeof(value),"%s",e->fresh?"Checked this session":"Saved result; check time unknown");
+    fact(y+100,FACT_LABEL,FACT_VALUE,SCR_W-FACT_VALUE-30,"Checked",value);
+    band_rule(y + 116, 160, 120);
+    draw_wrapped(FONT_META, 40, y + 134, SCR_W - 80, 16, 2, g_dim, e->summary);
 }
 
 void shell_details(const struct app_entry *entry) { g_details = entry; }

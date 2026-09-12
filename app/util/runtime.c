@@ -1,3 +1,4 @@
+#include "util/storage.h"
 #include <pspkernel.h>
 #include <pspiofilemgr.h>
 #include <psprtc.h>
@@ -69,7 +70,7 @@ void log_dump(void) {
         n += len;
         out[n++] = '\n';
     }
-    int fd = sceIoOpen("ms0:/PSPDX.LOG", PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    int fd = sceIoOpen(storage_path("PSP/PSPDX/LOGS/pspdx.log"), PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
     if (fd < 0) return;
     sceIoWrite(fd, out, (SceSize)n);
     sceIoClose(fd);

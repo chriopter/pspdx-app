@@ -280,18 +280,17 @@ def read_stick(ms, world):
     """What the mock's third of the stick looks like now. Only the mock's own
     ids and directory names are read: the user's real installs live in the
     same two directories and are none of this harness's business."""
-    db_dir = os.path.join(ms, "PSP/PSPDX/db")
-    game_dir = os.path.join(ms, "PSP/GAME")
+    db_dir = os.path.join(ms,"PSP/PSPDX/INSTALLED")
+    game_dir = os.path.join(ms,"PSP/GAME")
     records = {}
-    if os.path.isdir(db_dir):
-        for name in sorted(os.listdir(db_dir)):
-            if not name.startswith(world["id_prefix"]) or not name.endswith(".json"):
-                continue
-            try:
-                records[name[:-5]] = json.load(open(os.path.join(db_dir, name)))
-            except (OSError, ValueError) as exc:
-                records[name[:-5]] = {"unreadable": str(exc)}
-    dirs = []
+    state_path=os.path.join(db_dir,"state.json")
+    if os.path.exists(state_path):
+        state=json.load(open(state_path))
+        for id, record in state.items():
+            if not id.startswith(world["id_prefix"]):continue
+            installed=record["installed"]
+            records[id]=dict(id=id,rev=installed["published_at"],dir=installed["installdir"][9:],version=installed["version"],manifest="")
+    dirs=[]
     if os.path.isdir(game_dir):
         dirs = sorted(n for n in os.listdir(game_dir)
                       if n.startswith(world["dir_prefix"]))
@@ -379,8 +378,8 @@ def check(result, tail, pred, records, dirs, ms, began_at, ended_at, keys, world
     # the moment the catalog is up, immediately before the key script's own
     # clock starts, and PSPDX1.BMP when the script's last key asks for it.
     # Both are closed straight away, so the host's mtime is the moment.
-    catalog_up = mtime(os.path.join(ms, "PSPDX.BMP"))
-    shot_at = mtime(os.path.join(ms, "PSPDX1.BMP"))
+    catalog_up = mtime(os.path.join(ms, "PSP/PSPDX/DEBUG/PSPDX.BMP"))
+    shot_at = mtime(os.path.join(ms, "PSP/PSPDX/DEBUG/PSPDX1.BMP"))
     if shot_at is None:
         fails.append("e: PSPDX1.BMP was not written")
     elif shot_at < began_at:
@@ -493,7 +492,7 @@ def keep_evidence(tag, ms, keyfile, tail):
         for at, text in tail.lines:
             fh.write("%8.1f  %s\n" % (at - began, text))
     for name in ("PSPDX1.BMP", "PSPDX.BMP", "PSPDX2.BMP"):
-        src = os.path.join(ms, name)
+        src = os.path.join(ms, "PSP/PSPDX/LOGS/pspdx.log" if name == "PSPDX.LOG" else "PSP/PSPDX/DEBUG/" + name)
         if os.path.exists(src):
             shutil.copyfile(src, os.path.join(out, name))
     return out
@@ -526,10 +525,10 @@ def one_run(paths, world, seed, run, lock, stretch=SLOWDOWN):
         wait_idle()
         subprocess.run(["sh", RIG, "plant"], check=True,
                        stdout=subprocess.DEVNULL)
-        logpath = os.path.join(ms, "PSPDX.LOG")
+        logpath = os.path.join(ms, "PSP/PSPDX/LOGS/pspdx.log")
         for name in ("PSPDX.LOG", "PSPDX1.BMP", "PSPDX2.BMP"):
             try:
-                os.remove(os.path.join(ms, name))
+                os.remove(os.path.join(ms, "PSP/PSPDX/LOGS/pspdx.log" if name == "PSPDX.LOG" else "PSP/PSPDX/DEBUG/" + name))
             except OSError:
                 pass
         tail = LogTail(logpath)
@@ -630,10 +629,10 @@ def perf_run(paths, world, seed, run, lock):
         subprocess.run(["sh", RIG, "plant"], check=True, stdout=subprocess.DEVNULL)
         for name in ("PSPDX.LOG", "PSPDX1.BMP", "PSPDX2.BMP"):
             try:
-                os.remove(os.path.join(ms, name))
+                os.remove(os.path.join(ms, "PSP/PSPDX/LOGS/pspdx.log" if name == "PSPDX.LOG" else "PSP/PSPDX/DEBUG/" + name))
             except OSError:
                 pass
-        tail = LogTail(os.path.join(ms, "PSPDX.LOG"))
+        tail = LogTail(os.path.join(ms, "PSP/PSPDX/LOGS/pspdx.log"))
         began_at = time.time()
         proc = run_rig(secs, keyfile)
         tail.start()
@@ -657,8 +656,8 @@ def perf_run(paths, world, seed, run, lock):
     # last key, so its screenshot dates the guest against the host, and the
     # installs the key file asked for become windows the frame times are not
     # judged in.
-    catalog_up = mtime(os.path.join(ms, "PSPDX.BMP")) or began_at
-    shot_at = mtime(os.path.join(ms, "PSPDX1.BMP"))
+    catalog_up = mtime(os.path.join(ms, "PSP/PSPDX/DEBUG/PSPDX.BMP")) or began_at
+    shot_at = mtime(os.path.join(ms, "PSP/PSPDX/DEBUG/PSPDX1.BMP"))
     slowdown = 1.0
     if shot_at and plan.script:
         slowdown = max(0.7, min(5.0, (shot_at - catalog_up) /
@@ -763,7 +762,7 @@ def edge_catalog_up(ms, began, timeout=120):
     moment the key script's clock starts and the moment a timeline counts
     from. PSPDX.BMP is written whether the catalog came or the client gave
     up on it, so the offline scenarios have this too."""
-    path = os.path.join(ms, "PSPDX.BMP")
+    path = os.path.join(ms, "PSP/PSPDX/DEBUG/PSPDX.BMP")
     while time.time() - began < timeout:
         if os.path.exists(path):
             return time.time()
@@ -802,8 +801,8 @@ def edge_check(sc, result, tail, rep, ms, began_at, ended_at, keys, world):
                 fails.append("b: %r" % text)
                 break
 
-    catalog_up = mtime(os.path.join(ms, "PSPDX.BMP"))
-    shot_at = mtime(os.path.join(ms, "PSPDX1.BMP"))
+    catalog_up = mtime(os.path.join(ms, "PSP/PSPDX/DEBUG/PSPDX.BMP"))
+    shot_at = mtime(os.path.join(ms, "PSP/PSPDX/DEBUG/PSPDX1.BMP"))
     if shot_at is None:
         fails.append("e: PSPDX1.BMP was not written; the final shot never "
                      "happened and the loop was not proved alive")
@@ -930,10 +929,10 @@ def edge_run(paths, world, sc, lock, stretch=SLOWDOWN):
             step(ctx)
         for name in ("PSPDX.LOG", "PSPDX.BMP", "PSPDX1.BMP", "PSPDX2.BMP"):
             try:
-                os.remove(os.path.join(ms, name))
+                os.remove(os.path.join(ms, "PSP/PSPDX/LOGS/pspdx.log" if name == "PSPDX.LOG" else "PSP/PSPDX/DEBUG/" + name))
             except OSError:
                 pass
-        tail = LogTail(os.path.join(ms, "PSPDX.LOG"))
+        tail = LogTail(os.path.join(ms, "PSP/PSPDX/LOGS/pspdx.log"))
         began_at = time.time()
         proc = run_rig(secs, keyfile, sc.extra_args)
         tail.start()

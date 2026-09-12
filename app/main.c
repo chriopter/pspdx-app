@@ -1,3 +1,8 @@
+#include "util/storage.h"
+#include "install/state.h"
+#include "update/pspdx.h"
+#include "update/inbox.h"
+#include "util/self_manifest.h"
 /* PSPDX application controller. Feature code lives behind module APIs. */
 
 #include <pspkernel.h>
@@ -112,6 +117,7 @@ static int dir_under_game(const char *path, char *out, size_t size) {
    build cannot know its own; catalog_check_updates reads the zero and settles
    it against the version string the first time it sees the catalog. */
 static void record_self(const char *path) {
+    if(storage_exists(storage_path("PSP/PSPDX/TMP/transaction.json")))return;
     struct installed self;
     if (db_read(PSPDX_SELF_ID, &self) == 0) {
         /* A record the catalog has not settled yet is provisional: a
@@ -128,6 +134,7 @@ static void record_self(const char *path) {
 
     memset(&self, 0, sizeof(self));
     strncpy(self.id, PSPDX_SELF_ID, sizeof(self.id) - 1);
+    snprintf(self.repo, sizeof(self.repo), "https://github.com/chriopter/pspdx");
     strncpy(self.version, PSPDX_VERSION, sizeof(self.version) - 1);
     /* Started from somewhere this cannot read -- a shell, a host debugger --
        leaves the name the release ships under, which is where it would be. */
@@ -188,7 +195,9 @@ static int install_app(int index, int screenshot, int at, int of) {
     SceUID self = sceKernelGetThreadId();
     sceKernelChangeThreadPriority(self, 0x22);
     unsigned start = now_ms();
-    int rc = install_release(&entry->release, &report, shell_install_phase,
+    catalog_offline(net_up()<0);
+    int rc = entry->has_release ? catalog_prepare(entry) : -1;
+    if(rc==0)rc=install_release(&entry->release, &report, shell_install_phase,
                              shell_install_progress, NULL);
     unsigned seconds = (now_ms() - start) / 1000;
     sceKernelChangeThreadPriority(self, 0x20);
@@ -198,7 +207,7 @@ static int install_app(int index, int screenshot, int at, int of) {
     if (rc == 0) {
         entry->state = APP_CURRENT;
         entry->local_rev = report.rev;
-        strncpy(entry->local_version, report.version, sizeof(entry->local_version) - 1);
+        snprintf(entry->local_version, sizeof(entry->local_version), "%s", report.version);
         entry->local_version[sizeof(entry->local_version) - 1] = '\0';
         /* The client can fetch itself, and just has: the EBOOT that is running
            is the one in RAM, and the file it was loaded from has been renamed
@@ -219,7 +228,7 @@ static int install_app(int index, int screenshot, int at, int of) {
     shell_install_end(message);
     cues_post(rc == 0 ? CUE_DONE : CUE_FAIL, 0);
     shell_draw(&catalog, row);
-    if (screenshot) screenshot_settled(row, "ms0:/PSPDX2.BMP");
+    if (screenshot) screenshot_settled(row, storage_path("PSP/PSPDX/DEBUG/PSPDX2.BMP"));
     return rc;
 }
 
@@ -272,7 +281,7 @@ static void launch_app(int index) {
         shell_status("no record of where that was installed");
         return;
     }
-    snprintf(path, sizeof(path), "ms0:/PSP/GAME/%s/EBOOT.PBP", record.dir);
+    snprintf(path, sizeof(path), storage_path("PSP/GAME/%s/EBOOT.PBP"), record.dir);
     int fd = sceIoOpen(path, PSP_O_RDONLY, 0777);
     if (fd < 0) {
         shell_status("that package has no EBOOT to start");
@@ -305,7 +314,7 @@ static void launch_app(int index) {
    draws the question and the footer that answers it; the answer arrives
    through the pad, which is read down in the loop, so the two halves meet
    in these two variables and nowhere else. */
-enum question { ASK_NOTHING, ASK_INSTALL, ASK_REMOVE, ASK_ALL };
+enum question { ASK_NOTHING, ASK_INSTALL, ASK_REMOVE, ASK_ALL, ASK_INBOX };
 static enum question g_question;
 static int g_question_of;
 
@@ -327,6 +336,10 @@ static void ask_install(int index) {
     } else {
         snprintf(line, sizeof(line), "size unknown");
     }
+    struct installed previous;
+    if(db_read(entry->id,&previous)==0 && strcmp(previous.dir,entry->release.dir))
+        snprintf(line,sizeof(line),"Move PSP/GAME/%.32s to %.32s",previous.dir,entry->release.dir);
+    else snprintf(line,sizeof(line),"%lu KB into PSP/GAME/%.32s",(unsigned long)(entry->release.size/1024),entry->release.dir);
     shell_ask(title, line);
     g_question = ASK_INSTALL;
     g_question_of = index;
@@ -414,8 +427,10 @@ static void install_all(void) {
         list[n] = at;
         n++;
     }
+    for(int i=0;i<n-1;i++)if(!strcmp(catalog.apps[list[i]].id,PSPDX_SELF_ID)){int self=list[i];memmove(list+i,list+i+1,(n-i-1)*sizeof(int));list[n-1]=self;break;}
     int done = 0;
     for (int i = 0; i < n; i++) {
+        SceCtrlData pad;sceCtrlPeekBufferPositive(&pad,1);if(pad.Buttons&PSP_CTRL_CIRCLE)break;
         if (install_app(list[i], 0, i + 1, n) == 0) {
             shell_basket_forget(list[i]);
             done++;
@@ -509,7 +524,7 @@ static void menu_move(int by) {
    like one typed on the gear tab. Returns its index in the catalog. */
 static int auto_install_index(void) {
     char text[SOURCE_URL], url[SOURCE_URL];
-    int fd = sceIoOpen("ms0:/PSPDX.INSTALL", PSP_O_RDONLY, 0777);
+    int fd = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.INSTALL"), PSP_O_RDONLY, 0777);
     if (fd < 0) return -1;
     int n = sceIoRead(fd, text, sizeof(text) - 1);
     sceIoClose(fd);
@@ -559,7 +574,7 @@ static unsigned button_named(const char *name) {
 
 static void keys_load(void) {
     static char text[4096];
-    int fd = sceIoOpen("ms0:/PSPDX.KEYS", PSP_O_RDONLY, 0777);
+    int fd = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.KEYS"), PSP_O_RDONLY, 0777);
     if (fd < 0) return;
     int n = sceIoRead(fd, text, sizeof(text) - 1);
     sceIoClose(fd);
@@ -614,7 +629,7 @@ static void osk_draw(void *ctx) {
     int cursor = *(const int *)ctx;
     shell_draw(shown(), cursor);
     if (keys_pressed() & KEY_SHOT) {
-        gfx_screenshot("ms0:/PSPDX1.BMP");
+        gfx_screenshot(storage_path("PSP/PSPDX/DEBUG/PSPDX1.BMP"));
         logline("shot: PSPDX1.BMP with the keyboard up");
     }
 }
@@ -629,16 +644,19 @@ static char g_wanted_name[64];            /* owner/repo, for the status line */
 /* Reads a source from the keyboard and adds it. Returns 1 when the catalog
    should be fetched again, 0 when there is nothing new. */
 static int type_source(int install) {
-    char text[SOURCE_URL], url[SOURCE_URL], message[96];
+    char text[SOURCE_URL], url[SOURCE_URL];
     int rc = osk_read(install ? "Install from GitHub: owner/repo"
-                              : "Add a list or repository", "", text, sizeof(text));
+                              : "Add catalog: HTTPS catalog.json URL", "", text, sizeof(text));
     if (rc <= 0 || !text[0]) return 0;
-    rc = sources_add(text, url, sizeof(url));
-    if (rc < 0) {
-        snprintf(message, sizeof(message), "Not a URL or owner/repo: %.60s", text);
-        shell_status(message);
-        return 0;
-    }
+    rc = sources_normalize(text,url,sizeof(url));
+    struct source_repo parsed;
+    if(rc<0 || (install && !sources_parse_repo(url,&parsed))) {shell_status("Enter a valid HTTPS URL or owner/repo");return 0;}
+    preview_quiesce();catalog_offline(net_up()<0);
+    rc=catalog_validate_source(url,install);
+    preview_resume();
+    if(rc<0){shell_status("Source unavailable or invalid; not added");return 0;}
+    rc=sources_add(url,url,sizeof(url));
+    if(rc<0){shell_status("Could not save source");return 0;}
     if (!install) {
         if (rc == 0) { shell_status("Already in sources.txt"); return 0; }
         return 1;
@@ -688,12 +706,32 @@ static int wanted_settled(int *cursor) {
     return found;
 }
 
+static void ask_inbox(void){
+    preview_quiesce();catalog_offline(net_up()<0);
+    shell_word("Reading INBOX");
+    int n=inbox_scan(&catalog);preview_resume();shell_view_rebuild(&catalog);
+    if(n<=0){shell_status("No installable INBOX entries; see log for errors");return;}
+    char title[64],line[96];snprintf(title,sizeof(title),"Install %d apps from INBOX?",n);
+    snprintf(line,sizeof(line),"%s",inbox_summary());shell_ask(title,line);g_question=ASK_INBOX;
+}
+static void install_inbox(void){
+    int count=inbox_count(),done=0;
+    for(int i=0;i<count;i++){
+        SceCtrlData pad;sceCtrlPeekBufferPositive(&pad,1);if(pad.Buttons&PSP_CTRL_CIRCLE)break;
+        int at=inbox_index(i);
+        if(install_app(at,0,i+1,count)==0){inbox_installed(i);done++;}
+    }
+    char message[96];snprintf(message,sizeof(message),"INBOX: %d of %d installed; remaining files kept",done,count);shell_status(message);
+}
+
 /* argv[0] is the path the firmware loaded this from -- the main thread's argp,
    which the loader fills with the EBOOT's own name. It is the only thing that
    says which directory under PSP/GAME the client is sitting in. */
 int main(int argc, char *argv[]) {
     /* Full speed: the film decodes and the piano plays on the same CPU
        the interface draws with. The default is two thirds of it. */
+    storage_init(argc > 0 ? argv[0] : NULL);
+    state_load();
     scePowerSetClockFrequency(333, 333, 166);
     if (setup_callbacks() < 0) {
         gui_init();
@@ -706,6 +744,8 @@ int main(int argc, char *argv[]) {
     /* After the recovery, which is what settles what is actually under
        PSP/GAME, and before the sync, which reads every record there is. */
     record_self(argc > 0 ? argv[0] : 0);
+    char self_manifest_path[256];storage_app_path(PSPDX_SELF_ID,self_manifest_path,sizeof(self_manifest_path));
+    if(!storage_exists(self_manifest_path) && state_ok() && !storage_exists(storage_path("PSP/PSPDX/TMP/transaction.json")))storage_write(self_manifest_path,PSPDX_SELF_MANIFEST,strlen(PSPDX_SELF_MANIFEST));
     entropy_init();
     entropy_screen_prepare();
     int sweep = entropy_screen_is_replay() || !entropy_load();
@@ -719,7 +759,7 @@ int main(int argc, char *argv[]) {
         gui_clear();
         gui_failure();
         sceDisplayWaitVblankStart();
-        gfx_screenshot("ms0:/PSPDX.BMP");
+        gfx_screenshot(storage_path("PSP/PSPDX/DEBUG/PSPDX.BMP"));
         dump_diagnostics();
         for (;;) sceDisplayWaitVblankStart();
     }
@@ -798,7 +838,7 @@ int main(int argc, char *argv[]) {
                while there is still something to connect to. */
             if (!shot_connecting && expired(shell_since, 1500)) {
                 shot_connecting = 1;
-                gfx_screenshot("ms0:/PSPDX0.BMP");
+                gfx_screenshot(storage_path("PSP/PSPDX/DEBUG/PSPDX0.BMP"));
             }
             if (sync_done()) {
                 synced = 1;
@@ -842,7 +882,7 @@ int main(int argc, char *argv[]) {
                 /* The rig's hooks, once: a retry that comes through does
                    not get to install or replay the keys a second time. */
                 if (rounds++ > 0) continue;
-                screenshot_settled(cursor, "ms0:/PSPDX.BMP");
+                screenshot_settled(cursor, storage_path("PSP/PSPDX/DEBUG/PSPDX.BMP"));
                 dump_diagnostics();
                 automatic = catalog.count > 0 ? auto_install_index() : -1;
                 if (automatic >= 0) {
@@ -854,7 +894,7 @@ int main(int argc, char *argv[]) {
                 }
                 keys_load();
                 g_keys_since = now_ms();
-                int bench = sceIoOpen("ms0:/PSPDX.BENCH", PSP_O_RDONLY, 0777);
+                int bench = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.BENCH"), PSP_O_RDONLY, 0777);
                 if (bench >= 0) {
                     sceIoClose(bench);
                     shell_status("benchmarking ciphers");
@@ -929,7 +969,7 @@ int main(int argc, char *argv[]) {
         if ((pressed & PSP_CTRL_UP) && count > 0 && !modal)
             cues_post(CUE_MOVE, cursor = (cursor + count - 1) % count);
         if (pressed & KEY_SHOT) {
-            screenshot_settled(cursor, "ms0:/PSPDX1.BMP");
+            screenshot_settled(cursor, storage_path("PSP/PSPDX/DEBUG/PSPDX1.BMP"));
             logline("shot: PSPDX1.BMP at cursor %d", cursor);
         }
 
@@ -941,6 +981,7 @@ int main(int argc, char *argv[]) {
                 ask_forget();
                 if (asked == ASK_INSTALL) install_app(index, 0, 0, 0);
                 else if (asked == ASK_ALL) install_all();
+                else if (asked == ASK_INBOX) install_inbox();
                 else uninstall_app(index);
                 dump_diagnostics();
                 /* What was just done can have emptied a tab. */
@@ -1012,6 +1053,8 @@ int main(int argc, char *argv[]) {
                 int refetch = 0;
                 if (action == 0 && synced) refetch = 1;
                 else if ((action == 1 || action == 2) && synced) refetch = type_source(action == 2);
+                else if(action==3 && synced)ask_inbox();
+                else if(action==4 && synced){catalog_force_sources();refetch=1;}
                 if (refetch) {
                     /* The catalog is fetched again from where the browser
                        stands: the list gives way to the word and the status
@@ -1033,7 +1076,7 @@ int main(int argc, char *argv[]) {
                         g_wanted_url[0] = '\0';
                         preview_resume();
                     }
-                } else if (action == 3) {
+                } else if (action == 5 && synced) {
                     /* The field drains and is swept again, in the room the
                        browser was already standing in. The old pool is set
                        aside rather than thrown away until the new one is

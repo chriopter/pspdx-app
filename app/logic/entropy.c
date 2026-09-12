@@ -1,11 +1,13 @@
+#include "util/storage.h"
 #include <pspkernel.h>
 #include <pspiofilemgr.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "logic/entropy.h"
 
 #define POOL_BYTES 20
-#define SEED_FILE "ms0:/PSPDX.SEED"
+#define SEED_FILE storage_path("PSP/PSPDX/CRYPTO/seed.bin")
 
 static unsigned char pool[POOL_BYTES];
 static unsigned int pool_counter;
@@ -102,14 +104,12 @@ void entropy_stir(const void *data, unsigned int len) {
 int entropy_bits(void) { return pool_bits; }
 
 int entropy_load(void) {
-    int fd = sceIoOpen(SEED_FILE, PSP_O_RDONLY, 0777);
-    if (fd < 0) return 0;
-    unsigned char stored[POOL_BYTES];
-    int n = sceIoRead(fd, stored, sizeof(stored));
-    sceIoClose(fd);
-    if (n != (int)sizeof(stored)) return 0;
+    char *stored=NULL;
+    int n=storage_read(SEED_FILE,&stored,POOL_BYTES);
+    if(n!=POOL_BYTES){free(stored);return 0;}
     pool_lock();
-    pool_absorb(stored, sizeof(stored));
+    pool_absorb(stored, POOL_BYTES);
+    free(stored);
     pool_absorb_jitter(4);
     pool_bits = ENTROPY_BITS;
     pool_unlock();
@@ -132,11 +132,7 @@ void entropy_save(int replaying) {
        this file at once, and a half-written seed still reads back as twenty
        bytes and is taken for a full pool on the next run. A short wait on the
        stick is the cheaper end of that trade. */
-    int fd = sceIoOpen(SEED_FILE, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
-    if (fd >= 0) {
-        sceIoWrite(fd, next, sizeof(next));
-        sceIoClose(fd);
-    }
+    storage_write(SEED_FILE,next,sizeof(next));
     pool_unlock();
 }
 
@@ -174,7 +170,7 @@ void entropy_forget(void) {
     pool_lock();
     /* Inside the lock, or an automatic save from the network thread lands
        between the removal and the clearing and puts the file straight back. */
-    sceIoRemove(SEED_FILE);
+    storage_remove(SEED_FILE);
     pool_bits = 0;
     last_heading = ~0u;
     memset(pool, 0, sizeof(pool));

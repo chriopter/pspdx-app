@@ -1,3 +1,4 @@
+#include "util/storage.h"
 #include <pspiofilemgr.h>
 #include <stdio.h>
 #include <string.h>
@@ -6,7 +7,7 @@
 #include "network/https.h"
 #include "util/runtime.h"
 
-#define CACHE_DIR "ms0:/PSP/PSPDX/cache"
+#define CACHE_DIR storage_path("PSP/PSPDX/CACHE/media")
 
 /* A screen-sized PNG is under 100 KB; ten seconds of video at 600 kbit land
    around 750. One and a half megabytes is well above both and still refuses
@@ -61,12 +62,12 @@ static void cache_path(enum asset_kind kind, const char *id, const char *url,
            stays in the name, so a changed picture still arrives as a file
            this stick has never seen. */
         if (strncmp(safe, id, strlen(id)) != 0)
-            snprintf(out, size, CACHE_DIR "/%s-%s", id, safe);
+            snprintf(out, size, "%s/%s-%s", CACHE_DIR, id, safe);
         else
-            snprintf(out, size, CACHE_DIR "/%s", safe);
+            snprintf(out, size, "%s/%s", CACHE_DIR, safe);
         return;
     }
-    snprintf(out, size, CACHE_DIR "/%s.%s", id, EXT[kind]);
+    snprintf(out, size, "%s/%s.%s", CACHE_DIR, id, EXT[kind]);
 }
 
 static size_t read_file(const char *path) {
@@ -91,19 +92,17 @@ static size_t cache_read(enum asset_kind kind, const char *id, const char *url) 
 static void cache_write(enum asset_kind kind, const char *id, const char *url) {
     /* The parents belong to the installer and usually exist already; making
        them again is cheaper than asking. */
-    sceIoMkdir("ms0:/PSP", 0777);
-    sceIoMkdir("ms0:/PSP/PSPDX", 0777);
+    sceIoMkdir(storage_path("PSP"), 0777);
+    sceIoMkdir(storage_path("PSP/PSPDX"), 0777);
     sceIoMkdir(CACHE_DIR, 0777);
     char path[256];
     cache_path(kind, id, url, path, sizeof(path));
-    int fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
-    if (fd < 0) return;
-    sceIoWrite(fd, g_buf, (SceSize)g_len);
-    sceIoClose(fd);
+    if(storage_write(path,g_buf,g_len)==0)
+        storage_trim_cache(CACHE_DIR,32u*1024u*1024u,path);
 }
 
 const void *asset_fetch(enum asset_kind kind, const char *id, const char *url,
-                        size_t *len) {
+                        int cached_only, size_t *len) {
     if (!id) return 0;
 
     g_len = cache_read(kind, id, url);
@@ -113,7 +112,7 @@ const void *asset_fetch(enum asset_kind kind, const char *id, const char *url,
         *len = g_len;
         return g_buf;
     }
-    if (!url || !url[0]) return 0;
+    if (cached_only || !url || !url[0]) return 0;
 
     g_len = 0;
     struct https_result result;

@@ -1,3 +1,4 @@
+#include "util/storage.h"
 /*
  * Reading one section out of an EBOOT.PBP. The header is forty bytes: the
  * magic, a version, and eight little-endian offsets -- SFO, ICON0, ICON1,
@@ -141,6 +142,6 @@ int pbp_title(const char *path, char *out, size_t size) {
 int pbp_installed_path(const char *id, char *out, size_t size) {
     struct installed rec;
     if (!id || !id[0] || db_read(id, &rec) != 0 || !rec.dir[0]) return -1;
-    snprintf(out, size, "ms0:/PSP/GAME/%s/EBOOT.PBP", rec.dir);
+    snprintf(out, size, storage_path("PSP/GAME/%s/EBOOT.PBP"), rec.dir);
     return 0;
 }

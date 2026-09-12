@@ -120,7 +120,7 @@ void icons_load(int index) {
     }
     if (decoded != 0) {
         size_t len = 0;
-        const void *png = asset_fetch(ASSET_ICON, entry->id, entry->icon, &len);
+        const void *png = asset_fetch(ASSET_ICON, entry->id, entry->icon, entry->media_cached_only, &len);
         if (!png || image_decode_png(png, len, &big) != 0) {
             g_state[index] = ICON_MISSING;
             return;

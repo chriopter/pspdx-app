@@ -7,6 +7,13 @@ on:
   workflow_dispatch:
 
 jobs:
+  client-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libcjson-dev zlib1g-dev libssl-dev
+      - run: sh app/tests/run
+
   eboot:
     runs-on: ubuntu-latest
     container: pspdev/pspdev:latest

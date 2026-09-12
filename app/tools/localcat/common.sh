@@ -71,7 +71,7 @@ localcat_build_local() {
 		echo "LOCALCAT_WORK must be under $APP for the build to see testca.h" >&2
 		return 1
 	fi
-	localcat_rebuild EXTRA_CFLAGS="-include $rel/testca.h -DCATALOG_URL='\"$LOCALCAT_URL\"'" \
+	localcat_rebuild EXTRA_CFLAGS="-DPSPDX_TEST_FIXTURES -include $rel/testca.h -DCATALOG_URL='\"$LOCALCAT_URL\"'" \
 		|| return 1
 	: > "$LOCALCAT_MARK"
 }

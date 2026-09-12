@@ -1,3 +1,4 @@
+#include "util/storage.h"
 /*
  * HTTPS on the PSP: sceNetInet sockets under wolfSSL, and just enough HTTP/1.1
  * to stream one body of any size into a sink. Every request is its own
@@ -86,7 +87,7 @@ void net_down(void) {
    way to see which step of a chain check failed. */
 static void wolf_log(const int level, const char *const msg) {
     (void)level;
-    int fd = sceIoOpen("ms0:/WOLF.LOG", PSP_O_WRONLY | PSP_O_CREAT | PSP_O_APPEND, 0777);
+    int fd = sceIoOpen(storage_path("PSP/PSPDX/LOGS/wolf.log"), PSP_O_WRONLY | PSP_O_CREAT | PSP_O_APPEND, 0777);
     if (fd < 0) return;
     sceIoWrite(fd, msg, strlen(msg));
     sceIoWrite(fd, "\n", 1);
@@ -206,7 +207,7 @@ static unsigned g_pace_since, g_pace_bytes;
 static void pace_begin(void) {
     if (!g_paced_kbps) {
         char text[16];
-        int fd = sceIoOpen("ms0:/PSPDX.SLOW", PSP_O_RDONLY, 0777);
+        int fd = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.SLOW"), PSP_O_RDONLY, 0777);
         if (fd < 0) { g_paced_kbps = ~0u; return; }
         int n = sceIoRead(fd, text, sizeof(text) - 1);
         sceIoClose(fd);

@@ -31,7 +31,7 @@ DEFAULT_URL = "https://127.0.0.1:8443/catalog.json"
 # carrying one of these are ever removed -- a published id is
 # io.github.something and a real install is named after its own archive, so
 # nothing of the user's can wear one by accident.
-ID_PREFIX = "dev.pspdx.mock."
+ID_PREFIX = "io.github.pspdxmock."
 DIR_PREFIX = "PSPDXMock"
 
 # Thirty rows: the name, the category, which of the three authors, and which
@@ -173,22 +173,26 @@ def make(work, ms, base):
               ["none"] * (COUNT - 2 * third))
     rng.shuffle(states)
 
-    db_dir = os.path.join(ms, "PSP/PSPDX/db")
+    db_dir = os.path.join(ms, "PSP/PSPDX/INSTALLED")
     game_dir = os.path.join(ms, "PSP/GAME")
     os.makedirs(db_dir, exist_ok=True)
     os.makedirs(game_dir, exist_ok=True)
     planted = []
     apps = []
+    state_path=os.path.join(db_dir,"state.json")
+    installed=json.load(open(state_path)) if os.path.exists(state_path) else {}
 
     for i, (name, category, author, kinds) in enumerate(ROWS[:COUNT]):
-        entry_id = "%s%02d.%s" % (ID_PREFIX, i, slug(name).lower())
-        dirname = "%s%02d%s" % (DIR_PREFIX, i, slug(name))
+        entry_id = "%sapp%02d%s" % (ID_PREFIX, i, slug(name).lower()[:32])
+        dirname = "%s%02d%s" % (DIR_PREFIX, i, slug(name)[:21])
         rev = REV_BASE + i * 1000
         version = "%d.%d.%d" % (1 + i // 10, i % 10, i % 3)
         rel, sha, size = package(site, entry_id, dirname, payload)
 
         app = {
             "id": entry_id,
+            "repo": "https://github.com/pspdxmock/" + entry_id[len(ID_PREFIX):],
+            "installdir": "PSP/GAME/" + dirname,
             "name": name,
             "author": AUTHORS[author],
             "summary": SUMMARIES[rng.randrange(len(SUMMARIES))],
@@ -219,6 +223,8 @@ def make(work, ms, base):
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             shutil.copyfile(src, dest)
             app[kind] = rel_asset
+        manifest=dict(schema="https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",source=app["repo"],name=name[:39],category=category,installdir=app["installdir"])
+        app["_test_manifest"]=manifest
         apps.append(app)
 
         state = states[i]
@@ -233,8 +239,9 @@ def make(work, ms, base):
             record = {"id": entry_id, "rev": rev - 500, "dir": dirname,
                       "manifest": "",
                       "version": "%d.%d.%d" % (i // 10, i % 10, i % 3)}
-        rec_path = os.path.join(db_dir, entry_id + ".json")
-        open(rec_path, "w").write(json.dumps(record, separators=(",", ":")) + "\n")
+        rec_path = os.path.join(db_dir, entry_id + ".pspdx")
+        with open(rec_path,"w") as output:json.dump(manifest,output)
+        installed[entry_id]=dict(source=app["repo"],added_from=base,installed=dict(version=record["version"],published_at=record["rev"],installdir=app["installdir"]))
         planted.append("db " + rec_path)
 
         # An installed app is a directory with an EBOOT in it, or START has
@@ -250,6 +257,7 @@ def make(work, ms, base):
         "apps": apps,
     }
     json.dump(catalog, open(os.path.join(site, "catalog.json"), "w"))
+    with open(state_path,"w") as output:json.dump(installed,output)
     open(os.path.join(work, "mock-planted"), "w").write("\n".join(planted) + "\n")
 
     waiting = states.count("update")
@@ -264,10 +272,15 @@ def clean(work, ms, quiet=False):
     those ids. Every path is checked for the prefix and for the directory it
     is supposed to sit in before anything is removed -- the user's real
     installs are in the same two directories and carry neither."""
-    db_dir = os.path.realpath(os.path.join(ms, "PSP/PSPDX/db"))
+    db_dir = os.path.realpath(os.path.join(ms, "PSP/PSPDX/INSTALLED"))
     game_dir = os.path.realpath(os.path.join(ms, "PSP/GAME"))
-    cache_dir = os.path.realpath(os.path.join(ms, "PSP/PSPDX/cache"))
+    cache_dir = os.path.realpath(os.path.join(ms, "PSP/PSPDX/CACHE/media"))
 
+    state_path=os.path.join(db_dir,"state.json")
+    if os.path.exists(state_path):
+        state=json.load(open(state_path))
+        state={key:value for key,value in state.items() if not key.startswith(ID_PREFIX)}
+        with open(state_path,"w") as output:json.dump(state,output)
     # The manifest names what make planted; the sweep of the three
     # directories catches what the client planted afterwards.
     listing = os.path.join(work, "mock-planted")

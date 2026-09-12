@@ -22,6 +22,9 @@ struct manifest {
        nothing: root is the directory inside the zip that is the package,
        dir the name it takes under PSP/GAME. Only a zip that is not one
        directory with the EBOOT in it needs either. */
+    char raw[8193];
+    char added_from[256], checked_from[256];
+    unsigned checked_at;
     char root[200];
     char dir[64];
 };

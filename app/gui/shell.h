@@ -129,7 +129,7 @@ void shell_menu(const char *title, const char *const *items,
    swept again. action is which of them the cursor is on, in that order.
    Drawn while open, and nothing more -- what moves that cursor and what
    takes the row under it is read in the main loop. */
-#define SHELL_INFO_ACTIONS 4
+#define SHELL_INFO_ACTIONS 6
 void shell_info(int open, int action);
 
 /* Idle: the whole interface gone but the picture, the room left standing
