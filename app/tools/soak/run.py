@@ -283,13 +283,15 @@ def read_stick(ms, world):
     db_dir = os.path.join(ms,"PSP/PSPDX/INSTALLED")
     game_dir = os.path.join(ms,"PSP/GAME")
     records = {}
-    state_path=os.path.join(db_dir,"state.json")
-    if os.path.exists(state_path):
-        state=json.load(open(state_path))
-        for id, record in state.items():
-            if not id.startswith(world["id_prefix"]):continue
-            installed=record["installed"]
-            records[id]=dict(id=id,rev=installed["published_at"],dir=installed["installdir"][9:],version=installed["version"],manifest="")
+    for name in os.listdir(db_dir) if os.path.isdir(db_dir) else []:
+        if not name.startswith(world["id_prefix"]) or not name.endswith(".state.json"):
+            continue
+        app_id = name[:-len(".state.json")]
+        with open(os.path.join(db_dir, name)) as source:
+            installed = json.load(source)["installed"]
+        records[app_id] = dict(id=app_id, rev=installed["published_at"],
+                               dir=installed["installdir"][9:],
+                               version=installed["version"], manifest="")
     dirs=[]
     if os.path.isdir(game_dir):
         dirs = sorted(n for n in os.listdir(game_dir)

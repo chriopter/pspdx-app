@@ -2,6 +2,7 @@
 #include "update/sources.h"
 #include "util/runtime.h"
 #include "util/storage.h"
+#include <pspiofilemgr.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,7 +10,7 @@
 #include <time.h>
 static cJSON *records;
 static int healthy;
-#define STATE_PATH storage_path("PSP/PSPDX/INSTALLED/state.json")
+#define LEGACY_STATE_PATH storage_path("PSP/PSPDX/INSTALLED/state.json")
 static const char *str(const cJSON *o, const char *key) {
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
     return cJSON_IsString(v) ? v->valuestring : "";
@@ -44,54 +45,150 @@ int state_validate(const cJSON *r) {
     }
     return 1;
 }
-int state_load(void) {
-    cJSON_Delete(records);
-    records = NULL;
-    healthy = 0;
+static void record_path(const char *id, char *path, size_t size) {
+    snprintf(path, size, "%s/%s.state.json", storage_path("PSP/PSPDX/INSTALLED"), id);
+}
+static cJSON *read_json(const char *path, size_t limit) {
     char *raw = NULL;
-    int n = storage_read(STATE_PATH, &raw, 256 * 1024);
-    if (n < 0) {
-        if (storage_exists(STATE_PATH) ||
-            storage_exists(storage_path("PSP/PSPDX/INSTALLED/state.json.bak"))) {
-            logline("state: unreadable; writes blocked");
+    int n = storage_read(path, &raw, limit);
+    if (n < 0)
+        return NULL;
+    cJSON *value = cJSON_ParseWithLengthOpts(raw, n + 1, NULL, 1);
+    free(raw);
+    return value;
+}
+static int write_record(const char *id, const cJSON *value) {
+    char path[256];
+    record_path(id, path, sizeof(path));
+    if (!value)
+        return storage_remove(path);
+    char *raw = cJSON_PrintUnformatted(value);
+    if (!raw)
+        return -1;
+    int rc = storage_write(path, raw, strlen(raw));
+    free(raw);
+    return rc;
+}
+/* Finish migration before allowing any normal writes. The legacy file remains
+   authoritative until every record is durable, so a power cut can retry safely. */
+static int migrate(void) {
+    if (!storage_exists(LEGACY_STATE_PATH) &&
+        !storage_exists(storage_path("PSP/PSPDX/INSTALLED/state.json.bak")))
+        return 0;
+    cJSON *legacy = read_json(LEGACY_STATE_PATH, 256 * 1024);
+    if (!state_validate(legacy)) {
+        cJSON_Delete(legacy);
+        return -1;
+    }
+    const cJSON *r;
+    cJSON_ArrayForEach(r, legacy) {
+        char path[256], bak[272];
+        record_path(r->string, path, sizeof(path));
+        snprintf(bak, sizeof(bak), "%s.bak", path);
+        if (storage_exists(path) || storage_exists(bak)) {
+            cJSON *current = read_json(path, 64 * 1024);
+            int same = current && cJSON_Compare(current, r, 1);
+            cJSON_Delete(current);
+            if (!same) { cJSON_Delete(legacy); return -1; }
+        } else if (write_record(r->string, r) < 0) {
+            cJSON_Delete(legacy);
             return -1;
         }
-        records = cJSON_CreateObject();
-        healthy = records != NULL;
-        return healthy ? 0 : -1;
     }
-    const char *end = NULL;
-    records = cJSON_ParseWithLengthOpts(raw, n + 1, &end, 1);
-    free(raw);
-    healthy = state_validate(records);
-    if (!healthy)
-        logline("state: invalid; writes blocked");
-    return healthy ? 0 : -1;
+    cJSON_Delete(legacy);
+    if (sceIoSync(storage_device(), 0) < 0 || storage_remove(LEGACY_STATE_PATH) < 0)
+        return -1;
+    return sceIoSync(storage_device(), 0);
+}
+int state_load(void) {
+    cJSON_Delete(records);
+    records = cJSON_CreateObject();
+    healthy = 0;
+    if (!records || migrate() < 0)
+        goto fail;
+    SceUID d = sceIoDopen(storage_path("PSP/PSPDX/INSTALLED"));
+    if (d < 0)
+        goto fail;
+    int rc;
+    SceIoDirent e;
+    memset(&e, 0, sizeof(e));
+    while ((rc = sceIoDread(d, &e)) > 0) {
+        char id[96], path[256];
+        size_t n = strlen(e.d_name);
+        if (n > 4 && !strcmp(e.d_name + n - 4, ".bak"))
+            n -= 4;
+        const char suffix[] = ".state.json";
+        size_t tail = sizeof(suffix) - 1;
+        if (n <= tail || strncmp(e.d_name + n - tail, suffix, tail))
+            continue;
+        if (n - tail >= sizeof(id) || FIO_S_ISDIR(e.d_stat.st_mode)) {
+            rc = -1; break;
+        }
+        memcpy(id, e.d_name, n - tail); id[n - tail] = 0;
+        if (!manifest_id_is_safe(id)) { rc = -1; break; }
+        /* A .bak and its committed file can both occur in one directory scan. */
+        if (cJSON_GetObjectItemCaseSensitive(records, id))
+            continue;
+        record_path(id, path, sizeof(path));
+        cJSON *value = read_json(path, 64 * 1024);
+        if (!value || !cJSON_AddItemToObject(records, id, value)) {
+            cJSON_Delete(value); rc = -1; break;
+        }
+        memset(&e, 0, sizeof(e));
+    }
+    int closed = sceIoDclose(d);
+    if (rc < 0 || closed < 0 || !state_validate(records))
+        goto fail;
+    healthy = 1;
+    return 0;
+fail:
+    logline("state: unreadable or invalid record; writes blocked");
+    return -1;
 }
 int state_ok(void) { return healthy; }
 cJSON *state_snapshot(void) { return healthy ? cJSON_Duplicate(records, 1) : NULL; }
 int state_restore(const cJSON *snapshot) {
-    if (!state_validate(snapshot))
+    if (!healthy || !state_validate(snapshot))
         return -1;
     cJSON *next = cJSON_Duplicate(snapshot, 1);
     if (!next)
         return -1;
-    char *raw = cJSON_PrintUnformatted(next);
-    if (!raw) {
-        cJSON_Delete(next);
-        return -1;
+    const cJSON *r;
+    cJSON_ArrayForEach(r, next) {
+        const cJSON *old = cJSON_GetObjectItemCaseSensitive(records, r->string);
+        if (!cJSON_Compare(old, r, 1) && write_record(r->string, r) < 0)
+            goto fail;
     }
-    int rc = storage_write(STATE_PATH, raw, strlen(raw));
-    free(raw);
-    if (rc < 0) {
-        cJSON_Delete(next);
-        healthy = 0;
-        return -1;
+    cJSON_ArrayForEach(r, records) {
+        if (!cJSON_GetObjectItemCaseSensitive(next, r->string) && write_record(r->string, NULL) < 0)
+            goto fail;
     }
     cJSON_Delete(records);
     records = next;
-    healthy = 1;
     return 0;
+fail:
+    cJSON_Delete(next);
+    healthy = 0;
+    return -1;
+}
+/* Recovery owns one app only, even for older journals containing a full snapshot. */
+int state_restore_app(const cJSON *snapshot, const char *id) {
+    if (!state_validate(snapshot) || !manifest_id_is_safe(id))
+        return -1;
+    cJSON *next = state_snapshot();
+    if (!next)
+        return -1;
+    cJSON_DeleteItemFromObjectCaseSensitive(next, id);
+    const cJSON *old = cJSON_GetObjectItemCaseSensitive(snapshot, id);
+    if (old) {
+        cJSON *copy = cJSON_Duplicate(old, 1);
+        if (!copy || !cJSON_AddItemToObject(next, id, copy)) {
+            cJSON_Delete(copy); cJSON_Delete(next); return -1;
+        }
+    }
+    int rc = state_restore(next);
+    cJSON_Delete(next);
+    return rc;
 }
 int state_count(void) { return healthy ? cJSON_GetArraySize(records) : 0; }
 const char *state_id(int i) {

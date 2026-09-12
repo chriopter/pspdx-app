@@ -125,7 +125,7 @@ one small index, so browsing and update checks need fewer requests.
 2. It publishes `catalog.json`: app descriptions, source repositories,
    installation paths, versions, publication times, ZIP URLs, sizes, hashes
    and media URLs. The same data feeds the website and app pages.
-3. PSPDX fetches this index and compares release timestamps with `state.json`
+3. PSPDX fetches this index and compares release timestamps with each app's `.state.json`
    to display available updates. The catalog does not know what is installed
    on your PSP. An update appears after the catalog build and your next refresh;
    the ZIP still downloads from the author's release.
@@ -173,8 +173,9 @@ ms0:/
         │   └── demo.pspdx                 # Awaiting import
         ├── INSTALLED/
         │   ├── io.github.chriopter.pspdx.pspdx
+        │   ├── io.github.chriopter.pspdx.state.json
         │   ├── io.github.chriopter.pspcathedral.pspdx
-        │   └── state.json                # Installed and last-known releases
+        │   └── io.github.chriopter.pspcathedral.state.json
         ├── CACHE/
         │   ├── catalogs/
         │   │   └── <url-sha1>.json        # Cached catalog response
@@ -205,7 +206,8 @@ ms0:/
 
 `sources.txt` stores subscriptions; `INBOX/` holds files awaiting import.
 `INSTALLED/<app-id>.pspdx` preserves each installed app's source independently
-of those subscriptions. `state.json` is keyed by app ID:
+of those subscriptions. Beside it, `<app-id>.state.json` contains only that
+app's state, without an outer app-ID key:
 
 | State | Stored fields |
 |---|---|
@@ -216,12 +218,16 @@ of those subscriptions. `state.json` is keyed by app ID:
 `installed` changes after a successful installation; `latest` records the
 last known available release and where/when it was checked. `added_from`
 records how the app was added; it does not lock updates to that catalog.
+A check or installation writes only the affected app's state file.
 
 Recoverable writes may leave `.new` or `.bak` siblings until recovery.
 Staging and rollback directories stay under `GAME/` because PSP directory
 renames require the same parent. Keep `INSTALLED/` for update tracking;
 `CACHE/` can be rebuilt. Do not remove a pending transaction's files.
-Old databases and caches are not migrated or automatically removed.
+An existing combined `INSTALLED/state.json` is split automatically at startup
+and removed only after all records are saved. Interrupted migration resumes
+on the next launch; conflicting or corrupt records are preserved and block
+writes for safety. Unrelated older databases and caches are left alone.
 
 </details>
 

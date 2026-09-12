@@ -23,7 +23,61 @@ class ClientTests(unittest.TestCase):
   self.assertNotIn('AddressSanitizer',r.stderr);self.assertNotIn('runtime error:',r.stderr)
   if ok:self.assertEqual(r.returncode,0,(args,r.stdout,r.stderr))
   return r
- def state(self):return json.loads((self.root/'ms0:/PSP/PSPDX/INSTALLED/state.json').read_text())
+ def state(self):return {p.name[:-11]:json.loads(p.read_text()) for p in (self.root/'ms0:/PSP/PSPDX/INSTALLED').glob('*.state.json')}
+ def second_record(self):
+  record=json.loads(json.dumps(self.state()[ID]));record['source']='https://github.com/test/other';record['installed']['installdir']='PSP/GAME/Other'
+  self.write('ms0:/PSP/PSPDX/INSTALLED/io.github.test.other.state.json',record)
+  return record
+ def test_separate_records_and_latest(self):
+  self.fixtures();other=self.second_record()
+  path=self.root/'ms0:/PSP/PSPDX/INSTALLED/io.github.test.other.state.json'
+  before=path.stat();installed=self.state()[ID]['installed']
+  self.run_client('fetch')
+  self.assertEqual(self.state()[ID]['installed'],installed)
+  self.assertEqual(self.state()[ID]['latest']['version'],'2')
+  self.assertEqual(self.state()['io.github.test.other'],other)
+  self.assertEqual((path.stat().st_ino,path.stat().st_mtime_ns),(before.st_ino,before.st_mtime_ns))
+  self.assertFalse((path.parent/'state.json').exists())
+  self.run_client('remove');self.assertEqual(self.state(),{'io.github.test.other':other})
+ def test_migration_power_cuts(self):
+  self.run_client('install',VERSION=1);self.second_record();expected=self.state()
+  folder=self.root/'ms0:/PSP/PSPDX/INSTALLED'
+  for path in folder.glob('*.state.json'):path.unlink()
+  self.write('ms0:/PSP/PSPDX/INSTALLED/state.json',expected)
+  baseline=self.root/'legacy';shutil.copytree(self.root/'ms0:',baseline)
+  for fault in range(1,100):
+   shutil.rmtree(self.root/'ms0:');shutil.copytree(baseline,self.root/'ms0:')
+   r=self.run_client('recover',LOAD_FAULT=fault,ok=False)
+   self.assertIn(r.returncode,[0,77])
+   self.run_client('recover');self.assertEqual(self.state(),expected)
+   self.assertFalse((folder/'state.json').exists())
+   if r.returncode==0:break
+  else:self.fail('migration fault sweep did not finish')
+ def test_migration_conflict_preserves_both(self):
+  self.run_client('install');expected=self.state()
+  legacy=json.loads(json.dumps(expected));legacy[ID]['installed']['version']='1'
+  self.write('ms0:/PSP/PSPDX/INSTALLED/state.json',legacy)
+  self.assertNotEqual(self.run_client('install',ok=False).returncode,0)
+  self.assertEqual(self.state(),expected)
+  self.assertEqual(json.loads((self.root/'ms0:/PSP/PSPDX/INSTALLED/state.json').read_text()),legacy)
+ def test_record_backup_recovery(self):
+  self.run_client('install');expected=self.state()
+  path=self.root/f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json'
+  path.rename(str(path)+'.bak')
+  self.run_client('recover');self.assertEqual(self.state(),expected)
+  path.write_text('{broken')
+  self.assertNotEqual(self.run_client('install',ok=False).returncode,0)
+  self.assertEqual(path.read_text(),'{broken')
+ def test_rollback_only_restores_its_app(self):
+  self.run_client('install',VERSION=1);other=self.second_record()
+  snapshot=self.state()
+  journal=dict(id=ID,dir='Demo',prior='Demo',phase='prepared',op='install',old_state=snapshot,old_manifest=json.dumps(SPEC))
+  self.write('ms0:/PSP/PSPDX/TMP/transaction.json',journal)
+  other['latest']['version']='newer-check'
+  self.write('ms0:/PSP/PSPDX/INSTALLED/io.github.test.other.state.json',other)
+  self.run_client('recover')
+  self.assertEqual(self.state()['io.github.test.other'],other)
+  self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists())
  def test_manifest_validation(self):
   self.run_client('parse','manifest.json')
   for key,value in [('source','https://github.com/test/demo/issues'),('installdir','PSP/GAME/..'),('name','x'*40),('license','x'*65),('schema','old')]:
@@ -40,7 +94,7 @@ class ClientTests(unittest.TestCase):
  def test_collisions_and_corrupt_state(self):
   self.run_client('recover');d=self.root/'ms0:/PSP/GAME/Demo';d.mkdir();(d/'user.txt').write_text('keep')
   self.assertNotEqual(self.run_client('install',ok=False).returncode,0);self.assertEqual((d/'user.txt').read_text(),'keep')
-  shutil.rmtree(d);(self.root/'ms0:/PSP/PSPDX/INSTALLED/state.json').write_text('{bad')
+  shutil.rmtree(d);(self.root/'ms0:/PSP/PSPDX/INSTALLED/io.github.test.demo.state.json').write_text('{bad')
   self.assertNotEqual(self.run_client('install',ok=False).returncode,0)
  def test_bad_packages(self):
   for entries in [{'a/EBOOT.PBP':b'a','b/EBOOT.PBP':b'b'},{'NOT_EBOOT.PBP':b'a'},{'EBOOT.PBP':b'a','../escape':b'b'},{'EBOOT.PBP':b'a','same':b'a','same/child':b'b'},{'EBOOT.PBP':b'a','DATA':b'a','data':b'b'}]:
@@ -48,7 +102,7 @@ class ClientTests(unittest.TestCase):
     self.zip('new.zip',entries);self.assertNotEqual(self.run_client('install',ok=False).returncode,0);self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists())
   self.zip('new.zip',{'EBOOT.PBP':b'a'});self.assertNotEqual(self.run_client('install',ok=False,BAD_HASH=1).returncode,0)
  def test_ef0(self):
-  self.run_client('install',DEVICE='ef0:/PSP/GAME/PSPDX/EBOOT.PBP');self.assertTrue((self.root/'ef0:/PSP/PSPDX/INSTALLED/state.json').exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX').exists())
+  self.run_client('install',DEVICE='ef0:/PSP/GAME/PSPDX/EBOOT.PBP');self.assertTrue((self.root/'ef0:/PSP/PSPDX/INSTALLED/io.github.test.demo.state.json').exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX').exists())
  def test_power_cuts(self):
   # First install, update, move and remove: cut after each mutating syscall.
   self.zip('new.zip',{'EBOOT.PBP':b'old package','data.txt':b'old data'})
@@ -65,8 +119,7 @@ class ClientTests(unittest.TestCase):
     r=self.run_client(command,fault,ok=False)
     self.assertIn(r.returncode,[0,77],(op,fault,r.stdout,r.stderr))
     self.run_client('recover')
-    path=self.root/'ms0:/PSP/PSPDX/INSTALLED/state.json'
-    state=json.loads(path.read_text()) if path.exists() else {}
+    state=self.state()
     if ID in state:
      version=state[ID]['installed']['version'];self.assertIn(version,['1','2'])
      target=state[ID]['installed']['installdir'];self.assertTrue((self.root/'ms0:'/target/'EBOOT.PBP').exists(),(op,fault,state))

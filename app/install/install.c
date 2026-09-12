@@ -497,7 +497,7 @@ static int recover_journal(cJSON *j) {
             }
         }
         if (restore_manifest(j) < 0 ||
-            state_restore(cJSON_GetObjectItemCaseSensitive(j, "old_state")) < 0)
+            state_restore_app(cJSON_GetObjectItemCaseSensitive(j, "old_state"), id) < 0)
             return -1;
     }
     if (remove_tree(STAGE) < 0)
