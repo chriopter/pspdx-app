@@ -786,7 +786,7 @@ int main(int argc, char *argv[]) {
     char keep[96] = "";                 /* the entry to come back to after one */
     int automatic = -1;
     int info = 0, action = 0;           /* the info band and the row X takes */
-    int hidden = 0;                     /* idle: the room without the shell */
+    int resting = 0;                    /* idle: the picture behind the shell */
     int details = 0;                    /* the band about one package */
     unsigned idle_since = now_ms();     /* the last time a key was down */
     unsigned last_frame_ms = now_ms();  /* to notice the loop having been away */
@@ -929,25 +929,22 @@ int main(int argc, char *argv[]) {
            changing under a band would change what the band is about. */
         int modal = g_question != ASK_NOTHING || g_menu_open || details;
 
-        /* Ten seconds without a key and the interface fades away, leaving
-           the room and the picture; the first key pressed after that,
-           whichever it is, brings it back and does nothing else: what
-           cannot be seen is not to be pressed. The stick still stirs the
-           water, and does not count as a key. */
-        /* An install or a refetch holds the loop for as long as it takes,
+        /* Ten seconds without a key and the picture of the package under
+           the cursor rises behind the interface, which stays where it is
+           and goes on working; the next key takes it down again. The stick
+           stirs the water and does not count as a key.
+
+           An install or a refetch holds the loop for as long as it takes,
            and that is not idling: the clock starts again when the loop is
-           back, or the first key after a long fetch would only lift a
-           veil that came down while nobody could have pressed anything. */
+           back, or a picture would come up over a wait nobody sat out. */
         unsigned frame_ms = now_ms();
         if (frame_ms - last_frame_ms > 300) idle_since = frame_ms;
         last_frame_ms = frame_ms;
         if (pad.Buttons || pressed || count == 0) idle_since = now_ms();
-        else if (!hidden && !modal && !info &&
-                 now_ms() - idle_since > 10000)
-            shell_hide(hidden = 1);
-        if (hidden) {
-            if (pressed & ~KEY_SHOT) shell_hide(hidden = 0);
-            pressed &= KEY_SHOT;
+        if (!modal && !info && now_ms() - idle_since > 10000) {
+            if (!resting) shell_rest(resting = 1);
+        } else if (resting) {
+            shell_rest(resting = 0);
         }
 
         /* The triggers and left/right walk the tabs, and the list under

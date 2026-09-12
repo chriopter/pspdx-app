@@ -132,9 +132,9 @@ void shell_menu(const char *title, const char *const *items,
 #define SHELL_INFO_ACTIONS 6
 void shell_info(int open, int action);
 
-/* Idle: the whole interface gone but the picture, the room left standing
-   on its own. */
-void shell_hide(int hidden);
+/* Idle: the package's own picture rises behind the interface, which stays
+   where it is. Nothing is hidden by it. */
+void shell_rest(int resting);
 
 /* Square: the band that says everything the catalog knows about one package.
    NULL takes it down. */

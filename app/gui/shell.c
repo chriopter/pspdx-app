@@ -138,8 +138,8 @@ static int g_menu_leaving;              /* sliding out; count drops at 0 */
 #define INFO_ACTIONS SHELL_INFO_ACTIONS
 static int g_info, g_info_action;
 static const struct app_entry *g_details;   /* the package the band is about */
-static int g_hidden;                    /* square: where the veil is going */
-static float g_veil;                    /* 0 shell in full, 1 shell gone */
+static int g_resting;                   /* left alone: where the picture is going */
+static float g_rest;                    /* 0 no picture, 1 the picture whole */
 /* The share of a frame that goes into drawing it, eased over about a second
    so the number on screen does not flicker. */
 static float g_load;
@@ -716,25 +716,24 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
 }
 
 /* The picture alone: the card with the still or the film on it and its
-   reflection in the water. It is the one thing the idle veil leaves
-   standing, so it is drawn through no veil at all. */
+   reflection in the water. */
 /* PIC1.PNG, 480 by 272, which is the size of the screen because that is what
-   an EBOOT carries it for. Not while there is anything to read -- behind a
-   list it is a busy picture under lettering, and the room the water makes is
-   the better place to read in. It comes up only as the interface goes: the
-   idle veil takes the tabs and the rows, and what is left is the picture
-   whole, with the film still playing on the card. */
+   an EBOOT carries it for. It is not there while somebody is working the
+   list: behind rows of lettering a busy picture only makes the reading
+   harder. Left alone for ten seconds it comes up behind everything, the way
+   the XMB puts a game's picture behind its own menu, and the interface goes
+   on standing over it with the film still playing on the card. A key takes
+   it away again in a few frames. */
 static void draw_backdrop(void) {
     int alpha;
-    if (g_veil <= 0.0f) return;
+    if (g_rest <= 0.0f) return;
     const struct gfx_texture *pic = preview_still(&alpha);
     if (!pic || alpha <= 0) return;
     gfx_texture_draw(pic, 0, 0, SCR_W, SCR_H,
-                     RGBA(255, 255, 255, alpha * (int)(255.0f * g_veil) / 255));
+                     RGBA(255, 255, 255, alpha * (int)(255.0f * g_rest) / 255));
 }
 
 static void draw_picture(float t) {
-    int veil = (int)(256.0f * (1.0f - g_veil));
     /* The card stands still: a picture that drifts is a picture that is
        hard to look at. What moves is the light over it. */
     struct gfx_card card;
@@ -757,7 +756,6 @@ static void draw_picture(float t) {
 
     /* Backlit: the light sits behind the picture and leaks out around it. */
     gfx_glow(card.cx, card.cy, SHOT_W + 130, SHOT_H + 120, rgb_pack(g_tint, 100));
-    gfx_veil(256);
 
     int still_alpha, film_alpha;
     const struct gfx_texture *still = preview_still(&still_alpha);
@@ -822,7 +820,6 @@ static void draw_picture(float t) {
         font_print(FONT_META, card.cx - font_width(FONT_META, note) / 2,
                    card.cy + 4, g_dim, note);
     }
-    gfx_veil(veil);
 }
 
 static void draw_panel(const struct app_entry *entry, float t) {
@@ -1410,23 +1407,13 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     lattice_draw(t, g_tint);
     draw_water_light(t);
     unsigned t1 = now_us();
-    /* Left alone, the interface goes under a veil, slowly -- two seconds
-       to nothing but the room and the picture -- and any key lifts it
-       again in a few frames. Everything from here to the strip is drawn
-       through it. */
-    g_veil += g_hidden ? 1.0f / 120.0f : -1.0f / 8.0f;
-    if (g_veil < 0.0f) g_veil = 0.0f;
-    if (g_veil > 1.0f) g_veil = 1.0f;
-    if (g_veil >= 1.0f) {
-        /* Nothing but the room and the picture of the package the cursor
-           stands on -- the film, if it has one, playing on. */
-        if (catalog->count > 0 && shell_view_count() > 0 &&
-            shell_view_index(cursor) >= 0)
-            draw_picture(t);
-        gfx_frame_end();
-        return;
-    }
-    gfx_veil((int)(256.0f * (1.0f - g_veil)));
+    /* Left alone, the picture of the package under the cursor rises behind
+       everything, over about two seconds; a key takes it down again in a
+       few frames. Nothing is hidden by it: the tabs, the rows and the card
+       stay where they are, and the film goes on playing. */
+    g_rest += g_resting ? 1.0f / 120.0f : -1.0f / 8.0f;
+    if (g_rest < 0.0f) g_rest = 0.0f;
+    if (g_rest > 1.0f) g_rest = 1.0f;
     draw_chrome(catalog, t);
     if (catalog->count > 0 && shell_view_count() > 0) {
         int rows = shell_view_count();
@@ -1447,7 +1434,6 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     if (g_installing) draw_install();
     if (g_ask_title[0]) draw_ask();
     draw_footer();
-    gfx_veil(256);
     if (g_fade > 0) {
         gfx_rect(0, 0, SCR_W, SCR_H, RGBA(0, 0, 0, g_fade));
         g_fade -= 7;
@@ -1548,7 +1534,7 @@ void shell_menu(const char *title, const char *const *items,
     g_status[0] = '\0';
 }
 
-void shell_hide(int hidden) { g_hidden = hidden; }
+void shell_rest(int resting) { g_resting = resting; }
 
 void shell_info(int open, int action) {
     if (open && !g_info) read_storage();
