@@ -550,65 +550,87 @@ static const char *action_line(void) {
     return line;
 }
 
-/* Where a row sits. The rows above the open one are closed and follow each
-   other by a row's height; the open one is as tall as an icon, and what is
-   under it is pushed down by the difference. */
-static int row_y(int i, int cursor) {
-    int y = LIST_Y + (i - g_first) * ITEM_H;
-    return i > cursor ? y + SEL_H - ITEM_H : y;
+/* How far each row is open: one where the cursor is, nothing everywhere
+   else, and chased rather than set. A row that took its full height the
+   moment the cursor reached it would push everything under it down in one
+   jump, and the list would slide about under the eye. A quarter of the way
+   a frame is the settle the light behind the row has, so the row and its
+   light arrive together. */
+static float g_open_amt[MAX_APPS + 2];
+#define OPEN_ROWS ((int)(sizeof(g_open_amt) / sizeof(*g_open_amt)))
+
+static float row_open(int i) {
+    return i >= 0 && i < OPEN_ROWS ? g_open_amt[i] : 0.0f;
 }
 
-/* The row the tab itself sits on, closed: two lines rather than one, since
-   at this width the heading and the tally do not fit on a line together in
-   the list's own face, and stacked they read as a heading with its tally
-   under it, which is what they are. Where a package would have its icon,
-   the tab's own sign. */
-static void draw_action_row(int y, int selected, float t) {
-    int updates = shell_tab_kind() == SHELL_TAB_STICK;
-    float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
-    if (updates)
-        mark_draw(MARK_UPDATE, gx, gy,
-                  faded(UPDATE_RGB, (int)((selected ? 255 : 170) * update_pulse(t))),
-                  selected ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
-    else
-        mark_draw(MARK_BASKET, gx, gy, selected ? g_text : g_dim,
-                  selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
-    int w = LIST_X + LIST_W - NAME_X;
-    font_print_clipped(FONT_BODY, NAME_X, y + 13, w, selected ? g_text : g_dim,
-                       action_title());
-    font_print_clipped(FONT_META, NAME_X, y + 25, w, g_dim, action_line());
+static float row_h(int i) { return ITEM_H + row_open(i) * (SEL_H - ITEM_H); }
+
+static void ease_rows(int count, int cursor) {
+    int n = count < OPEN_ROWS ? count : OPEN_ROWS;
+    for (int i = 0; i < n; i++) {
+        float want = i == cursor ? 1.0f : 0.0f;
+        g_open_amt[i] += (want - g_open_amt[i]) * 0.25f;
+        if (g_open_amt[i] < 0.002f) g_open_amt[i] = 0.0f;
+        if (g_open_amt[i] > 0.998f) g_open_amt[i] = 1.0f;
+    }
 }
 
-/* The same row open, which is where the bill goes: every package that would
-   come down, what each weighs, the total, and how long that is over a PSP's
-   own radio. There is no picture for it -- a row standing for several
-   packages has no one screenshot, and the last package's would be a lie
-   about what X is going to fetch -- so the sign stands where an icon would,
-   as large as the icon is. */
-static void draw_action_open(const struct catalog *catalog, int y, float t) {
+/* The top of a row, which is the list's top plus every row above it -- and
+   those have their own heights while one of them is opening or closing. */
+static float row_top(int to) {
+    float y = LIST_Y;
+    for (int i = g_first; i < to; i++) y += row_h(i);
+    return y;
+}
+
+/* The row the tab itself sits on. Closed it is a heading with its tally
+   under it -- at this width the two do not fit on a line together in the
+   list's own face. Open it is the bill: every package that would come down,
+   what each weighs, the total, and how long that is over a PSP's own radio.
+   There is no picture for it, since a row standing for several packages has
+   no one screenshot and the last package's would be a lie about what X is
+   going to fetch; the tab's own sign stands where an icon would, and slides
+   out to the middle of the icon's box as the row opens. */
+static void draw_action_row(const struct catalog *catalog, float y, float h,
+                            float amt, float t) {
     struct shell_plan plan;
     char value[48], size[24];
     int updates = shell_tab_kind() == SHELL_TAB_STICK;
-    float gx = LIST_X + BIG_W / 2.0f, gy = y + SEL_H / 2.0f;
+    int open = (int)(255 * amt), shut = 255 - open;
+    float gx = LIST_X + (ICON_W + (BIG_W - ICON_W) * amt) / 2.0f;
+    float gy = y + h / 2.0f;
 
     shell_action_plan(&plan);
-    gfx_glow(gx, gy, BIG_W + 60, BIG_H + 40,
-             rgb_pack(g_tint, (int)(70 * update_pulse(t))));
+    if (amt > 0.0f)
+        gfx_glow(gx, gy, BIG_W + 60, BIG_H + 40,
+                 rgb_pack(g_tint, (int)(70 * amt * update_pulse(t))));
     if (updates)
         mark_draw(MARK_UPDATE, gx, gy,
-                  faded(UPDATE_RGB, (int)(255 * update_pulse(t))),
-                  MARK_LIT, UPDATE_RGB, t);
+                  faded(UPDATE_RGB, (int)((170 + 85 * amt) * update_pulse(t))),
+                  amt > 0.5f ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
     else
-        mark_draw(MARK_BASKET, gx, gy, g_text, MARK_LIT, rgb_pack(g_tint, 255), t);
+        mark_draw(MARK_BASKET, gx, gy, amt > 0.5f ? g_text : g_dim,
+                  amt > 0.5f ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
 
-    font_print_clipped(FONT_H1, OPEN_X, y + 16, OPEN_W, g_text, action_title());
+    /* The two forms cross: the heading and its tally fade out where they
+       stood, the bill fades in where it stands. */
+    if (shut > 0) {
+        int w = LIST_X + LIST_W - NAME_X;
+        font_print_clipped(FONT_BODY, NAME_X, y + 13, w, faded(g_dim, shut),
+                           action_title());
+        font_print_clipped(FONT_META, NAME_X, y + 25, w, faded(g_dim, shut),
+                           action_line());
+    }
+    if (open <= 0) return;
+    font_print_clipped(FONT_H1, OPEN_X, y + 16, OPEN_W, faded(g_text, open),
+                       action_title());
     if (plan.apps > 0) {
         size_mb(plan.bytes, size, sizeof(size));
         download_time(plan.bytes, value, sizeof(value));
-        font_printf(FONT_META, OPEN_X, y + 34, g_dim, "%s to download, about %s",
-                    size, value);
+        font_printf(FONT_META, OPEN_X, y + 34, faded(g_dim, open),
+                    "%s to download, about %s", size, value);
     } else {
-        font_print(FONT_META, OPEN_X, y + 34, g_dim,
+        font_print(FONT_META, OPEN_X, y + 34, faded(g_dim, open),
                    "nothing here has a release with a size");
     }
     /* One line a package, in the order they would be fetched, for as many as
@@ -620,16 +642,17 @@ static void draw_action_open(const struct catalog *catalog, int y, float t) {
         const struct app_entry *entry = &catalog->apps[index];
         if (!entry->has_release || !entry->release.size) continue;
         if (line >= room) {
-            font_printf(FONT_META, OPEN_X, y + 48 + line * 13, g_dim,
+            font_printf(FONT_META, OPEN_X, y + 48 + line * 13, faded(g_dim, open),
                         "and %d more", plan.apps - line);
             break;
         }
         size_mb(entry->release.size, size, sizeof(size));
         float sw = font_width(FONT_META, size);
         font_print_clipped(FONT_META, OPEN_X, y + 48 + line * 13, OPEN_W - sw - 10,
-                           entry->state == APP_UPDATE ? UPDATE_RGB : g_text,
+                           faded(entry->state == APP_UPDATE ? UPDATE_RGB : g_text, open),
                            entry->name);
-        font_print(FONT_META, OPEN_X + OPEN_W - sw, y + 48 + line * 13, g_dim, size);
+        font_print(FONT_META, OPEN_X + OPEN_W - sw, y + 48 + line * 13,
+                   faded(g_dim, open), size);
         line++;
     }
 }
@@ -638,21 +661,22 @@ static void draw_action_open(const struct catalog *catalog, int y, float t) {
    stands -- the system's turning arrows when a newer one waits, the quiet
    tick when it is on the stick, nothing for the rest. Returns what is left
    of the row's width for the name. */
-static int draw_row_marks(const struct app_entry *entry, int selected,
+static int draw_row_marks(const struct app_entry *entry, float amt,
                           float my, int width, float t) {
     float mx = LIST_X + LIST_W - 8;
+    int lit = amt > 0.5f;
     if (entry->state == APP_UPDATE) {
         mark_draw(MARK_UPDATE, mx, my,
-                  faded(UPDATE_RGB, (int)((selected ? 255 : 170) * update_pulse(t))),
-                  selected ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
+                  faded(UPDATE_RGB, (int)((170 + 85 * amt) * update_pulse(t))),
+                  lit ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
         return width - 21;
     }
     if (entry->state != APP_NOT_INSTALLED) {
         /* On the stick: a quiet tick, the way a list ticks off what is done.
            The catalog is mostly what is not, so that is what carries no
            mark. */
-        mark_draw(MARK_TICK, mx, my, selected ? g_accent : faded(g_dim, 150),
-                  selected ? MARK_PLAIN : MARK_DIM, 0, t);
+        mark_draw(MARK_TICK, mx, my, lit ? g_accent : faded(g_dim, 150),
+                  lit ? MARK_PLAIN : MARK_DIM, 0, t);
         return width - 19;
     }
     return width;
@@ -697,30 +721,40 @@ static const char *state_line(const struct app_entry *entry, unsigned *color) {
    interface goes and this is the one thing that stays. */
 static int g_open_y = LIST_Y;
 
-/* The picture on the open row: the film if the entry has one and it is
-   playing, the icon otherwise, both at 144 by 80 -- the size they are in the
-   EBOOT and the size the XMB draws them. Mirrored in the water below, the
-   film as readily as the icon. */
-static void draw_open_picture(int y, const struct gfx_texture *icon, int lit) {
+/* The picture on a row: the film where the row is open and the entry has one
+   playing, the icon otherwise. The box grows with the row, from the
+   thumbnail a closed row carries to 144 by 80, which is what an ICON0.PNG is
+   and what its film is; the film itself is only put on once the row is all
+   the way open, so it is never shown at a size it was not made for.
+   Mirrored in the water below, whichever of the two it is. */
+static void draw_row_picture(float y, float h, float amt,
+                             const struct gfx_texture *icon) {
     int film_alpha;
-    const struct gfx_texture *film = preview_film(&film_alpha);
+    const struct gfx_texture *film = amt >= 1.0f ? preview_film(&film_alpha) : 0;
     const struct gfx_texture *show = film ? film : icon;
-    unsigned tint = lit ? RGB(255, 255, 255) : RGB(150, 150, 150);
+    float bw = ICON_W + (BIG_W - ICON_W) * amt;
+    float bh = ICON_H + (BIG_H - ICON_H) * amt;
+    float by = y + (h - bh) / 2.0f;
+    int shade = 150 + (int)(105 * amt);
     if (!show) {
-        gfx_rect(LIST_X, y, BIG_W, BIG_H, RGBA(255, 255, 255, 24));
+        gfx_rect(LIST_X, by, bw, bh, RGBA(255, 255, 255, 12 + (int)(12 * amt)));
         return;
     }
-    int w = show->w, h = show->h;
-    /* A picture larger than the box is brought down to it, by the same
-       amount both ways; nothing is ever blown up. */
-    if (w > BIG_W || h > BIG_H) {
-        float fit = (float)BIG_W / w;
-        if (h * fit > BIG_H) fit = (float)BIG_H / h;
-        w = (int)(w * fit); h = (int)(h * fit);
+    float w = bw, hh = bh;
+    if (film) {
+        /* At the size it was made, in the middle of the box: the clip is
+           144 by 80 and the box now is too, and anything larger comes down
+           to it by the same amount both ways. */
+        w = show->w; hh = show->h;
+        if (w > bw || hh > bh) {
+            float fit = bw / w;
+            if (hh * fit > bh) fit = bh / hh;
+            w *= fit; hh *= fit;
+        }
     }
-    int x = LIST_X + (BIG_W - w) / 2, iy = y + (BIG_H - h) / 2;
-    lattice_mirror(show, lit ? 255 : 150, x, iy + h, w, h);
-    gfx_texture_draw(show, x, iy, w, h, tint);
+    float x = LIST_X + (bw - w) / 2.0f, iy = by + (bh - hh) / 2.0f;
+    lattice_mirror(show, 110 + (int)(145 * amt), x, iy + hh, w, hh);
+    gfx_texture_draw(show, x, iy, w, hh, RGB(shade, shade, shade));
 }
 
 static void draw_list(const struct catalog *catalog, int cursor, float t) {
@@ -728,96 +762,89 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
     if (cursor < g_first) g_first = cursor;
     if (cursor >= g_first + VISIBLE) g_first = cursor - VISIBLE + 1;
     if (g_first < 0) g_first = 0;
-
-    /* The bar chases the selection rather than jumping to it. A quarter of
-       the remaining distance per frame settles in about a fifth of a second
-       and never overshoots. */
-    float target = row_y(cursor, cursor);
-    g_sel_y += (target - g_sel_y) * 0.25f;
+    ease_rows(count, cursor);
 
     int rows = count < VISIBLE ? count : VISIBLE;
     int tall = rows * ITEM_H + (rows > 0 ? SEL_H - ITEM_H : 0);
     draw_shade(LIST_X + LIST_W / 2, LIST_Y + tall / 2, LIST_W, tall);
 
-    /* The open row glows: a breathing light behind it and a thin streak of
-       light under it, nothing with a corner. */
+    /* The light behind the open row rides on the row itself, which is
+       already easing into place, so the two never disagree. */
+    g_sel_y = row_top(cursor);
+    float open_h = row_h(cursor);
     float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
-    float mid = g_sel_y + SEL_H / 2 - 1;
-    gfx_glow(LIST_X + 110, mid, LIST_W + 120, SEL_H * 1.6f,
+    float mid = g_sel_y + open_h / 2 - 1;
+    gfx_glow(LIST_X + 110, mid, LIST_W + 120, open_h * 1.6f,
              rgb_pack(g_tint, (int)(130 * breathe)));
-    gfx_glow(LIST_X + 70, mid, LIST_W / 2, SEL_H * 1.1f,
+    gfx_glow(LIST_X + 70, mid, LIST_W / 2, open_h * 1.1f,
              rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), (int)(70 * breathe)));
-    gfx_glow(LIST_X + LIST_W / 2, g_sel_y + SEL_H - 3, LIST_W + 30, 10,
+    gfx_glow(LIST_X + LIST_W / 2, g_sel_y + open_h - 3, LIST_W + 30, 10,
              rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 160));
 
     /* The icons module counts in catalog entries, so the rows on screen are
        handed over as the entries they stand for -- and the action row stands
        for none, so it asks for nothing. */
-    int wanted[VISIBLE], want_count = 0;
-    for (int i = g_first; i < count && i < g_first + VISIBLE; i++) {
+    int wanted[VISIBLE + 1], want_count = 0;
+    for (int i = g_first; i < count && i < g_first + VISIBLE + 1; i++) {
         int index = shell_view_index(i);
         if (index >= 0) wanted[want_count++] = index;
     }
     icons_bind(catalog);
     if (icons_want(wanted, want_count)) preview_poke();
 
-    for (int i = g_first; i < count && i < g_first + VISIBLE; i++) {
-        int y = row_y(i, cursor);
-        int selected = i == cursor;
+    /* One row past the window: while a row is closing and the next opening,
+       the ones under them are on their way up and the last would otherwise
+       tear off the bottom. */
+    float y = LIST_Y;
+    for (int i = g_first; i < count && i < g_first + VISIBLE + 1; i++) {
+        float amt = row_open(i);
+        float h = row_h(i);
+        if (y >= LIST_Y + LIST_H) break;
         int index = shell_view_index(i);
         if (index == SHELL_ROW_ACTION) {
-            if (selected) draw_action_open(catalog, y, t);
-            else draw_action_row(y, selected, t);
+            draw_action_row(catalog, y, h, amt, t);
+            y += h;
             continue;
         }
-        if (index < 0) continue;
+        if (index < 0) { y += h; continue; }
         const struct app_entry *entry = &catalog->apps[index];
-        const struct gfx_texture *icon = icons_get(index);
 
-        if (selected) {
-            /* Open: the icon at its own size with the film over it, and
-               beside it what the card on the right used to say -- the name,
-               the line about where the package stands, the summary under
-               both. */
-            int iy = y + (SEL_H - BIG_H) / 2;
-            g_open_y = iy;
-            draw_open_picture(iy, icon, 1);
+        draw_row_picture(y, h, amt, icons_get(index));
+        if (amt >= 1.0f) g_open_y = (int)(y + (h - BIG_H) / 2);
 
+        int open = (int)(255 * amt), shut = 255 - open;
+        /* The name crosses from where a closed row carries it to where an
+           open one does, in the face each of them uses. */
+        if (shut > 0) {
+            int w = draw_row_marks(entry, amt, y + h / 2 - 1,
+                                   LIST_X + LIST_W - NAME_X, t);
+            font_print_clipped(FONT_BODY, NAME_X, y + h / 2 + 5, w,
+                               faded(g_dim, shut), entry->name);
+        }
+        if (open > 0) {
             unsigned color;
             const char *line = state_line(entry, &color);
-            int w = draw_row_marks(entry, 1, y + SEL_H / 2 - 1, OPEN_W, t);
+            int w = draw_row_marks(entry, amt, y + h / 2 - 1, OPEN_W, t);
             float nw = font_width(FONT_H1, entry->name);
             float sw = font_width(FONT_META, line);
-            int ty = y + 20;
+            float ty = y + 20;
             if (nw + 10 + sw <= w) {
-                float x = font_print(FONT_H1, OPEN_X, ty, g_text, entry->name);
-                font_print(FONT_META, x + 10, ty, color, line);
+                float x = font_print(FONT_H1, OPEN_X, ty, faded(g_text, open),
+                                     entry->name);
+                font_print(FONT_META, x + 10, ty, faded(color, open), line);
             } else {
                 /* A long name keeps its line whole; the state takes the
                    next. */
-                font_print_clipped(FONT_H1, OPEN_X, ty, w, g_text, entry->name);
+                font_print_clipped(FONT_H1, OPEN_X, ty, w, faded(g_text, open),
+                                   entry->name);
                 ty += 19;
-                font_print_clipped(FONT_META, OPEN_X, ty, w, color, line);
+                font_print_clipped(FONT_META, OPEN_X, ty, w, faded(color, open),
+                                   line);
             }
-            font_print_clipped(FONT_META, OPEN_X, ty + 22, w, faded(g_dim, 170),
-                               entry->summary);
-            continue;
+            font_print_clipped(FONT_META, OPEN_X, ty + 22, w,
+                               faded(g_dim, open * 170 / 255), entry->summary);
         }
-
-        /* Closed: the icon small and dimmed with the name, a dark plate
-           where it has not arrived, so the column reads as a column. Its
-           reflection goes in the water with everything else's. */
-        int iy = y + (ITEM_H - ICON_H) / 2;
-        if (icon) {
-            lattice_mirror(icon, 110, LIST_X, iy + ICON_H, ICON_W, ICON_H);
-            gfx_texture_draw(icon, LIST_X, iy, ICON_W, ICON_H, RGB(150, 150, 150));
-        } else {
-            gfx_rect(LIST_X, iy, ICON_W, ICON_H, RGBA(255, 255, 255, 12));
-        }
-
-        int w = draw_row_marks(entry, 0, y + ITEM_H / 2 - 1,
-                               LIST_X + LIST_W - NAME_X, t);
-        font_print_clipped(FONT_BODY, NAME_X, y + 19, w, g_dim, entry->name);
+        y += h;
     }
 
     if (count > VISIBLE) {
@@ -838,7 +865,7 @@ static void draw_picture(float t) {
              rgb_pack(g_tint, 100));
     gfx_veil(256);
     int index = shell_view_index(g_cursor);
-    draw_open_picture(g_open_y, index >= 0 ? icons_get(index) : 0, 1);
+    draw_row_picture(g_open_y, BIG_H, 1.0f, index >= 0 ? icons_get(index) : 0);
     gfx_veil(veil);
 }
 
@@ -1419,10 +1446,14 @@ void shell_draw(const struct catalog *catalog, int cursor) {
 }
 
 int shell_settled(void) {
-    float target = LIST_Y + (g_cursor - g_first) * ITEM_H;
-    float bar = g_sel_y - target;
+    /* The rows are where they are going when the one under the cursor is all
+       the way open and no other is left standing: that is the whole of the
+       list's movement now. */
+    int moving = row_open(g_cursor) < 1.0f;
+    for (int i = 0; i < OPEN_ROWS && !moving; i++)
+        if (i != g_cursor && g_open_amt[i] > 0.0f) moving = 1;
     int picture_done = !g_catalog || g_catalog->count <= 0 || preview_settled();
-    return g_fade <= 0 && picture_done && bar > -1.0f && bar < 1.0f;
+    return g_fade <= 0 && picture_done && !moving;
 }
 
 /* ------------------------------------------------------------- screenshot */
