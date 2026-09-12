@@ -20,7 +20,7 @@ from the release and the EBOOT and never written by hand.
 }
 ```
 
-JSON, validated against [`v1.pspdx`](v1.pspdx); the `schema`
+JSON, validated against [`schema/v1.pspdx`](schema/v1.pspdx); the `schema`
 line names that file, so the file says what it is in ten years, and a
 version 2 gets a new name without making a single old file wrong.
 
