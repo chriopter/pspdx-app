@@ -760,28 +760,24 @@ static void draw_picture(float t) {
         fw = film->w * fit;
         fh = film->h * fit;
     }
-    /* The film takes the still's place the moment it has a picture, not at
-       the end of a fade: for the length of that fade a small clip stood in
-       front of the large picture it was cut from, which is the one thing
-       this is meant to avoid. And with nothing to cross with, the fade is
-       dropped too -- the still is simply what is there until the film is. */
-    int covered = film != 0;
-    if (covered) film_alpha = 255;
+    /* One or the other, never both: an entry with a film hands out no still
+       at all (preview.c holds it back), so there is nothing here to cross
+       with and the film comes up at full strength rather than fading in out
+       of the room. */
+    if (film) film_alpha = 255;
     if (still || film) {
         /* The reflection first and under everything: it runs down over the
            water where the lines below the card are about to be written, and
-           it belongs behind them. The same two pictures in the same order as
-           on the card, so a still crossing into a film crosses in the water
-           at the same moment, and the film's reflection is as wide as the
-           film is. */
-        if (still && !covered)
+           it belongs behind them. Whichever of the two is on the card, at
+           the width it is drawn: the film's reflection is as wide as the
+           film, not as wide as the card. */
+        if (still)
             lattice_mirror(still, still_alpha, PANEL_X, SHOT_Y + SHOT_H,
                            SHOT_W, SHOT_H);
         if (film)
             lattice_mirror(film, film_alpha, card.cx - fw / 2,
                            SHOT_Y + SHOT_H, fw, fh);
-        /* The still first, the film fading in over it. */
-        if (still && !covered) {
+        if (still) {
             card.alpha = still_alpha;
             gfx_card_draw(still, &card);
         }
