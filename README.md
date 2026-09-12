@@ -7,7 +7,7 @@ PSPDX ships with a catalog of homebrew you can browse like a store. Installing a
 `.pspdx` file, which points to the original repository for future updates.
 
 You can add `.pspdx` files manually, use other catalogs or build your own by
-copying the [reference catalog's workflows](https://github.com/chriopter/pspdx-catalog).
+copying the [PSPDX catalog's workflows](https://github.com/chriopter/pspdx-catalog).
 The format is open, and downloads come from the authors rather than a central mirror.
 
 <img width="480" alt="PSPDX App browsing homebrew and available updates" src="images/pspdx-app.png" />
@@ -22,7 +22,7 @@ an app, PSPDX remembers its original repository and can download updates
 directly from there, even if the catalog is no longer available.
 
 - **[Downloader app](https://github.com/chriopter/pspdx/releases/latest)** — install, run and update homebrew on your PSP.
-- **[Reference catalog](https://github.com/chriopter/pspdx-catalog)** — [browse apps](https://chriopter.github.io/pspdx-catalog/); or build your own catalog.
+- **[PSPDX catalog](https://github.com/chriopter/pspdx-catalog)** — [browse apps](https://chriopter.github.io/pspdx-catalog/); or build your own catalog.
 - **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete example for homebrew authors.
 
 ## The PSPDX client
@@ -34,7 +34,7 @@ directly from the author, independently of the catalog.
 <details>
 <summary>Browse Catalogs</summary>
 
-- **Add catalog:** HTTPS `catalog.json` URL; the reference catalog is preconfigured.
+- **Add catalog:** HTTPS `catalog.json` URL; the PSPDX catalog is preconfigured.
 - **Add GitHub repository:** repository URL or `owner/repo`.
 - Sources are validated before saving to `sources.txt`; text lists also work.
 
@@ -102,7 +102,7 @@ A catalog lets the PSP browse many apps and check for updates with one
 request, instead of contacting every repository separately. It collects app
 descriptions, release details and preview URLs in `catalog.json`.
 
-**How updates appear:** the reference catalog's GitHub workflow checks the
+**How updates appear:** the PSPDX catalog's GitHub workflow checks the
 listed repositories hourly. It records each release's version, publication
 time, ZIP URL, size and SHA-256. When PSPDX refreshes the catalog, it compares
 those publication times with the installed releases in `state.json`. A newer
