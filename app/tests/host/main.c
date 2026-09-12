@@ -14,9 +14,7 @@ int main(int argc, char **argv) {
     if (argc < 2)
         return 2;
     storage_init(getenv("DEVICE") ? getenv("DEVICE") : "ms0:/PSP/GAME/PSPDX/EBOOT.PBP");
-    host_fault(getenv("LOAD_FAULT") ? atol(getenv("LOAD_FAULT")) : 0);
     state_load();
-    host_fault(0);
     if (!strcmp(argv[1], "parse")) {
         char *raw = NULL;
         struct pspdx_file f;

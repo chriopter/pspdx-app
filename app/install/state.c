@@ -10,7 +10,6 @@
 #include <time.h>
 static cJSON *records;
 static int healthy;
-#define LEGACY_STATE_PATH storage_path("PSP/PSPDX/INSTALLED/state.json")
 static const char *str(const cJSON *o, const char *key) {
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
     return cJSON_IsString(v) ? v->valuestring : "";
@@ -69,42 +68,11 @@ static int write_record(const char *id, const cJSON *value) {
     free(raw);
     return rc;
 }
-/* Finish migration before allowing any normal writes. The legacy file remains
-   authoritative until every record is durable, so a power cut can retry safely. */
-static int migrate(void) {
-    if (!storage_exists(LEGACY_STATE_PATH) &&
-        !storage_exists(storage_path("PSP/PSPDX/INSTALLED/state.json.bak")))
-        return 0;
-    cJSON *legacy = read_json(LEGACY_STATE_PATH, 256 * 1024);
-    if (!state_validate(legacy)) {
-        cJSON_Delete(legacy);
-        return -1;
-    }
-    const cJSON *r;
-    cJSON_ArrayForEach(r, legacy) {
-        char path[256], bak[272];
-        record_path(r->string, path, sizeof(path));
-        snprintf(bak, sizeof(bak), "%s.bak", path);
-        if (storage_exists(path) || storage_exists(bak)) {
-            cJSON *current = read_json(path, 64 * 1024);
-            int same = current && cJSON_Compare(current, r, 1);
-            cJSON_Delete(current);
-            if (!same) { cJSON_Delete(legacy); return -1; }
-        } else if (write_record(r->string, r) < 0) {
-            cJSON_Delete(legacy);
-            return -1;
-        }
-    }
-    cJSON_Delete(legacy);
-    if (sceIoSync(storage_device(), 0) < 0 || storage_remove(LEGACY_STATE_PATH) < 0)
-        return -1;
-    return sceIoSync(storage_device(), 0);
-}
 int state_load(void) {
     cJSON_Delete(records);
     records = cJSON_CreateObject();
     healthy = 0;
-    if (!records || migrate() < 0)
+    if (!records)
         goto fail;
     SceUID d = sceIoDopen(storage_path("PSP/PSPDX/INSTALLED"));
     if (d < 0)

@@ -230,10 +230,8 @@ Recoverable writes may leave `.new` or `.bak` siblings until recovery.
 Staging and rollback directories stay under `GAME/` because PSP directory
 renames require the same parent. Keep `INSTALLED/` for update tracking;
 `CACHE/` can be rebuilt. Do not remove a pending transaction's files.
-An existing combined `INSTALLED/state.json` is split automatically at startup
-and removed only after all records are saved. Interrupted migration resumes
-on the next launch; conflicting or corrupt records are preserved and block
-writes for safety. Unrelated older databases and caches are left alone.
+Only per-app `.state.json` files are loaded; older combined state files are
+ignored and left untouched. Corrupt app records are preserved and block writes.
 
 </details>
 

@@ -39,27 +39,6 @@ class ClientTests(unittest.TestCase):
   self.assertEqual((path.stat().st_ino,path.stat().st_mtime_ns),(before.st_ino,before.st_mtime_ns))
   self.assertFalse((path.parent/'state.json').exists())
   self.run_client('remove');self.assertEqual(self.state(),{'io.github.test.other':other})
- def test_migration_power_cuts(self):
-  self.run_client('install',VERSION=1);self.second_record();expected=self.state()
-  folder=self.root/'ms0:/PSP/PSPDX/INSTALLED'
-  for path in folder.glob('*.state.json'):path.unlink()
-  self.write('ms0:/PSP/PSPDX/INSTALLED/state.json',expected)
-  baseline=self.root/'legacy';shutil.copytree(self.root/'ms0:',baseline)
-  for fault in range(1,100):
-   shutil.rmtree(self.root/'ms0:');shutil.copytree(baseline,self.root/'ms0:')
-   r=self.run_client('recover',LOAD_FAULT=fault,ok=False)
-   self.assertIn(r.returncode,[0,77])
-   self.run_client('recover');self.assertEqual(self.state(),expected)
-   self.assertFalse((folder/'state.json').exists())
-   if r.returncode==0:break
-  else:self.fail('migration fault sweep did not finish')
- def test_migration_conflict_preserves_both(self):
-  self.run_client('install');expected=self.state()
-  legacy=json.loads(json.dumps(expected));legacy[ID]['installed']['version']='1'
-  self.write('ms0:/PSP/PSPDX/INSTALLED/state.json',legacy)
-  self.assertNotEqual(self.run_client('install',ok=False).returncode,0)
-  self.assertEqual(self.state(),expected)
-  self.assertEqual(json.loads((self.root/'ms0:/PSP/PSPDX/INSTALLED/state.json').read_text()),legacy)
  def test_record_backup_recovery(self):
   self.run_client('install');expected=self.state()
   path=self.root/f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json'

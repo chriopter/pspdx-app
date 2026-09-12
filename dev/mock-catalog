@@ -279,12 +279,6 @@ def clean(work, ms, quiet=False):
     game_dir = os.path.realpath(os.path.join(ms, "PSP/GAME"))
     cache_dir = os.path.realpath(os.path.join(ms, "PSP/PSPDX/CACHE/media"))
 
-    # Remove only old mock entries if a pre-migration fixture remains.
-    state_path=os.path.join(db_dir,"state.json")
-    if os.path.exists(state_path):
-        state=json.load(open(state_path))
-        state={key:value for key,value in state.items() if not key.startswith(ID_PREFIX)}
-        with open(state_path,"w") as output:json.dump(state,output)
     # The manifest names what make planted; the sweep of the three
     # directories catches what the client planted afterwards.
     listing = os.path.join(work, "mock-planted")

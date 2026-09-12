@@ -27,8 +27,6 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX/DEBUG/font/ltn8.pgf", ""},
     {"PSP/PSPDX/INBOX", ""},
     {"PSP/PSPDX/INSTALLED", ""},
-    {"PSP/PSPDX/INSTALLED/state.json", ""},
-    {"PSP/PSPDX/INSTALLED/state.json.bak", ""},
     {"PSP/PSPDX/LOGS", ""},
     {"PSP/PSPDX/LOGS/http.txt", ""},
     {"PSP/PSPDX/LOGS/pspdx.log", ""},
