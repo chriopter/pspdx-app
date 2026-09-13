@@ -4,10 +4,9 @@
 #include <stddef.h>
 
 /* Where the console finds apps: PSP/PSPDX/sources.txt, one URL a line, the
-   built-in list first. A line is one of three things -- a list (text with an
-   optional "cache <url>" line and one GitHub repository a line), a single
-   repository, which is a list of one, or a catalog.json, which is a cache
-   with no list behind it. The file is read at every catalog fetch and written
+   built-in catalog first. A line is a catalog base URL, a catalog.json, a
+   text list (with an optional "cache <url>" line), or a GitHub repository.
+   The file is read at every catalog fetch and written
    to by the gear tab; nothing else touches it.
 
    What a repository is called, what it is, and which zip on the release is
@@ -16,7 +15,7 @@
 
 #define SOURCES_MAX 16
 #define SOURCE_URL 256
-#define SOURCES_DEFAULT "https://raw.githubusercontent.com/chriopter/pspdx-catalog/HEAD/repos.txt"
+#define SOURCES_DEFAULT "https://chriopter.github.io/pspdx-catalog/"
 
 struct sources {
     char url[SOURCES_MAX][SOURCE_URL];
@@ -39,7 +38,7 @@ int sources_release_url(const char *repo,const char *url);
 int sources_normalize(const char *text,char *url,size_t size);
 int sources_add(const char *text, char *url, size_t size);
 
-enum source_kind { SOURCE_LIST, SOURCE_REPO, SOURCE_CATALOG };
+enum source_kind { SOURCE_LIST, SOURCE_REPO, SOURCE_CATALOG, SOURCE_CATALOG_BASE };
 enum source_kind sources_kind(const char *url);
 
 /* One line of a list: https://github.com/<owner>/<repo>[@tag], and nothing

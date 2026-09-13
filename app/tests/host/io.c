@@ -134,6 +134,9 @@ int https_get(const char *url, https_sink sink, void *ctx, https_progress cb, vo
     else if (strstr(url, "catalog.json")) {
         if (!getenv("CATALOG_DOWN"))
             path = "catalog.json";
+    } else if (strstr(url, "catalog.txt")) {
+        if (!getenv("LIST_DOWN"))
+            path = "catalog.txt";
     } else if (strstr(url, "/.pspdx"))
         path = "manifest.json";
     else if (strstr(url, "/releases/"))

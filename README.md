@@ -37,11 +37,15 @@ How PSPDX finds apps, checks releases and stores installations:
 <details>
 <summary>Sources — catalogs, repositories and INBOX</summary>
 
-The PSPDX Catalog is preconfigured. Settings accepts additional sources:
+The default source is `https://chriopter.github.io/pspdx-catalog/`. PSPDX
+reads `catalog.json` for fast browsing. If it fails, PSPDX reads `catalog.txt`
+from the same site and checks its listed repositories directly. If both fail,
+it uses a saved catalog when available. A site with only `catalog.txt` also
+works without a builder. Settings accepts additional sources:
 
 | Input | Result |
 |---|---|
-| HTTPS `catalog.json` or a text repository list | Browse all listed apps. |
+| HTTPS catalog site URL, `catalog.json` or text repository list | Browse all listed apps. |
 | GitHub URL or `owner/repo` | Browse one app directly. |
 | `.pspdx` files in `PSP/PSPDX/INBOX/` | Validate and install selected files. |
 
@@ -113,9 +117,10 @@ checks and downloads require a connection.
 <details>
 <summary>Catalog data — update indicators, previews and cache</summary>
 
-The reference catalog's hourly workflow reads listed repositories. For a new
-release it reads `.pspdx`, hashes the ZIP and extracts valid EBOOT media;
-unchanged releases reuse their entries. It publishes `catalog.json` with app
+The reference catalog's hourly workflow reads its `repos.txt` and publishes
+it as `catalog.txt`. For a new release it reads `.pspdx`, hashes the ZIP and
+extracts valid EBOOT media; unchanged releases reuse their entries. It
+publishes `catalog.json` with app
 metadata, source, install path, release timestamp, ZIP URL, size, hash and
 media URLs. A push or manual run also picks up manifest-only edits; ordinary
 hourly runs wait for a new release. A build with no valid apps leaves the live

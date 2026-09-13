@@ -148,6 +148,29 @@ class ClientTests(unittest.TestCase):
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)
   r=self.run_client('fetch',OFFLINE=1);self.assertIn(ID+' 3 0',r.stdout)
   requests=(self.root/'requests.log').read_text();self.assertNotIn('ICON0',requests);self.assertNotIn('PIC1',requests)
+ def test_catalog_base_uses_json_then_text_fallback(self):
+  self.fixtures()
+  base='https://example.com/pspdx/'
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text(base+'\n')
+  (self.root/'catalog.txt').write_text(SPEC['source']+'\n')
+  (self.root/'requests.log').write_text('')
+  self.assertIn(ID+' 2 1',self.run_client('fetch').stdout)
+  self.assertEqual((self.root/'requests.log').read_text().splitlines(),[base+'catalog.json'])
+  self.assertIn(ID+' 3 1',self.run_client('fetch',CATALOG_DOWN=1).stdout)
+  requests=(self.root/'requests.log').read_text().splitlines()
+  self.assertIn(base+'catalog.txt',requests)
+  self.assertIn('https://raw.githubusercontent.com/test/demo/HEAD/.pspdx',requests)
+  self.assertIn('https://api.github.com/repos/test/demo/releases/latest',requests)
+ def test_default_catalog_source_and_text_only_site(self):
+  self.fixtures()
+  source=self.root/'ms0:/PSP/PSPDX/sources.txt'
+  source.unlink()
+  (self.root/'catalog.txt').write_text(SPEC['source']+'\n')
+  self.assertIn(ID+' 3 1',self.run_client('fetch',CATALOG_DOWN=1).stdout)
+  self.assertEqual(source.read_text().splitlines()[-1],
+                   'https://chriopter.github.io/pspdx-catalog/')
+  self.assertIn('https://chriopter.github.io/pspdx-catalog/catalog.txt',
+                (self.root/'requests.log').read_text())
  def test_unknown_catalog_schema_uses_original_source(self):
   self.fixtures()
   catalog=json.loads((self.root/'catalog.json').read_text())
@@ -187,11 +210,18 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(self.run_client('check-source','io.github.chriopter.pspdx').stdout.strip(),'0')
  def test_sources_added_only_when_valid(self):
   self.fixtures()
+  base='https://example.com/other/'
+  self.run_client('add',base)
+  self.assertIn(base,(self.root/'ms0:/PSP/PSPDX/sources.txt').read_text())
   self.run_client('add','test/demo')
   path=self.root/'ms0:/PSP/PSPDX/sources.txt';before=path.read_text()
   self.assertIn(SPEC['source'],before)
   self.assertNotEqual(self.run_client('add','https://example.com/broken.json',ok=False).returncode,0)
   self.assertEqual(path.read_text(),before)
+  (self.root/'catalog.txt').write_text(SPEC['source']+'\n')
+  self.run_client('add','https://example.com/text-only/',CATALOG_DOWN=1)
+  self.assertIn('https://example.com/text-only/',path.read_text())
+  before=path.read_text()
   self.assertNotEqual(self.run_client('add','test/demo',ok=False,OFFLINE=1).returncode,0)
   self.assertEqual(path.read_text(),before)
  def test_inbox_success_removes_only_successful_files(self):

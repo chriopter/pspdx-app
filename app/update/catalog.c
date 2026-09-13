@@ -18,7 +18,7 @@
 #include "util/runtime.h"
 
 #ifndef CATALOG_URL /* a test build may point at a catalog on the host */
-#define CATALOG_URL "https://chriopter.github.io/pspdx-catalog/catalog.json"
+#define CATALOG_URL SOURCES_DEFAULT "catalog.json"
 #endif
 
 static char response[200 * 1024];
@@ -294,7 +294,8 @@ static int fetch_text(const char *url, struct https_result *out) {
 
 /* A cache fetched and merged in. Returns the entries taken, or -1 when
    the cache did not answer or was not a catalog. */
-static int take_cache(struct catalog *catalog, const char *url) {
+enum cache_mode { CACHE_LIVE, CACHE_LIVE_OR_SAVED, CACHE_SAVED_ONLY };
+static int take_cache(struct catalog *catalog, const char *url, enum cache_mode mode) {
     unsigned char digest[20];
     sceKernelUtilsSha1Digest((unsigned char *)url, strlen(url), digest);
     char hex[41], path[256];
@@ -304,7 +305,7 @@ static int take_cache(struct catalog *catalog, const char *url) {
     struct https_result r;
     int taken = -1;
     parsing_cached = 0;
-    if (fetch_text(url, &r) == 0) {
+    if (mode != CACHE_SAVED_ONLY && fetch_text(url, &r) == 0) {
         taken = parse(catalog, url);
         if (taken >= 0) {
             if (storage_write(path, response, response_len) == 0)
@@ -314,7 +315,7 @@ static int take_cache(struct catalog *catalog, const char *url) {
             catalog->response_len = response_len;
         }
     }
-    if (taken < 0) {
+    if (taken < 0 && mode != CACHE_LIVE) {
         char *raw = NULL;
         int n = storage_read(path, &raw, sizeof(response) - 1);
         if (n >= 0) {
@@ -600,12 +601,36 @@ static int fetch_source(struct catalog *catalog, int at, const char *url) {
 
     switch (sources_kind(url)) {
     case SOURCE_CATALOG:
-        taken = take_cache(catalog, url);
+        taken = take_cache(catalog, url, CACHE_LIVE_OR_SAVED);
         if (taken < 0)
             logline("source %d: catalog unreachable", at);
         else
             logline("source %d: catalog, %d apps", at, taken);
         return taken;
+
+    case SOURCE_CATALOG_BASE: {
+        char json[SOURCE_URL], txt[SOURCE_URL];
+        if (snprintf(json, sizeof(json), "%scatalog.json", url) >= (int)sizeof(json) ||
+            snprintf(txt, sizeof(txt), "%scatalog.txt", url) >= (int)sizeof(txt))
+            return -1;
+        taken = take_cache(catalog, json, CACHE_LIVE);
+        if (taken >= 0) return taken;
+        if (fetch_text(txt, NULL) == 0) {
+            sources_parse_list(response, &list);
+            if (list.count > 0) {
+                taken = walk_list(catalog, &list, &asked, &refused);
+                if (taken > 0) {
+                    snprintf(g_catalog_url, sizeof(g_catalog_url), "%s", txt);
+                    logline("source %d: catalog.txt, %d repositories asked", at, asked);
+                    return taken;
+                }
+            }
+        }
+        taken = take_cache(catalog, json, CACHE_SAVED_ONLY);
+        logline("source %d: live catalog unavailable, saved snapshot %s", at,
+                taken >= 0 ? "used" : "missing");
+        return taken;
+    }
 
     case SOURCE_REPO:
         memset(&list, 0, sizeof(list));
@@ -621,28 +646,13 @@ static int fetch_source(struct catalog *catalog, int at, const char *url) {
     }
 
     if (fetch_text(url, NULL) < 0) {
-        /* The built-in list names the built-in cache, and a console that
-           cannot read the one still knows where the other is. */
-        if (strcmp(url, SOURCES_DEFAULT) != 0) {
-            logline("source %d: list unreachable", at);
-            return -1;
-        }
-        taken = take_cache(catalog, CATALOG_URL);
-        logline("source %d: list unreachable, built-in cache %s", at,
-                taken < 0 ? "unreachable too" : "taken");
-        return taken;
+        logline("source %d: list unreachable", at);
+        return -1;
     }
     sources_parse_list(response, &list);
-    /* The built-in list is the built-in cache's own list, so that cache is
-       taken whether or not the file names it: a `cache` line dropped over
-       there would otherwise cost every console on it a walk of the whole
-       list at the origin, where there are no pictures and no hashes. A list
-       somebody else keeps is trusted only for what it says. */
-    const char *cache = list.cache[0]                       ? list.cache
-                        : strcmp(url, SOURCES_DEFAULT) == 0 ? CATALOG_URL
-                                                            : 0;
+    const char *cache = list.cache[0] ? list.cache : NULL;
     if (cache)
-        cached = take_cache(catalog, cache);
+        cached = take_cache(catalog, cache, CACHE_LIVE_OR_SAVED);
     taken = walk_list(catalog, &list, &asked, &refused);
     logline("source %d: list of %d, cache %s%d apps, origin %d asked, %d apps, %d refused", at,
             list.count,
@@ -800,8 +810,31 @@ int catalog_validate_source(const char *url, int repository) {
         struct source_repo repo;
         if (sources_parse_repo(url, &repo))
             rc = take_origin(probe, &repo) > 0 ? 0 : -1;
-    } else if (fetch_text(url, NULL) == 0)
-        rc = parse(probe, url) >= 0 ? 0 : -1;
+    } else {
+        enum source_kind kind = sources_kind(url);
+        char target[SOURCE_URL];
+        if (kind == SOURCE_CATALOG_BASE) {
+            if (snprintf(target, sizeof(target), "%scatalog.json", url) >= (int)sizeof(target))
+                goto done;
+            if (fetch_text(target, NULL) == 0 && parse(probe, target) >= 0) {
+                rc = 0;
+                goto done;
+            }
+            if (snprintf(target, sizeof(target), "%scatalog.txt", url) >= (int)sizeof(target))
+                goto done;
+        } else {
+            snprintf(target, sizeof(target), "%s", url);
+        }
+        if (fetch_text(target, NULL) == 0) {
+            if (kind == SOURCE_CATALOG)
+                rc = parse(probe, target) >= 0 ? 0 : -1;
+            else {
+                struct source_list list;
+                rc = sources_parse_list(response, &list) > 0 ? 0 : -1;
+            }
+        }
+    }
+done:
     free(probe);
     return rc;
 }

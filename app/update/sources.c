@@ -181,6 +181,10 @@ int sources_remove(const char *url) {
 
 enum source_kind sources_kind(const char *url) {
     size_t n = strlen(url);
+    if (n > 8 && url[n - 1] == '/') {
+        struct source_repo r;
+        if (!sources_parse_repo(url, &r)) return SOURCE_CATALOG_BASE;
+    }
     while (n && url[n - 1] == '/')
         n--;
     if (n > 5 && strncmp(url + n - 5, ".json", 5) == 0)
