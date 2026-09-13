@@ -30,207 +30,180 @@ PSPDX checks for updates at startup. Select an available update and press
 - **[PSPDX Catalog](https://github.com/chriopter/pspdx-catalog)** — lists apps and caches release details and EBOOT previews. [Browse it](https://chriopter.github.io/pspdx-catalog/) or copy its workflows to make your own.
 - **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete homebrew example for authors using the [`.pspdx` standard](#the-pspdx-standard).
 
-How sources, installation, updates and local files work:
+How PSPDX finds apps, checks releases and stores installations:
 
 <details>
-<summary>Browse Catalogs</summary>
+<summary>Sources — catalogs, repositories and INBOX</summary>
 
-The PSPDX Catalog is preconfigured. Add more sources in settings; their
-apps appear together in the browser:
+The PSPDX Catalog is preconfigured. Settings accepts additional sources:
 
-| Action | Input | What it adds |
-|---|---|---|
-| **Add catalog** | HTTPS `catalog.json` URL | A collection of apps and release data |
-| **Add GitHub repository** | Repository URL or `owner/repo` | One app, resolved directly from GitHub |
-| **Read INBOX** | `.pspdx` files in `PSP/PSPDX/INBOX/` | Apps to validate and install after confirmation |
+| Input | Result |
+|---|---|
+| HTTPS `catalog.json` or a text repository list | Browse all listed apps. |
+| GitHub URL or `owner/repo` | Browse one app directly. |
+| `.pspdx` files in `PSP/PSPDX/INBOX/` | Validate and install selected files. |
 
-Catalogs and repositories are checked before being saved in `sources.txt`.
-Text repository lists are also supported. Adding a source does not install
-its apps; INBOX import does. Installed apps remain tracked through their
-saved manifests and state, even if their catalog is removed.
+Catalogs and repositories are validated before being added to `sources.txt`.
+Adding a source does not install its apps; INBOX import does. Installed apps
+keep their own manifests and state if a source is removed.
 
 </details>
 
 <details>
-<summary>Install &amp; Update Brews</summary>
+<summary>Installation and updates — checks, sources and recovery</summary>
 
-**Install:** select an app and press **×**, then confirm. PSPDX obtains its
-`.pspdx` if not already loaded and checks that its source and installation
-folder match the selected entry. It downloads the release ZIP from GitHub,
-checks size, SHA-256 when available, ZIP integrity and paths, then installs
-the directory containing the single `EBOOT.PBP` into `installdir`.
-The manifest and installed release are saved together for future updates.
-Unmanaged folders are neither adopted nor overwritten.
+**Install:** select an app with **×** and confirm. PSPDX verifies that its
+`.pspdx` source and `installdir` match the selected entry, then downloads the
+author's release ZIP. It checks size, available SHA-256, ZIP integrity and
+paths before installing the folder containing the single `EBOOT.PBP`.
+Unmanaged folders are never adopted or overwritten.
 
-**Check updates:** PSPDX refreshes sources automatically at startup;
-**Update catalog** in settings repeats the check. It compares each installed
-release's publication time with the available release; a newer timestamp
-marks an update, rather than comparing version strings.
+**Check:** at startup, or through **Update catalog** in settings, PSPDX
+compares each installed release's `published_at` with the available release.
+Version strings are not used for update detection.
 
-| Situation | Where release information comes from |
+| Case | Release lookup |
 |---|---|
-| A configured catalog returns a usable entry for the app | Use that entry; no separate GitHub release lookup is needed. |
-| The catalog is unreachable, invalid or no longer lists the installed app | Check the GitHub source saved with the installed app. Cached catalog data remains available for browsing. |
-| The app came from INBOX or a repository, never a catalog | Check its saved GitHub source when no usable catalog entry covers it. If a configured catalog later lists it, that entry can be used too. |
-| **Check original sources** is selected | Check installed apps directly at GitHub, bypassing catalog release information. |
-| GitHub is also unavailable | Keep the last known release and successful check time. No successful update check is recorded. |
+| A configured catalog has a usable entry | Use it; skip the GitHub release lookup. |
+| No usable entry, including an unreachable or invalid catalog | Check the app's saved GitHub source; cached catalog data can still be browsed. |
+| App added through INBOX or a repository | Check its saved GitHub source unless a configured catalog now covers it. |
+| **Check original sources** selected | Query GitHub for installed apps, bypassing catalog release data. |
+| GitHub also unavailable | Keep the last known release; do not record a successful check. |
 
-A successfully fetched catalog is treated as current; its age is not checked.
-If it stays online but stops publishing new releases, use **Check original
-sources**. Previously cached information is not proof that an app is current.
+A reachable catalog is treated as current even if its publisher stopped
+updating it. Use **Check original sources** in that case; an old cached entry
+is not evidence of a current release.
 
-**Apply updates:** checking does not install anything. Confirm with **×** to
-download the selected release. A transaction journal covers files, manifest
-and state so interrupted operations can be recovered. For INBOX batches,
-conflicts are skipped and only successful imports leave INBOX; hold **○**
-to stop between packages. Self-updates run last; restart PSPDX to run the new version.
+**Apply:** checking never installs an update. Confirm one with **×**. A
+transaction journal covers the installed files, manifest and state so an
+interrupted install can recover. INBOX batches skip conflicts; only successful
+imports leave INBOX. Hold **○** to stop between packages. Self-updates run last;
+restart PSPDX afterward.
 
 **△** options · **○** back · **□** basket · **START** run · **L/R** or **←/→** tabs.
 
 </details>
 
 <details>
-<summary>Connect — TLS 1.3</summary>
+<summary>Network — HTTPS, TLS 1.3 and offline use</summary>
 
-PSPDX connects through the first saved PSP network profile.
-Catalog lookup, direct GitHub checks and package downloads all use HTTPS.
-One catalog request supplies release data for many apps. Direct checks read
-`.pspdx` from `raw.githubusercontent.com` and release data from
-`api.github.com`; missing author/description/license fields may require a
-repository metadata request. ZIP downloads follow GitHub asset redirects.
-Each HTTP request opens its own connection; there is no keep-alive or reuse.
+PSPDX uses the first saved PSP network profile. Catalogs, GitHub checks and
+ZIP downloads use HTTPS. A catalog returns release data for many apps in one
+request; direct checks read `.pspdx` from `raw.githubusercontent.com` and
+releases from `api.github.com`. Missing author, summary or license fields may
+require a repository metadata request. ZIPs follow GitHub asset redirects.
+Each HTTP request opens a new connection; there is no keep-alive.
 
-wolfSSL provides TLS 1.3 with bundled CAs, certificate-chain and hostname
-verification, and X25519 preferred. Analog-stick entropy and `CRYPTO/seed.bin`
-feed the random generator. Certificate date checks are bypassed for unset
-PSP clocks; the other checks remain. Packages have no signature verification.
-SHA-256 supplied by a catalog checks package integrity, not the author's identity.
+wolfSSL uses TLS 1.3, bundled CAs, certificate-chain and hostname checks,
+with X25519 preferred. Analog-stick entropy and `CRYPTO/seed.bin` feed its
+random generator. Certificate date checks are skipped when the PSP clock is
+unset; the other checks remain. Packages are not signed. A catalog SHA-256
+checks ZIP integrity, not author identity.
 
-Refresh runs in the background. Installation and preview loading share the
-network stack, so previews pause during installation. Cached browsing works
-offline; fresh release checks and ZIP downloads require a connection.
-
-</details>
-
-<details>
-<summary>Catalog — releases, previews and caching</summary>
-
-The catalog does work ahead of the PSP: it collects many repositories into
-one small index, so browsing and update checks need fewer requests.
-
-1. The PSPDX Catalog workflow checks listed repositories hourly. For changed
-   releases it reads `.pspdx`, downloads the ZIP, hashes it and extracts EBOOT
-   media. Unchanged releases reuse their previous entries.
-2. It publishes `catalog.json`: app descriptions, source repositories,
-   installation paths, versions, publication times, ZIP URLs, sizes, hashes
-   and media URLs. The same data feeds the website and app pages.
-3. PSPDX fetches this index and compares release timestamps with each app's `.state.json`
-   to display available updates. The catalog does not know what is installed
-   on your PSP. An update appears after the catalog build and your next refresh;
-   the ZIP still downloads from the author's release.
-
-Manifest-only edits need a new release or forced rebuild. A push or manual
-workflow run forces a full read. A build with no valid apps keeps the live site.
-
-**Previews:** the workflow hosts extracted `ICON0.PNG` (icon), `PIC1.PNG`
-(background), `ICON1.PMF` (video) and `SND0.AT3` (sound) separately. The PSP
-loads icons and selected-app previews without downloading whole app ZIPs.
-Installed EBOOT media takes priority, followed by cache/catalog media.
-Direct GitHub lookups fetch no separate previews: they use installed EBOOTs,
-existing cache or placeholders. All media is optional.
-
-**Caching:** catalog responses go to `CACHE/catalogs/`, media to `CACHE/media/`
-under `PSP/PSPDX/`. A failed catalog request preserves its last usable copy;
-installed apps fall back to their source as described under Install & Update.
-Offline, only saved records and local media are available. Either cache can
-be deleted without losing installation records.
+Refresh runs in the background. Installation pauses network previews because
+they share the network stack. Cached browsing works offline; fresh release
+checks and downloads require a connection.
 
 </details>
 
 <details>
-<summary>Data Structure</summary>
+<summary>Catalog data — update indicators, previews and cache</summary>
 
-Example on the startup device (`ms0:` or `ef0:`). App names and hashes are
-illustrative; temporary and debug files appear only when used.
+The reference catalog's hourly workflow reads listed repositories. For a new
+release it reads `.pspdx`, hashes the ZIP and extracts valid EBOOT media;
+unchanged releases reuse their entries. It publishes `catalog.json` with app
+metadata, source, install path, release timestamp, ZIP URL, size, hash and
+media URLs. A push or manual run also picks up manifest-only edits; ordinary
+hourly runs wait for a new release. A build with no valid apps leaves the live
+site in place.
+
+PSPDX compares each catalog release timestamp with the local app's
+`installed.published_at` to mark updates. The catalog does not know what is
+installed on your PSP. New updates appear after the catalog publishes and the
+PSP refreshes; ZIPs still download from the author's release.
+
+The catalog hosts optional `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3`
+separately, avoiding a ZIP download for previews. Installed EBOOT media takes
+priority, then cached/catalog media. Direct GitHub lookups use installed media,
+existing cache or placeholders; they do not fetch new previews.
+
+Responses live in `PSP/PSPDX/CACHE/catalogs/`, media in `CACHE/media/`. A failed
+fetch keeps the last usable catalog for browsing; installed apps check their
+saved GitHub source. Offline, only saved records and media are available. Both
+caches can be deleted without losing installation state.
+
+</details>
+
+<details>
+<summary>Files on the Memory Stick — manifests, state and cache</summary>
+
+Example on the startup device (`ms0:` or `ef0:`); app IDs are illustrative.
+Temporary and debug files appear only when used.
 
 ```text
 ms0:/
 └── PSP/
     ├── GAME/
-    │   ├── PSPDX/
-    │   │   └── EBOOT.PBP                  # The downloader
-    │   ├── Cathedral/
-    │   │   ├── EBOOT.PBP                  # Installed homebrew
-    │   │   └── ...                        # Other files from its package
-    │   ├── .pspdx-stage/                  # Temporary installation
-    │   │   └── EBOOT.PBP
-    │   └── Cathedral.old/                 # Temporary rollback backup
-    │       └── EBOOT.PBP
+    │   ├── PSPDX/EBOOT.PBP              # Downloader
+    │   ├── Cathedral/                   # Installed homebrew
+    │   │   ├── EBOOT.PBP
+    │   │   └── ...
+    │   ├── .pspdx-stage/                # Temporary install
+    │   └── Cathedral.old/               # Rollback backup
     └── PSPDX/
-        ├── sources.txt                   # Catalogs and direct repositories
-        ├── INBOX/
-        │   └── demo.pspdx                 # Awaiting import
+        ├── sources.txt                  # Subscriptions
+        ├── INBOX/demo.pspdx             # Awaiting import
         ├── INSTALLED/
         │   ├── io.github.chriopter.pspdx.pspdx
         │   ├── io.github.chriopter.pspdx.state.json
         │   ├── io.github.chriopter.pspcathedral.pspdx
         │   └── io.github.chriopter.pspcathedral.state.json
         ├── CACHE/
-        │   ├── catalogs/
-        │   │   └── <url-sha1>.json        # Cached catalog response
+        │   ├── catalogs/<url-sha1>.json
         │   └── media/
         │       ├── <app-id>-icon-<hash>.png
         │       ├── <app-id>-picture-<hash>.png
         │       ├── <app-id>-film-<hash>.pmf
         │       └── <app-id>-sound-<hash>.at3
         ├── TMP/
-        │   ├── download.zip              # Package being installed
-        │   └── transaction.json          # Recovery journal
+        │   ├── download.zip
+        │   └── transaction.json
         ├── LOGS/
-        │   ├── pspdx.log                 # App log
-        │   ├── http.txt                  # HTTP diagnostics
-        │   └── wolf.log                  # TLS diagnostics
+        │   ├── pspdx.log
+        │   ├── http.txt
+        │   └── wolf.log
         ├── DEBUG/
-        │   ├── PSPDX.BMP                 # Screenshot
-        │   ├── PSPDX.KEYS                # Scripted test inputs
-        │   ├── PSPDX.REPLAY               # Entropy replay
-        │   ├── PSPDX.TRACE                # Entropy trace
-        │   ├── PSPDX_REC/                # Entropy recordings
-        │   ├── font/
-        │   │   └── ltn8.pgf              # Optional test font
-        │   └── ...                       # Other test markers/screenshots
-        └── CRYPTO/
-            └── seed.bin                  # Saved entropy seed
+        │   ├── PSPDX.BMP
+        │   ├── PSPDX.KEYS
+        │   ├── PSPDX.REPLAY
+        │   ├── PSPDX.TRACE
+        │   ├── PSPDX_REC/
+        │   ├── font/ltn8.pgf
+        │   └── ...
+        └── CRYPTO/seed.bin
 ```
 
-`sources.txt` stores subscriptions; `INBOX/` holds files awaiting import.
-`INSTALLED/<app-id>.pspdx` preserves each installed app's source independently
-of those subscriptions. Beside it, `<app-id>.state.json` contains only that
-app's state, without an outer app-ID key:
+`INSTALLED/<app-id>.pspdx` preserves the source independently of
+`sources.txt`. Its adjacent `<app-id>.state.json` has no outer app-ID key:
 
-| State | Stored fields |
+| Field | Contents |
 |---|---|
-| Identity | `source`, `added_from` (catalog, repository or INBOX) |
-| `installed` | `version`, `published_at`, `installdir` |
-| `latest` | `version`, `published_at`, `download_url`, `size`, optional `sha256`, `checked_at`, `checked_from` |
+| `source`, `added_from` | Original repository and import route. |
+| `installed` | Version, `published_at`, install directory. |
+| `latest` | Version, `published_at`, download URL, size, optional SHA-256, last successful check time and source. |
 
-Installing an app creates its state file. Successful installs and updates
-write `installed`; successful catalog/GitHub checks write `latest` without
-changing `installed`. Browsing an uninstalled app creates no installation record.
-PSPDX registers its own running version on startup.
+Install creates the state file. Successful install/update writes `installed`;
+a successful catalog/GitHub check writes `latest` without changing
+`installed`. Thus `installed.version = 1.0` and `latest.version = 1.1` means
+1.0 is still installed. Browsing creates no installation record. PSPDX
+registers its own running version at startup. `added_from` does not determine
+future update checks; each operation writes only the affected app's state.
 
-For example, `installed.version = 1.0` and `latest.version = 1.1` means the
-installed version is still 1.0. Only a successful update changes it to 1.1.
-Update detection compares the corresponding `published_at` timestamps.
-`added_from` records the original import route, not a required update source.
-Each operation writes only the affected app's state file.
-
-Recoverable writes may leave `.new` or `.bak` siblings until recovery.
-Staging and rollback directories stay under `GAME/` because PSP directory
-renames require the same parent. Keep `INSTALLED/` for update tracking;
-`CACHE/` can be rebuilt. Do not remove a pending transaction's files.
-Only per-app `.state.json` files are loaded; older combined state files are
-ignored and left untouched. Corrupt app records are preserved and block writes.
+Recoverable writes may leave `.new` or `.bak` files. Staging and backup stay
+under `GAME/` because PSP directory renames require the same parent. Keep
+`INSTALLED/` for updates; `CACHE/` is disposable. Do not delete a pending
+transaction's files. Only per-app state files are loaded; older combined
+state files are ignored. Corrupt app records are preserved and block writes.
 
 </details>
 
