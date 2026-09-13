@@ -1255,14 +1255,14 @@ int main(int argc, char *argv[]) {
                    buffer, so the media thread steps aside for the length of
                    it, as it does for an install. */
                 int which = SHELL_ROW_SETTING - at, refetch = 0;
-                /* The catalogs again, or every app asked at its own
-                   repository: the second is the slow, thorough one. */
+                /* The catalogs again on X; square on the same row is the
+                   slow, thorough one, every app asked at its own
+                   repository, and the panel says so. */
                 if (which == 0 && synced) refetch = 1;
-                else if (which == 1 && synced) { catalog_force_sources(); refetch = 1; }
-                else if (which == 2 && synced) sub_open(SUB_CATALOGS);
-                else if (which == 3 && synced) sub_open(SUB_ADD);
-                else if (which == 4) sub_open(SUB_RESET);
-                else if (which == 5) {
+                else if (which == 1 && synced) sub_open(SUB_CATALOGS);
+                else if (which == 2 && synced) sub_open(SUB_ADD);
+                else if (which == 3) sub_open(SUB_RESET);
+                else if (which == 4) {
                     shell_info(info = 1);
                 }
                 if (refetch) refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
@@ -1298,6 +1298,10 @@ int main(int argc, char *argv[]) {
                cursor is on is one that was set aside. The basket appearing
                or emptying is a tab appearing or going, so the tabs are
                worked out again before the next frame draws them. */
+            if ((pressed & PSP_CTRL_SQUARE) && at == SHELL_ROW_SETTING && synced) {
+                catalog_force_sources();
+                refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
+            }
             if ((pressed & PSP_CTRL_SQUARE) && at >= 0) {
                 shell_basket_toggle(at);
                 cues_post(CUE_MOVE, cursor);

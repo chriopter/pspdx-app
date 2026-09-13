@@ -589,7 +589,7 @@ static void draw_action_row(int y, int selected, float t) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[SHELL_SETTINGS] = {
-        MARK_UPDATE, MARK_UPDATE, MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_INFO,
+        MARK_UPDATE, MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_INFO,
     };
     float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     enum mark m = (enum mark)SIGN[n];
@@ -1217,7 +1217,6 @@ static void read_storage(void) {
    package's row is, because at this depth nothing is deeper. */
 static const char *const SETTING[SHELL_SETTINGS] = {
     "Check for updates",
-    "Direct check for updates",
     "Manage catalogs",
     "Add .pspdx directly",
     "Reset",
@@ -1227,8 +1226,7 @@ static const char *const SETTING[SHELL_SETTINGS] = {
 /* What each row does, said on the right while the cursor is on it: the
    list names the thing, the panel says what it comes to. */
 static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
-    "Fetches the catalogs again and compares what is installed with what they list.",
-    "Asks every installed app's own repository for its newest release, catalog or not. Slower; one request an app.",
+    "Fetches the catalogs again and compares what is installed with what they list. Square instead of X polls every installed app's own .pspdx and release directly, catalog or not; that takes longer.",
     "The lists this console reads apps from. Take one out, or add one by its URL.",
     "One app straight from its GitHub repository, or the .pspdx files put in PSP/PSPDX/INBOX.",
     "Sweep the stick again for fresh TLS entropy, or put PSPDX back to its first start: everything under PSP/PSPDX goes, the apps in PSP/GAME stay.",
