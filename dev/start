@@ -129,11 +129,22 @@ systemctl --user stop "$UNIT" 2>/dev/null || true
 # under the same name is refused without a word; forgetting it first is
 # what lets the next start go through.
 systemctl --user reset-failed "$UNIT" 2>/dev/null || true
-for pid in $(pgrep -x PPSSPPSDL 2>/dev/null); do
-	if tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qx "PSPDX_OWNER=$OWNER"; then
-		kill "$pid" 2>/dev/null || true
-	fi
+# Flatpak puts the emulator in a scope of its own, so stopping the unit
+# only ends the launcher: the emulator itself is found by the owner in its
+# environment and ended by hand. Asked to go first; if it is still there
+# five seconds on, made to. Two emulators on one stick each take the other
+# for a crash.
+mine() {
+	for pid in $(pgrep -x PPSSPPSDL 2>/dev/null); do
+		tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qx "PSPDX_OWNER=$OWNER" && echo "$pid"
+	done
+}
+for pid in $(mine); do kill "$pid" 2>/dev/null || true; done
+for i in 1 2 3 4 5 6 7 8 9 10; do
+	[ -z "$(mine)" ] && break
+	sleep 0.5
 done
+for pid in $(mine); do kill -9 "$pid" 2>/dev/null || true; done
 sleep 1
 # Native: the emulator renders the PSP's own 480x272 and only the window
 # scales it, so what is on screen is what a PSP shows, pixel for pixel.
