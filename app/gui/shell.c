@@ -1226,7 +1226,7 @@ static const char *const SETTING[SHELL_SETTINGS] = {
 /* What each row does, said on the right while the cursor is on it: the
    list names the thing, the panel says what it comes to. */
 static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
-    "Fetches the catalogs again and compares what is installed with what they list. Square instead of X polls every installed app's own .pspdx and release directly, catalog or not; that takes longer.",
+    "Compares what is installed with what is published, and says what is newer.",
     "The lists this console reads apps from. Take one out, or add one by its URL.",
     "One app straight from its GitHub repository, or the .pspdx files put in PSP/PSPDX/INBOX.",
     "Sweep the stick again for fresh TLS entropy, or put PSPDX back to its first start: everything under PSP/PSPDX goes, the apps in PSP/GAME stay.",
@@ -1458,7 +1458,14 @@ static void draw_setting_panel(int n) {
     int y = SHOT_Y + 14;
     draw_shade(PANEL_X + SHOT_W / 2, y + 30, SHOT_W, 90);
     font_print(FONT_H1, PANEL_X, y, g_text, shell_setting(n));
-    draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 4, g_dim, SETTING_NOTE[n]);
+    int lines = draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 3, g_dim, SETTING_NOTE[n]);
+    /* The first row has two keys, and the panel names them the way the
+       footer does, with the key's own mark rather than a word for it. */
+    if (n == 0) {
+        float base = y + 24 + 16 * lines + 14;
+        draw_hint(PANEL_X, base, MARK_CROSS, "From the catalogs", g_dim);
+        draw_hint(PANEL_X, base + 18, MARK_SQUARE, "From every app's own .pspdx, slower", g_dim);
+    }
 }
 
 void shell_draw(const struct catalog *catalog, int cursor) {
