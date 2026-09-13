@@ -32,6 +32,9 @@ int sources_load(struct sources *s);
    is taken as it is. Appends it to the file unless it is there already.
    Returns 1 added, 0 already present, -1 for something that is not a URL.
    url receives the normalised form either way. */
+/* Takes one URL out of the file. Returns 1 removed, 0 not there, -1 for a
+   file that could not be written. */
+int sources_remove(const char *url);
 int sources_release_url(const char *repo,const char *url);
 int sources_normalize(const char *text,char *url,size_t size);
 int sources_add(const char *text, char *url, size_t size);

@@ -161,6 +161,24 @@ int sources_add(const char *text, char *url, size_t size) {
     return 1;
 }
 
+int sources_remove(const char *url) {
+    struct sources have;
+    sources_load(&have);
+    char all[SOURCES_MAX * (SOURCE_URL + 1) + 1];
+    size_t at = 0;
+    int found = 0;
+    for (int i = 0; i < have.count; i++) {
+        if (sources_same_url(have.url[i], url)) { found = 1; continue; }
+        at += snprintf(all + at, sizeof(all) - at, "%s\n", have.url[i]);
+    }
+    if (!found)
+        return 0;
+    if (storage_write(SOURCES_PATH, all, at) < 0)
+        return -1;
+    logline("sources: removed %s", url);
+    return 1;
+}
+
 enum source_kind sources_kind(const char *url) {
     size_t n = strlen(url);
     while (n && url[n - 1] == '/')

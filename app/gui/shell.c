@@ -254,7 +254,7 @@ static void build_view(int restart) {
     /* A tab that is a job rather than a category carries the job itself at
        the top, above the packages it would be done to -- the stick only
        while there is a job on it. */
-    g_view_action = tab == TAB_BASKET || (tab == TAB_STICK && updates_waiting() > 0);
+    g_view_action = tab == TAB_BASKET || tab == TAB_STICK;
     if (!restart) return;
     g_first = 0;
     g_last_cursor = -1;
@@ -532,7 +532,8 @@ static void draw_chrome(const struct catalog *catalog, float t) {
    Both are wanted in the list and again in the panel, so they are made in one
    place. */
 static const char *action_title(void) {
-    return shell_tab_kind() == SHELL_TAB_STICK ? "Update all" : "Download all";
+    if (shell_tab_kind() != SHELL_TAB_STICK) return "Download all";
+    return updates_waiting() > 0 ? "Update all" : "Check for updates";
 }
 
 /* "3 apps, 61.5 MB" -- or, when nothing in the tab has a release with a
@@ -542,7 +543,9 @@ static const char *action_line(void) {
     struct shell_plan plan;
     char size[24];
     shell_action_plan(&plan);
-    if (plan.apps <= 0)
+    if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK)
+        snprintf(line, sizeof(line), "%d installed, all current", g_view_count);
+    else if (plan.apps <= 0)
         snprintf(line, sizeof(line), "nothing here has a release");
     else {
         size_mb(plan.bytes, size, sizeof(size));
@@ -577,8 +580,7 @@ static void draw_action_row(int y, int selected, float t) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[SHELL_SETTINGS] = {
-        MARK_UPDATE, MARK_DOWNLOAD, MARK_DOWNLOAD, MARK_BASKET,
-        MARK_UPDATE, MARK_STICK, MARK_INFO,
+        MARK_UPDATE, MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_INFO,
     };
     float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     enum mark m = (enum mark)SIGN[n];
@@ -703,6 +705,12 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
              rgb_pack(g_tint, (int)(70 * update_pulse(t))));
 
     font_print(FONT_H1, PANEL_X, y, g_text, action_title());
+    if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK) {
+        font_print(FONT_META, PANEL_X, y + 20, g_dim,
+                   "Asks every installed app's repository");
+        font_print(FONT_META, PANEL_X, y + 34, g_dim, "for a newer release.");
+        return;
+    }
     if (plan.apps > 0) {
         size_mb(plan.bytes, size, sizeof(size));
         download_time(plan.bytes, value, sizeof(value));
@@ -1190,12 +1198,20 @@ static void read_storage(void) {
    package's row is, because at this depth nothing is deeper. */
 static const char *const SETTING[SHELL_SETTINGS] = {
     "Update catalog",
-    "Add catalog",
-    "Add GitHub repository",
-    "Read INBOX",
-    "Check original sources",
+    "Manage catalogs",
+    "Add .pspdx directly",
     "Discard entropy and sweep again",
     "Info",
+};
+
+/* What each row does, said on the right while the cursor is on it: the
+   list names the thing, the panel says what it comes to. */
+static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
+    "Fetches the catalog again and asks every app's own repository for its newest release.",
+    "The lists this console reads apps from. Take one out, or add one by its URL.",
+    "One app straight from its GitHub repository, or the .pspdx files put in PSP/PSPDX/INBOX.",
+    "Forgets the stored seed. The stick sweep runs again, as it did on the first start.",
+    "What this session is connected to and what it is standing on.",
 };
 
 const char *shell_setting(int n) {
@@ -1416,6 +1432,16 @@ void shell_profile(char *out, int size) {
     g_worst_total = g_worst_back = g_worst_front = g_worst_end = 0;
 }
 
+/* The right half while the cursor is on a row under the gear: the row's
+   name at the size the panel gives a package, and under it what taking the
+   row comes to. */
+static void draw_setting_panel(int n) {
+    int y = SHOT_Y + 14;
+    draw_shade(PANEL_X + SHOT_W / 2, y + 30, SHOT_W, 90);
+    font_print(FONT_H1, PANEL_X, y, g_text, shell_setting(n));
+    draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 4, g_dim, SETTING_NOTE[n]);
+}
+
 void shell_draw(const struct catalog *catalog, int cursor) {
     g_catalog = catalog;
     g_cursor = cursor;
@@ -1464,6 +1490,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         int index = shell_view_index(cursor < rows ? cursor : 0);
         draw_list(catalog, cursor, t);
         if (index == SHELL_ROW_ACTION) draw_action_panel(catalog, t);
+        else if (index <= SHELL_ROW_SETTING) draw_setting_panel(SHELL_ROW_SETTING - index);
         else if (index >= 0) draw_panel(&catalog->apps[index], t);
     } else if (g_status[0]) {
         /* Nothing to browse yet: the word stands in the room, lit from

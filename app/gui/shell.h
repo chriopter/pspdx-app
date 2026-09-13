@@ -50,7 +50,7 @@ enum shell_tab_kind shell_tab_kind(void);
    do to itself: shell_view_index() answers SHELL_ROW_SETTING minus the
    row's number for them, so the one list draws and walks both kinds. */
 #define SHELL_ROW_SETTING (-100)
-#define SHELL_SETTINGS 7
+#define SHELL_SETTINGS 5
 const char *shell_setting(int n);
 int shell_view_action(int row);
 

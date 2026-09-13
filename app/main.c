@@ -314,7 +314,7 @@ static void launch_app(int index) {
    draws the question and the footer that answers it; the answer arrives
    through the pad, which is read down in the loop, so the two halves meet
    in these two variables and nowhere else. */
-enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX };
+enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG };
 static enum question g_question;
 static int g_question_of;
 
@@ -560,6 +560,50 @@ static void menu_close(void) {
     shell_menu(NULL, NULL, NULL, NULL, 0, 0);
 }
 
+/* The two popups under the gear, in the same panel the options use: the
+   catalogs this console reads, one a row with "Add" last; and the two ways
+   a .pspdx comes in directly. Drawn by the shell, driven here. */
+enum sub { SUB_NONE, SUB_CATALOGS, SUB_ADD };
+static enum sub g_sub;
+static int g_sub_cursor, g_sub_count;
+static struct sources g_sources;
+static char g_sub_short[SOURCES_MAX][48];
+static const char *g_sub_item[SOURCES_MAX + 1];
+static unsigned char g_sub_on[SOURCES_MAX + 1];
+static signed char g_sub_key[SOURCES_MAX + 1];
+
+static void sub_push(void) {
+    shell_menu(g_sub == SUB_CATALOGS ? "Catalogs" : "Add .pspdx directly",
+               g_sub_item, g_sub_on, g_sub_key, g_sub_count, g_sub_cursor);
+}
+
+static void sub_open(enum sub which) {
+    g_sub = which;
+    g_sub_count = 0;
+    if (which == SUB_CATALOGS) {
+        sources_load(&g_sources);
+        for (int i = 0; i < g_sources.count; i++) {
+            /* The scheme goes; every source has it, and the panel is narrow. */
+            const char *u = g_sources.url[i];
+            if (!strncmp(u, "https://", 8)) u += 8;
+            snprintf(g_sub_short[i], sizeof(g_sub_short[i]), "%s", u);
+            g_sub_item[g_sub_count++] = g_sub_short[i];
+        }
+        g_sub_item[g_sub_count++] = "Add catalog...";
+    } else {
+        g_sub_item[g_sub_count++] = "From a GitHub repository";
+        g_sub_item[g_sub_count++] = "From the INBOX";
+    }
+    for (int i = 0; i < g_sub_count; i++) { g_sub_on[i] = 1; g_sub_key[i] = -1; }
+    g_sub_cursor = 0;
+    sub_push();
+}
+
+static void sub_close(void) {
+    g_sub = SUB_NONE;
+    shell_menu(NULL, NULL, NULL, NULL, 0, 0);
+}
+
 /* A greyed row is stepped over rather than landed on: the cursor only ever
    sits where X would do something. */
 static void menu_move(int by) {
@@ -691,6 +735,27 @@ static void osk_draw(void *ctx) {
    with the install question already asked. */
 static char g_wanted_url[SOURCE_URL];     /* that repository, while one is waited for */
 static char g_wanted_name[64];            /* owner/repo, for the status line */
+
+/* The catalog fetched again: the list gives way to the word and the
+   status line and comes back with what is now published, the cursor on the
+   package it was on if that package is still there. The sync thread and
+   the media thread share the one HTTPS stack and the one asset buffer, so
+   the media thread steps aside for the length of it. */
+static void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
+                        int *refreshing) {
+    int was = shell_view_index(cursor);
+    snprintf(keep, keep_size, "%s", was >= 0 ? catalog.apps[was].id : "");
+    preview_quiesce();
+    shell_word("Refreshing");
+    if (sync_start(&catalog) == 0) {
+        *synced = 0;
+        *refreshing = 1;
+    } else {
+        keep[0] = '\0';
+        g_wanted_url[0] = '\0';
+        preview_resume();
+    }
+}
 
 /* Reads a source from the keyboard and adds it. Returns 1 when the catalog
    should be fetched again, 0 when there is nothing new. */
@@ -978,7 +1043,7 @@ int main(int argc, char *argv[]) {
            is: a question that scrolls out from under its answer is a trap,
            up and down belong to the menu while one is open, and a tab
            changing under a band would change what the band is about. */
-        int modal = g_question != ASK_NOTHING || g_menu_open || details;
+        int modal = g_question != ASK_NOTHING || g_menu_open || g_sub || details;
 
         /* Ten seconds without a key and the picture of the package under
            the cursor rises behind the interface, which stays where it is
@@ -1030,7 +1095,12 @@ int main(int argc, char *argv[]) {
                 else if (asked == ASK_ASIDE) { if (set_aside(index) == 0) install_app(index, 0, 0, 0); }
                 else if (asked == ASK_ALL) install_all();
                 else if (asked == ASK_INBOX) install_inbox();
-                else uninstall_app(index);
+                else if (asked == ASK_CATALOG) {
+                    if (index >= 0 && index < g_sources.count &&
+                        sources_remove(g_sources.url[index]) > 0)
+                        refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
+                    else shell_status("Could not remove that catalog");
+                } else uninstall_app(index);
                 dump_diagnostics();
                 /* What was just done can have emptied a tab. */
                 view_settled(&cursor);
@@ -1038,6 +1108,28 @@ int main(int argc, char *argv[]) {
             } else if (pressed & PSP_CTRL_CIRCLE) {
                 ask_forget();
                 shell_status("");
+            }
+        } else if (g_sub) {
+            if (pressed & PSP_CTRL_DOWN) { g_sub_cursor = (g_sub_cursor + 1) % g_sub_count; sub_push(); cues_post(CUE_MOVE, 0); }
+            else if (pressed & PSP_CTRL_UP) { g_sub_cursor = (g_sub_cursor + g_sub_count - 1) % g_sub_count; sub_push(); cues_post(CUE_MOVE, 0); }
+            else if (pressed & PSP_CTRL_CIRCLE) sub_close();
+            else if (pressed & PSP_CTRL_CROSS) {
+                int chosen = g_sub_cursor;
+                enum sub kind = g_sub;
+                sub_close();
+                if (kind == SUB_CATALOGS) {
+                    if (chosen < g_sources.count) {
+                        shell_ask("Remove this catalog?", g_sub_short[chosen]);
+                        g_question = ASK_CATALOG;
+                        g_question_of = chosen;
+                    } else if (synced && type_source(0)) {
+                        refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
+                    }
+                } else {
+                    if (chosen == 0 && synced && type_source(1))
+                        refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
+                    else if (chosen == 1 && synced) ask_inbox();
+                }
             }
         } else if (g_menu_open) {
             /* The keys the menu names work from inside it too, so that what
@@ -1103,12 +1195,13 @@ int main(int argc, char *argv[]) {
                    buffer, so the media thread steps aside for the length of
                    it, as it does for an install. */
                 int which = SHELL_ROW_SETTING - at, refetch = 0;
-                if (which == 0 && synced) refetch = 1;
-                else if ((which == 1 || which == 2) && synced)
-                    refetch = type_source(which == 2);
-                else if (which == 3 && synced) ask_inbox();
-                else if (which == 4 && synced) { catalog_force_sources(); refetch = 1; }
-                else if (which == 5 && synced) {
+                /* Fetched again and, the same press, every app asked at its
+                   own repository: one row, since one is what a person means
+                   by "update the catalog". */
+                if (which == 0 && synced) { catalog_force_sources(); refetch = 1; }
+                else if (which == 1 && synced) sub_open(SUB_CATALOGS);
+                else if (which == 2 && synced) sub_open(SUB_ADD);
+                else if (which == 3 && synced) {
                     /* The field drains and is swept again, in the room the
                        browser was already standing in. The old pool is set
                        aside rather than thrown away until the new one is
@@ -1121,29 +1214,24 @@ int main(int argc, char *argv[]) {
                     entropy_init();
                     if (entropy_screen_run() == 0) entropy_restore();
                     entropy_save(entropy_screen_is_replay());
-                } else if (which == 6) {
+                } else if (which == 4) {
                     shell_info(info = 1);
                 }
-                if (refetch) {
-                    int was = shell_view_index(cursor);
-                    snprintf(keep, sizeof(keep), "%s",
-                             was >= 0 ? catalog.apps[was].id : "");
-                    preview_quiesce();
-                    shell_word("Refreshing");
-                    if (sync_start(&catalog) == 0) {
-                        synced = 0;
-                        refreshing = 1;
-                    } else {
-                        keep[0] = '\0';
-                        g_wanted_url[0] = '\0';
-                        preview_resume();
-                    }
-                }
+                if (refetch) refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X is the one thing there is to do to the package: have
                    it, or have the newer one. With nothing of that to do it
                    opens the options, as triangle does. */
-                if (at == SHELL_ROW_ACTION) ask_all();
+                if (at == SHELL_ROW_ACTION) {
+                    struct shell_plan plan;
+                    shell_action_plan(&plan);
+                    if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK) {
+                        if (synced) {
+                            catalog_force_sources();
+                            refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
+                        }
+                    } else ask_all();
+                }
                 else if (at >= 0 && (catalog.apps[at].state == APP_NOT_INSTALLED ||
                                      catalog.apps[at].state == APP_UPDATE))
                     ask_install(at);
