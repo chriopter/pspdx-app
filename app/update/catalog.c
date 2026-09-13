@@ -100,6 +100,13 @@ static int parse(struct catalog *catalog, const char *base) {
         cJSON_Delete(root);
         return -1;
     }
+    /* When the list was last written, as the list says; the oldest of the
+       sources is what the session is told about. */
+    cJSON *generated = cJSON_GetObjectItemCaseSensitive(root, "generated");
+    if (cJSON_IsString(generated)) {
+        unsigned when = iso8601(generated->valuestring);
+        if (when && (!catalog->generated || when < catalog->generated)) catalog->generated = when;
+    }
 
     int before = catalog->count;
     int taken = 0;

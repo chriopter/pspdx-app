@@ -46,6 +46,7 @@ struct app_entry {
 struct catalog {
     struct app_entry apps[MAX_APPS];
     int count;
+    unsigned generated;             /* the catalog's own stamp, unix seconds; 0 unknown */
     int total;
     size_t response_len;
     struct https_result fetch;

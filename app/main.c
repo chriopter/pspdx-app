@@ -994,6 +994,19 @@ int main(int argc, char *argv[]) {
             }
             if (sync_done()) {
                 synced = 1;
+                /* A catalog is rebuilt every hour whether or not anything
+                   changed, so a stamp a day old means the list has stopped
+                   being looked after; what it says about updates is then
+                   worth less than a look at the repositories themselves. */
+                if (catalog.generated && catalog.generated + 24u * 3600u < (unsigned)time(NULL)) {
+                    unsigned days = ((unsigned)time(NULL) - catalog.generated) / 86400u;
+                    char stale[96];
+                    snprintf(stale, sizeof(stale),
+                             "The catalog is %u day%s old; try Direct check for updates",
+                             days, days == 1 ? "" : "s");
+                    shell_status(stale);
+                    logline("catalog: generated %u days ago", days);
+                }
                 /* A fresh catalog is a fresh set of tabs, and the icons
                    cached against the old one no longer stand for the same
                    entries. */
