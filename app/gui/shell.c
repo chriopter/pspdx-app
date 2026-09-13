@@ -672,6 +672,7 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
             mark_draw(MARK_UPDATE, mx, my,
                       faded(UPDATE_RGB, (int)((selected ? 255 : 170) * update_pulse(t))),
                       selected ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
+            mx -= 21;
             name_w -= 21;
         } else if (entry->state != APP_NOT_INSTALLED) {
             /* On the stick: a quiet tick, the way a list ticks off what is
@@ -679,7 +680,16 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
                carries no mark. */
             mark_draw(MARK_TICK, mx, my, selected ? g_accent : faded(g_dim, 150),
                       selected ? MARK_PLAIN : MARK_DIM, 0, t);
+            mx -= 19;
             name_w -= 19;
+        }
+        /* Set aside: the basket, inside whatever the row carries about the
+           stick, so a package that is both waiting and set aside shows
+           both. */
+        if (shell_basket_has(index)) {
+            mark_draw(MARK_BASKET, mx, my, selected ? g_text : faded(g_dim, 170),
+                      selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+            name_w -= 22;
         }
 
         font_print_clipped(FONT_BODY, NAME_X, y + 21, name_w,
