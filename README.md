@@ -21,8 +21,7 @@ WPA2 support and a saved Wi-Fi connection. PSPDX uses the first saved profile.
 
 1. Download [`pspdx.zip`](https://github.com/chriopter/pspdx/releases/latest)
    and extract it to the root of your Memory Stick or internal storage.
-2. Enable WLAN and launch PSPDX from **Game → Memory Stick** (or internal
-   storage). On first launch, follow the analog-stick prompt.
+2. Enable WLAN, launch PSPDX from **Game**, and follow the first-launch prompt.
 3. Choose an app in the catalog and press **×** to install it. Press **START**
    to run it.
 
