@@ -1218,7 +1218,7 @@ static void read_storage(void) {
 static const char *const SETTING[SHELL_SETTINGS] = {
     "Check for updates",
     "Add sources",
-    "Add .pspdx directly",
+    "Direct install",
     "Reset",
     "Info",
 };

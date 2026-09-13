@@ -582,7 +582,7 @@ static unsigned char g_sub_on[SOURCES_MAX + 1];
 static signed char g_sub_key[SOURCES_MAX + 1];
 
 static void sub_push(void) {
-    shell_menu(g_sub == SUB_CATALOGS ? "Sources" : g_sub == SUB_ADD ? "Add .pspdx directly" : "Reset",
+    shell_menu(g_sub == SUB_CATALOGS ? "Sources" : g_sub == SUB_ADD ? "Direct install" : "Reset",
                g_sub_item, g_sub_on, g_sub_key, g_sub_count, g_sub_cursor);
 }
 
