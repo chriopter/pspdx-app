@@ -95,7 +95,8 @@ ZIP downloads use HTTPS. A catalog returns release data for many apps in one
 request; direct checks read `.pspdx` from `raw.githubusercontent.com` and
 releases from `api.github.com`. Missing author, summary or license fields may
 require a repository metadata request. ZIPs follow GitHub asset redirects.
-Each HTTP request opens a new connection; there is no keep-alive.
+PSPDX briefly reuses TLS connections to the same host, including GitHub's
+Raw and API hosts; a closed or expired connection is reopened automatically.
 
 wolfSSL uses TLS 1.3, bundled CAs, certificate-chain and hostname checks,
 with X25519 preferred. Analog-stick entropy and `CRYPTO/seed.bin` feed its

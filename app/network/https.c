@@ -1,9 +1,8 @@
 #include "util/storage.h"
 /*
  * HTTPS on the PSP: sceNetInet sockets under wolfSSL, and just enough HTTP/1.1
- * to stream one body of any size into a sink. Every request is its own
- * connection; keep-alive is a later optimisation, redirects are followed by
- * reconnecting.
+ * to stream one body of any size into a sink. Short-lived connections are
+ * reused per host when the response has an unambiguous Content-Length.
  *
  * The four traps in this file each cost an afternoon and none is documented:
  * the BSD socket wrappers return garbage, sceNetInetSelect hangs, SO_NONBLOCK
@@ -51,6 +50,8 @@
 #define DEFAULT_SUITES "TLS13-CHACHA20-POLY1305-SHA256:TLS13-AES128-GCM-SHA256"
 
 static const char *g_suites = DEFAULT_SUITES;
+static void close_idle(void);
+static int g_wolf_ready;
 
 /* What the stack is doing right now, for a status line: a literal, set by
    the thread doing the work and read by whoever draws. */
@@ -58,7 +59,10 @@ static const char *volatile g_phase = "";
 static void phase(const char *p) { g_phase = p; }
 const char *https_phase(void) { return g_phase; }
 
-void https_prefer(const char *suites) { g_suites = suites ? suites : DEFAULT_SUITES; }
+void https_prefer(const char *suites) {
+    close_idle();
+    g_suites = suites ? suites : DEFAULT_SUITES;
+}
 
 /* What the last handshake settled on. Written by whichever thread made it and
    read by the one that draws: four short strings that are replaced whole, so
@@ -73,6 +77,8 @@ static struct {
 } g_net;
 
 void net_down(void) {
+    close_idle();
+    if (g_wolf_ready) { wolfSSL_Cleanup(); g_wolf_ready = 0; }
     if (g_net.connected) { sceNetApctlDisconnect(); g_net.connected = 0; }
     if (g_net.apctl)     { sceNetApctlTerm();       g_net.apctl = 0; }
     if (g_net.resolver)  { sceNetResolverTerm();    g_net.resolver = 0; }
@@ -303,6 +309,16 @@ static const char *header(const char *head, size_t len, const char *name) {
     return NULL;
 }
 
+static int connection_closes(const char *value, const char *end) {
+    if (!value || !end) return 0;
+    for (const char *p = value; p + 5 <= end; p++)
+        if (!strncasecmp(p, "close", 5) &&
+            (p == value || p[-1] == ' ' || p[-1] == ',') &&
+            (p + 5 == end || p[5] == ' ' || p[5] == ','))
+            return 1;
+    return 0;
+}
+
 /* ------------------------------------------------------------------- url */
 
 /* A GitHub release download redirects to a signed URL well over 512 bytes. */
@@ -389,26 +405,114 @@ static int verify_ignoring_dates(int preverify, WOLFSSL_X509_STORE_CTX *store) {
 
 /* ---------------------------------------------------------------- request */
 
-/* One connection, one request. Fills head[] with the response head, streams
+/* The catalog alternates raw.githubusercontent.com and api.github.com for
+   each app. One idle slot would close the first connection every time the
+   second host is contacted. These slots are used by the existing serialized
+   network work: sync and installs quiesce the media thread. */
+#define IDLE_SLOTS 3
+#define IDLE_MS 30000
+struct connection {
+    int sock;
+    WOLFSSL_CTX *ctx;
+    WOLFSSL *ssl;
+    char host[128];
+    unsigned short port;
+    unsigned idle_at;
+};
+static struct connection *g_idle[IDLE_SLOTS];
+
+static void close_connection(struct connection *c, int graceful) {
+    if (!c) return;
+    if (c->ssl) {
+        if (graceful) wolfSSL_shutdown(c->ssl);
+        wolfSSL_free(c->ssl);
+    }
+    if (c->ctx) wolfSSL_CTX_free(c->ctx);
+    if (c->sock >= 0) sceNetInetClose(c->sock);
+    free(c);
+}
+
+static void close_idle(void) {
+    for (int i = 0; i < IDLE_SLOTS; i++) {
+        close_connection(g_idle[i], 0);
+        g_idle[i] = NULL;
+    }
+}
+
+static struct connection *take_idle(const struct url *u) {
+    for (int i = 0; i < IDLE_SLOTS; i++) {
+        struct connection *c = g_idle[i];
+        if (!c) continue;
+        if (expired(c->idle_at, IDLE_MS)) {
+            close_connection(c, 0);
+            g_idle[i] = NULL;
+        } else if (c->port == u->port && !strcmp(c->host, u->host)) {
+            g_idle[i] = NULL;
+            return c;
+        }
+    }
+    return NULL;
+}
+
+static void save_idle(struct connection *c) {
+    int slot = -1;
+    for (int i = 0; i < IDLE_SLOTS; i++)
+        if (!g_idle[i]) { slot = i; break; }
+    if (slot < 0) {
+        slot = 0;
+        for (int i = 1; i < IDLE_SLOTS; i++)
+            if ((unsigned)(now_ms() - g_idle[i]->idle_at) >
+                (unsigned)(now_ms() - g_idle[slot]->idle_at))
+                slot = i;
+        close_connection(g_idle[slot], 0);
+    }
+    c->idle_at = now_ms();
+    g_idle[slot] = c;
+}
+
+/* One HTTP request, possibly over an idle connection. Fills head[] and streams
    the body. Returns: 0 complete, 1 truncated, <0 failed before the body.
    On a 3xx with Location, *redirect is filled and 2 is returned. */
 static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
                        https_progress progress, void *progress_ctx,
-                       struct https_result *res, struct url *redirect) {
-    int sock = -1, rc, ret = -1, wolf_up = 0;
+                       struct https_result *res, struct url *redirect, int *stale) {
+    int sock = -1, rc, ret = -1;
     WOLFSSL_CTX *ctx = NULL;
     WOLFSSL *ssl = NULL;
+    struct connection *conn = take_idle(u);
+    int reused = conn != NULL;
+    int can_keep = 0;
     static char buf[16 * 1024];
     static char head[HEAD_MAX];
     size_t headlen = 0;
 
+    *stale = 0;
+    res->status = 0;
+    res->body_len = 0;
+    res->content_length = 0;
+    res->truncated = 0;
+    if (conn) {
+        sock = conn->sock;
+        ctx = conn->ctx;
+        ssl = conn->ssl;
+        res->handshake_ms = 0;
+        logline("https: reuse %s", u->host);
+        goto request;
+    }
     struct in_addr ip;
     phase("dns");
     if (resolve(u->host, &ip) < 0) { logline("dns failed: %s", u->host); return -1; }
     phase("connect");
 
+    conn = calloc(1, sizeof(*conn));
+    if (!conn) return -1;
+    conn->sock = -1;
+    snprintf(conn->host, sizeof(conn->host), "%s", u->host);
+    conn->port = u->port;
+
     sock = sceNetInetSocket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) { logline("socket failed"); return -2; }
+    if (sock < 0) { logline("socket failed"); ret = -2; goto out; }
+    conn->sock = sock;
 
     /* No portable O_NONBLOCK here, and SO_NONBLOCK / SO_ERROR are not in the
        headers -- using them picks up constants from elsewhere and configures
@@ -445,14 +549,17 @@ static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
     }
     stir_power(now_ms() - start);
 
-    int irc = wolfSSL_Init();
-    if (irc != WOLFSSL_SUCCESS) {
-        logline("wolfssl %s init=%d", wolfSSL_lib_version(), irc);
-        goto out;
+    if (!g_wolf_ready) {
+        int irc = wolfSSL_Init();
+        if (irc != WOLFSSL_SUCCESS) {
+            logline("wolfssl %s init=%d", wolfSSL_lib_version(), irc);
+            goto out;
+        }
+        g_wolf_ready = 1;
     }
-    wolf_up = 1;
 
     ctx = wolfSSL_CTX_new(wolfTLSv1_3_client_method());
+    conn->ctx = ctx;
     if (!ctx) { logline("no TLS 1.3 in this build"); goto out; }
     if (g_suites && wolfSSL_CTX_set_cipher_list(ctx, g_suites) != WOLFSSL_SUCCESS)
         logline("cipher list rejected: %s", g_suites);
@@ -480,9 +587,10 @@ static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
         logline("x25519 unavailable, using default groups");
 
     ssl = wolfSSL_new(ctx);
+    conn->ssl = ssl;
     if (!ssl) { logline("wolfSSL_new failed"); goto out; }
-    wolfSSL_SetIOReadCtx(ssl, &sock);
-    wolfSSL_SetIOWriteCtx(ssl, &sock);
+    wolfSSL_SetIOReadCtx(ssl, &conn->sock);
+    wolfSSL_SetIOWriteCtx(ssl, &conn->sock);
     if (wolfSSL_UseSNI(ssl, WOLFSSL_SNI_HOST_NAME, u->host,
                        (unsigned short)strlen(u->host)) != WOLFSSL_SUCCESS)
         logline("SNI rejected");
@@ -495,7 +603,6 @@ static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
         logline("x25519 key share unavailable");
 
     phase("tls handshake");
-    pace_begin();                    /* the radio's budget starts with the session */
     start = now_ms();
     while ((rc = wolfSSL_connect(ssl)) != WOLFSSL_SUCCESS) {
         int e = wolfSSL_get_error(ssl, rc);
@@ -522,12 +629,14 @@ static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
         g_last.handshake_ms = res->handshake_ms;
     }
 
+request:
     phase("request");
+    pace_begin();
     int reqlen = snprintf(buf, sizeof(buf),
                           "GET %s HTTP/1.1\r\n"
                           "Host: %s\r\n"
                           "User-Agent: pspdx/0.0\r\n"
-                          "Connection: close\r\n\r\n", u->path, u->host);
+                          "Connection: keep-alive\r\n\r\n", u->path, u->host);
     if (reqlen <= 0 || reqlen >= (int)sizeof(buf)) { logline("request too long"); goto out; }
 
     start = now_ms();
@@ -537,6 +646,7 @@ static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
         int e = wolfSSL_get_error(ssl, rc);
         if (e != WOLFSSL_ERROR_WANT_READ && e != WOLFSSL_ERROR_WANT_WRITE) {
             logline("write failed %d", e);
+            if (reused) *stale = 1;
             goto out;
         }
         if (expired(start, STALL_TIMEOUT_MS)) { logline("write timeout"); goto out; }
@@ -549,10 +659,6 @@ static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
     size_t leftover_len = 0;
     size_t want = 0;
     int have_length = 0, chunked = 0;
-    res->body_len = 0;
-    res->content_length = 0;
-    res->truncated = 0;
-
     start = now_ms();
     for (;;) {
         rc = wolfSSL_read(ssl, buf, (int)sizeof(buf));
@@ -586,6 +692,12 @@ static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
                 res->content_length = want;
                 const char *te = header(head, hl, "Transfer-Encoding");
                 if (te && strncasecmp(te, "chunked", 7) == 0) chunked = 1;
+                const char *connection = header(head, hl, "Connection");
+                const char *connection_end = connection
+                    ? mem_find(connection, (size_t)(head + hl - connection), "\r\n", 2) : NULL;
+                can_keep = have_length && !chunked &&
+                    !strncmp(head, "HTTP/1.1 ", 9) &&
+                    !connection_closes(connection, connection_end);
 
                 if (res->status >= 300 && res->status < 400) {
                     const char *loc = header(head, hl, "Location");
@@ -651,7 +763,10 @@ static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
         if (e == WOLFSSL_ERROR_NONE || e == WOLFSSL_ERROR_ZERO_RETURN) {
             /* Clean close: complete unless a length says otherwise. */
             if (body_start && (!have_length || res->body_len >= want)) ret = 0;
-            else if (!body_start) logline("http: closed before head");
+            else if (!body_start) {
+                logline("http: closed before head");
+                if (reused) *stale = 1;
+            }
             goto out;
         }
         if (e != WOLFSSL_ERROR_WANT_READ && e != WOLFSSL_ERROR_WANT_WRITE) {
@@ -667,13 +782,10 @@ static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
 
 out:
     if (ret == 1) res->truncated = 1;
-    if (ssl) {
-        if (ret == 0 || ret == 2) wolfSSL_shutdown(ssl);
-        wolfSSL_free(ssl);
-    }
-    if (ctx) wolfSSL_CTX_free(ctx);
-    if (wolf_up) wolfSSL_Cleanup();
-    if (sock >= 0) sceNetInetClose(sock);
+    if (reused && ret < 0 && !res->body_len && !headlen)
+        *stale = 1;
+    if (ret == 0 && can_keep) save_idle(conn);
+    else close_connection(conn, ret == 0 || ret == 2);
     return ret;
 }
 
@@ -687,7 +799,13 @@ int https_get(const char *url, https_sink sink, void *sink_ctx,
     if (url_parse(url, &u) < 0) return -1;
 
     for (res.redirects = 0; ; res.redirects++) {
-        int rc = one_request(&u, sink, sink_ctx, progress, progress_ctx, &res, &next);
+        int stale = 0;
+        int rc = one_request(&u, sink, sink_ctx, progress, progress_ctx, &res, &next, &stale);
+        if (stale && !res.body_len) {
+            /* A server may close an idle connection just before our next GET.
+               Retrying is safe only before any response body reached the sink. */
+            rc = one_request(&u, sink, sink_ctx, progress, progress_ctx, &res, &next, &stale);
+        }
         if (rc != 2) {
             strncpy(res.host, u.host, sizeof(res.host) - 1);
             if (out) *out = res;

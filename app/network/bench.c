@@ -53,10 +53,10 @@ static int drop(void *ctx, const void *data, size_t len) {
 }
 
 static void bench_handshake(const char *url, const char *suites, const char *label) {
-    https_prefer(suites);
     struct https_result r;
     unsigned best = 0;
     for (int i = 0; i < 3; i++) {
+        https_prefer(suites); /* Measure new handshakes, not a reused connection. */
         if (https_get(url, drop, 0, 0, 0, &r) != 0) { logline("bench: %s failed", label); return; }
         if (!best || r.handshake_ms < best) best = r.handshake_ms;
     }
