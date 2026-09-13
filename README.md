@@ -3,9 +3,25 @@
 **PSP Download Index** — browse, install, update homebrew directly
 on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspdx/releases/latest)**
 
-PSPDX comes with the PSPDX Catalog ready to browse like a store. Add other
-catalogs or `.pspdx` files directly. Each installed app keeps its source, so
-updates can come directly from the author even if a catalog disappears.
+PSPDX lets you browse homebrew like a store, install it and check for updates
+on your PSP. The [PSPDX Catalog](https://chriopter.github.io/pspdx-catalog/)
+is included, so you can start browsing right away.
+
+### How it works
+
+A homebrew author puts a small [`.pspdx` file](#the-pspdx-standard) in their
+repository. It tells PSPDX what the app is, where to install it and where to
+find its releases. The [demo app's file](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx)
+shows an example.
+
+A catalog brings many apps together so you can discover them on your PSP. At
+its simplest, it is just a [list of repositories](https://github.com/chriopter/pspdx-catalog/blob/master/repos.txt).
+The PSPDX Catalog also prepares release details and EBOOT previews in advance,
+so browsing needs fewer requests. You can add other catalogs or apps directly.
+
+When you install an app, PSPDX saves its `.pspdx` file on your Memory Stick.
+It can then check the author's repository for updates, even if the catalog
+goes away.
 
 - **[Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)** — the PSP app.
 - **[PSPDX Catalog](https://github.com/chriopter/pspdx-catalog)** — [browse homebrew](https://chriopter.github.io/pspdx-catalog/) or copy its workflows to build your own catalog.
