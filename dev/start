@@ -82,6 +82,11 @@ else
 fi
 [ -f "$APP/EBOOT.PBP" ] || { echo "no EBOOT.PBP" >&2; exit 1; }
 
+# The stick's directories went upper case on 2026-09-13. A PSP's FAT does not
+# tell tmp from TMP; the host's filesystem under the emulator does, and
+# PPSSPP opens through the difference but does not delete through it, so a
+# journal left in the old tmp survived its own recovery. The old name goes.
+[ -d "$MS/PSP/PSPDX/tmp" ] && [ ! -d "$MS/PSP/PSPDX/TMP" ] && mv "$MS/PSP/PSPDX/tmp" "$MS/PSP/PSPDX/TMP"
 mkdir -p "$MS/PSP/PSPDX/CRYPTO" "$MS/PSP/PSPDX/LOGS" "$MS/PSP/PSPDX/DEBUG" "$MS/PSP/GAME/pspdx" "$MS/PSP/PSPDX/DEBUG/font" "$MS/PSP/PSPDX/CACHE/media"
 cp "$APP/EBOOT.PBP" "$MS/PSP/GAME/pspdx/"
 

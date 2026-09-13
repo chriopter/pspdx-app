@@ -458,27 +458,27 @@ static int recover_journal(cJSON *j) {
                *phase = js(j, "phase"), *op = js(j, "op");
     if (!manifest_id_is_safe(id) || !manifest_dir_is_safe(dir) ||
         (*prior && !manifest_dir_is_safe(prior)))
-        return -1;
+        return logline("recovery: bad id or directory in the journal"), -1;
     const cJSON *snapshot = cJSON_GetObjectItemCaseSensitive(j, "old_state");
     if (!state_validate(snapshot))
-        return -1;
+        return logline("recovery: the saved state does not validate"), -1;
     const cJSON *previous = cJSON_GetObjectItemCaseSensitive(snapshot, id);
     const cJSON *in = cJSON_GetObjectItemCaseSensitive(previous, "installed");
     if ((*prior &&
          strcmp(js(in, "installdir") + (!strncmp(js(in, "installdir"), "PSP/GAME/", 9) ? 9 : 0),
                 prior)) ||
         (!*prior && previous))
-        return -1;
+        return logline("recovery: the prior directory is not the saved one"), -1;
     const cJSON *other;
     cJSON_ArrayForEach(other, snapshot) {
         const cJSON *oi = cJSON_GetObjectItemCaseSensitive(other, "installed");
         if (strcmp(other->string, id) && !strcasecmp(js(oi, "installdir") + 9, dir))
-            return -1;
+            return logline("recovery: the target belongs to another app"), -1;
     }
     if (strcmp(op, "install") && strcmp(op, "remove"))
-        return -1;
+        return logline("recovery: unknown operation"), -1;
     if (strcmp(phase, "prepared") && strcmp(phase, "ready") && strcmp(phase, "committed"))
-        return -1;
+        return logline("recovery: unknown phase"), -1;
     char dest[256], old[256], priorpath[256];
     snprintf(dest, sizeof(dest), "%s/%s", GAME_DIR, dir);
     snprintf(priorpath, sizeof(priorpath), "%s/%s", GAME_DIR, *prior ? prior : dir);
@@ -488,41 +488,49 @@ static int recover_journal(cJSON *j) {
         if (strcmp(phase, "prepared")) {
             if (storage_exists(old)) {
                 if (strcmp(op, "remove") && remove_tree(dest) < 0)
-                    return -1;
+                    return logline("recovery: the target could not be cleared"), -1;
                 if (sceIoRename(old, *prior ? prior : dir) < 0)
-                    return -1;
+                    return logline("recovery: the backup could not be moved back"), -1;
             } else if (!*prior && !storage_exists(STAGE) && !strcmp(op, "install")) {
                 if (remove_tree(dest) < 0)
-                    return -1;
+                    return logline("recovery: the half-written target could not be cleared"), -1;
             }
         }
         if (restore_manifest(j) < 0 ||
             state_restore_app(cJSON_GetObjectItemCaseSensitive(j, "old_state"), id) < 0)
-            return -1;
+            return logline("recovery: the saved manifest or state could not be restored"), -1;
     }
     if (remove_tree(STAGE) < 0)
-        return -1;
+        return logline("recovery: the staging directory could not be removed"), -1;
     if (committed && remove_tree(old) < 0)
-        return -1;
+        return logline("recovery: the backup could not be removed"), -1;
     if (storage_remove(ARCHIVE) < 0)
-        return -1;
-    return storage_remove(JOURNAL);
+        return logline("recovery: the archive could not be removed"), -1;
+    if (storage_remove(JOURNAL) < 0)
+        return logline("recovery: the journal could not be removed"), -1;
+    return 0;
 }
 void install_recover(void) {
     char *raw = NULL;
     int n = storage_read(JOURNAL, &raw, 512 * 1024);
-    if (n < 0)
+    if (n < 0) {
+        if (storage_exists(JOURNAL))
+            logline("recovery: a journal is there and cannot be read");
         return;
+    }
     cJSON *j = cJSON_ParseWithLengthOpts(raw, n + 1, NULL, 1);
     free(raw);
     if (!j || recover_journal(j) < 0)
         logline("recovery: unfinished transaction; installation blocked");
+    else
+        logline("recovery: an unfinished transaction was put back");
     cJSON_Delete(j);
 }
 static cJSON *begin(const char *id, const char *dir, const char *op) {
     install_recover();
     if (!state_ok() || storage_exists(JOURNAL) || storage_exists(STAGE)) {
-        logline("install: unresolved state or staging directory");
+        logline("install: unresolved state or staging directory (state %d, journal %d, stage %d)",
+                state_ok(), storage_exists(JOURNAL), storage_exists(STAGE));
         return NULL;
     }
     struct installed rec;

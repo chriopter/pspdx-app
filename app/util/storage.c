@@ -103,12 +103,23 @@ int storage_write(const char *path, const void *data, size_t len) {
         return -1;
     return 0;
 }
+/* Gone means gone: a remove that returns success and leaves the file --
+   PPSSPP does that for a path whose case differs from the host's -- would
+   otherwise let a journal survive its own recovery and block every install
+   after it with a message about state. */
+static int unlink_checked(const char *path) {
+    if (!storage_exists(path))
+        return 0;
+    if (sceIoRemove(path) < 0 || storage_exists(path))
+        return -1;
+    return 0;
+}
 int storage_remove(const char *path) {
     char bak[512];
     snprintf(bak, sizeof(bak), "%s.bak", path);
-    if (storage_exists(bak) && sceIoRemove(bak) < 0)
+    if (unlink_checked(bak) < 0)
         return -1;
-    return storage_exists(path) ? sceIoRemove(path) : 0;
+    return unlink_checked(path);
 }
 void storage_app_path(const char *id, char *out, size_t size) {
     snprintf(out, size, "%s/%s.pspdx", storage_path("PSP/PSPDX/INSTALLED"), id);
