@@ -16,19 +16,18 @@ away.
 
 ## Getting started
 
-Use a PSP running [ARK-5](https://github.com/PSP-Arkfive/ARK-5) with WPA2
-support enabled. Save a working Wi-Fi connection in the PSP's Network Settings;
-PSPDX currently uses the **first saved profile**.
+You need a PSP running [ARK-5](https://github.com/PSP-Arkfive/ARK-5) with
+WPA2 support and a saved Wi-Fi connection. PSPDX uses the first saved profile.
 
-1. Download **`pspdx.zip`** from the [latest release](https://github.com/chriopter/pspdx/releases/latest)
+1. Download [`pspdx.zip`](https://github.com/chriopter/pspdx/releases/latest)
    and extract it to the root of your Memory Stick or internal storage.
-   The app should be at `PSP/GAME/PSPDX/EBOOT.PBP`.
-2. Enable WLAN and launch **PSPDX** from **Game → Memory Stick** (or internal
-   storage). On first launch, follow the analog-stick prompt to initialize randomness.
-3. Wait for the catalog to load, select a homebrew and press **×** to install.
-   Confirm the download; once installed, press **START** to run it.
-4. PSPDX checks for updates automatically at startup. Select an available
-   update and confirm with **×** to install it.
+2. Enable WLAN and launch PSPDX from **Game → Memory Stick** (or internal
+   storage). On first launch, follow the analog-stick prompt.
+3. Choose an app in the catalog and press **×** to install it. Press **START**
+   to run it.
+
+PSPDX checks for updates at startup. Select an available update and press
+**×** to install it.
 
 ## The PSPDX client
 
