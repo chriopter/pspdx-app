@@ -1217,7 +1217,7 @@ static void read_storage(void) {
    package's row is, because at this depth nothing is deeper. */
 static const char *const SETTING[SHELL_SETTINGS] = {
     "Check for updates",
-    "Manage catalogs",
+    "Add sources",
     "Add .pspdx directly",
     "Reset",
     "Info",
@@ -1227,7 +1227,7 @@ static const char *const SETTING[SHELL_SETTINGS] = {
    list names the thing, the panel says what it comes to. */
 static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
     "Compares what is installed with what is published, and says what is newer.",
-    "The lists this console reads apps from. Take one out, or add one by its URL.",
+    "The lists this console reads apps from: a catalog, a list of repositories, or one repository. Add one by its URL, or take one out.",
     "One app straight from its GitHub repository, or the .pspdx files put in PSP/PSPDX/INBOX.",
     "Sweep the stick again for fresh TLS entropy, or put PSPDX back to its first start: everything under PSP/PSPDX goes, the apps in PSP/GAME stay.",
     "What this session is connected to and what it is standing on.",

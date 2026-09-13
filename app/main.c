@@ -582,7 +582,7 @@ static unsigned char g_sub_on[SOURCES_MAX + 1];
 static signed char g_sub_key[SOURCES_MAX + 1];
 
 static void sub_push(void) {
-    shell_menu(g_sub == SUB_CATALOGS ? "Catalogs" : g_sub == SUB_ADD ? "Add .pspdx directly" : "Reset",
+    shell_menu(g_sub == SUB_CATALOGS ? "Sources" : g_sub == SUB_ADD ? "Add .pspdx directly" : "Reset",
                g_sub_item, g_sub_on, g_sub_key, g_sub_count, g_sub_cursor);
 }
 
@@ -598,7 +598,7 @@ static void sub_open(enum sub which) {
             snprintf(g_sub_short[i], sizeof(g_sub_short[i]), "%s", u);
             g_sub_item[g_sub_count++] = g_sub_short[i];
         }
-        g_sub_item[g_sub_count++] = "Add catalog...";
+        g_sub_item[g_sub_count++] = "Add source...";
     } else if (which == SUB_ADD) {
         g_sub_item[g_sub_count++] = "From a GitHub repository";
         g_sub_item[g_sub_count++] = "From the INBOX";
@@ -1150,7 +1150,7 @@ int main(int argc, char *argv[]) {
                     if (index >= 0 && index < g_sources.count &&
                         sources_remove(g_sources.url[index]) > 0)
                         refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
-                    else shell_status("Could not remove that catalog");
+                    else shell_status("Could not remove that source");
                 } else uninstall_app(index);
                 dump_diagnostics();
                 /* What was just done can have emptied a tab. */
@@ -1170,7 +1170,7 @@ int main(int argc, char *argv[]) {
                 sub_close();
                 if (kind == SUB_CATALOGS) {
                     if (chosen < g_sources.count) {
-                        shell_ask("Remove this catalog?", g_sub_short[chosen]);
+                        shell_ask("Remove this source?", g_sub_short[chosen]);
                         g_question = ASK_CATALOG;
                         g_question_of = chosen;
                     } else if (synced && type_source(0)) {
