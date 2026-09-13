@@ -52,6 +52,8 @@
 #define SHOT_H (SHOT_W * SCR_H / SCR_W)     /* the screen's own 480:272 */
 #define SHOT_Y 43
 #define REFLECT_H 18
+#define FILM_W 144                  /* an ICON1.PMF, as the firmware plays it */
+#define FILM_H 80
 
 /* ------------------------------------------------------------------ colour */
 
@@ -799,6 +801,18 @@ static void draw_picture(float t) {
         fw = film->w * fit;
         fh = film->h * fit;
     }
+    /* The still at the film's size too, since the film is what follows it
+       on the card in nearly every case: a picture that stood at the card's
+       full width and then dropped to a clip half as wide read as the
+       interface changing its mind. Full size, the picture is the room's
+       backdrop once the interface rests. */
+    float sw = 0.0f, sh = 0.0f;
+    if (still) {
+        float fit = (float)FILM_W / still->w;
+        if (still->h * fit > FILM_H) fit = (float)FILM_H / still->h;
+        sw = still->w * fit;
+        sh = still->h * fit;
+    }
     /* One or the other on the card, never both: where there is a film it is
        the film, at full strength from its first frame rather than fading in
        over the picture it was cut from. The picture is not lost -- it is the
@@ -812,14 +826,18 @@ static void draw_picture(float t) {
            the width it is drawn: the film's reflection is as wide as the
            film, not as wide as the card. */
         if (still && !only_film)
-            lattice_mirror(still, still_alpha, PANEL_X, SHOT_Y + SHOT_H,
-                           SHOT_W, SHOT_H);
+            lattice_mirror(still, still_alpha, card.cx - sw / 2,
+                           SHOT_Y + SHOT_H, sw, sh);
         if (film)
             lattice_mirror(film, film_alpha, card.cx - fw / 2,
                            SHOT_Y + SHOT_H, fw, fh);
         if (still && !only_film) {
-            card.alpha = still_alpha;
-            gfx_card_draw(still, &card);
+            struct gfx_card plate = card;
+            plate.w = sw;
+            plate.h = sh;
+            plate.bare = 1;
+            plate.alpha = still_alpha;
+            gfx_card_draw(still, &plate);
         }
         if (film) {
             /* Plain: the film's own pixels and nothing around them. A frame
@@ -834,10 +852,17 @@ static void draw_picture(float t) {
             gfx_card_draw(film, &screen);
         }
     } else {
+        /* Nothing on the card yet. What is coming is almost always the
+           film, and a film out of an EBOOT is 144 by 80, so the empty card
+           is that size rather than the full one: a plate that shrinks by
+           half the moment the picture arrives reads as a mistake. */
+        card.w = FILM_W;
+        card.h = FILM_H;
         card.alpha = 255;
+        card.bare = 1;
         gfx_card_draw(0, &card);
         if (picture == PREVIEW_LOADING)
-            gfx_glow(card.cx, card.cy, 90 + sinf(t * 4) * 20, 50 + sinf(t * 4) * 12,
+            gfx_glow(card.cx, card.cy, 70 + sinf(t * 4) * 14, 36 + sinf(t * 4) * 8,
                      rgb_pack(g_tint, 120));
         const char *note = picture == PREVIEW_LOADING ? "loading"
                          : picture == PREVIEW_MISSING ? "no picture" : "";
