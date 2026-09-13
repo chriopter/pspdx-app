@@ -13,6 +13,7 @@
 #include <psppower.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "audio/audio.h"
@@ -507,7 +508,7 @@ static void install_all(void) {
    update to. The unavailable one stays on screen, greyed, because which of
    the two is greyed is itself the answer to "is there an update". */
 enum choice { CHOICE_GET, CHOICE_RUN, CHOICE_REINSTALL, CHOICE_DELETE, CHOICE_BASKET,
-              CHOICE_DETAILS, CHOICE_COUNT };
+              CHOICE_CHECK, CHOICE_DETAILS, CHOICE_COUNT };
 
 static char g_choice_text[CHOICE_COUNT][32];
 static const char *g_choice[CHOICE_COUNT];
@@ -519,7 +520,7 @@ static int g_menu_open, g_menu_cursor, g_menu_of;
    menu is where they are learned. */
 static const signed char g_choice_key[CHOICE_COUNT] = {
     [CHOICE_GET] = -1, [CHOICE_RUN] = MARK_START, [CHOICE_REINSTALL] = -1, [CHOICE_DELETE] = -1,
-    [CHOICE_BASKET] = MARK_SQUARE, [CHOICE_DETAILS] = -1,
+    [CHOICE_BASKET] = MARK_SQUARE, [CHOICE_CHECK] = -1, [CHOICE_DETAILS] = -1,
 };
 
 static void menu_push(void) {
@@ -550,6 +551,8 @@ static void menu_open(int index) {
        once it has been. */
     snprintf(g_choice_text[CHOICE_BASKET], sizeof(g_choice_text[0]),
              shell_basket_has(index) ? "Take out of basket" : "Add to basket");
+    snprintf(g_choice_text[CHOICE_CHECK], sizeof(g_choice_text[0]), "Updates: %s",
+             state_check_direct(entry->id) ? "original source" : "catalog first");
     snprintf(g_choice_text[CHOICE_DETAILS], sizeof(g_choice_text[0]), "Information");
     for (int i = 0; i < CHOICE_COUNT; i++) g_choice[i] = g_choice_text[i];
     g_choice_on[CHOICE_GET] = entry->state == APP_NOT_INSTALLED || entry->state == APP_UPDATE;
@@ -557,6 +560,7 @@ static void menu_open(int index) {
     g_choice_on[CHOICE_REINSTALL] = installed;
     g_choice_on[CHOICE_DELETE] = installed && strcmp(entry->id, PSPDX_SELF_ID) != 0;
     g_choice_on[CHOICE_BASKET] = 1;
+    g_choice_on[CHOICE_CHECK] = installed;
     g_choice_on[CHOICE_DETAILS] = 1;
     g_menu_cursor = g_choice_on[CHOICE_GET] ? CHOICE_GET : CHOICE_RUN;
     g_menu_of = index;
@@ -897,7 +901,28 @@ int main(int argc, char *argv[]) {
        PSP/GAME, and before the sync, which reads every record there is. */
     record_self(argc > 0 ? argv[0] : 0);
     char self_manifest_path[256];storage_app_path(PSPDX_SELF_ID,self_manifest_path,sizeof(self_manifest_path));
-    if(!storage_exists(self_manifest_path) && state_ok() && !storage_exists(storage_path("PSP/PSPDX/TMP/transaction.json")))storage_write(self_manifest_path,PSPDX_SELF_MANIFEST,strlen(PSPDX_SELF_MANIFEST));
+    if (!storage_exists(self_manifest_path) && state_ok() &&
+        !storage_exists(storage_path("PSP/PSPDX/TMP/transaction.json"))) {
+        char bundled_path[256];
+        char *bundled = NULL;
+        int n = -1;
+        if (argc > 0 && argv[0]) {
+            const char *slash = strrchr(argv[0], '/');
+            if (slash && (size_t)(slash - argv[0]) + sizeof("/.pspdx") < sizeof(bundled_path)) {
+                snprintf(bundled_path, sizeof(bundled_path), "%.*s/.pspdx",
+                         (int)(slash - argv[0]), argv[0]);
+                n = storage_read(bundled_path, &bundled, PSPDX_FILE_MAX);
+            }
+        }
+        struct pspdx_file file;
+        char why[80];
+        if (n >= 0 && pspdx_parse(bundled, n, &file, why, sizeof(why)) == 0 &&
+            !strcmp(file.source, "https://github.com/chriopter/pspdx"))
+            storage_write(self_manifest_path, bundled, n);
+        else
+            storage_write(self_manifest_path, PSPDX_SELF_MANIFEST, strlen(PSPDX_SELF_MANIFEST));
+        free(bundled);
+    }
     entropy_init();
     entropy_screen_prepare();
     int sweep = entropy_screen_is_replay() || !entropy_load();
@@ -1224,6 +1249,12 @@ int main(int argc, char *argv[]) {
                     cues_post(CUE_MOVE, cursor);
                     view_settled(&cursor);
                     count = shell_view_count();
+                } else if (chosen == CHOICE_CHECK) {
+                    int direct = !state_check_direct(catalog.apps[index].id);
+                    if (state_set_check_direct(catalog.apps[index].id, direct) == 0)
+                        shell_status(direct ? "Updates: original source" : "Updates: catalog first");
+                    else
+                        shell_status("Could not save update source");
                 } else if (chosen == CHOICE_DETAILS) {
                     shell_details(&catalog.apps[index]);
                     details = 1;

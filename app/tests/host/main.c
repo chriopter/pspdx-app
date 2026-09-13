@@ -40,6 +40,12 @@ int main(int argc, char **argv) {
                    catalog.apps[i].fresh, catalog.apps[i].state);
         return rc < 0 ? 1 : 0;
     }
+    if (!strcmp(argv[1], "check-source")) {
+        if (argc < 3) return 2;
+        if (argc == 4 && state_set_check_direct(argv[2], atoi(argv[3])) < 0) return 1;
+        printf("%d\n", state_check_direct(argv[2]));
+        return 0;
+    }
     if (!strcmp(argv[1], "add")) {
         char url[SOURCE_URL];
         if(sources_normalize(argv[2],url,sizeof(url))<0)return 1;

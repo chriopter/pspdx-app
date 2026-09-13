@@ -690,7 +690,7 @@ static void restore_installed(struct catalog *catalog) {
         if (db_read(id, &rec) < 0)
             continue;
         int at = catalog_find_repo(catalog, rec.repo);
-        if (at >= 0 && catalog->apps[at].fresh && !g_force) {
+        if (at >= 0 && catalog->apps[at].fresh && !g_force && !state_check_direct(id)) {
             state_note_latest(&catalog->apps[at].release);
             continue;
         }

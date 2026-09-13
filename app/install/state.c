@@ -41,6 +41,10 @@ int state_validate(const cJSON *r) {
         sources_repo_id(&repo, id, sizeof(id));
         if (strcmp(id, v->string))
             return 0;
+        const cJSON *check = cJSON_GetObjectItemCaseSensitive(v, "update_check");
+        if (check && (!cJSON_IsString(check) ||
+            (strcmp(check->valuestring, "auto") && strcmp(check->valuestring, "source"))))
+            return 0;
     }
     return 1;
 }
@@ -159,6 +163,24 @@ int state_restore_app(const cJSON *snapshot, const char *id) {
     return rc;
 }
 int state_count(void) { return healthy ? cJSON_GetArraySize(records) : 0; }
+int state_check_direct(const char *id) {
+    const cJSON *r = healthy ? cJSON_GetObjectItemCaseSensitive(records, id) : NULL;
+    if (!r) return 0;
+    const char *check = str(r, "update_check");
+    return *check ? !strcmp(check, "source") : !strcmp(id, "io.github.chriopter.pspdx");
+}
+int state_set_check_direct(const char *id, int direct) {
+    if (!healthy || !manifest_id_is_safe(id) || !cJSON_GetObjectItemCaseSensitive(records, id))
+        return -1;
+    cJSON *next = state_snapshot();
+    if (!next) return -1;
+    cJSON *r = cJSON_GetObjectItemCaseSensitive(next, id);
+    cJSON_DeleteItemFromObjectCaseSensitive(r, "update_check");
+    int rc = cJSON_AddStringToObject(r, "update_check", direct ? "source" : "auto")
+        ? state_restore(next) : -1;
+    cJSON_Delete(next);
+    return rc;
+}
 const char *state_id(int i) {
     const cJSON *v = healthy ? cJSON_GetArrayItem(records, i) : NULL;
     return v ? v->string : NULL;

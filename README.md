@@ -70,6 +70,7 @@ Version strings are not used for update detection.
 | No usable entry, including an unreachable or invalid catalog | Check the app's saved GitHub source; cached catalog data can still be browsed. |
 | App added through INBOX or a repository | Check its saved GitHub source unless a configured catalog now covers it. |
 | **Check original sources** selected | Query GitHub for installed apps, bypassing catalog release data. |
+| **△ → Updates: original source** on one app | Always check that app's GitHub repository directly; **Updates: catalog first** restores the default. PSPDX itself starts in direct mode. |
 | GitHub also unavailable | Keep the last known release; do not record a successful check. |
 
 A reachable catalog is treated as current even if its publisher stopped
@@ -146,7 +147,9 @@ Temporary and debug files appear only when used.
 ms0:/
 └── PSP/
     ├── GAME/
-    │   ├── PSPDX/EBOOT.PBP              # Downloader
+    │   ├── PSPDX/                       # Downloader
+    │   │   ├── EBOOT.PBP
+    │   │   └── .pspdx                   # Bundled for offline first start
     │   ├── Cathedral/                   # Installed homebrew
     │   │   ├── EBOOT.PBP
     │   │   └── ...
@@ -193,12 +196,14 @@ ms0:/
 | `source`, `added_from` | Original repository and import route. |
 | `installed` | Version, `published_at`, install directory. |
 | `latest` | Version, `published_at`, download URL, size, optional SHA-256, last successful check time and source. |
+| `update_check` | Per-app lookup choice: `auto` (catalog first) or `source` (GitHub first). PSPDX defaults to `source`. |
 
 Install creates the state file. Successful install/update writes `installed`;
 a successful catalog/GitHub check writes `latest` without changing
 `installed`. Thus `installed.version = 1.0` and `latest.version = 1.1` means
 1.0 is still installed. Browsing creates no installation record. PSPDX
-registers its own running version at startup. `added_from` does not determine
+registers its own running version at startup and copies its bundled `.pspdx`
+without an internet request. `added_from` does not determine
 future update checks; each operation writes only the affected app's state.
 
 Recoverable writes may leave `.new` or `.bak` files. Staging and backup stay

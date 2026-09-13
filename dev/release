@@ -35,8 +35,15 @@ COMMIT="$(git rev-parse HEAD)"
 
 # The Docker build mounts app/ alone and so sees no .git of its own: the
 # version goes in on the command line rather than out of git describe.
-(cd "$APP" && docker run --rm -v "$PWD:/src" -w /src pspdev/pspdev:latest \
-	make PSPDX_VERSION="$VERSION" 2>&1 | grep -E 'error|EBOOT\.PBP' || true)
+BUILD_LOG="$(mktemp)"
+if ! (cd "$APP" && docker run --rm -v "$PWD:/src" -w /src pspdev/pspdev:latest \
+	make PSPDX_VERSION="$VERSION") >"$BUILD_LOG" 2>&1; then
+	cat "$BUILD_LOG" >&2
+	rm -f "$BUILD_LOG"
+	exit 1
+fi
+grep -E 'warning:|error:|EBOOT\.PBP' "$BUILD_LOG" || true
+rm -f "$BUILD_LOG"
 [ -f "$APP/EBOOT.PBP" ] || { echo "no EBOOT.PBP; the build failed" >&2; exit 1; }
 
 # The archive is the tree a PSP expects, so unpacking it onto a stick by hand
@@ -46,7 +53,10 @@ COMMIT="$(git rev-parse HEAD)"
 rm -rf "$HERE/dist" "$HERE/pspdx.zip"
 mkdir -p "$HERE/dist/PSP/GAME/PSPDX"
 cp "$APP/EBOOT.PBP" "$HERE/dist/PSP/GAME/PSPDX/EBOOT.PBP"
+cp "$HERE/.pspdx" "$HERE/dist/PSP/GAME/PSPDX/.pspdx"
 (cd "$HERE/dist" && zip -q -r "$HERE/pspdx.zip" PSP)
+unzip -tqq "$HERE/pspdx.zip"
+unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/.pspdx | cmp "$HERE/.pspdx" -
 rm -rf "$HERE/dist"
 
 gh release create "v$VERSION" "$HERE/pspdx.zip" -t "v$VERSION" -n "$NOTES" \

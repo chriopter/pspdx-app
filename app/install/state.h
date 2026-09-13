@@ -15,6 +15,8 @@ int state_count(void);
 const char *state_id(int index);
 int state_latest(const char *id, struct manifest *m);
 int state_note_latest(const struct manifest *m);
+int state_check_direct(const char *id);
+int state_set_check_direct(const char *id, int direct);
 int state_read_manifest(const char *id, char **raw, struct pspdx_file *file);
 int state_target_owner(const char *dir, const char *id);
 #endif
