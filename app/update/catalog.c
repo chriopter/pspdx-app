@@ -85,6 +85,8 @@ static int has_id(const struct catalog *catalog, const char *id) {
     return 0;
 }
 
+static unsigned iso8601(const char *text);
+
 /* A catalog.json in the response buffer, merged into the catalog. base is
    the URL it came from, for the assets it names relative to itself.
    Returns the entries taken, or -1 for something that is not a catalog. */
