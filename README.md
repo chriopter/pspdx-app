@@ -8,10 +8,6 @@ browse like a store. You can add other catalogs or `.pspdx` files directly.
 Each installed app keeps its source, so updates still work if a catalog goes
 away.
 
-- **[Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)** — the PSP app.
-- **[PSPDX Catalog](https://github.com/chriopter/pspdx-catalog)** — [browse homebrew](https://chriopter.github.io/pspdx-catalog/) or copy its workflows to build your own catalog.
-- **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete example for authors using the [open `.pspdx` format](#the-pspdx-standard).
-
 <img width="480" alt="PSPDX App browsing homebrew and available updates" src="images/pspdx-app.png" />
 
 ## Getting started
@@ -28,7 +24,11 @@ WPA2 support and a saved Wi-Fi connection. PSPDX uses the first saved profile.
 PSPDX checks for updates at startup. Select an available update and press
 **×** to install it.
 
-## The PSPDX client
+## How it works
+
+- **[Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)** — the PSP app.
+- **[PSPDX Catalog](https://github.com/chriopter/pspdx-catalog)** — [browse homebrew](https://chriopter.github.io/pspdx-catalog/) or copy its workflows to build your own catalog.
+- **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete example for authors using the [open `.pspdx` format](#the-pspdx-standard).
 
 How sources, installation, updates and local files work:
 
