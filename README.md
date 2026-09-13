@@ -26,9 +26,9 @@ PSPDX checks for updates at startup. Select an available update and press
 
 ## How it works
 
-- **[Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)** — the PSP app.
-- **[PSPDX Catalog](https://github.com/chriopter/pspdx-catalog)** — [browse homebrew](https://chriopter.github.io/pspdx-catalog/) or copy its workflows to build your own catalog.
-- **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete example for authors using the [open `.pspdx` format](#the-pspdx-standard).
+- **[Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)** — the PSP app; install and update homebrew from catalogs, `.pspdx` files or GitHub repositories.
+- **[PSPDX Catalog](https://github.com/chriopter/pspdx-catalog)** — lists apps and caches release details and EBOOT previews. [Browse it](https://chriopter.github.io/pspdx-catalog/) or copy its workflows to make your own.
+- **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete homebrew example for authors using the [`.pspdx` standard](#the-pspdx-standard).
 
 How sources, installation, updates and local files work:
 
