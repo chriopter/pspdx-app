@@ -538,11 +538,15 @@ static cJSON *begin(const char *id, const char *dir, const char *op) {
     char dest[256], backup[256];
     snprintf(dest, sizeof(dest), "%s/%s", GAME_DIR, dir);
     snprintf(backup, sizeof(backup), "%s/%s.old", GAME_DIR, dir);
-    if (state_target_owner(dir, id) != 0 || storage_exists(backup) ||
-        (storage_exists(dest) && (!has || strcasecmp(rec.dir, dir)))) {
-        logline("install: target or backup belongs to another installation");
-        return NULL;
-    }
+    /* Three things can sit under the name the release wants, and each is
+       a different sentence on screen: the shell shows the last log line
+       when an install fails, so the reason is spelled out here. */
+    if (state_target_owner(dir, id) != 0)
+        return logline("install: PSP/GAME/%s is another app's, remove that app first", dir), NULL;
+    if (storage_exists(backup))
+        return logline("install: PSP/GAME/%s.old is in the way, delete or rename it", dir), NULL;
+    if (storage_exists(dest) && (!has || strcasecmp(rec.dir, dir)))
+        return logline("install: PSP/GAME/%s exists and is not this app's", dir), NULL;
     cJSON *j = cJSON_CreateObject();
     if (!j)
         return NULL;

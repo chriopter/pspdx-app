@@ -73,6 +73,10 @@ class ClientTests(unittest.TestCase):
  def test_collisions_and_corrupt_state(self):
   self.run_client('recover');d=self.root/'ms0:/PSP/GAME/Demo';d.mkdir();(d/'user.txt').write_text('keep')
   self.assertNotEqual(self.run_client('install',ok=False).returncode,0);self.assertEqual((d/'user.txt').read_text(),'keep')
+  # Parked under .bak, the way the shell does it on the user's yes, the install goes through and the .bak stays.
+  d.rename(str(d)+'.bak');self.run_client('install');self.assertEqual((d/'EBOOT.PBP').read_bytes(),b'new package');self.assertEqual((self.root/'ms0:/PSP/GAME/Demo.bak/user.txt').read_text(),'keep')
+  self.run_client('remove');self.assertEqual((self.root/'ms0:/PSP/GAME/Demo.bak/user.txt').read_text(),'keep');shutil.rmtree(str(d)+'.bak')
+  d.mkdir();(d/'user.txt').write_text('keep')
   shutil.rmtree(d);(self.root/'ms0:/PSP/PSPDX/INSTALLED/io.github.test.demo.state.json').write_text('{bad')
   self.assertNotEqual(self.run_client('install',ok=False).returncode,0)
  def test_bad_packages(self):

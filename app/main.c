@@ -314,7 +314,7 @@ static void launch_app(int index) {
    draws the question and the footer that answers it; the answer arrives
    through the pad, which is read down in the loop, so the two halves meet
    in these two variables and nowhere else. */
-enum question { ASK_NOTHING, ASK_INSTALL, ASK_REMOVE, ASK_ALL, ASK_INBOX };
+enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX };
 static enum question g_question;
 static int g_question_of;
 
@@ -337,12 +337,63 @@ static void ask_install(int index) {
         snprintf(line, sizeof(line), "size unknown");
     }
     struct installed previous;
-    if(db_read(entry->id,&previous)==0 && strcmp(previous.dir,entry->release.dir))
+    int recorded = db_read(entry->id, &previous) == 0;
+    /* Something already under the name the release wants, and not this
+       app's own directory. The installer would refuse it; the shell says
+       so first, and for the one case it can do something about -- a
+       directory somebody copied there by hand -- offers to park it under
+       .bak. That is a single rename, so nothing is half-done if the
+       battery comes out; the transaction's own backup name, .old, is left
+       to the transaction. A .bak is the user's and is never touched. */
+    const char *dir = entry->release.dir;
+    if (dir[0] && !(recorded && !strcasecmp(previous.dir, dir))) {
+        char dest[160], bak[160];
+        snprintf(dest, sizeof(dest), storage_path("PSP/GAME/%s"), dir);
+        snprintf(bak, sizeof(bak), storage_path("PSP/GAME/%s.bak"), dir);
+        if (state_target_owner(dir, entry->id) == 1) {
+            snprintf(line, sizeof(line), "PSP/GAME/%.32s is another app's, remove that app first", dir);
+            shell_status(line);
+            return;
+        }
+        if (storage_exists(dest)) {
+            if (storage_exists(bak)) {
+                snprintf(line, sizeof(line), "PSP/GAME/%.32s.bak is in the way, delete or rename it", dir);
+                shell_status(line);
+                return;
+            }
+            snprintf(title, sizeof(title), "PSP/GAME/%.32s already exists", dir);
+            snprintf(line, sizeof(line), "Move it to %.32s.bak, then install %s?", dir, entry->name);
+            shell_ask(title, line);
+            g_question = ASK_ASIDE;
+            g_question_of = index;
+            return;
+        }
+    }
+    if(recorded && strcmp(previous.dir,entry->release.dir))
         snprintf(line,sizeof(line),"Move PSP/GAME/%.32s to %.32s",previous.dir,entry->release.dir);
     else snprintf(line,sizeof(line),"%lu KB into PSP/GAME/%.32s",(unsigned long)(entry->release.size/1024),entry->release.dir);
     shell_ask(title, line);
     g_question = ASK_INSTALL;
     g_question_of = index;
+}
+
+/* The answer to ASK_ASIDE: one rename, then the install it was asked for.
+   The new name is a bare name because that is what sceIoRename takes for
+   its second argument, the same way the installer moves its own directories. */
+static int set_aside(int index) {
+    const char *dir = catalog.apps[index].release.dir;
+    char dest[160], name[80], line[96];
+    snprintf(dest, sizeof(dest), storage_path("PSP/GAME/%s"), dir);
+    snprintf(name, sizeof(name), "%s.bak", dir);
+    if (sceIoRename(dest, name) < 0) {
+        snprintf(line, sizeof(line), "PSP/GAME/%.32s could not be moved aside", dir);
+        logline("%s", line);
+        shell_status(line);
+        cues_post(CUE_FAIL, 0);
+        return -1;
+    }
+    logline("install: moved PSP/GAME/%s to %s.bak", dir, dir);
+    return 0;
 }
 
 static void ask_remove(int index) {
@@ -976,6 +1027,7 @@ int main(int argc, char *argv[]) {
                 int index = g_question_of;
                 ask_forget();
                 if (asked == ASK_INSTALL) install_app(index, 0, 0, 0);
+                else if (asked == ASK_ASIDE) { if (set_aside(index) == 0) install_app(index, 0, 0, 0); }
                 else if (asked == ASK_ALL) install_all();
                 else if (asked == ASK_INBOX) install_inbox();
                 else uninstall_app(index);

@@ -3,6 +3,8 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"", ""},
     {"PSP", ""},
     {"PSP/GAME", ""},
+    {"PSP/GAME/%s", ""},
+    {"PSP/GAME/%s.bak", ""},
     {"PSP/GAME/%s/EBOOT.PBP", ""},
     {"PSP/GAME/.pspdx-stage", ""},
     {"PSP/PSPDX", ""},
