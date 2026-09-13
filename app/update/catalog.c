@@ -2,6 +2,7 @@
 #include "util/storage.h"
 #include <cjson/cJSON.h>
 #include <ctype.h>
+#include <limits.h>
 #include <pspiofilemgr.h>
 #include <psputils.h>
 #include <stdio.h>
@@ -96,6 +97,13 @@ static int parse(struct catalog *catalog, const char *base) {
         logline("catalog: not json");
         return -1;
     }
+    cJSON *schema = cJSON_GetObjectItemCaseSensitive(root, "schema");
+    if (!cJSON_IsString(schema) || strcmp(schema->valuestring,
+            "https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json")) {
+        logline("catalog: unsupported schema");
+        cJSON_Delete(root);
+        return -1;
+    }
     cJSON *apps = cJSON_GetObjectItemCaseSensitive(root, "apps");
     if (!cJSON_IsArray(apps)) {
         logline("catalog: no apps array");
@@ -104,18 +112,21 @@ static int parse(struct catalog *catalog, const char *base) {
     }
     /* When the list was last written, as the list says; the oldest of the
        sources is what the session is told about. */
-    cJSON *generated = cJSON_GetObjectItemCaseSensitive(root, "generated");
-    if (cJSON_IsString(generated)) {
-        unsigned when = iso8601(generated->valuestring);
-        if (when && (!catalog->generated || when < catalog->generated)) {
-            catalog->generated = when;
-            /* The host alone: a line on the console has no room for a URL,
-               and the host is what a person calls the list. */
-            const char *host = strstr(base, "://");
-            host = host ? host + 3 : base;
-            size_t n = strcspn(host, "/");
-            snprintf(catalog->generated_from, sizeof(catalog->generated_from), "%.*s", (int)n, host);
-        }
+    cJSON *generated = cJSON_GetObjectItemCaseSensitive(root, "generated_at");
+    unsigned when = iso8601(cJSON_IsString(generated) ? generated->valuestring : NULL);
+    if (!when) {
+        logline("catalog: invalid generated_at");
+        cJSON_Delete(root);
+        return -1;
+    }
+    if (!catalog->generated || when < catalog->generated) {
+        catalog->generated = when;
+        /* The host alone: a line on the console has no room for a URL,
+           and the host is what a person calls the list. */
+        const char *host = strstr(base, "://");
+        host = host ? host + 3 : base;
+        size_t n = strcspn(host, "/");
+        snprintf(catalog->generated_from, sizeof(catalog->generated_from), "%.*s", (int)n, host);
     }
 
     int before = catalog->count;
@@ -137,30 +148,34 @@ static int parse(struct catalog *catalog, const char *base) {
                  cJSON_GetObjectItemCaseSensitive(app, "category"));
         copy_str(entry->license, sizeof(entry->license),
                  cJSON_GetObjectItemCaseSensitive(app, "license"));
-        copy_str(entry->repo, sizeof(entry->repo), cJSON_GetObjectItemCaseSensitive(app, "repo"));
+        copy_str(entry->repo, sizeof(entry->repo), cJSON_GetObjectItemCaseSensitive(app, "source"));
 
         cJSON *release = cJSON_GetObjectItemCaseSensitive(app, "release");
         if (cJSON_IsObject(release)) {
             struct manifest *m = &entry->release;
             memset(m, 0, sizeof(*m));
             strncpy(m->id, entry->id, sizeof(m->id) - 1);
-            cJSON *rev = cJSON_GetObjectItemCaseSensitive(release, "rev");
-            cJSON *size = cJSON_GetObjectItemCaseSensitive(release, "size");
-            cJSON *sha = cJSON_GetObjectItemCaseSensitive(release, "sha256");
+            cJSON *published = cJSON_GetObjectItemCaseSensitive(release, "published_at");
+            cJSON *tag = cJSON_GetObjectItemCaseSensitive(release, "tag");
+            cJSON *download = cJSON_GetObjectItemCaseSensitive(release, "download");
+            cJSON *size = cJSON_GetObjectItemCaseSensitive(download, "size");
+            cJSON *sha = cJSON_GetObjectItemCaseSensitive(download, "sha256");
             /* The rules install.h states: these fields go straight into
                a download and an unpack. */
             int ok = 1;
-            if (cJSON_IsNumber(rev) && manifest_rev_in_range(rev->valuedouble))
-                m->rev = (unsigned)rev->valuedouble;
-            else
-                ok = 0;
+            m->rev = iso8601(cJSON_IsString(published) ? published->valuestring : NULL);
+            if (!m->rev) ok = 0;
             if (cJSON_IsNumber(size) && manifest_size_in_range(size->valuedouble))
                 m->size = (size_t)size->valuedouble;
             else
                 ok = 0;
-            copy_str(m->url, sizeof(m->url), cJSON_GetObjectItemCaseSensitive(release, "url"));
-            copy_str(m->version, sizeof(m->version),
-                     cJSON_GetObjectItemCaseSensitive(release, "version"));
+            copy_str(m->url, sizeof(m->url), cJSON_GetObjectItemCaseSensitive(download, "url"));
+            if (cJSON_IsString(tag) && tag->valuestring[0]) {
+                const char *version = tag->valuestring + (tag->valuestring[0] == 'v');
+                if (strlen(version) < sizeof(m->version))
+                    snprintf(m->version, sizeof(m->version), "%s", version);
+                else ok = 0;
+            } else ok = 0;
             ok = ok && m->rev && !strncmp(m->url, "https://", 8) && m->version[0];
             /* A cache that downloaded the zip says what it hashed to, and
                the install holds the download to it. One that left the
@@ -213,13 +228,14 @@ static int parse(struct catalog *catalog, const char *base) {
         }
 
         char shot[256];
-        copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(app, "icon"));
+        cJSON *media = cJSON_GetObjectItemCaseSensitive(app, "media");
+        copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "icon"));
         asset_url(base, shot, entry->icon, sizeof(entry->icon));
-        copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(app, "screenshot"));
+        copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "screenshot"));
         asset_url(base, shot, entry->screenshot, sizeof(entry->screenshot));
-        copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(app, "video"));
+        copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "video"));
         asset_url(base, shot, entry->video, sizeof(entry->video));
-        copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(app, "sound"));
+        copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "sound"));
         asset_url(base, shot, entry->sound, sizeof(entry->sound));
 
         /* An id names a directory on the stick and a file in the cache: one
@@ -322,17 +338,26 @@ static int take_cache(struct catalog *catalog, const char *url) {
    table of month lengths. Returns 0 for anything that is not that. */
 static unsigned iso8601(const char *text) {
     int y, mo, d, h, mi, sec;
-    if (!text || sscanf(text, "%d-%d-%dT%d:%d:%dZ", &y, &mo, &d, &h, &mi, &sec) != 6)
+    if (!text || strlen(text) != 20 || text[4] != '-' || text[7] != '-' ||
+        text[10] != 'T' || text[13] != ':' || text[16] != ':' || text[19] != 'Z')
         return 0;
-    if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 1970)
+    for (int i = 0; i < 19; i++)
+        if (i != 4 && i != 7 && i != 10 && i != 13 && i != 16 &&
+            !isdigit((unsigned char)text[i]))
+            return 0;
+    if (sscanf(text, "%d-%d-%dT%d:%d:%dZ", &y, &mo, &d, &h, &mi, &sec) != 6)
+        return 0;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 1970 ||
+        h > 23 || mi > 59 || sec > 59)
         return 0;
     y -= mo <= 2;
     int era = y / 400;
     int yoe = y - era * 400;
     int doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
     int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    long days = (long)era * 146097 + doe - 719468;
-    return (unsigned)(days * 86400 + h * 3600 + mi * 60 + sec);
+    long long days = (long long)era * 146097 + doe - 719468;
+    long long seconds = days * 86400 + h * 3600 + mi * 60 + sec;
+    return seconds > 0 && seconds <= UINT_MAX ? (unsigned)seconds : 0;
 }
 
 static int ends_with_zip(const char *name) {

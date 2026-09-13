@@ -2,7 +2,7 @@
 """Forty entries out of the published catalog: each real app repeated under
 numbered ids with its own assets copied in, so a long list can be scrolled
 without forty real apps. Usage: make-catalog.py <site dir>."""
-import json, os, sys, urllib.request
+import copy, json, os, sys, urllib.request
 
 SRC = "https://chriopter.github.io/pspdx-catalog/"
 site = sys.argv[1]
@@ -18,16 +18,16 @@ def fetch(rel):
 
 for a in apps:
     for k in ("icon", "screenshot", "video"):
-        if a.get(k): fetch(a[k])
+        if a.get("media", {}).get(k): fetch(a["media"][k])
 
 out = []
 for i in range(40):
-    a = dict(apps[i % len(apps)])
+    a = copy.deepcopy(apps[i % len(apps)])
     a["id"] = "io.github.pspdxfixture.app%02d" % i
-    a["repo"] = "https://github.com/pspdxfixture/app%02d" % i
+    a["source"] = "https://github.com/pspdxfixture/app%02d" % i
     a["installdir"] = "PSP/GAME/Fixture%02d" % i
     a["name"] = "%s %d" % (a["name"], i + 1)
-    a["_test_manifest"]=dict(schema="https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",source=a["repo"],name=a["name"][:39],category=a["category"],installdir=a["installdir"])
+    a["_test_manifest"]=dict(schema="https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",source=a["source"],name=a["name"][:39],category=a["category"],installdir=a["installdir"])
     out.append(a)
 
 # Two more, for the installer: the same EBOOT in the two archive layouts the
@@ -35,7 +35,7 @@ for i in range(40):
 # down beside a readme. Served from here with their own checksums.
 import hashlib, io, zipfile
 src = [a for a in apps if a.get("release")][0]
-raw = urllib.request.urlopen(src["release"]["url"]).read()
+raw = urllib.request.urlopen(src["release"]["download"]["url"]).read()
 z = zipfile.ZipFile(io.BytesIO(raw))
 eboot = [n for n in z.namelist() if n.lower().endswith("eboot.pbp")][0]
 payload = z.read(eboot)
@@ -48,13 +48,13 @@ def entry(id, name, members):
     rel = "pkgs/%s.zip" % id
     os.makedirs(os.path.join(site, "pkgs"), exist_ok=True)
     open(os.path.join(site, rel), "wb").write(blob)
-    a = dict(src)
+    a = copy.deepcopy(src)
     a["id"] = id; a["name"] = name
-    a["repo"] = "https://github.com/chriopter/" + id.rsplit(".",1)[1]
+    a["source"] = "https://github.com/chriopter/" + id.rsplit(".",1)[1]
     a["installdir"] = "PSP/GAME/" + id.rsplit(".",1)[1]
-    a["_test_manifest"]=dict(schema="https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",source=a["repo"],name=name,category=a["category"],installdir=a["installdir"])
-    a["release"] = dict(src["release"], url="https://127.0.0.1:8443/" + rel,
-                        sha256=hashlib.sha256(blob).hexdigest(), size=len(blob))
+    a["_test_manifest"]=dict(schema="https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",source=a["source"],name=name,category=a["category"],installdir=a["installdir"])
+    a["release"]["download"] = dict(url="https://127.0.0.1:8443/" + rel,
+                                     sha256=hashlib.sha256(blob).hexdigest(), size=len(blob))
     return a
 
 out.append(entry("io.github.chriopter.layoutroot", "Layout: EBOOT at the root",

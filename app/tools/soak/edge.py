@@ -40,6 +40,7 @@ every directory has its record, no staging tree and no .old left behind.
 import hashlib
 import io
 import json
+from datetime import datetime, timezone
 import os
 import random
 import shutil
@@ -186,8 +187,8 @@ def set_package(ctx, app_id, blob):
         fh.write(blob)
     cat = catalog_read(ctx)
     release = entry_of(cat, app_id)["release"]
-    release["sha256"] = hashlib.sha256(blob).hexdigest()
-    release["size"] = len(blob)
+    release["download"]["sha256"] = hashlib.sha256(blob).hexdigest()
+    release["download"]["size"] = len(blob)
     catalog_write(ctx, cat)
 
 
@@ -376,14 +377,16 @@ def entry_json(app, url_base, package=True):
     }
     if package:
         entry["release"] = {
-            "rev": app.rev, "url": url_base + "pkgs/%s.zip" % app.id,
-            "sha256": "00" * 32, "size": app.size, "version": app.version,
+            "published_at": datetime.fromtimestamp(app.rev, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "tag": "v" + app.version,
+            "download": {"url": url_base + "pkgs/%s.zip" % app.id,
+                         "sha256": "00" * 32, "size": app.size},
         }
     return entry
 
 
 def url_base(ctx):
-    return catalog_read(ctx)["apps"][0]["release"]["url"].rsplit("pkgs/", 1)[0]
+    return catalog_read(ctx)["apps"][0]["release"]["download"]["url"].rsplit("pkgs/", 1)[0]
 
 
 def extend_world(world, extra):
@@ -935,7 +938,7 @@ def net_bad_sha(world):
         # can be installed -- which is right, and not what this is testing.
         wrong = "de" + "ad" * 31
         assert len(wrong) == 64
-        entry_of(cat, app_a.id)["release"]["sha256"] = wrong
+        entry_of(cat, app_a.id)["release"]["download"]["sha256"] = wrong
         catalog_write(ctx, cat)
 
     def oracle(ctx, rep):
@@ -1356,11 +1359,11 @@ def catalog_bad_entries(world):
         bad.append(entry_json(dotted, base))
         big = synth_app(0, "94.bigrev", "Big Rev", "apps", 1789900003, "1.0.0")
         big_json = entry_json(big, base)
-        big_json["release"]["rev"] = 5000000000.0
+        big_json["release"]["published_at"] = "bad date"
         bad.append(big_json)
         nosize = synth_app(0, "95.nosize", "No Size", "apps", 1789900004, "1.0.0")
         nosize_json = entry_json(nosize, base)
-        nosize_json["release"]["size"] = 0
+        nosize_json["release"]["download"]["size"] = 0
         bad.append(nosize_json)
         naked = synth_app(0, "96.naked", "Naked", "apps", 1789900005, "1.0.0")
         bad.append(entry_json(naked, base, package=False))
@@ -1375,8 +1378,8 @@ def catalog_bad_entries(world):
             fh.write(blob)
         cat = catalog_read(ctx)
         release = entry_of(cat, extra_good.id)["release"]
-        release["sha256"] = hashlib.sha256(blob).hexdigest()
-        release["size"] = len(blob)
+        release["download"]["sha256"] = hashlib.sha256(blob).hexdigest()
+        release["download"]["size"] = len(blob)
         catalog_write(ctx, cat)
 
     def oracle(ctx, rep):
@@ -1439,9 +1442,9 @@ def catalog_hostile_strings(world):
         # the client is handed here is a real path that answers with a 404
         # and not a path it would never meet.
         gone = "apps/%s/" % entries[3]["id"]
-        entries[3]["icon"] = gone + "icon-00000000.png"
-        entries[3]["screenshot"] = gone + "picture-00000000.png"
-        entries[3]["video"] = gone + "film-00000000.pmf"
+        entries[3]["media"] = {"icon": gone + "icon-00000000.png",
+                                "screenshot": gone + "picture-00000000.png",
+                                "video": gone + "film-00000000.pmf"}
         cat["apps"] = cat["apps"] + entries
         catalog_write(ctx, cat)
         for app in (big, dup1, missing):
@@ -1451,8 +1454,8 @@ def catalog_hostile_strings(world):
             cat = catalog_read(ctx)
             for entry in cat["apps"]:
                 if entry["id"] == app.id:
-                    entry["release"]["sha256"] = hashlib.sha256(blob).hexdigest()
-                    entry["release"]["size"] = len(blob)
+                    entry["release"]["download"]["sha256"] = hashlib.sha256(blob).hexdigest()
+                    entry["release"]["download"]["size"] = len(blob)
             catalog_write(ctx, cat)
 
     def oracle(ctx, rep):

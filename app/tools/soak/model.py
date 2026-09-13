@@ -156,7 +156,7 @@ def load_world(site_dir=None):
         path = os.path.join(site_dir, "catalog.json")
         if os.path.exists(path):
             for entry in json.load(open(path))["apps"]:
-                sizes[entry["id"]] = entry["release"]["size"]
+                sizes[entry["id"]] = entry["release"]["download"]["size"]
 
     apps = []
     db = {}

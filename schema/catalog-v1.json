@@ -7,17 +7,18 @@
   "additionalProperties": false,
   "required": [
     "schema",
-    "generated",
+    "generated_at",
     "apps"
   ],
   "properties": {
     "schema": {
       "const": "https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json"
     },
-    "generated": {
+    "generated_at": {
       "type": "string",
       "format": "date-time",
-      "description": "Time the catalog was generated."
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "Time this catalog snapshot was published. Some apps may have been omitted if their source failed."
     },
     "apps": {
       "type": "array",
@@ -37,7 +38,7 @@
         "summary",
         "category",
         "license",
-        "repo",
+        "source",
         "installdir",
         "release"
       ],
@@ -83,7 +84,7 @@
           "pattern": "^io\\.github\\.[a-z0-9]+\\.[a-z0-9]+(?![\\s\\S])",
           "description": "Repository identity: lowercase owner and repository with non-alphanumeric characters removed."
         },
-        "repo": {
+        "source": {
           "type": "string",
           "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?(?![\\s\\S])",
           "description": "The project source URL. Version 1 supports HTTPS GitHub repository URLs."
@@ -92,63 +93,45 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "rev",
-            "version",
-            "url",
-            "size",
-            "sha256"
+            "tag",
+            "published_at",
+            "download"
           ],
           "properties": {
-            "rev": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Release publication time as Unix seconds."
-            },
-            "version": {
+            "tag": {
               "type": "string",
               "minLength": 1,
-              "description": "Release tag without a leading v."
+              "maxLength": 31,
+              "description": "The original GitHub release tag."
             },
-            "url": {
+            "published_at": {
               "type": "string",
-              "format": "uri",
-              "pattern": "^https://",
-              "description": "Release ZIP download URL."
+              "format": "date-time",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+              "description": "GitHub release publication time in UTC. Clients compare this to the installed release to find updates."
             },
-            "size": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "ZIP size in bytes."
-            },
-            "sha256": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+            "download": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["url", "size", "sha256"],
+              "properties": {
+                "url": {"type": "string", "format": "uri", "pattern": "^https://", "description": "Author's GitHub release ZIP URL."},
+                "size": {"type": "integer", "minimum": 1, "description": "ZIP size in bytes."},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}(?![\\s\\S])", "description": "SHA-256 of the ZIP bytes."}
+              }
             }
           }
         },
-        "icon": {
-          "type": "string",
-          "minLength": 1,
-          "format": "uri-reference",
-          "description": "Optional EBOOT media URL, absolute or relative to the catalog URL."
-        },
-        "screenshot": {
-          "type": "string",
-          "minLength": 1,
-          "format": "uri-reference",
-          "description": "Optional EBOOT media URL, absolute or relative to the catalog URL."
-        },
-        "video": {
-          "type": "string",
-          "minLength": 1,
-          "format": "uri-reference",
-          "description": "Optional EBOOT media URL, absolute or relative to the catalog URL."
-        },
-        "sound": {
-          "type": "string",
-          "minLength": 1,
-          "format": "uri-reference",
-          "description": "Optional EBOOT media URL, absolute or relative to the catalog URL."
+        "media": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional EBOOT media URLs, absolute or relative to the catalog URL.",
+          "properties": {
+            "icon": {"type": "string", "minLength": 1, "format": "uri-reference"},
+            "screenshot": {"type": "string", "minLength": 1, "format": "uri-reference"},
+            "video": {"type": "string", "minLength": 1, "format": "uri-reference"},
+            "sound": {"type": "string", "minLength": 1, "format": "uri-reference"}
+          }
         }
       }
     }

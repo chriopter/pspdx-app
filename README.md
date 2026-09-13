@@ -277,17 +277,19 @@ https://github.com/someone/project@v1.2
 ```
 
 Each list contains one repository URL per line. Its optional `cache` line
-names an aggregated catalog. `catalog.json` contains `schema`, `generated`
-and an `apps` array. Each app carries `id`, `name`, `author`, `summary`,
-`category`, `license`, `repo`, `installdir` and `release` (`rev`, `version`,
-`url`, `size`, `sha256`); media URLs use `icon`, `screenshot`, `video` and
-`sound` when present. Relative media URLs resolve against the catalog URL.
+names an aggregated catalog. `catalog.json` contains `schema`, `generated_at`
+and an `apps` array. Each app carries `id`, `source`, `name`, `author`,
+`summary`, `category`, `license`, `installdir` and `release`: the original
+`tag`, `published_at` and a `download` object with `url`, `size` and `sha256`.
+Optional `media` holds `icon`, `screenshot`, `video` and `sound` URLs.
+Relative media URLs resolve against the catalog URL. `generated_at` is the
+snapshot publication time, even if individual apps failed to build.
 
 The [catalog schema](schema/catalog-v1.json) uses the identifier
 `https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json`.
 
 The reference builder checks releases hourly, reuses unchanged entries and
-publishes only when its index changes. Manifest-only edits require a new
+publishes a fresh snapshot each hour. Manifest-only edits require a new
 release or a forced catalog rebuild. Anyone can reuse the builder or publish
 a different catalog; the client retains installed apps independently.
 

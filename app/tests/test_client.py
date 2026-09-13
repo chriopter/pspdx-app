@@ -140,14 +140,26 @@ class ClientTests(unittest.TestCase):
  def fixtures(self):
   self.run_client('install',VERSION=1)
   size=(self.root/'new.zip').stat().st_size
-  app=dict(id=ID,name='Demo',author='test',category='demo',repo=SPEC['source'],installdir=SPEC['installdir'],release=dict(version='2',rev=2,size=size,url='https://github.com/test/demo/releases/download/v2/download.zip'))
-  self.write('catalog.json',dict(apps=[app]));self.write('release.json',dict(tag_name='v3',published_at='2026-09-12T00:00:00Z',assets=[dict(name='download.zip',size=size,browser_download_url='https://github.com/test/demo/releases/download/v2/download.zip')]))
+  app=dict(id=ID,name='Demo',author='test',category='demo',source=SPEC['source'],installdir=SPEC['installdir'],release=dict(tag='v2',published_at='1970-01-01T00:00:02Z',download=dict(size=size,url='https://github.com/test/demo/releases/download/v2/download.zip')))
+  self.write('catalog.json',dict(schema='https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json',generated_at='2026-09-14T00:00:00Z',apps=[app]));self.write('release.json',dict(tag_name='v3',published_at='2026-09-12T00:00:00Z',assets=[dict(name='download.zip',size=size,browser_download_url='https://github.com/test/demo/releases/download/v2/download.zip')]))
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
  def test_catalog_offline_fallback(self):
   self.fixtures();r=self.run_client('fetch');self.assertIn(ID+' 2 1',r.stdout)
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)
   r=self.run_client('fetch',OFFLINE=1);self.assertIn(ID+' 3 0',r.stdout)
   requests=(self.root/'requests.log').read_text();self.assertNotIn('ICON0',requests);self.assertNotIn('PIC1',requests)
+ def test_unknown_catalog_schema_uses_original_source(self):
+  self.fixtures()
+  catalog=json.loads((self.root/'catalog.json').read_text())
+  catalog['schema']='https://example.com/other-format'
+  self.write('catalog.json',catalog)
+  self.assertIn(ID+' 3 1',self.run_client('fetch').stdout)
+ def test_invalid_catalog_release_date_uses_original_source(self):
+  self.fixtures()
+  catalog=json.loads((self.root/'catalog.json').read_text())
+  catalog['apps'][0]['release']['published_at']='2026-09-12T99:00:00Z'
+  self.write('catalog.json',catalog)
+  self.assertIn(ID+' 3 1',self.run_client('fetch').stdout)
  def test_force_and_missing_catalog(self):
   self.fixtures();r=self.run_client('fetch',FORCE=1);self.assertIn(ID+' 3 1',r.stdout)
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('');r=self.run_client('fetch');self.assertIn(ID+' 3 1',r.stdout)
