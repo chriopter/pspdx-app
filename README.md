@@ -8,7 +8,7 @@ browse like a store. You can add other catalogs or `.pspdx` files directly.
 Each installed app keeps its source, so updates still work if a catalog goes
 away.
 
-<img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="images/pspdx-app.gif" />
+<img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="images/pspdx-app.webp" />
 
 [The same as a video](images/pspdx-app.mp4) (480×272, 34 s).
 
