@@ -1242,14 +1242,14 @@ int main(int argc, char *argv[]) {
                    buffer, so the media thread steps aside for the length of
                    it, as it does for an install. */
                 int which = SHELL_ROW_SETTING - at, refetch = 0;
-                /* Fetched again and, the same press, every app asked at its
-                   own repository: one row, since one is what a person means
-                   by "update the catalog". */
-                if (which == 0 && synced) { catalog_force_sources(); refetch = 1; }
-                else if (which == 1 && synced) sub_open(SUB_CATALOGS);
-                else if (which == 2 && synced) sub_open(SUB_ADD);
-                else if (which == 3) sub_open(SUB_RESET);
-                else if (which == 4) {
+                /* The catalogs again, or every app asked at its own
+                   repository: the second is the slow, thorough one. */
+                if (which == 0 && synced) refetch = 1;
+                else if (which == 1 && synced) { catalog_force_sources(); refetch = 1; }
+                else if (which == 2 && synced) sub_open(SUB_CATALOGS);
+                else if (which == 3 && synced) sub_open(SUB_ADD);
+                else if (which == 4) sub_open(SUB_RESET);
+                else if (which == 5) {
                     shell_info(info = 1);
                 }
                 if (refetch) refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
