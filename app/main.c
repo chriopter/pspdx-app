@@ -314,7 +314,7 @@ static void launch_app(int index) {
    draws the question and the footer that answers it; the answer arrives
    through the pad, which is read down in the loop, so the two halves meet
    in these two variables and nowhere else. */
-enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET };
+enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_RUN };
 static enum question g_question;
 static int g_question_of;
 
@@ -1132,6 +1132,7 @@ int main(int argc, char *argv[]) {
                 else if (asked == ASK_ALL) install_all();
                 else if (asked == ASK_INBOX) install_inbox();
                 else if (asked == ASK_RESET) reset_completely();
+                else if (asked == ASK_RUN) launch_app(index);
                 else if (asked == ASK_CATALOG) {
                     if (index >= 0 && index < g_sources.count &&
                         sources_remove(g_sources.url[index]) > 0)
@@ -1253,9 +1254,10 @@ int main(int argc, char *argv[]) {
                 }
                 if (refetch) refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
             } else if (pressed & PSP_CTRL_CROSS) {
-                /* X on a package opens its options, whatever its state:
-                   the panel is where Install, Update and the basket are
-                   read, so it is the one thing a press has to bring. */
+                /* X is the one thing there is to do to the package: have
+                   it, have the newer one, or start it -- each asked about
+                   first. The options, with the same things and the rest,
+                   are on triangle. */
                 if (at == SHELL_ROW_ACTION) {
                     struct shell_plan plan;
                     shell_action_plan(&plan);
@@ -1266,7 +1268,16 @@ int main(int argc, char *argv[]) {
                         }
                     } else ask_all();
                 }
-                else if (at >= 0) menu_open(at);
+                else if (at >= 0 && (catalog.apps[at].state == APP_NOT_INSTALLED ||
+                                     catalog.apps[at].state == APP_UPDATE))
+                    ask_install(at);
+                else if (at >= 0) {
+                    char title[64];
+                    snprintf(title, sizeof(title), "Run %.40s?", catalog.apps[at].name);
+                    shell_ask(title, "PSPDX ends and the app starts");
+                    g_question = ASK_RUN;
+                    g_question_of = at;
+                }
             }
             if ((pressed & PSP_CTRL_TRIANGLE) && at >= 0) menu_open(at);
             /* Square sets a package aside for later and takes it out
