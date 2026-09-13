@@ -1488,11 +1488,14 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     unsigned t1 = now_us();
     /* Left alone, the picture of the package under the cursor rises behind
        everything, over about two seconds; a key takes it down again in a
-       few frames. Nothing is hidden by it: the tabs, the rows and the card
-       stay where they are, and the film goes on playing. */
+       few frames. */
     g_rest += g_resting ? 1.0f / 120.0f : -1.0f / 8.0f;
     if (g_rest < 0.0f) g_rest = 0.0f;
     if (g_rest > 1.0f) g_rest = 1.0f;
+    /* And as the picture comes up the interface goes: left alone for long
+       enough, what is on the screen is the package's own picture and
+       nothing over it, until a key brings the rows back in a few frames. */
+    gfx_veil((int)(256.0f * (1.0f - g_rest)));
     draw_chrome(catalog, t);
     if (catalog->count > 0 && shell_view_count() > 0) {
         int rows = shell_view_count();
@@ -1514,6 +1517,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     if (g_installing) draw_install();
     if (g_ask_title[0]) draw_ask();
     draw_footer();
+    gfx_veil(256);
     if (g_fade > 0) {
         gfx_rect(0, 0, SCR_W, SCR_H, RGBA(0, 0, 0, g_fade));
         g_fade -= 7;

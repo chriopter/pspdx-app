@@ -506,8 +506,8 @@ static void install_all(void) {
    reinstalled at the version it has, and one already current has nothing to
    update to. The unavailable one stays on screen, greyed, because which of
    the two is greyed is itself the answer to "is there an update". */
-enum choice { CHOICE_RUN, CHOICE_REINSTALL, CHOICE_DELETE, CHOICE_BASKET, CHOICE_DETAILS,
-              CHOICE_COUNT };
+enum choice { CHOICE_GET, CHOICE_RUN, CHOICE_REINSTALL, CHOICE_DELETE, CHOICE_BASKET,
+              CHOICE_DETAILS, CHOICE_COUNT };
 
 static char g_choice_text[CHOICE_COUNT][32];
 static const char *g_choice[CHOICE_COUNT];
@@ -518,7 +518,7 @@ static int g_menu_open, g_menu_cursor, g_menu_of;
 /* The keys that do a row's thing without the menu, named at the row: the
    menu is where they are learned. */
 static const signed char g_choice_key[CHOICE_COUNT] = {
-    [CHOICE_RUN] = MARK_START, [CHOICE_REINSTALL] = -1, [CHOICE_DELETE] = -1,
+    [CHOICE_GET] = -1, [CHOICE_RUN] = MARK_START, [CHOICE_REINSTALL] = -1, [CHOICE_DELETE] = -1,
     [CHOICE_BASKET] = MARK_SQUARE, [CHOICE_DETAILS] = -1,
 };
 
@@ -531,10 +531,18 @@ static void menu_open(int index) {
     const struct app_entry *entry = &catalog.apps[index];
     int installed = entry->state != APP_NOT_INSTALLED;
     snprintf(g_menu_title, sizeof(g_menu_title), "%s", entry->name);
-    /* Five rows, the same five for every package, in the same places; what
-       a row cannot do to this package it says by being grey. Installing and
-       updating are not among them: that is what X is, and the card, the
-       list and the stick tab already say which of the two it would be. */
+    /* Six rows, the same six for every package, in the same places; what
+       a row cannot do to this package it says by being grey. The first is
+       what X used to do on its own -- fetch the package, or the newer one
+       -- and it is in the menu so that the menu is where a package is met
+       whatever its state: a package not yet on the stick opens the same
+       panel, with Install lit and the basket a row below it, or nobody
+       learns that the basket exists. */
+    if (entry->state == APP_UPDATE)
+        snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), "Update to %.20s",
+                 entry->remote_version);
+    else
+        snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), "Install");
     snprintf(g_choice_text[CHOICE_RUN], sizeof(g_choice_text[0]), "Run");
     snprintf(g_choice_text[CHOICE_REINSTALL], sizeof(g_choice_text[0]), "Reinstall");
     snprintf(g_choice_text[CHOICE_DELETE], sizeof(g_choice_text[0]), "Delete");
@@ -544,12 +552,13 @@ static void menu_open(int index) {
              shell_basket_has(index) ? "Take out of basket" : "Add to basket");
     snprintf(g_choice_text[CHOICE_DETAILS], sizeof(g_choice_text[0]), "Information");
     for (int i = 0; i < CHOICE_COUNT; i++) g_choice[i] = g_choice_text[i];
+    g_choice_on[CHOICE_GET] = entry->state == APP_NOT_INSTALLED || entry->state == APP_UPDATE;
     g_choice_on[CHOICE_RUN] = installed;
     g_choice_on[CHOICE_REINSTALL] = installed;
     g_choice_on[CHOICE_DELETE] = installed && strcmp(entry->id, PSPDX_SELF_ID) != 0;
     g_choice_on[CHOICE_BASKET] = 1;
     g_choice_on[CHOICE_DETAILS] = 1;
-    g_menu_cursor = installed ? CHOICE_RUN : CHOICE_BASKET;
+    g_menu_cursor = g_choice_on[CHOICE_GET] ? CHOICE_GET : CHOICE_RUN;
     g_menu_of = index;
     g_menu_open = 1;
     menu_push();
@@ -1084,7 +1093,7 @@ int main(int argc, char *argv[]) {
         if (frame_ms - last_frame_ms > 300) idle_since = frame_ms;
         last_frame_ms = frame_ms;
         if (pad.Buttons || pressed || count == 0) idle_since = now_ms();
-        if (!modal && !info && now_ms() - idle_since > 10000) {
+        if (!modal && !info && now_ms() - idle_since > 25000) {
             if (!resting) shell_rest(resting = 1);
         } else if (resting) {
             shell_rest(resting = 0);
@@ -1194,6 +1203,7 @@ int main(int argc, char *argv[]) {
                    again, and a first install is a download worth a look at
                    the size, so both are asked about. */
                 if (chosen == CHOICE_DELETE) ask_remove(index);
+                else if (chosen == CHOICE_GET) ask_install(index);
                 else if (chosen == CHOICE_RUN) launch_app(index);
                 else if (chosen == CHOICE_BASKET) {
                     shell_basket_toggle(index);
@@ -1243,9 +1253,9 @@ int main(int argc, char *argv[]) {
                 }
                 if (refetch) refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
             } else if (pressed & PSP_CTRL_CROSS) {
-                /* X is the one thing there is to do to the package: have
-                   it, or have the newer one. With nothing of that to do it
-                   opens the options, as triangle does. */
+                /* X on a package opens its options, whatever its state:
+                   the panel is where Install, Update and the basket are
+                   read, so it is the one thing a press has to bring. */
                 if (at == SHELL_ROW_ACTION) {
                     struct shell_plan plan;
                     shell_action_plan(&plan);
@@ -1256,9 +1266,6 @@ int main(int argc, char *argv[]) {
                         }
                     } else ask_all();
                 }
-                else if (at >= 0 && (catalog.apps[at].state == APP_NOT_INSTALLED ||
-                                     catalog.apps[at].state == APP_UPDATE))
-                    ask_install(at);
                 else if (at >= 0) menu_open(at);
             }
             if ((pressed & PSP_CTRL_TRIANGLE) && at >= 0) menu_open(at);
