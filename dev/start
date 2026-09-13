@@ -120,6 +120,10 @@ fi
 UNIT="pspdx-ppsspp"
 [ "$OWNER" != "$USER" ] && UNIT="pspdx-ppsspp-$OWNER"
 systemctl --user stop "$UNIT" 2>/dev/null || true
+# A unit that died on its own stays on the books as failed, and a new one
+# under the same name is refused without a word; forgetting it first is
+# what lets the next start go through.
+systemctl --user reset-failed "$UNIT" 2>/dev/null || true
 for pid in $(pgrep -x PPSSPPSDL 2>/dev/null); do
 	if tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qx "PSPDX_OWNER=$OWNER"; then
 		kill "$pid" 2>/dev/null || true
@@ -146,7 +150,15 @@ systemd-run --user --collect --quiet --unit="$UNIT" \
   flatpak run --socket=wayland --share=network $AUDIO --env=PSPDX_OWNER="$OWNER" --filesystem="$MS" \
   org.ppsspp.PPSSPP --fullscreen=0 "$MS/PSP/GAME/pspdx/EBOOT.PBP"
 sleep 3
-# Where it opens is Hyprland's business: a window rule in
-# ~/.config/hypr/hyprland.lua sends the emulator to workspace 2 without
-# focus, so the desk it was started from keeps what was being worked on.
-echo "PPSSPP is up (workspace 2 by window rule). Stop it with: systemctl --user stop $UNIT"
+# Said only when it is true: the unit is running and the emulator is a
+# process. A start that was refused, or an instance that died in its first
+# seconds, is reported as that.
+if systemctl --user is-active --quiet "$UNIT" && pgrep -x PPSSPPSDL >/dev/null; then
+	# Where it opens is Hyprland's business: a window rule in
+	# ~/.config/hypr/hyprland.lua sends the emulator to workspace 2 without
+	# focus, so the desk it was started from keeps what was being worked on.
+	echo "PPSSPP is up (workspace 2 by window rule). Stop it with: systemctl --user stop $UNIT"
+else
+	echo "PPSSPP did not come up; journalctl --user -u $UNIT has the reason" >&2
+	exit 1
+fi
