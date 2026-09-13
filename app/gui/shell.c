@@ -504,6 +504,15 @@ static void draw_tabs(float left, float right, float t) {
         draw_tab(g_tab[i], i == g_tab_at, x, t);
         x -= TAB_GAP;
     }
+    /* A hair between the console's own tabs and the catalog's: the gear
+       and the stick are about this machine, the rest about what is
+       published, and the eye should not read them as one row of the same
+       kind. Lit the way the header's rule is, brightest in its middle. */
+    unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 120);
+    unsigned clear = rgb_pack(g_tint, 0);
+    int sx = (int)(TAB_X - TAB_GAP / 2.0f);
+    gfx_vgrad(sx, 7, 1, 9, clear, bright);
+    gfx_vgrad(sx, 16, 1, 9, bright, clear);
 }
 
 static void draw_chrome(const struct catalog *catalog, float t) {
@@ -1200,7 +1209,7 @@ static const char *const SETTING[SHELL_SETTINGS] = {
     "Update catalog",
     "Manage catalogs",
     "Add .pspdx directly",
-    "Discard entropy and sweep again",
+    "Reset",
     "Info",
 };
 
@@ -1210,7 +1219,7 @@ static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
     "Fetches the catalog again and asks every app's own repository for its newest release.",
     "The lists this console reads apps from. Take one out, or add one by its URL.",
     "One app straight from its GitHub repository, or the .pspdx files put in PSP/PSPDX/INBOX.",
-    "Forgets the stored seed. The stick sweep runs again, as it did on the first start.",
+    "Sweep the stick again for fresh TLS entropy, or put PSPDX back to its first start: everything under PSP/PSPDX goes, the apps in PSP/GAME stay.",
     "What this session is connected to and what it is standing on.",
 };
 

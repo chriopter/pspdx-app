@@ -10,5 +10,7 @@ int storage_exists(const char *path);
 int storage_read(const char *path, char **text, size_t limit);
 int storage_write(const char *path, const void *data, size_t len);
 int storage_remove(const char *path);
+/* A directory and everything under it. Returns 0 when nothing is left. */
+int storage_remove_tree(const char *path);
 void storage_app_path(const char *id, char *out, size_t size);
 #endif

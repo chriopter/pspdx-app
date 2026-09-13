@@ -177,3 +177,26 @@ void storage_trim_cache(const char *directory, size_t limit, const char *keep) {
     }
     sceIoDclose(d);
 }
+
+int storage_remove_tree(const char *path) {
+    SceUID d = sceIoDopen(path);
+    if (d < 0)
+        return storage_exists(path) ? (sceIoRemove(path) < 0 ? -1 : 0) : 0;
+    SceIoDirent e;
+    int rc = 0;
+    memset(&e, 0, sizeof(e));
+    while (sceIoDread(d, &e) > 0) {
+        if (strcmp(e.d_name, ".") && strcmp(e.d_name, "..")) {
+            char child[512];
+            snprintf(child, sizeof(child), "%s/%s", path, e.d_name);
+            if (FIO_S_ISDIR(e.d_stat.st_mode) ? storage_remove_tree(child) < 0
+                                             : sceIoRemove(child) < 0)
+                rc = -1;
+        }
+        memset(&e, 0, sizeof(e));
+    }
+    sceIoDclose(d);
+    if (rc < 0 || sceIoRmdir(path) < 0)
+        return -1;
+    return 0;
+}

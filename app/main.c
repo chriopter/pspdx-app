@@ -314,7 +314,7 @@ static void launch_app(int index) {
    draws the question and the footer that answers it; the answer arrives
    through the pad, which is read down in the loop, so the two halves meet
    in these two variables and nowhere else. */
-enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG };
+enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET };
 static enum question g_question;
 static int g_question_of;
 
@@ -563,7 +563,7 @@ static void menu_close(void) {
 /* The two popups under the gear, in the same panel the options use: the
    catalogs this console reads, one a row with "Add" last; and the two ways
    a .pspdx comes in directly. Drawn by the shell, driven here. */
-enum sub { SUB_NONE, SUB_CATALOGS, SUB_ADD };
+enum sub { SUB_NONE, SUB_CATALOGS, SUB_ADD, SUB_RESET };
 static enum sub g_sub;
 static int g_sub_cursor, g_sub_count;
 static struct sources g_sources;
@@ -573,7 +573,7 @@ static unsigned char g_sub_on[SOURCES_MAX + 1];
 static signed char g_sub_key[SOURCES_MAX + 1];
 
 static void sub_push(void) {
-    shell_menu(g_sub == SUB_CATALOGS ? "Catalogs" : "Add .pspdx directly",
+    shell_menu(g_sub == SUB_CATALOGS ? "Catalogs" : g_sub == SUB_ADD ? "Add .pspdx directly" : "Reset",
                g_sub_item, g_sub_on, g_sub_key, g_sub_count, g_sub_cursor);
 }
 
@@ -590,9 +590,12 @@ static void sub_open(enum sub which) {
             g_sub_item[g_sub_count++] = g_sub_short[i];
         }
         g_sub_item[g_sub_count++] = "Add catalog...";
-    } else {
+    } else if (which == SUB_ADD) {
         g_sub_item[g_sub_count++] = "From a GitHub repository";
         g_sub_item[g_sub_count++] = "From the INBOX";
+    } else {
+        g_sub_item[g_sub_count++] = "Sweep TLS entropy again";
+        g_sub_item[g_sub_count++] = "Reset PSPDX completely";
     }
     for (int i = 0; i < g_sub_count; i++) { g_sub_on[i] = 1; g_sub_key[i] = -1; }
     g_sub_cursor = 0;
@@ -755,6 +758,30 @@ static void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
         g_wanted_url[0] = '\0';
         preview_resume();
     }
+}
+
+/* The field drains and is swept again, in the room the browser was already
+   standing in. The old pool is set aside rather than thrown away until the
+   new one is made: a sweep takes half a minute of stick work and this one
+   is two presses from the list, so it has to be possible to leave, and
+   leaving may not hand the rest of the session a pool of nothing to make
+   its keys from. */
+static void sweep_again(void) {
+    entropy_stash();
+    entropy_init();
+    if (entropy_screen_run() == 0) entropy_restore();
+    entropy_save(entropy_screen_is_replay());
+}
+
+/* Back to the first start: everything this client keeps on the stick goes,
+   and the client with it, so that what comes up next is a first start --
+   the sweep, the built-in list, nothing installed as far as it knows. The
+   apps under PSP/GAME are not its to remove. */
+static void reset_completely(void) {
+    log_dump();
+    if (storage_remove_tree(storage_path("PSP/PSPDX")) < 0)
+        logline("reset: some of PSP/PSPDX would not go");
+    sceKernelExitGame();
 }
 
 /* Reads a source from the keyboard and adds it. Returns 1 when the catalog
@@ -1095,6 +1122,7 @@ int main(int argc, char *argv[]) {
                 else if (asked == ASK_ASIDE) { if (set_aside(index) == 0) install_app(index, 0, 0, 0); }
                 else if (asked == ASK_ALL) install_all();
                 else if (asked == ASK_INBOX) install_inbox();
+                else if (asked == ASK_RESET) reset_completely();
                 else if (asked == ASK_CATALOG) {
                     if (index >= 0 && index < g_sources.count &&
                         sources_remove(g_sources.url[index]) > 0)
@@ -1125,10 +1153,18 @@ int main(int argc, char *argv[]) {
                     } else if (synced && type_source(0)) {
                         refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
                     }
-                } else {
+                } else if (kind == SUB_ADD) {
                     if (chosen == 0 && synced && type_source(1))
                         refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
                     else if (chosen == 1 && synced) ask_inbox();
+                } else {
+                    if (chosen == 0) sweep_again();
+                    else {
+                        shell_ask("Reset PSPDX completely?",
+                                  "Everything under PSP/PSPDX goes; apps in PSP/GAME stay");
+                        g_question = ASK_RESET;
+                        g_question_of = -1;
+                    }
                 }
             }
         } else if (g_menu_open) {
@@ -1201,20 +1237,8 @@ int main(int argc, char *argv[]) {
                 if (which == 0 && synced) { catalog_force_sources(); refetch = 1; }
                 else if (which == 1 && synced) sub_open(SUB_CATALOGS);
                 else if (which == 2 && synced) sub_open(SUB_ADD);
-                else if (which == 3 && synced) {
-                    /* The field drains and is swept again, in the room the
-                       browser was already standing in. The old pool is set
-                       aside rather than thrown away until the new one is
-                       made: a sweep takes half a minute of stick work and
-                       this one is two presses from the list, so it has to
-                       be possible to leave, and leaving may not hand the
-                       rest of the session a pool of nothing to make its
-                       keys from. */
-                    entropy_stash();
-                    entropy_init();
-                    if (entropy_screen_run() == 0) entropy_restore();
-                    entropy_save(entropy_screen_is_replay());
-                } else if (which == 4) {
+                else if (which == 3) sub_open(SUB_RESET);
+                else if (which == 4) {
                     shell_info(info = 1);
                 }
                 if (refetch) refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
