@@ -1,64 +1,87 @@
 /*
- * The tune: a slow room. Eight chords, two bars each, on pads that take a
- * second to arrive and seven to leave, so each chord is still ringing when
- * the next one comes in. Over them a glass picks through the chord tones,
- * a piano says one or two things a bar, and now and then a very high, very
- * quiet note goes by like a satellite. Sixty-four to the minute; a loop of
- * a minute that does not sound like one.
+ * The tune: a dark blue room. Six chords in a slow cycle of about a
+ * minute, none of them the same length, on pads that take three seconds
+ * to arrive and a dozen to go, so a chord is a wash that the next one
+ * comes up through rather than a change. Each chord's four voices arrive
+ * one after another, seconds apart, in an order that differs from chord
+ * to chord; a sub sits under each root; four or five times a minute a
+ * high, quiet light swells and fades far off to one side; eight times a
+ * minute a cold bell, at the back of a long hall, on a tone of the chord
+ * that is sounding. Nothing else is struck. There is no beat.
+ *
+ * The cycle is written out twice with different orders and different
+ * lights, so the loop is two minutes long and the voices' own slow swells
+ * and the filter's breathing (whose periods divide nothing here) put a
+ * different face on every pass.
  */
 
 #include "audio/music.h"
 #include "audio/cues.h"
 #include "audio/synth.h"
 
-#define BARS 16
-#define BPM 64
-#define CHORD_BARS 2
-#define CHORDS (BARS / CHORD_BARS)
+/* Root for the sub, then four pad voices low to high. Roots stay between
+   E1 and C#2: a floor, not a bass line. */
+struct chord { float seconds; unsigned char root; unsigned char pad[4]; };
 
-/* Bass, then four upper voices low to high. */
-struct chord { unsigned char note[5]; };
+static const struct chord CYCLE[] = {
+    /* E add9        */ { 11.0f, 28, { 52, 59, 66, 68 } },
+    /* C#m11         */ {  9.5f, 37, { 49, 56, 64, 66 } },
+    /* A maj9 #11    */ { 12.0f, 33, { 52, 56, 63, 71 } },
+    /* F#m9          */ { 10.0f, 30, { 57, 61, 64, 68 } },
+    /* B add9        */ { 10.5f, 35, { 54, 61, 63, 71 } },
+    /* G#m11         */ { 11.0f, 32, { 56, 59, 63, 66 } },
+};
+#define CHORDS ((int)(sizeof(CYCLE) / sizeof(*CYCLE)))
+#define PASSES 2
 
-static const struct chord CHORD[CHORDS] = {
-    /* Dmaj9      */ { { 38, 57, 61, 64, 66 } },
-    /* Bm11       */ { { 35, 54, 57, 62, 64 } },
-    /* Gmaj7 add9 */ { { 43, 59, 62, 66, 69 } },
-    /* Asus2 add9 */ { { 45, 57, 59, 64, 71 } },
-    /* F#m9       */ { { 42, 57, 61, 64, 68 } },
-    /* Gmaj9      */ { { 43, 59, 62, 66, 69 } },
-    /* Em9        */ { { 40, 55, 59, 62, 66 } },
-    /* A add9     */ { { 45, 57, 62, 64, 71 } },
+/* When, in seconds after the chord starts, each of the four voices comes
+   in; the rows are permutations, one per chord per pass. The lowest voice
+   is never last, so a chord has a bottom before it has a top. */
+static const float ENTRY[PASSES][CHORDS][4] = {
+    { { 0.0f, 1.6f, 3.1f, 4.7f }, { 1.3f, 0.0f, 4.2f, 2.6f }, { 0.4f, 3.5f, 1.9f, 5.0f },
+      { 0.0f, 2.8f, 1.2f, 4.4f }, { 1.8f, 0.0f, 3.4f, 4.9f }, { 0.6f, 2.2f, 4.6f, 3.3f } },
+    { { 0.9f, 3.0f, 1.5f, 4.4f }, { 0.0f, 2.4f, 1.1f, 3.9f }, { 1.5f, 0.0f, 4.7f, 3.0f },
+      { 0.3f, 1.9f, 4.8f, 3.2f }, { 0.0f, 3.7f, 2.1f, 5.1f }, { 1.2f, 0.0f, 2.9f, 4.3f } },
 };
 
-/* Where in a two-bar chord (sixteen eighths) the glass picks, and which
-   chord tone: 1..4 are the upper voices, +12 an octave up. */
-static const struct { unsigned char pos, tone; signed char octave; unsigned char vel; } PICK[] = {
-    { 0, 4, 0, 16 }, { 3, 2, 1, 12 }, { 5, 3, 0, 14 }, { 8, 1, 1, 12 },
-    { 10, 4, 1, 10 }, { 13, 3, 1, 12 }, { 14, 2, 0, 11 },
+/* The lights: which chord, how many seconds in, which pad voice two or
+   three octaves up, how loud (of a hundred), and which side. */
+static const struct { unsigned char chord; float at; unsigned char voice, octaves, vel; signed char side; }
+    LIGHT[PASSES][5] = {
+    { { 0, 6.2f, 2, 2, 5, -1 }, { 1, 4.8f, 3, 2, 4, 1 }, { 2, 7.5f, 1, 3, 4, 1 },
+      { 3, 3.9f, 2, 2, 5, -1 }, { 5, 6.6f, 3, 2, 4, 1 } },
+    { { 0, 8.1f, 3, 2, 4, 1 }, { 2, 3.3f, 2, 2, 5, -1 }, { 3, 6.9f, 1, 3, 4, -1 },
+      { 4, 5.4f, 3, 2, 4, 1 }, { 5, 2.7f, 2, 2, 5, -1 } },
 };
 
-/* The piano, per two bars: a few notes, mostly on the chord. */
-static const struct { unsigned char pos, tone; signed char octave; unsigned char vel; } SAY[] = {
-    { 0, 4, 0, 28 }, { 6, 3, 0, 20 }, { 11, 4, 1, 18 },
+/* The bells, per pass: seconds into the pass, the note (a tone of the
+   chord sounding then, between D5 and A5), how loud (thousandths), and
+   which side. The gaps are all different, one pair comes close together,
+   and the sides alternate. */
+static const struct { float at; unsigned char note; unsigned short vel; signed char pan; }
+    BELL[PASSES][8] = {
+    { {  4.7f, 78, 100, -70 }, { 13.9f, 76,  80,  80 }, { 23.1f, 80, 105, -50 }, { 24.0f, 75,  70,  60 },
+      { 35.6f, 81,  95,  70 }, { 44.9f, 75,  85, -80 }, { 50.2f, 78,  75,  50 }, { 58.3f, 80,  90, -60 } },
+    { {  7.3f, 80,  90,  60 }, { 12.6f, 78,  80, -80 }, { 27.8f, 76, 100,  50 }, { 36.9f, 78,  85, -60 },
+      { 41.1f, 76,  75,  80 }, { 47.4f, 78,  95, -50 }, { 48.6f, 75,  70,  70 }, { 60.8f, 75,  90, -70 } },
 };
 
 static int g_rate;
 static long g_pos;              /* sample position inside the loop */
 static long g_loop;             /* loop length in samples */
-static float g_eighth;          /* samples per eighth */
 
-struct event { long at; unsigned char note, vel, timbre; signed char pan; };
-#define MAX_EVENTS 1024
+struct event { long at; unsigned char note, timbre; unsigned short vel; signed char pan; };  /* vel in thousandths */
+#define MAX_EVENTS 256
 static struct event g_events[MAX_EVENTS];
 static int g_event_count;
 static int g_next;
 
-static void add(long at, int note, int vel, enum synth_timbre timbre, float pan) {
+static void add(float at_s, int note, int vel, enum synth_timbre timbre, float pan) {
     if (g_event_count >= MAX_EVENTS) return;
     struct event *e = &g_events[g_event_count++];
-    e->at = at;
+    e->at = (long)(at_s * g_rate);
     e->note = (unsigned char)note;
-    e->vel = (unsigned char)vel;
+    e->vel = (unsigned short)vel;
     e->timbre = (unsigned char)timbre;
     e->pan = (signed char)(pan * 100);
 }
@@ -72,42 +95,41 @@ static void sort_events(void) {
     }
 }
 
+/* The four voices sit across the room, the outer two wide, and swap sides
+   from one chord to the next so the weight moves. */
+static const float PAN[2][4] = { { -0.8f, 0.45f, -0.35f, 0.8f }, { 0.8f, -0.45f, 0.35f, -0.8f } };
+
 void music_init(int sample_rate) {
     g_rate = sample_rate;
-    g_eighth = 60.0f / BPM / 2.0f * sample_rate;
-    g_loop = (long)(BARS * 8 * g_eighth);
     g_pos = 0;
     g_next = 0;
     g_event_count = 0;
 
-    for (int c = 0; c < CHORDS; c++) {
-        long start = (long)(c * CHORD_BARS * 8 * g_eighth);
-        const struct chord *ch = &CHORD[c];
-
-        /* The pad: bass in the middle, the four voices spread across the
-           room, the highest a touch later so the chord blooms. */
-        add(start, ch->note[0], 30, SYNTH_PAD, 0.0f);
-        add(start, ch->note[1], 20, SYNTH_PAD, -0.7f);
-        add(start, ch->note[2], 20, SYNTH_PAD, 0.4f);
-        add(start + (long)(0.5f * g_eighth), ch->note[3], 18, SYNTH_PAD, -0.3f);
-        add(start + (long)(1.0f * g_eighth), ch->note[4], 16, SYNTH_PAD, 0.7f);
-
-        for (unsigned i = 0; i < sizeof(PICK) / sizeof(*PICK); i++) {
-            int note = ch->note[PICK[i].tone] + 12 * PICK[i].octave;
-            float pan = (i & 1) ? 0.5f : -0.5f;
-            add(start + (long)(PICK[i].pos * g_eighth), note, PICK[i].vel, SYNTH_GLASS, pan);
+    float t = 0.0f;
+    for (int pass = 0; pass < PASSES; pass++) {
+        float pass_start = t;
+        for (int c = 0; c < CHORDS; c++) {
+            const struct chord *ch = &CYCLE[c];
+            /* The sub leads by a breath; being slowest to arrive it still
+               comes up under the pads rather than before them. */
+            add(t - 0.5f < 0 ? 0 : t - 0.5f, ch->root, 260, SYNTH_SUB, 0.0f);
+            for (int v = 0; v < 4; v++)
+                add(t + ENTRY[pass][c][v], ch->pad[v], v == 3 ? 230 : 260, SYNTH_DRIFT,
+                    PAN[(pass * CHORDS + c) & 1][v]);
+            t += ch->seconds;
         }
-        for (unsigned i = 0; i < sizeof(SAY) / sizeof(*SAY); i++) {
-            int note = ch->note[SAY[i].tone] + 12 * SAY[i].octave;
-            /* Every other chord the piano waits a beat, so it is not a
-               pattern you can count. */
-            long late = (c & 1) ? (long)(2 * g_eighth) : 0;
-            add(start + late + (long)(SAY[i].pos * g_eighth), note, SAY[i].vel, SYNTH_PIANO, 0.1f);
+        for (int i = 0; i < 5; i++) {
+            float at = pass_start;
+            for (int c = 0; c < LIGHT[pass][i].chord; c++) at += CYCLE[c].seconds;
+            const struct chord *ch = &CYCLE[LIGHT[pass][i].chord];
+            add(at + LIGHT[pass][i].at, ch->pad[LIGHT[pass][i].voice] + 12 * LIGHT[pass][i].octaves,
+                LIGHT[pass][i].vel * 10, SYNTH_SHIMMER, 0.9f * LIGHT[pass][i].side);
         }
-        /* The satellite: once per chord, somewhere in the second bar. */
-        add(start + (long)((9 + (c * 5) % 6) * g_eighth), 91 + (c * 7) % 5, 7, SYNTH_GLASS,
-            (c & 1) ? 0.9f : -0.9f);
+        for (int i = 0; i < 8; i++)
+            add(pass_start + BELL[pass][i].at, BELL[pass][i].note, BELL[pass][i].vel, SYNTH_BELL,
+                BELL[pass][i].pan / 100.0f);
     }
+    g_loop = (long)(t * g_rate);
     sort_events();
 }
 
@@ -119,7 +141,7 @@ void music_render(short *out, int frames) {
         if (until <= 0) {
             if (g_next < g_event_count) {
                 const struct event *e = &g_events[g_next++];
-                synth_strike(e->note, e->vel / 100.0f, (enum synth_timbre)e->timbre,
+                synth_strike(e->note, e->vel / 1000.0f, (enum synth_timbre)e->timbre,
                              e->pan / 100.0f, 1);
             } else {
                 g_pos = 0;

@@ -1,12 +1,17 @@
 #ifndef PSPDX_SYNTH_H
 #define PSPDX_SYNTH_H
 
-/* Three instruments over one sine table: a piano whose upper partials die
-   away faster than its fundamental, which is most of what makes a struck
-   string sound struck; a glass that swells in and rings on evenly; and a
-   pad that takes most of a second to arrive and stays for many. Plain C
-   with no platform in it, so the same code renders on a PSP audio thread
-   and into a WAV on a desk.
+/* Six instruments over one sine table. For the interface: a piano whose
+   upper partials die away faster than its fundamental, which is most of
+   what makes a struck string sound struck; a glass that swells in and
+   rings on evenly; and a pad that takes most of a second to arrive and
+   stays for many. For the tune: a drift, which is a pad a few cents sharp
+   on the left and flat on the right so the room slowly turns; a sub, the
+   floor under it; a shimmer, the drift high up and quieter; and a bell,
+   cold and inharmonic, heard mostly through a long hall of its own. The
+   tune also goes through a low-pass that breathes over half a minute,
+   with a little filtered noise for air. Plain C with no platform in it, so the
+   same code renders on a PSP audio thread and into a WAV on a desk.
 
    Only the audio thread may call into here. Other threads post through
    cues.h. */
@@ -15,7 +20,8 @@
    a pool that every new note had to steal from. */
 #define SYNTH_VOICES 32
 
-enum synth_timbre { SYNTH_PIANO, SYNTH_GLASS, SYNTH_PAD };
+enum synth_timbre { SYNTH_PIANO, SYNTH_GLASS, SYNTH_PAD, SYNTH_DRIFT, SYNTH_SUB, SYNTH_SHIMMER, SYNTH_BELL,
+                    SYNTH_CHIME };
 
 void synth_init(int sample_rate);
 

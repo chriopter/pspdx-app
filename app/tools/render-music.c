@@ -1,7 +1,7 @@
 /* Renders the tune and the interface cues to a WAV on the desk, with the
    same code the PSP runs:
 
-     cc -I. audio/synth.c audio/music.c audio/cues.c tools/render-music.c -lm
+     cc -O2 -I. audio/synth.c audio/music.c audio/cues.c tools/render-music.c -lm
      ./a.out music.wav [seconds]
 
    The tail carries the cues: a scroll down five rows, an open, a done, a
@@ -16,6 +16,10 @@
 #include "audio/synth.h"
 
 #define RATE 44100
+
+/* cues.c asks the clock whether two moves are one run; on the desk there is
+   no clock to ask and no run to tell apart. */
+unsigned now_ms(void) { return 0; }
 
 static void put32(FILE *f, unsigned v) { fputc(v, f); fputc(v >> 8, f); fputc(v >> 16, f); fputc(v >> 24, f); }
 static void put16(FILE *f, unsigned v) { fputc(v, f); fputc(v >> 8, f); }

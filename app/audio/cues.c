@@ -16,45 +16,46 @@ void cues_post(enum cue cue, int index) {
 }
 
 /* Rows step down a pentatonic scale from E5, so scrolling down a list
-   plays it down; low enough to sit inside the tune rather than over it. */
+   plays it down. */
 static const unsigned char SCALE[5] = { 0, 2, 4, 7, 9 };
+
+/* Every key is a bell: the same glass the tune rings now and then, struck
+   damped: half the ring and a third of the hall, quieter than the tune's
+   own, so a run of presses is a run and not a wash. One sound for the whole
+   interface, so nothing pressed sounds like a different instrument from
+   the room it is pressed in. */
+static void bell(int note, float velocity, float pan) {
+    synth_strike(note, velocity, SYNTH_CHIME, pan, 0);
+}
 
 static void play(enum cue cue, int index) {
     switch (cue) {
     case CUE_MOVE: {
-        /* A soft chime: the note, a fifth above it quieter and to one
-           side, the octave below as body. Nothing sharp in it. A held
-           direction runs through rows many times a second, and then it
-           is the note alone and quieter: a run, not a pile-up, and a
-           third of the voices. */
+        /* A held direction runs through rows many times a second; then
+           each row is a quieter, single strike, so a run is a run of bells
+           and not a pile. Sides alternate with the row. */
         static unsigned last_ms;
         unsigned now = now_ms();
         int run = now - last_ms < 90;
         last_ms = now;
-        int note = 74 - SCALE[index % 5] - 12 * (index / 5);
-        if (note < 55) note = 55;
-        /* Quiet and round: mostly the pad, a breath of glass over it. */
-        synth_strike(note, run ? 0.035f : 0.06f, SYNTH_GLASS, 0.2f, 0);
-        if (run) break;
-        synth_strike(note - 12, 0.06f, SYNTH_PAD, -0.3f, 0);
-        synth_strike(note - 5, 0.03f, SYNTH_PAD, 0.4f, 0);
+        int note = 76 - SCALE[index % 5] - 12 * (index / 5);
+        if (note < 64) note = 64;
+        bell(note, run ? 0.02f : 0.045f, index & 1 ? 0.35f : -0.35f);
         break;
     }
     case CUE_OPEN:
-        synth_strike(62, 0.12f, SYNTH_GLASS, -0.4f, 0);
-        synth_strike(69, 0.10f, SYNTH_GLASS, 0.4f, 0);
-        synth_strike(50, 0.08f, SYNTH_PAD, 0.0f, 0);
+        bell(71, 0.06f, -0.4f);
+        bell(78, 0.045f, 0.4f);
         break;
     case CUE_DONE:
-        synth_strike(62, 0.11f, SYNTH_GLASS, -0.5f, 0);
-        synth_strike(66, 0.11f, SYNTH_GLASS, -0.2f, 0);
-        synth_strike(69, 0.12f, SYNTH_GLASS, 0.2f, 0);
-        synth_strike(74, 0.09f, SYNTH_GLASS, 0.5f, 0);
-        synth_strike(50, 0.10f, SYNTH_PAD, 0.0f, 0);
+        bell(71, 0.055f, -0.5f);
+        bell(75, 0.055f, -0.2f);
+        bell(78, 0.06f, 0.2f);
+        bell(83, 0.045f, 0.5f);
         break;
     case CUE_FAIL:
-        synth_strike(50, 0.13f, SYNTH_GLASS, -0.3f, 0);
-        synth_strike(53, 0.10f, SYNTH_GLASS, 0.3f, 0);
+        bell(59, 0.07f, -0.3f);
+        bell(60, 0.055f, 0.3f);
         break;
     }
 }
