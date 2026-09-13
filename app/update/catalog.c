@@ -107,7 +107,15 @@ static int parse(struct catalog *catalog, const char *base) {
     cJSON *generated = cJSON_GetObjectItemCaseSensitive(root, "generated");
     if (cJSON_IsString(generated)) {
         unsigned when = iso8601(generated->valuestring);
-        if (when && (!catalog->generated || when < catalog->generated)) catalog->generated = when;
+        if (when && (!catalog->generated || when < catalog->generated)) {
+            catalog->generated = when;
+            /* The host alone: a line on the console has no room for a URL,
+               and the host is what a person calls the list. */
+            const char *host = strstr(base, "://");
+            host = host ? host + 3 : base;
+            size_t n = strcspn(host, "/");
+            snprintf(catalog->generated_from, sizeof(catalog->generated_from), "%.*s", (int)n, host);
+        }
     }
 
     int before = catalog->count;

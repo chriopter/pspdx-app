@@ -1002,10 +1002,10 @@ int main(int argc, char *argv[]) {
                     unsigned days = ((unsigned)time(NULL) - catalog.generated) / 86400u;
                     char stale[96];
                     snprintf(stale, sizeof(stale),
-                             "The catalog is %u day%s old; try Direct check for updates",
-                             days, days == 1 ? "" : "s");
+                             "%s is %u day%s old; square on Check for updates asks the apps directly",
+                             catalog.generated_from, days, days == 1 ? "" : "s");
                     shell_status(stale);
-                    logline("catalog: generated %u days ago", days);
+                    logline("catalog: %s generated %u days ago", catalog.generated_from, days);
                 }
                 /* A fresh catalog is a fresh set of tabs, and the icons
                    cached against the old one no longer stand for the same
