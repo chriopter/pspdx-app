@@ -1,0 +1,45 @@
+#!/bin/sh
+# Makes every installed app look older than its release, so the client
+# offers an update for each of them: the stick's records get published_at 1
+# and version 0.0.0, nothing on the stick is touched otherwise, and the
+# next start compares as it always does and finds every release newer.
+#
+#   dev/pretend-updates           rewrite the records, restart the emulator
+#   dev/pretend-updates --keep    rewrite only; the emulator is left alone
+#
+# The records are PSP/PSPDX/INSTALLED/<id>.state.json; the client reads
+# them once at start, so an emulator already running keeps what it read.
+set -e
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+MS="$HOME/.var/app/org.ppsspp.PPSSPP/config/ppsspp"
+DIR="$MS/PSP/PSPDX/INSTALLED"
+KEEP=0
+[ "${1:-}" = "--keep" ] && KEEP=1
+[ -d "$DIR" ] || { echo "no records under $DIR" >&2; exit 1; }
+python3 - "$DIR" <<'PY'
+import json, os, sys
+d = sys.argv[1]
+n = 0
+for name in sorted(os.listdir(d)):
+    if not name.endswith(".state.json"):
+        continue
+    path = os.path.join(d, name)
+    record = json.load(open(path))
+    inst = record.get("installed")
+    if not isinstance(inst, dict):
+        continue
+    was = "%s (%s)" % (inst.get("version"), inst.get("published_at"))
+    inst["version"] = "0.0.0"
+    inst["published_at"] = 1
+    tmp = path + ".new"
+    with open(tmp, "w") as f:
+        json.dump(record, f, separators=(",", ":"))
+    os.replace(tmp, path)
+    bak = path + ".bak"
+    if os.path.exists(bak):
+        os.remove(bak)
+    print("%s: %s -> 0.0.0 (1)" % (name[:-len(".state.json")], was))
+    n += 1
+print("%d record%s aged" % (n, "" if n == 1 else "s"))
+PY
+[ "$KEEP" = 1 ] || "$HERE/dev/start" --no-build --slow
