@@ -171,9 +171,9 @@ sleep 3
 # seconds, is reported as that.
 if systemctl --user is-active --quiet "$UNIT" && pgrep -x PPSSPPSDL >/dev/null; then
 	# Where it opens is Hyprland's business: a window rule in
-	# ~/.config/hypr/hyprland.lua sends the emulator to workspace 2 without
+	# ~/.config/hypr/hyprland.lua sends the emulator to workspace 1 without
 	# focus, so the desk it was started from keeps what was being worked on.
-	echo "PPSSPP is up (workspace 2 by window rule). Stop it with: systemctl --user stop $UNIT"
+	echo "PPSSPP is up (workspace 1 by window rule). Stop it with: systemctl --user stop $UNIT"
 else
 	echo "PPSSPP did not come up; journalctl --user -u $UNIT has the reason" >&2
 	exit 1
