@@ -43,24 +43,17 @@ mock() {
 	python3 "$REPO/dev/mock-catalog" "$1" --work "$WORK" --ms "$MS" --url "$LOCALCAT_URL"
 }
 
-# The client reads where its catalog comes from off the stick now,
+# The client reads where its catalog comes from off the stick,
 # PSP/PSPDX/sources.txt, and the user's copy names the published list. A
 # test build trusts the throwaway CA alone, so that list is a handshake
-# failure in the log before the built-in loopback cache is taken -- and a
-# "failed" in the log is what a run is judged on. So the rig names the
-# loopback catalog there itself, and puts the user's file back at clean.
+# failure in the log -- and a "failed" in the log is what a run is judged
+# on. mock-catalog make names the loopback catalog there alone and keeps the
+# user's file on the stick beside it; clean puts it back. The rig used to
+# keep that copy in the work directory itself: one an interrupted campaign
+# left there goes back before make keeps the file the new way, and after
+# clean, so it is never taken for the user's.
 SOURCES="$MS/PSP/PSPDX/sources.txt"
 SOURCES_KEPT="$WORK/sources.txt.user"
-
-soak_plant_sources() {
-	mkdir -p "$MS/PSP/PSPDX"
-	if [ ! -f "$SOURCES_KEPT" ]; then
-		if [ -f "$SOURCES" ]; then cp "$SOURCES" "$SOURCES_KEPT"
-		else : > "$SOURCES_KEPT.absent"; fi
-	fi
-	printf '# sources.txt -- written by dev/soak/rig.sh for a campaign\n%s\n' \
-		"$LOCALCAT_URL" > "$SOURCES"
-}
 
 soak_restore_sources() {
 	if [ -f "$SOURCES_KEPT" ]; then
@@ -73,6 +66,7 @@ soak_restore_sources() {
 case "$1" in
 	setup)
 		localcat_certs
+		soak_restore_sources
 		mock make
 		localcat_build_local
 		;;
@@ -80,8 +74,8 @@ case "$1" in
 		# make() removes and rewrites the whole site, so a server left
 		# running has its working directory deleted under it and answers
 		# every request with a closed connection. The two go together.
+		soak_restore_sources
 		mock make
-		soak_plant_sources
 		soak_start_server
 		;;
 	idle)

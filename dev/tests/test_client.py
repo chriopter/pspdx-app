@@ -388,6 +388,13 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(self.parse(dict(mirror,listed_by='https://user@lists.example.co.uk:8443?x')),'PSP/GAME/PSPBlocks|homebrew|uk.co.example.lists.pspblocks|')
   for bad in [{k:v for k,v in mirror.items() if k!='listed_by'},dict(mirror,name='★ ★'),dict(mirror,listed_by='https://-/'),dict(mirror,name='.pspdx-stage'),dict(mirror,source='http://archive.org/details/psp-blocks')]:
    with self.subTest(bad=bad):self.parse(bad,ok=False)
+ def test_listed_by_is_named_by_its_host(self):
+  # Information says which list vouches for an app by the host alone: lower case, no one logging in, no port, no www.
+  for url,host in [('https://wijsman.de/psp-homebrew-database/','wijsman.de'),('https://www.Wijsman.DE/list','wijsman.de'),
+                   ('https://user@Lists.Example.co.uk:8443?x','lists.example.co.uk'),('https://example.org','example.org'),('https://wwwx.org/','wwwx.org')]:
+   with self.subTest(url=url):self.assertEqual(self.run_client('listedhost',url).stdout.strip(),host)
+  for url in ['http://wijsman.de/','https://','https://www./','https://user@:8443/','https://'+'h'*300,'']:
+   with self.subTest(url=url):self.assertNotEqual(self.run_client('listedhost',url,ok=False).returncode,0)
  def test_install_without_installdir_takes_the_repository_name(self):
   self.write('manifest.json',{k:v for k,v in SPEC.items() if k!='installdir'})
   self.run_client('install');self.assertEqual((self.root/'ms0:/PSP/GAME/demo/EBOOT.PBP').read_bytes(),b'new package')

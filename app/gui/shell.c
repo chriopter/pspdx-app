@@ -34,6 +34,7 @@
 #include "gui/preview.h"
 #include "session/view.h"
 #include "update/pspdx.h"
+#include "update/sources.h"
 #include "util/runtime.h"
 
 /* Three type roles and nowhere else a fourth: FONT_H1 for the one name on
@@ -142,6 +143,8 @@ static const struct app_entry *g_details;   /* the package the band is about */
 #define DETAIL_LINES (60 + 1 + 2500)
 #define DETAIL_LINE_BYTES 255
 static char g_detail_text[DETAIL_TEXT];
+/* The host of the list that vouches for the package, or empty. */
+static char g_detail_host[SOURCE_URL];
 static struct wrap_line g_detail_lines[DETAIL_LINES];
 static int g_detail_count;
 static float g_detail_scroll, g_detail_max;     /* pixels scrolled, and how far it can */
@@ -1307,11 +1310,17 @@ static void draw_details(void) {
         snprintf(value,sizeof(value),"%s%s",e->fresh?"":T_DETAIL_SAVED,when);
     }else snprintf(value,sizeof(value),"%s",e->fresh?T_DETAIL_THIS_SESSION:T_UNKNOWN);
     fact(y+100,FACT_LABEL,FACT_VALUE,SCR_W-FACT_VALUE-30,T_DETAIL_CHECKED,value);
-    band_rule(y + 116, 160, 120);
+    /* The list that vouches for it, by its host, when one does: a line more
+       of facts, and the text a line further down. */
+    int extra = g_detail_host[0] ? 20 : 0;
+    if (extra)
+        fact(y + 120, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_LISTED,
+             g_detail_host);
+    band_rule(y + 116 + extra, 160, 120);
     /* The lines made when the band opened, only the ones in view. */
     char line[DETAIL_LINE_BYTES + 1];
     for (int i = 0; i < g_detail_count; i++) {
-        int base = y + DETAIL_TEXT_Y + i * DETAIL_STEP;
+        int base = y + DETAIL_TEXT_Y + extra + i * DETAIL_STEP;
         if (base + 4 < DETAIL_TOP)
             continue;
         if (base - DETAIL_STEP > DETAIL_BOTTOM)
@@ -1344,6 +1353,8 @@ void shell_details(const struct app_entry *entry) {
     g_details = entry;
     if (!entry)
         return;
+    if (sources_listed_host(entry->listed_by, g_detail_host, sizeof(g_detail_host)) == 0)
+        pspdx_utf8_mend(g_detail_host);
     /* The summary, then the description a blank line below it, either one
        alone when the other is missing; broken into lines here, once. */
     const char *about = entry->description ? entry->description : "";
@@ -1354,7 +1365,8 @@ void shell_details(const struct app_entry *entry) {
                                detail_width, NULL, g_detail_lines, DETAIL_LINES);
     g_detail_scroll = 0.0f;
     /* Scrolled as far as the last line standing on the band's last baseline. */
-    int last = DETAIL_Y + DETAIL_TEXT_Y + (g_detail_count - 1) * DETAIL_STEP;
+    int last = DETAIL_Y + DETAIL_TEXT_Y + (g_detail_host[0] ? 20 : 0) +
+               (g_detail_count - 1) * DETAIL_STEP;
     g_detail_max = g_detail_count && last > DETAIL_LAST ? (float)(last - DETAIL_LAST) : 0.0f;
 }
 

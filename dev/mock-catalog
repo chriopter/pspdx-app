@@ -14,9 +14,14 @@ Called by dev/start --mock; not meant to be run by hand.
 
 make writes the site under <work>/mock-site, plants db records and PSP/GAME
 directories on the emulator's stick, and lists everything it planted in
-<work>/mock-planted. clean removes that, and anything else on the stick
+<work>/mock-planted. It also names the mock catalog alone in the stick's
+PSP/PSPDX/sources.txt, keeping the user's sources.txt and presets.seen
+beside them as <name>.mock-backup (or a <name>.mock-absent mark when there
+was none). clean removes the planted things, and anything else on the stick
 wearing the mock's id or directory prefix, and nothing besides: the user's
-own installs live in the same directories and carry neither prefix.
+own installs live in the same directories and carry neither prefix. It puts
+the two files back as they were, byte for byte, or takes the mock's away
+where there was none; run twice, the second run finds nothing to do.
 
 The generation is seeded and the assets are cached, so the same list comes
 back every time and only the first run goes to the network.
@@ -141,6 +146,17 @@ PLUGINS = ("CPU Clock", "Battery Meter")
 
 AUTHORS = ["chriopter", "Homebrew Collective", "anon"]
 
+# The stick's list of catalogs, and the presets it has already been offered.
+# After a normal run the list names the published catalogs; a client built
+# for the host trusts the throwaway CA alone, so those are handshake failures,
+# and a run whose catalogs all fail asks GitHub app by app and shows the
+# stick's installs instead of the mock's thirty. make keeps the user's files
+# next to themselves -- on the stick, so a work directory wiped between two
+# runs cannot take them along -- and clean puts them back.
+KEPT = ("PSP/PSPDX/sources.txt", "PSP/PSPDX/presets.seen")
+BACKUP = ".mock-backup"
+ABSENT = ".mock-absent"
+
 # Summaries of every length: nothing at all, a few words, a line that fills
 # the row, and one of sixty characters, the most the format allows. None is
 # longer: schema/catalog-v1.json caps a summary there, the catalog builder
@@ -202,9 +218,9 @@ def assets(work):
     # into every package so an install is a real install.
     eboot = os.path.join(cache, "EBOOT.PBP")
     if not os.path.exists(eboot):
-        small = min((a for a in apps if a.get("release")),
-                    key=lambda a: a["release"]["download"]["size"])
-        raw = urllib.request.urlopen(small["release"]["download"]["url"]).read()
+        small = min((a for a in apps if a.get("releases")),
+                    key=lambda a: a["releases"][0]["size"])
+        raw = urllib.request.urlopen(small["releases"][0]["url"]).read()
         z = zipfile.ZipFile(io.BytesIO(raw))
         name = sorted(n for n in z.namelist() if n.lower().endswith("eboot.pbp"))[0]
         os.makedirs(cache, exist_ok=True)
@@ -361,17 +377,57 @@ def make(work, ms, base):
         planted.append("db " + path)
     with open(os.path.join(work, "mock-planted"), "w") as f:
         f.write("\n".join(planted) + "\n")
+    keep_sources(ms, base)
 
     waiting = states.count("update")
     print("mock catalog: %d apps, %d installed, %d updates waiting"
           % (len(apps), states.count("current") + waiting, waiting))
 
 
+def keep_sources(ms, base):
+    """The user's sources.txt and presets.seen kept, once: a backup or an
+    absent mark already there means what the stick holds now is the mock's,
+    and it is never copied over the user's. Then sources.txt names the mock
+    catalog and nothing else. A mock build offers no presets, so
+    presets.seen is kept only to be put back exactly as it was."""
+    for rel in KEPT:
+        path = os.path.join(ms, rel)
+        if os.path.exists(path + BACKUP) or os.path.exists(path + ABSENT):
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if os.path.exists(path):
+            shutil.copyfile(path, path + BACKUP + ".part")
+            os.replace(path + BACKUP + ".part", path + BACKUP)
+        else:
+            open(path + ABSENT, "w").close()
+    with open(os.path.join(ms, KEPT[0]), "w") as f:
+        f.write("# Written by dev/mock-catalog for a mock run; the next dev/start\n"
+                "# without --mock puts yours back from sources.txt%s.\n%s\n" % (BACKUP, base))
+
+
+def restore_sources(ms):
+    """What keep_sources kept, back in place: the backup renamed over the
+    mock's file, or the mock's file removed where the user had none. The
+    number of files put back; 0 when there was nothing kept."""
+    back = 0
+    for rel in KEPT:
+        path = os.path.join(ms, rel)
+        if os.path.exists(path + BACKUP):
+            os.replace(path + BACKUP, path)
+            back += 1
+        elif os.path.exists(path + ABSENT):
+            if os.path.exists(path):
+                os.remove(path)
+            os.remove(path + ABSENT)
+            back += 1
+    return back
+
+
 def clean(work, ms, quiet=False):
     """What make wrote down, and what an install done from the mock catalog
     in the client added next to it: a record whose id carries the mock
     prefix, a PSP/GAME directory named with it, a cached asset under one of
-    those ids. Every path is checked for the prefix and for the directory it
+    those ids; and the user's sources.txt and presets.seen, back in place. Every path is checked for the prefix and for the directory it
     is supposed to sit in before anything is removed -- the user's real
     installs are in the same two directories and carry neither."""
     db_dir = os.path.realpath(os.path.join(ms, "PSP/PSPDX/INSTALLED"))
@@ -415,6 +471,8 @@ def clean(work, ms, quiet=False):
     if gone and not quiet:
         print("mock catalog: %d planted records, directories and assets removed"
               % gone)
+    if restore_sources(ms) and not quiet:
+        print("mock catalog: sources.txt and presets.seen put back")
 
 
 def main():

@@ -205,6 +205,7 @@
 #define T_DETAIL_SIZE        "Size"
 #define T_DETAIL_ID          "ID"
 #define T_DETAIL_CHECKED     "Last checked"
+#define T_DETAIL_LISTED      "Listed by"                          /* then the list's host */
 #define T_DETAIL_UPDATE      "%s, %s available"                   /* installed, published */
 #define T_DETAIL_INSTALLED   "%s (installed)"                     /* version */
 #define T_DETAIL_SAVED       "Saved "

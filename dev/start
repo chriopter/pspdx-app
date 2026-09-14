@@ -16,13 +16,16 @@
 # --mock builds the client against dev/localcat's throwaway CA and a
 # loopback catalog URL, has dev/mock-catalog generate thirty entries out of
 # the three published apps' assets, plants db records so a third of the rows
-# are installed and a third have an update waiting, and serves the lot over
-# TLS as the user unit pspdx-mock-server, which outlives this shell. A later
-# dev/start without it stops that server, rebuilds for the published catalog
-# and takes the mock's records and PSP/GAME directories off the stick again
-# -- the ones it wrote down and anything wearing the same prefix, which is
-# what an install done from the mock catalog leaves; never anything
-# installed for real.
+# are installed and a third have an update waiting, names that catalog alone
+# in the stick's PSP/PSPDX/sources.txt -- the user's sources.txt and
+# presets.seen kept beside them as *.mock-backup, or marked *.mock-absent --
+# and serves the lot over TLS as the user unit pspdx-mock-server, which
+# outlives this shell. A later dev/start without it stops that server,
+# rebuilds for the published catalog, puts the user's sources.txt and
+# presets.seen back and takes the mock's records and PSP/GAME directories
+# off the stick again -- the ones it wrote down and anything wearing the
+# same prefix, which is what an install done from the mock catalog leaves;
+# never anything installed for real.
 #
 # The stick gets what a run needs and PPSSPP does not provide: the system
 # font (PPSSPP has it but does not mount flash0 for the guest), the clips
@@ -64,8 +67,8 @@ if [ "$MOCK" = 1 ]; then
 	fi
 else
 	# Whatever the mock left behind goes first: the server on the port, the
-	# records and directories it planted, and an EBOOT that still points at
-	# the host. That last one has to be rebuilt even under --no-build, or
+	# records and directories it planted, the sources.txt that names only
+	# the host, and an EBOOT that still points at the host. That last one has to be rebuilt even under --no-build, or
 	# the run would quietly be a mock run.
 	localcat_stop_server
 	python3 "$HERE/dev/mock-catalog" clean --work "$WORK" --ms "$MS"

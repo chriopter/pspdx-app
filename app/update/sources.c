@@ -374,34 +374,60 @@ static int put_part(char *id, size_t *used, size_t size, const char *text, size_
     return 1;
 }
 
+/* The host a list is known by, out of its https URL: who logs in, the port
+   and a leading www. are not part of it. 0 with the span in *host and *n,
+   -1 when the URL is not https or leaves no host. */
+static int listed_host(const char *listed_by, const char **host, size_t *n) {
+    if (strncmp(listed_by, "https://", 8))
+        return -1;
+    const char *h = listed_by + 8;
+    size_t len = strcspn(h, "/?#");
+    for (size_t i = len; i > 0; i--)
+        if (h[i - 1] == '@') {
+            h += i;
+            len -= i;
+            break;
+        }
+    const char *colon = memchr(h, ':', len);
+    if (colon)
+        len = (size_t)(colon - h);
+    if (len >= 4 && !strncasecmp(h, "www.", 4)) {
+        h += 4;
+        len -= 4;
+    }
+    *host = h;
+    *n = len;
+    return len ? 0 : -1;
+}
+
+int sources_listed_host(const char *listed_by, char *out, size_t size) {
+    const char *host;
+    size_t n;
+    if (!size)
+        return -1;
+    out[0] = '\0';
+    if (listed_host(listed_by, &host, &n) < 0 || n >= size)
+        return -1;
+    for (size_t i = 0; i < n; i++)
+        out[i] = host[i] >= 'A' && host[i] <= 'Z' ? (char)(host[i] - 'A' + 'a') : host[i];
+    out[n] = '\0';
+    return 0;
+}
+
 /* The id of an app whose source is not a GitHub repository. The address of
    a mirror says too little about which project it is, so the id is the list
    that vouches for the app and the app's name: the host of listed_by with
-   its labels backwards and a leading www. dropped, then the name. Returns 0,
-   or -1 when the host or the name leaves nothing, or the id does not fit. */
+   its labels backwards, then the name. Returns 0, or -1 when the host or the
+   name leaves nothing, or the id does not fit. */
 int sources_listed_id(const char *listed_by, const char *name, char *id, size_t size) {
     size_t used = 0;
     if (!size)
         return -1;
     id[0] = '\0';
-    if (strncmp(listed_by, "https://", 8))
+    const char *host;
+    size_t n;
+    if (listed_host(listed_by, &host, &n) < 0)
         return -1;
-    const char *host = listed_by + 8;
-    size_t n = strcspn(host, "/?#");
-    /* Who logs in and on which port are not part of the name. */
-    for (size_t i = n; i > 0; i--)
-        if (host[i - 1] == '@') {
-            host += i;
-            n -= i;
-            break;
-        }
-    const char *colon = memchr(host, ':', n);
-    if (colon)
-        n = (size_t)(colon - host);
-    if (n >= 4 && !strncasecmp(host, "www.", 4)) {
-        host += 4;
-        n -= 4;
-    }
     int labels = 0;
     for (size_t end = n;;) {
         size_t start = end;

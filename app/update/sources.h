@@ -93,6 +93,11 @@ void sources_repo_id(const struct source_repo *r, char *id, size_t size);
    it, reversed, and its name. -1 when those leave nothing to name. */
 int sources_listed_id(const char *listed_by, const char *name, char *id, size_t size);
 
+/* The host of the list that vouches for an app, as Information names it:
+   lower case, without who logs in, the port or a leading www. 0, or -1 when
+   listed_by is not https, leaves no host, or the host does not fit. */
+int sources_listed_host(const char *listed_by, char *host, size_t size);
+
 /* The repository's canonical URL, https://github.com/<owner>/<repo>, with
    no tag on it: what the record on the stick and the cache both call the
    repository, so the two can be compared. */

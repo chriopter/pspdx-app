@@ -45,6 +45,14 @@ int main(int argc, char **argv) {
         printf("%s|%s|%s|%s\n", f.installdir, f.type, f.id, f.tags);
         return 0;
     }
+    if (!strcmp(argv[1], "listedhost")) {
+        /* listedhost <url>: the host Information names the list by. */
+        char host[256];
+        if (sources_listed_host(argv[2], host, sizeof(host)) < 0)
+            return 1;
+        puts(host);
+        return 0;
+    }
     if (!strcmp(argv[1], "wrap")) {
         /* wrap <width> <max bytes> <max lines> <file>: the lines, one JSON
            string each, as the details band would draw them. */
