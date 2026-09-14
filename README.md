@@ -259,11 +259,13 @@ download  ->  release ZIP, following GitHub asset redirects
 
 #### TLS
 
+- Not a perfect TLS 1.3, on purpose: a PSP has no trustworthy clock, no root store, no way to update either, and may have sat in a drawer for years. The goal is that it still connects, not maximum security
 - wolfSSL, TLS 1.3 only, X25519 preferred
 - Bundled CAs, certificate-chain and hostname checks
-- Certificate dates are not checked: the PSP clock cannot be trusted
-- A not-yet-valid or run-out date is waived when the clock is the likely reason; one that ran out before the client was built, or comes from an issuer PSPDX doesn't carry, asks "connect anyway?" instead of failing, because a PSP that sat in a drawer for years must still connect
-- A bad signature or the wrong hostname still always fails: the guarantee is that the zip you install is the one the catalog names, not that this connection is as safe as your browser's
+- Certificate dates are mostly ignored, because the PSP clock is usually wrong
+- An expired certificate, or one from an unknown issuer, asks "connect anyway?" instead of failing
+- What always fails: a bad signature, the wrong hostname
+- The real guarantee: the ZIP you install is the one the catalog names (SHA-256), not that this connection is as safe as your browser's
 - Entropy: analog-stick sweeps and `CRYPTO/seed.bin`
 - Packages are not signed; a catalog SHA-256 checks ZIP integrity, not author identity
 
