@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <wolfssl/options.h>
 #include <wolfssl/ssl.h>
 
@@ -380,15 +381,53 @@ static int url_resolve(const struct url *base, const char *loc, size_t loclen,
     return 0;
 }
 
+/* The day this file was compiled, as yyyymmdd, from the "Mmm dd yyyy" the
+   compiler hands out. It is the one date the client knows to be in the past
+   whatever the console's clock says. */
+static long build_day(void) {
+    static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    const char *d = __DATE__;
+    long mon = 0;
+    for (int i = 0; i < 12; i++)
+        if (!strncmp(d, months + i * 3, 3)) mon = i + 1;
+    long day = (d[4] == ' ' ? 0 : (d[4] - '0') * 10) + (d[5] - '0');
+    return atol(d + 7) * 10000 + mon * 100 + day;
+}
+
+/* True when the certificate's notAfter lies before the build: it had run out
+   before this client existed, and no clock can make it current again. An
+   unreadable date counts as run out -- the waiver below is for a clock the
+   client distrusts, not for a date it cannot read. */
+static int expired_before_build(WOLFSSL_X509_STORE_CTX *store) {
+    WOLFSSL_X509 *c = wolfSSL_X509_STORE_CTX_get_current_cert(store);
+    WOLFSSL_ASN1_TIME *t = c ? wolfSSL_X509_get_notAfter(c) : NULL;
+    struct tm tm;
+    if (!t || wolfSSL_ASN1_TIME_to_tm(t, &tm) != WOLFSSL_SUCCESS) {
+        logline("cert notAfter unreadable at depth %d", store->error_depth);
+        return 1;
+    }
+    long after = (tm.tm_year + 1900L) * 10000 + (tm.tm_mon + 1) * 100 + tm.tm_mday;
+    if (after >= build_day()) return 0;
+    logline("cert at depth %d ran out %ld, before this build (%ld)",
+            store->error_depth, after, build_day());
+    return 1;
+}
+
 /* The one check that has to be waived: the console's clock. The PSP's RTC is
    user-settable and resets to 2000 when the battery dies, so a correct chain
    would be rejected as not-yet-valid on a large share of real consoles. Every
    other verification failure -- unknown issuer, bad signature, wrong host --
    still fails the handshake. This trades expiry for the ability to run at all;
-   revocation was never checked on a device with no clock anyway. */
+   revocation was never checked on a device with no clock anyway.
+
+   The waiver has a floor. A certificate that had already run out on the day
+   the client was built is refused whichever way the clock is wrong: without
+   that, a key leaked from any certificate ever issued would open every
+   console for ever, and a client this old is due an update anyway. */
 static int verify_ignoring_dates(int preverify, WOLFSSL_X509_STORE_CTX *store) {
     if (preverify) return 1;
     if (store->error == ASN_BEFORE_DATE_E || store->error == ASN_AFTER_DATE_E) {
+        if (expired_before_build(store)) return 0;
         logline("cert date ignored: the console clock is not trustworthy");
         return 1;
     }
