@@ -10,8 +10,10 @@
    loop until it is over. The questions that stand before them are
    session/questions.h's. */
 
-/* The catalog every action works on -- main.c's, handed over once. */
+/* The catalog every action works on -- main.c's, handed over once, and
+   read back by the questions and the options that are about its entries. */
 void actions_init(struct catalog *catalog);
+struct catalog *actions_catalog(void);
 
 /* The catalog to draw: the one handed over once the sync has brought it,
    an empty one until then. */

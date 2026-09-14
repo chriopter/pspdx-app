@@ -40,6 +40,10 @@ void actions_init(struct catalog *catalog) {
     g_catalog = catalog;
 }
 
+struct catalog *actions_catalog(void) {
+    return g_catalog;
+}
+
 /* The log every time; the catalog's raw response once, after it arrived
    -- it is 200 KB and does not change, and writing it every ten seconds
    was a visible hitch. */
