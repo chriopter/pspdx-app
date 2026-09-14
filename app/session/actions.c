@@ -45,7 +45,7 @@ struct catalog *actions_catalog(void) {
 }
 
 /* The log every time; the catalog's raw response once, after it arrived
-   -- it is 200 KB and does not change, and writing it every ten seconds
+   -- it is up to 512 KB and does not change, and writing it every ten seconds
    was a visible hitch. */
 static int g_http_dumped;
 
@@ -109,6 +109,16 @@ int restart_take(char *version, size_t size) {
 
 int install_app(int index, int screenshot, int at, int of) {
     if (index < 0 || index >= g_catalog->count) return -1;
+    /* A plugin, an ISO or an app from outside GitHub is listed and not
+       installed, and that is said before anything is fetched. */
+    if (g_catalog->apps[index].unsupported) {
+        char message[96];
+        snprintf(message, sizeof(message), T_INSTALL_UNSUPPORTED, g_catalog->apps[index].name);
+        logline("%s", message);
+        shell_status(message);
+        cues_post(CUE_FAIL, 0);
+        return -1;
+    }
     int row = view_row(index);
     if (row < 0) row = 0;
     struct app_entry *entry = &g_catalog->apps[index];
@@ -274,7 +284,7 @@ void install_all(void) {
         int at = view_index(row);
         if (at < 0) continue;
         const struct app_entry *entry = &g_catalog->apps[at];
-        if (!entry->has_release || !entry->release.size) continue;
+        if (!entry->has_release || !entry->release.size || entry->unsupported) continue;
         /* On the stick the job is the updates alone. */
         if (view_tab_kind() == VIEW_TAB_STICK && entry->state != APP_UPDATE) continue;
         list[n] = at;

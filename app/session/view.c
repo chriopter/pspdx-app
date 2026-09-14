@@ -12,8 +12,9 @@
 #include "session/view.h"
 
 /* The tabs, in the order they are shown. The first takes everything; the
-   rest match the catalog's own category word, which schema/v1.pspdx spells
-   in the singular: a tab holds many, an app is one. */
+   rest match a tag, in the singular the format spells it in -- a tab holds
+   many, an app is one -- except the plugins, which is a type rather than a
+   tag. A tag no tab has leaves its app in All alone. */
 static const char *const TAB_NAME[] = {
     T_TAB_ALL, T_TAB_GAMES, T_TAB_DEMOS, T_TAB_APPS, T_TAB_EMULATORS, T_TAB_PLUGINS
 };
@@ -81,6 +82,15 @@ int view_updates_waiting(void) {
     return n;
 }
 
+/* Whether an app stands in a category tab. The plugins hold what is a
+   plugin, whatever it is tagged; every other tab holds what carries its word
+   among its tags, and an app tagged with several stands in each. */
+static int in_tab(const struct app_entry *app, int tab) {
+    if (!TAB_KEY[tab][0]) return 1;
+    if (!strcmp(TAB_KEY[tab], "plugin")) return !strcmp(app->type, "plugin");
+    return pspdx_has_tag(app->tags, TAB_KEY[tab]);
+}
+
 /* restart is for a view whose rows now stand for other packages than they
    did: the list goes back to the top and the card is told to fetch afresh.
    A view merely rebuilt under the same tab keeps where it was scrolled to. */
@@ -94,8 +104,7 @@ static void build_view(int restart) {
         if (tab == TAB_STICK) take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_GEAR) take = 0;     /* its rows are not packages */
         else if (tab == TAB_BASKET) take = view_basket_has(i);
-        else take = !TAB_KEY[tab][0] ||
-                    strcmp(g_view_of->apps[i].category, TAB_KEY[tab]) == 0;
+        else take = in_tab(&g_view_of->apps[i], tab);
         if (take) g_view[g_view_count++] = (unsigned char)i;
     }
     /* On the stick, what has something waiting for it stands first, in the
@@ -134,7 +143,7 @@ static int collect_tabs(int keep) {
     for (int t = 0; t < TAB_ALL; t++) {
         int has = !TAB_KEY[t][0];
         for (int i = 0; !has && i < g_view_of->count; i++)
-            has = strcmp(g_view_of->apps[i].category, TAB_KEY[t]) == 0;
+            has = in_tab(&g_view_of->apps[i], t);
         if (has) g_tab[g_tabs++] = t;
     }
     for (int i = 0; i < g_tabs; i++)
@@ -206,6 +215,9 @@ void view_action_plan(struct view_plan *plan) {
         /* An entry whose release says no size is one a run of installs
            cannot say beforehand what it will download for, and that is not
            one to offer in a single press. Those are counted and left out. */
+        /* Nor is what this version cannot install at all, which is not
+           skipped for want of a size but never offered. */
+        if (entry->unsupported) continue;
         if (!entry->has_release || !entry->release.size) { plan->skipped++; continue; }
         plan->apps++;
         plan->bytes += entry->release.size;

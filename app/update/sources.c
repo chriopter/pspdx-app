@@ -341,6 +341,81 @@ void sources_repo_id(const struct source_repo *r, char *id, size_t size) {
     append_plain(id, n, size, r->name);
 }
 
+/* One part of an id out of len bytes of text: its ASCII letters and digits,
+   lowered, after a dot when something came before. 1 when it added a part,
+   0 when nothing of text was left, -1 when the part does not fit. */
+static int put_part(char *id, size_t *used, size_t size, const char *text, size_t len) {
+    size_t k = 0;
+    for (size_t i = 0; i < len; i++) {
+        int c = (unsigned char)text[i];
+        k += (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    }
+    if (!k)
+        return 0;
+    if (*used + (*used > 0) + k >= size)
+        return -1;
+    if (*used)
+        id[(*used)++] = '.';
+    for (size_t i = 0; i < len; i++) {
+        int c = (unsigned char)text[i];
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+            id[(*used)++] = (char)c;
+        else if (c >= 'A' && c <= 'Z')
+            id[(*used)++] = (char)(c - 'A' + 'a');
+    }
+    id[*used] = '\0';
+    return 1;
+}
+
+/* The id of an app whose source is not a GitHub repository. The address of
+   a mirror says too little about which project it is, so the id is the list
+   that vouches for the app and the app's name: the host of listed_by with
+   its labels backwards and a leading www. dropped, then the name. Returns 0,
+   or -1 when the host or the name leaves nothing, or the id does not fit. */
+int sources_listed_id(const char *listed_by, const char *name, char *id, size_t size) {
+    size_t used = 0;
+    if (!size)
+        return -1;
+    id[0] = '\0';
+    if (strncmp(listed_by, "https://", 8))
+        return -1;
+    const char *host = listed_by + 8;
+    size_t n = strcspn(host, "/?#");
+    /* Who logs in and on which port are not part of the name. */
+    for (size_t i = n; i > 0; i--)
+        if (host[i - 1] == '@') {
+            host += i;
+            n -= i;
+            break;
+        }
+    const char *colon = memchr(host, ':', n);
+    if (colon)
+        n = (size_t)(colon - host);
+    if (n >= 4 && !strncasecmp(host, "www.", 4)) {
+        host += 4;
+        n -= 4;
+    }
+    int labels = 0;
+    for (size_t end = n;;) {
+        size_t start = end;
+        while (start > 0 && host[start - 1] != '.')
+            start--;
+        int rc = put_part(id, &used, size, host + start, end - start);
+        if (rc < 0)
+            goto none;
+        labels += rc;
+        if (!start)
+            break;
+        end = start - 1;
+    }
+    if (!labels || put_part(id, &used, size, name, strlen(name)) != 1)
+        goto none;
+    return 0;
+none:
+    id[0] = '\0';
+    return -1;
+}
+
 void sources_repo_url(const struct source_repo *r, char *url, size_t size) {
     snprintf(url, size, "https://github.com/%s/%s", r->owner, r->name);
 }

@@ -9,7 +9,7 @@ int state_ok(void);
 cJSON *state_snapshot(void);
 int state_restore(const cJSON *snapshot);
 int state_restore_app(const cJSON *snapshot, const char *id);
-int state_commit(const struct manifest *m, const char *dir);
+int state_commit(const struct manifest *m, const char *dir, const unsigned char *sha256);
 int state_forget(const char *id);
 int state_count(void);
 const char *state_id(int index);

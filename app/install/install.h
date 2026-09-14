@@ -45,6 +45,9 @@ struct installed {
     char version[32];
     unsigned rev;
     char repo[256];
+    /* The zip that was installed, by its SHA-256, which is what an update is
+       told by; all zeros for a record written before hashes were kept. */
+    unsigned char sha256[32];
 };
 
 int db_read(const char *id, struct installed *out);

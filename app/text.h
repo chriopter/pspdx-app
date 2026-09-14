@@ -62,6 +62,7 @@
 #define T_PANEL_UPDATE       "Update to %s   %s"                  /* version, size */
 #define T_PANEL_INSTALLED    "Version %s"                         /* version */
 #define T_PANEL_NO_RELEASE   "No release"
+#define T_PANEL_UNSUPPORTED  "Not installable yet"
 #define T_PANEL_IN_BASKET    "   In basket"
 
 /* On the card, in place of a picture. */
@@ -128,6 +129,7 @@
 #define T_UPDATED_SELF       "PSPDX was updated to %s."           /* version */
 #define T_CANCELLED          "Installation of %s was canceled."   /* name */
 #define T_INSTALL_FAILED     "Could not install %s (%d)."         /* name, code */
+#define T_INSTALL_UNSUPPORTED "%.60s cannot be installed yet."   /* name */
 #define T_REMOVED            "%s was deleted."                    /* name */
 #define T_REMOVE_FAILED      "Could not delete %s (%d)."          /* name, code */
 #define T_ALL_DONE           "%d of %d apps were installed."      /* done, n */
@@ -198,7 +200,7 @@
 #define T_DETAIL_VERSION     "Version"
 #define T_DETAIL_AUTHOR      "Author"
 #define T_DETAIL_LICENSE     "License"
-#define T_DETAIL_CATEGORY    "Category"
+#define T_DETAIL_TAGS        "Tags"
 #define T_DETAIL_SIZE        "Size"
 #define T_DETAIL_ID          "ID"
 #define T_DETAIL_CHECKED     "Last checked"

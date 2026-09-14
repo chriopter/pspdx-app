@@ -84,9 +84,11 @@ void menu_open(int index) {
              view_basket_has(index) ? T_MENU_BASKET_OUT : T_MENU_BASKET_IN, (char)(MARK_BASKET + 1));
     snprintf(g_choice_text[CHOICE_DETAILS], sizeof(g_choice_text[0]), T_MENU_INFO);
     g_choice_on[CHOICE_RUN] = installed;
-    g_choice_on[CHOICE_GET] = 1;
+    /* What cannot be installed yet keeps its row, grey, so the menu has the
+       same five rows for every package. */
+    g_choice_on[CHOICE_GET] = !entry->unsupported;
     g_choice_on[CHOICE_DELETE] = installed && strcmp(entry->id, PSPDX_SELF_ID) != 0;
-    g_choice_on[CHOICE_BASKET] = 1;
+    g_choice_on[CHOICE_BASKET] = !entry->unsupported || view_basket_has(index);
     g_choice_on[CHOICE_DETAILS] = 1;
     for (int i = 0; i < CHOICE_COUNT; i++) g_choice_shown[i] = 1;
     g_choice_shown[CHOICE_BASKET] = !installed || view_basket_has(index);
@@ -215,7 +217,8 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
            do their row's thing and take the menu with them. */
         int index = g_menu_of;
         if ((pressed & PSP_CTRL_SQUARE) &&
-            (actions_catalog()->apps[index].state == APP_NOT_INSTALLED || view_basket_has(index))) {
+            ((actions_catalog()->apps[index].state == APP_NOT_INSTALLED &&
+              !actions_catalog()->apps[index].unsupported) || view_basket_has(index))) {
             menu_close();
             view_basket_toggle(index);
             cues_post(CUE_MOVE, *cursor);

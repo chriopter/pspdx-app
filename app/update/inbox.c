@@ -63,9 +63,16 @@ int inbox_scan(struct catalog *catalog) {
             it->raw = NULL;
             goto next;
         }
-        struct source_repo repo;
-        sources_parse_repo(spec.source, &repo);
-        sources_repo_id(&repo, it->id, sizeof(it->id));
+        /* Only what this version can install is queued. The file stays in
+           INBOX for a version that can. */
+        if (!pspdx_type_installable(spec.type) || strncmp(spec.source, "https://github.com/", 19)) {
+            logline("INBOX: %s is %s, which this version cannot install yet; kept", e.d_name,
+                    pspdx_type_installable(spec.type) ? "from outside GitHub" : spec.type);
+            free(it->raw);
+            it->raw = NULL;
+            goto next;
+        }
+        snprintf(it->id, sizeof(it->id), "%s", spec.id);
         for (int i = 0; i < files; i++)
             if (!strcmp(items[i].id, it->id) && strcmp(items[i].raw, it->raw)) {
                 items[i].conflict = it->conflict = 1;

@@ -34,13 +34,22 @@ int state_validate(const cJSON *r) {
             return 0;
         if (strlen(str(in, "version")) >= 32)
             return 0;
+        /* A GitHub record is held to the id its repository makes. One from
+           anywhere else has its id out of its list and its name, which the
+           record does not carry, so an https:// source is all it is asked
+           for: such a record is updated through a catalog and never at the
+           origin, and it must not make every other record unreadable. */
         struct source_repo repo;
-        if (!sources_parse_repo(str(v, "source"), &repo))
+        const char *source = str(v, "source");
+        if (sources_parse_repo(source, &repo)) {
+            char id[96];
+            sources_repo_id(&repo, id, sizeof(id));
+            if (strcmp(id, v->string))
+                return 0;
+        } else if (strncmp(source, "https://", 8) || !source[8] ||
+                   !strncmp(source, "https://github.com/", 19)) {
             return 0;
-        char id[96];
-        sources_repo_id(&repo, id, sizeof(id));
-        if (strcmp(id, v->string))
-            return 0;
+        }
         const cJSON *check = cJSON_GetObjectItemCaseSensitive(v, "update_check");
         if (check && (!cJSON_IsString(check) ||
             (strcmp(check->valuestring, "auto") && strcmp(check->valuestring, "source"))))
@@ -181,17 +190,25 @@ int state_read_manifest(const char *id, char **raw, struct pspdx_file *f) {
         *raw = NULL;
         return -1;
     }
-    struct source_repo repo;
-    char expected[96];
-    sources_parse_repo(f->source, &repo);
-    sources_repo_id(&repo, expected, sizeof(expected));
     struct installed installed;
-    if (strcmp(id, expected) || (db_read(id,&installed)==0 && !sources_same_repo(installed.repo,f->source))) {
+    if (strcmp(id, f->id) || (db_read(id,&installed)==0 && !sources_same_repo(installed.repo,f->source))) {
         free(*raw);
         *raw = NULL;
         return -1;
     }
     return n;
+}
+/* 64 hex digits into 32 bytes; left all zeros for anything else. */
+static void hex_bytes(const char *hex, unsigned char *out) {
+    memset(out, 0, 32);
+    if (strlen(hex) != 64 || strspn(hex, "0123456789abcdefABCDEF") != 64)
+        return;
+    for (int i = 0; i < 32; i++) {
+        unsigned byte;
+        char pair[3] = {hex[2 * i], hex[2 * i + 1], 0};
+        sscanf(pair, "%x", &byte);
+        out[i] = (unsigned char)byte;
+    }
 }
 int db_read(const char *id, struct installed *out) {
     if (!healthy)
@@ -205,6 +222,7 @@ int db_read(const char *id, struct installed *out) {
     snprintf(out->dir, sizeof(out->dir), "%s", str(in, "installdir") + 9);
     snprintf(out->version, sizeof(out->version), "%s", str(in, "version"));
     out->rev = number(in, "published_at");
+    hex_bytes(str(in, "sha256"), out->sha256);
     snprintf(out->repo, sizeof(out->repo), "%s", str(r, "source"));
     return 0;
 }
@@ -226,7 +244,7 @@ static cJSON *latest_json(const struct manifest *m) {
     cJSON_AddStringToObject(r, "checked_from", m->checked_from);
     return r;
 }
-int state_commit(const struct manifest *m, const char *dir) {
+int state_commit(const struct manifest *m, const char *dir, const unsigned char *sha256) {
     if (!healthy || !manifest_dir_is_safe(dir))
         return -1;
     cJSON *next = state_snapshot();
@@ -250,6 +268,17 @@ int state_commit(const struct manifest *m, const char *dir) {
     cJSON_AddStringToObject(in, "version", m->version);
     cJSON_AddNumberToObject(in, "published_at", m->rev);
     cJSON_AddStringToObject(in, "installdir", target);
+    /* The zip that is on the stick now, by its hash: an update is a zip
+       with another one, whatever date it was published on. */
+    int hashed = 0;
+    for (int i = 0; sha256 && i < 32; i++)
+        hashed |= sha256[i];
+    if (hashed) {
+        char hex[65];
+        for (int i = 0; i < 32; i++)
+            sprintf(hex + 2 * i, "%02x", sha256[i]);
+        cJSON_AddStringToObject(in, "sha256", hex);
+    }
     if (m->url[0]) {
         cJSON_DeleteItemFromObjectCaseSensitive(r, "latest");
         cJSON_AddItemToObject(r, "latest", latest_json(m));
@@ -264,7 +293,7 @@ int db_write_record(const struct installed *r) {
     snprintf(m.repo, sizeof(m.repo), "%s", r->repo);
     snprintf(m.version, sizeof(m.version), "%s", r->version);
     m.rev = r->rev;
-    return state_commit(&m, r->dir);
+    return state_commit(&m, r->dir, r->sha256);
 }
 int state_note_latest(const struct manifest *m) {
     if (!healthy)

@@ -550,7 +550,7 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
         int index = view_index(row);
         if (index < 0) continue;
         const struct app_entry *entry = &catalog->apps[index];
-        if (!entry->has_release || !entry->release.size) continue;
+        if (!entry->has_release || !entry->release.size || entry->unsupported) continue;
         if (line >= room) {
             font_printf(FONT_META, PANEL_X, y + 40 + line * 14, g_dim,
                         T_AND_MORE, plan.apps - line);
@@ -736,7 +736,8 @@ static void draw_panel(const struct app_entry *entry, float t) {
             snprintf(line, sizeof(line), T_PANEL_INSTALLED, entry->local_version);
             break;
         default:
-            snprintf(line, sizeof(line), "%s%s", size[0] ? size : T_PANEL_NO_RELEASE,
+            snprintf(line, sizeof(line), "%s%s",
+                     entry->unsupported ? T_PANEL_UNSUPPORTED : size[0] ? size : T_PANEL_NO_RELEASE,
                      in_basket ? T_PANEL_IN_BASKET : "");
             break;
         }
@@ -1219,7 +1220,19 @@ static void draw_details(void) {
     fact(y, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_VERSION, value);
     fact(y + 20, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_AUTHOR, e->author);
     fact(y + 40, FACT_LABEL, FACT_VALUE, 140, T_DETAIL_LICENSE, e->license);
-    fact(y + 40, FACT_LABEL2, FACT_VALUE2, 110, T_DETAIL_CATEGORY, e->category);
+    /* The tags on one line, a comma between them, for as many as fit. */
+    char tags[96];
+    size_t t = 0;
+    for (const char *p = e->tags; *p && t + 3 < sizeof(tags); p++) {
+        if (*p == '\n') {
+            tags[t++] = ',';
+            tags[t++] = ' ';
+        } else {
+            tags[t++] = *p;
+        }
+    }
+    tags[t] = '\0';
+    fact(y + 40, FACT_LABEL2, FACT_VALUE2, 110, T_DETAIL_TAGS, tags);
     if (e->has_release && e->release.size) {
         size_mb(e->release.size, size, sizeof(size));
         fact(y + 60, FACT_LABEL, FACT_VALUE, 140, T_DETAIL_SIZE, size);

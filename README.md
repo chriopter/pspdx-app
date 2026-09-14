@@ -114,9 +114,9 @@ text holds a control character, except a newline in `description`.
 | `type` | `homebrew`, `plugin` or `iso` | `homebrew` |
 | `tags` | Up to 8 different words, each 1–24 characters; `game`, `emulator`, `app` and `demo` get a tab | Only in All |
 | `installdir` | `homebrew` only; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.`, `..` or `.pspdx-stage` | `PSP/GAME/<repository name>` on GitHub, `PSP/GAME/<name>` elsewhere, reduced to those characters |
-| `summary` | Up to 60 characters | Repository description |
-| `author` | Up to 60 characters | Repository owner |
-| `license` | Free text, up to 60 characters; an SPDX identifier where there is one | Repository license metadata |
+| `summary` | Up to 60 characters | GitHub repository description |
+| `author` | Up to 60 characters | GitHub repository owner |
+| `license` | Free text, up to 60 characters; an SPDX identifier where there is one | GitHub license metadata |
 | `description` | Plain text, up to 2500 characters, newlines allowed | — |
 | `listed_by` | HTTPS home page of the list that vouches for the app; required when `source` is not GitHub | — |
 
@@ -126,7 +126,7 @@ text holds a control character, except a newline in `description`.
 |---|---|
 | `id` | GitHub: `io.github.<owner>.<repo>`. Elsewhere: the host of `listed_by` reversed, without `www.`, then the name. Every part lowercased and stripped to `[a-z0-9]`; a later entry with a colliding identity is dropped |
 | `version` | Release tag with its leading `v` removed |
-| `rev` | Release `published_at`, in Unix seconds; a higher value signals an update |
+| `rev` | Release `published_at`, in Unix seconds; it orders releases, the SHA-256 decides whether one is an update |
 | Download URL and size | The release's single ZIP asset |
 | SHA-256 | The downloaded ZIP, hashed by the catalog builder |
 | Package contents | The directory containing the ZIP's single `EBOOT.PBP`, with its files and subdirectories |
@@ -203,7 +203,7 @@ A site with only `catalog.txt` works without a builder.
 #### Install
 
 ```text
-x on app -> confirm -> verify .pspdx source + installdir
+x on app -> confirm -> verify .pspdx source + installdir (or its default)
          -> download release ZIP -> check size, SHA-256, ZIP, paths
          -> stage -> swap into PSP/GAME/<dir> -> write state
 ```
@@ -215,9 +215,9 @@ x on app -> confirm -> verify .pspdx source + installdir
 #### Check
 
 Runs at startup and on **Check for updates**, the top row of the stick tab.
-An update is a newer `published_at` than the installed one. Version strings
-are not compared, except for PSPDX's own first-start record, which has no
-timestamp yet.
+An update is a newest release whose SHA-256 differs from the installed one.
+Dates and version strings are not compared; a record from before SHA-256 was
+kept falls back to a newer `published_at`.
 
 **×** on **Check for updates** runs this; **□** runs it forced.
 
@@ -236,13 +236,14 @@ timestamp yet.
                              latest release  api.github.com              1 of 60 an hour
        not due           ->  the last answer saved in the record
 
-4. published_at newer than installed   ->  "Update to x.y"
+4. releases[0] SHA-256 differs         ->  "Update to x.y"
 
 5. Catalog older than 24 h             ->  the status line names its host
 ```
 
 - A check against a maintained catalog is one request and no API call
 - An app added by **Direct install** or from INBOX costs one API call, then none for six hours
+- Only GitHub sources are asked directly; an app from anywhere else updates through a catalog
 - Nothing is topped up from GitHub: a `.pspdx` without author is by the account in its URL, a missing summary or licence stays empty
 
 #### Apply
@@ -303,26 +304,26 @@ hourly:  repos.txt -> catalog.txt
          -> publish catalog.json
 ```
 
-- `catalog.json` carries metadata, source, install path, release timestamp, ZIP URL, size, hash and media URLs
+- `catalog.json` carries metadata, source, install path, up to the 20 newest releases (date, ZIP URL, size, hash) and media URLs
 - A push or manual run also picks up manifest-only edits; hourly runs wait for a release
 - A build with no valid apps leaves the live site in place
 
 #### How an update shows
 
-- PSPDX compares the catalog's release timestamp with `installed.published_at`
+- PSPDX compares the SHA-256 of the catalog's newest release with the installed one
 - The catalog does not know what is on your PSP
 - The update appears after the catalog publishes and the PSP refreshes; the ZIP still comes from the author's release
 
 #### Previews
 
-- The catalog hosts `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3` separately: no ZIP download for a preview
+- The catalog hosts `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3` separately: no ZIP download for a preview; of several screenshots the first is shown
 - Priority: installed EBOOT media -> cached or catalog media -> placeholder
 - Direct GitHub lookups fetch no new previews
 
 #### Cache
 
 - Catalogs in `PSP/PSPDX/CACHE/catalogs/`, media in `CACHE/media/`
-- Failed fetch: the last usable catalog stays for browsing; installed apps ask their saved GitHub source, at most every six hours
+- Failed fetch: the last usable catalog stays for browsing; installed apps from GitHub ask their saved source, at most every six hours
 - Offline: saved records and media only
 - Both caches can be deleted without losing installation state
 
@@ -388,8 +389,8 @@ ms0:/
 | Field | Contents |
 |---|---|
 | `source`, `added_from` | Original repository and import route |
-| `installed` | Version, `published_at`, install directory |
-| `latest` | Version, `published_at`, download URL, size, optional SHA-256, last successful check time and source |
+| `installed` | Version, `published_at`, SHA-256, install directory |
+| `latest` | Version, `published_at`, download URL, size, SHA-256, last successful check time and source |
 | `update_check` | Written by older versions; read and ignored |
 
 ```text

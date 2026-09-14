@@ -107,7 +107,10 @@ static int file_sink(void *ctx, const void *data, size_t len) {
     return 0;
 }
 
-static int download(const struct manifest *m, https_progress progress, void *pctx) {
+/* got is the SHA-256 of what arrived, whether or not the release named one,
+   so that the record can say which zip is on the stick. */
+static int download(const struct manifest *m, https_progress progress, void *pctx,
+                    unsigned char *got) {
     struct dl d;
     struct https_result r;
     d.written = 0;
@@ -137,6 +140,7 @@ static int download(const struct manifest *m, https_progress progress, void *pct
 
     unsigned char digest[32];
     wc_Sha256Final(&d.sha, digest);
+    memcpy(got, digest, 32);
     /* No hash is what the origin path gives: the zip came from the
        author's own account over TLS and its size agreed, which is the
        trust there is. A cache that hashed the whole zip is held to it. */
@@ -690,12 +694,22 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
     memset(rep, 0, sizeof(*rep));
     struct pspdx_file spec;
     char why[80];
+    unsigned char got[32] = {0};
     if (!manifest_id_is_safe(m->id) || !manifest_dir_is_safe(m->dir) ||
         !manifest_size_in_range(m->size) || !manifest_rev_in_range(m->rev) ||
         strncmp(m->url, "https://", 8))
         return -1;
-    if (pspdx_parse(m->raw, strlen(m->raw), &spec, why, sizeof(why)) < 0 ||
-        strcmp(spec.installdir + 9, m->dir)) {
+    if (pspdx_parse(m->raw, strlen(m->raw), &spec, why, sizeof(why)) < 0) {
+        logline("install: valid original manifest required");
+        return -1;
+    }
+    /* A plugin or an ISO is listed and not installed: neither goes under
+       PSP/GAME, and nothing here knows where either does go. */
+    if (!pspdx_type_installable(spec.type)) {
+        logline("install: type %s cannot be installed yet", spec.type);
+        return -1;
+    }
+    if (strcmp(spec.installdir + 9, m->dir)) {
         logline("install: valid original manifest required");
         return -1;
     }
@@ -717,7 +731,7 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
     int rc = -2;
     if (phase)
         phase(ctx, "download");
-    if (download(m, progress, ctx) < 0) {
+    if (download(m, progress, ctx, got) < 0) {
         if (g_abort)
             rc = INSTALL_CANCELLED;
         goto end;
@@ -755,7 +769,7 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
         goto end;
     char path[256];
     storage_app_path(m->id, path, sizeof(path));
-    if (storage_write(path, m->raw, strlen(m->raw)) < 0 || state_commit(m, dir) < 0)
+    if (storage_write(path, m->raw, strlen(m->raw)) < 0 || state_commit(m, dir, got) < 0)
         goto end;
     if (journal_phase(j, "committed") < 0)
         goto end;

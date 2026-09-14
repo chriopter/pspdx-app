@@ -38,6 +38,12 @@ struct sources *question_sources(void) {
 
 void ask_install(int index) {
     const struct app_entry *entry = &actions_catalog()->apps[index];
+    if (entry->unsupported) {
+        char refused[96];
+        snprintf(refused, sizeof(refused), T_INSTALL_UNSUPPORTED, entry->name);
+        shell_status(refused);
+        return;
+    }
     const char *version = entry->remote_version[0] ? entry->remote_version
                                                    : entry->release.version;
     char title[64], line[200];

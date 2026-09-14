@@ -78,6 +78,10 @@ int sources_same_repo(const char *a, const char *b);
    It names a directory on the stick and never changes. */
 void sources_repo_id(const struct source_repo *r, char *id, size_t size);
 
+/* The id of an app from outside GitHub: the host of the list that vouches for
+   it, reversed, and its name. -1 when those leave nothing to name. */
+int sources_listed_id(const char *listed_by, const char *name, char *id, size_t size);
+
 /* The repository's canonical URL, https://github.com/<owner>/<repo>, with
    no tag on it: what the record on the stick and the cache both call the
    repository, so the two can be compared. */

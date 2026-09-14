@@ -22,7 +22,10 @@
 #define CATALOG_URL SOURCES_DEFAULT "catalog.json"
 #endif
 
-static char response[200 * 1024];
+/* A catalog of every app on a long list, each with the history of its
+   releases and a description, is some hundreds of kilobytes. Static rather
+   than on a stack: it is the one buffer every fetch fills. */
+static char response[512 * 1024];
 static size_t response_len;
 static int g_offline, g_force, parsing_cached;
 /* What the last answer was, for the line that says why nothing came:
@@ -47,6 +50,48 @@ static void copy_str(char *dst, size_t size, cJSON *value) {
     } else {
         dst[0] = '\0';
     }
+}
+
+/* The tags of an entry, a newline between them, as update/pspdx.h keeps
+   them: strings of no control character, at most eight, and only as many as
+   fit. A catalog is not held to the file's rules word for word; what does
+   not fit them is left out rather than taken as it stands. */
+static void copy_tags(char *dst, size_t size, cJSON *tags) {
+    size_t used = 0;
+    int n = 0;
+    cJSON *tag;
+    dst[0] = '\0';
+    if (!cJSON_IsArray(tags))
+        return;
+    cJSON_ArrayForEach(tag, tags) {
+        if (n >= PSPDX_TAGS)
+            break;
+        if (!cJSON_IsString(tag) || !tag->valuestring[0])
+            continue;
+        const unsigned char *p = (const unsigned char *)tag->valuestring;
+        while (*p >= 32)
+            p++;
+        size_t len = strlen(tag->valuestring);
+        if (*p || used + (used > 0) + len >= size)
+            continue;
+        if (used)
+            dst[used++] = '\n';
+        memcpy(dst + used, tag->valuestring, len + 1);
+        used += len;
+        n++;
+    }
+}
+
+/* 64 hex digits into 32 bytes. 0 for anything else. */
+static int parse_sha256(const char *hex, unsigned char *out) {
+    if (strlen(hex) != 64 || strspn(hex, "0123456789abcdefABCDEF") != 64)
+        return 0;
+    for (int i = 0; i < 32; i++) {
+        unsigned byte;
+        sscanf(hex + 2 * i, "%2x", &byte);
+        out[i] = (unsigned char)byte;
+    }
+    return 1;
 }
 
 /* Entries point at their assets relative to the catalog, so that moving the
@@ -76,6 +121,10 @@ static void settle_state(struct app_entry *entry) {
         entry->state = APP_UNKNOWN;
         entry->local_rev = installed.rev;
         snprintf(entry->local_version, sizeof(entry->local_version), "%s", installed.version);
+        memcpy(entry->local_sha256, installed.sha256, sizeof(entry->local_sha256));
+        entry->local_has_sha = 0;
+        for (int i = 0; i < 32; i++)
+            entry->local_has_sha |= installed.sha256[i];
     } else {
         entry->state = APP_NOT_INSTALLED;
     }
@@ -148,22 +197,36 @@ static int parse(struct catalog *catalog, const char *base) {
                  cJSON_GetObjectItemCaseSensitive(app, "author"));
         copy_str(entry->summary, sizeof(entry->summary),
                  cJSON_GetObjectItemCaseSensitive(app, "summary"));
-        copy_str(entry->category, sizeof(entry->category),
-                 cJSON_GetObjectItemCaseSensitive(app, "category"));
+        copy_tags(entry->tags, sizeof(entry->tags), cJSON_GetObjectItemCaseSensitive(app, "tags"));
+        copy_str(entry->listed_by, sizeof(entry->listed_by),
+                 cJSON_GetObjectItemCaseSensitive(app, "listed_by"));
+        if (strncmp(entry->listed_by, "https://", 8))
+            entry->listed_by[0] = '\0';
+        /* What the app is decides what may be done with it: a homebrew is
+           installed, a plugin or an ISO only listed, and a type this version
+           has never heard of is not an app it can say anything true about. */
+        cJSON *kind = cJSON_GetObjectItemCaseSensitive(app, "type");
+        if (kind)
+            copy_str(entry->type, sizeof(entry->type), kind);
+        else
+            strcpy(entry->type, "homebrew");
+        int homebrew = !strcmp(entry->type, "homebrew");
+        int known_type = homebrew || !strcmp(entry->type, "plugin") || !strcmp(entry->type, "iso");
         copy_str(entry->license, sizeof(entry->license),
                  cJSON_GetObjectItemCaseSensitive(app, "license"));
         copy_str(entry->repo, sizeof(entry->repo), cJSON_GetObjectItemCaseSensitive(app, "source"));
 
-        cJSON *release = cJSON_GetObjectItemCaseSensitive(app, "release");
+        /* The newest release is the first, and the only one a console
+           installs or compares; the rest are history. */
+        cJSON *release = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(app, "releases"), 0);
         if (cJSON_IsObject(release)) {
             struct manifest *m = &entry->release;
             memset(m, 0, sizeof(*m));
             strncpy(m->id, entry->id, sizeof(m->id) - 1);
             cJSON *published = cJSON_GetObjectItemCaseSensitive(release, "published_at");
             cJSON *tag = cJSON_GetObjectItemCaseSensitive(release, "tag");
-            cJSON *download = cJSON_GetObjectItemCaseSensitive(release, "download");
-            cJSON *size = cJSON_GetObjectItemCaseSensitive(download, "size");
-            cJSON *sha = cJSON_GetObjectItemCaseSensitive(download, "sha256");
+            cJSON *size = cJSON_GetObjectItemCaseSensitive(release, "size");
+            cJSON *sha = cJSON_GetObjectItemCaseSensitive(release, "sha256");
             /* The rules install.h states: these fields go straight into
                a download and an unpack. */
             int ok = 1;
@@ -173,7 +236,7 @@ static int parse(struct catalog *catalog, const char *base) {
                 m->size = (size_t)size->valuedouble;
             else
                 ok = 0;
-            copy_str(m->url, sizeof(m->url), cJSON_GetObjectItemCaseSensitive(download, "url"));
+            copy_str(m->url, sizeof(m->url), cJSON_GetObjectItemCaseSensitive(release, "url"));
             if (cJSON_IsString(tag) && tag->valuestring[0]) {
                 const char *version = tag->valuestring + (tag->valuestring[0] == 'v');
                 if (strlen(version) < sizeof(m->version))
@@ -210,11 +273,27 @@ static int parse(struct catalog *catalog, const char *base) {
                cache copied it over. Checked where it is used, in
                install.c, so that a cache and the origin path are held to
                the same rule by the same code. */
+            /* A homebrew without one goes where the file's rule puts it, and
+               a plugin or an ISO names no folder under PSP/GAME at all. */
             cJSON *target = cJSON_GetObjectItemCaseSensitive(app, "installdir");
-            if (!cJSON_IsString(target) || !pspdx_install_dir(target->valuestring))
-                entry->has_release = 0;
-            else
-                snprintf(m->dir, sizeof(m->dir), "%s", target->valuestring + 9);
+            char folder[42];
+            struct source_repo named;
+            if (!homebrew) {
+                if (target)
+                    entry->has_release = 0;
+            } else if (target) {
+                if (!cJSON_IsString(target) || !pspdx_install_dir(target->valuestring))
+                    entry->has_release = 0;
+                else
+                    snprintf(m->dir, sizeof(m->dir), "%s", target->valuestring + 9);
+            } else {
+                int github = sources_parse_repo(entry->repo, &named);
+                pspdx_default_dir(github ? named.name : NULL, entry->name, folder, sizeof(folder));
+                if (!pspdx_install_dir(folder))
+                    entry->has_release = 0;
+                else
+                    snprintf(m->dir, sizeof(m->dir), "%s", folder + 9);
+            }
             snprintf(m->added_from, sizeof(m->added_from), "%s", base);
             snprintf(m->checked_from, sizeof(m->checked_from), "%s", base);
             m->checked_at = parsing_cached ? 0 : (unsigned)time(NULL);
@@ -235,7 +314,8 @@ static int parse(struct catalog *catalog, const char *base) {
         cJSON *media = cJSON_GetObjectItemCaseSensitive(app, "media");
         copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "icon"));
         asset_url(base, shot, entry->icon, sizeof(entry->icon));
-        copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "screenshot"));
+        copy_str(shot, sizeof(shot),
+                 cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(media, "screenshots"), 0));
         asset_url(base, shot, entry->screenshot, sizeof(entry->screenshot));
         copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "video"));
         asset_url(base, shot, entry->video, sizeof(entry->video));
@@ -246,15 +326,26 @@ static int parse(struct catalog *catalog, const char *base) {
            that cannot be a path component is not an entry. */
         if (!manifest_id_is_safe(entry->id) || !entry->name[0])
             continue;
-        if (!entry->has_release)
+        if (!entry->has_release || !known_type)
             continue;
+        /* The id is what the source and the list make of it, and an entry
+           that says another is not believed about the rest either. Away
+           from GitHub there is no release this version can check the
+           download against, so such an app is listed and not installed. */
         struct source_repo source;
         char expected[96];
-        if (!sources_parse_repo(entry->repo, &source))
+        int github = sources_parse_repo(entry->repo, &source);
+        if (github)
+            sources_repo_id(&source, expected, sizeof(expected));
+        else if (strncmp(entry->repo, "https://", 8) ||
+                 sources_listed_id(entry->listed_by, entry->name, expected, sizeof(expected)) < 0)
             continue;
-        sources_repo_id(&source, expected, sizeof(expected));
-        if (strcmp(expected, entry->id) || !sources_release_url(entry->repo, entry->release.url))
+        if (strcmp(expected, entry->id) ||
+            (github && !sources_release_url(entry->repo, entry->release.url)))
             continue;
+        entry->unsupported = !github || !homebrew;
+        if (!github)
+            logline("catalog: %s comes from outside GitHub; listed, not installable yet", entry->id);
         if (has_id(catalog, entry->id))
             continue;
         struct installed local;
@@ -263,10 +354,10 @@ static int parse(struct catalog *catalog, const char *base) {
         /* One directory is one app's: a second entry that wants the same
            name would only be refused at install time, so the first keeps it. */
         int held;
-        for (held = 0; held < catalog->count; held++)
+        for (held = 0; held < catalog->count && entry->release.dir[0]; held++)
             if (!strcasecmp(catalog->apps[held].release.dir, entry->release.dir))
                 break;
-        if (held < catalog->count) {
+        if (entry->release.dir[0] && held < catalog->count) {
             logline("catalog: %s wants PSP/GAME/%s, which %s has; dropped", entry->id,
                     entry->release.dir, catalog->apps[held].id);
             continue;
@@ -365,15 +456,20 @@ static int take_cache(struct catalog *catalog, const char *url, enum cache_mode 
    Days from the civil date by Howard Hinnant's arithmetic, which needs no
    table of month lengths. Returns 0 for anything that is not that. */
 static unsigned iso8601(const char *text) {
-    int y, mo, d, h, mi, sec;
-    if (!text || strlen(text) != 20 || text[4] != '-' || text[7] != '-' ||
-        text[10] != 'T' || text[13] != ':' || text[16] != ':' || text[19] != 'Z')
+    int y, mo, d, h = 0, mi = 0, sec = 0;
+    /* A release entered by hand may know only its day, "2024-12-20"; it
+       counts from that day's midnight, which orders it and dates it, and
+       nothing more is asked of it. */
+    size_t n = text ? strlen(text) : 0;
+    if ((n != 20 && n != 10) || text[4] != '-' || text[7] != '-' ||
+        (n == 20 && (text[10] != 'T' || text[13] != ':' || text[16] != ':' || text[19] != 'Z')))
         return 0;
-    for (int i = 0; i < 19; i++)
+    for (size_t i = 0; i < (n == 20 ? 19 : 10); i++)
         if (i != 4 && i != 7 && i != 10 && i != 13 && i != 16 &&
             !isdigit((unsigned char)text[i]))
             return 0;
-    if (sscanf(text, "%d-%d-%dT%d:%d:%dZ", &y, &mo, &d, &h, &mi, &sec) != 6)
+    if (n == 20 ? sscanf(text, "%d-%d-%dT%d:%d:%dZ", &y, &mo, &d, &h, &mi, &sec) != 6
+                : sscanf(text, "%d-%d-%d", &y, &mo, &d) != 3)
         return 0;
     if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 1970 ||
         h > 23 || mi > 59 || sec > 59)
@@ -459,20 +555,31 @@ static int take_origin(struct catalog *catalog, const struct source_repo *repo) 
         refuse(url, REFUSED_PSPDX);
         return -1;
     }
+    /* A file whose project lives away from GitHub has no releases this
+       path could ask for: only a catalog can list it. */
+    if (strncmp(file.source, "https://github.com/", 19)) {
+        logline("origin: %s/%s .pspdx names a source outside GitHub, which only a catalog "
+                "can list; skipped", repo->owner, repo->name);
+        refuse(url, REFUSED_PSPDX);
+        return -1;
+    }
     if (!sources_same_url(file.source, url)) {
         refuse(url, REFUSED_PSPDX);
         return -1;
     }
     char original[PSPDX_FILE_MAX + 1];
     memcpy(original, response, response_len + 1);
-    logline("origin: %s/%s .pspdx: %s, %s", repo->owner, repo->name, file.name, file.category);
+    logline("origin: %s/%s .pspdx: %s, %s", repo->owner, repo->name, file.name, file.type);
 
     struct app_entry *entry = &catalog->apps[catalog->count];
     memset(entry, 0, sizeof(*entry));
     snprintf(entry->id, sizeof(entry->id), "%s", id);
     snprintf(entry->repo, sizeof(entry->repo), "%s", url);
     snprintf(entry->name, sizeof(entry->name), "%s", file.name);
-    snprintf(entry->category, sizeof(entry->category), "%s", file.category);
+    memcpy(entry->tags, file.tags, sizeof(entry->tags));
+    memcpy(entry->listed_by, file.listed_by, sizeof(entry->listed_by));
+    snprintf(entry->type, sizeof(entry->type), "%s", file.type);
+    entry->unsupported = !pspdx_type_installable(file.type);
     snprintf(entry->author, sizeof(entry->author), "%s",
              file.author[0] ? file.author : repo->owner);
     snprintf(entry->summary, sizeof(entry->summary), "%s", file.summary);
@@ -525,6 +632,13 @@ static int take_origin(struct catalog *catalog, const struct source_repo *repo) 
             m->size = (size_t)size->valuedouble;
         copy_str(m->url, sizeof(m->url),
                  cJSON_GetObjectItemCaseSensitive(asset, "browser_download_url"));
+        /* GitHub states an asset's SHA-256 as "sha256:<hex>". Where it
+           does, the download is held to it, and an update is told by it. */
+        cJSON *digest = cJSON_GetObjectItemCaseSensitive(asset, "digest");
+        memset(m->sha256, 0, sizeof(m->sha256));
+        if (cJSON_IsString(digest) && !strncmp(digest->valuestring, "sha256:", 7) &&
+            !parse_sha256(digest->valuestring + 7, m->sha256))
+            memset(m->sha256, 0, sizeof(m->sha256));
     }
     cJSON_Delete(root);
     if (zips != 1 || !m->rev || !m->version[0] || !sources_release_url(m->repo, m->url) ||
@@ -751,7 +865,10 @@ static void restore_installed(struct catalog *catalog) {
             snprintf(e->id, sizeof(e->id), "%s", id);
             snprintf(e->repo, sizeof(e->repo), "%s", source);
             snprintf(e->name, sizeof(e->name), "%s", file.name);
-            snprintf(e->category, sizeof(e->category), "%s", file.category);
+            memcpy(e->tags, file.tags, sizeof(e->tags));
+            memcpy(e->listed_by, file.listed_by, sizeof(e->listed_by));
+            snprintf(e->type, sizeof(e->type), "%s", file.type);
+            e->unsupported = !pspdx_type_installable(file.type);
             snprintf(e->author, sizeof(e->author), "%s", file.author);
             snprintf(e->summary, sizeof(e->summary), "%s", file.summary);
             snprintf(e->license, sizeof(e->license), "%s", file.license);
@@ -798,6 +915,12 @@ int catalog_prepare(struct app_entry *entry) {
     struct source_repo repo;
     struct pspdx_file file;
     char why[80], url[512];
+    /* What is listed and not installable says so here, before anything is
+       fetched for it. */
+    if (entry->unsupported) {
+        logline("install: %s cannot be installed yet (type %s)", entry->id, entry->type);
+        return -1;
+    }
     if (!sources_parse_repo(entry->repo, &repo))
         return -1;
     if (!entry->release.raw[0]) {
@@ -905,7 +1028,16 @@ int catalog_check_updates(struct catalog *catalog) {
             }
             continue;
         }
-        if (manifest.rev > entry->local_rev) {
+        /* An update is another zip than the one on the stick. The catalog
+           hashes every release, GitHub states a hash for an asset, and an
+           install records the hash of what it wrote, so nearly always both
+           are known, and then a date says nothing about it: a release
+           entered by hand may carry only its day. A record from before hashes
+           were kept, or a release nobody hashed, is compared by its time. */
+        int newer = entry->local_has_sha && manifest_has_sha256(&manifest)
+                        ? memcmp(entry->local_sha256, manifest.sha256, 32) != 0
+                        : manifest.rev > entry->local_rev;
+        if (newer) {
             entry->state = APP_UPDATE;
             updates++;
         } else {

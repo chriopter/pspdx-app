@@ -1,11 +1,13 @@
 """Run actual client parsers, persistence and installer against a PSP I/O adapter.
 The adapter preserves same-directory rename semantics and supports power cuts.
 """
-import json, os, pathlib, shutil, subprocess, tempfile, unittest, zipfile
+import hashlib, json, os, pathlib, shutil, subprocess, tempfile, time, unittest, zipfile
 BIN=os.environ.get('PSPDX_TEST_BIN','/tmp/pspdx-host-test')
 SCHEMA='https://chriopter.github.io/pspdx/schema/pspdx-v1.json'
 ID='io.github.test.demo'
-SPEC=dict(schema=SCHEMA,source='https://github.com/test/demo',name='Demo',category='demo',installdir='PSP/GAME/Demo',author='test',summary='Demo',license='MIT')
+SPEC=dict(schema=SCHEMA,source='https://github.com/test/demo',name='Demo',tags=['demo'],installdir='PSP/GAME/Demo',author='test',summary='Demo',license='MIT')
+# A catalog stamped now: one a day old is asked about at the origin, which is another test.
+NOW=lambda:time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
 class ClientTests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.root=pathlib.Path(self.tmp.name);(self.root/'ms0:').mkdir();(self.root/'ef0:').mkdir()
@@ -59,9 +61,9 @@ class ClientTests(unittest.TestCase):
   self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists())
  def test_manifest_validation(self):
   self.run_client('parse','manifest.json')
-  for key,value in [('source','https://github.com/test/demo/issues'),('installdir','PSP/GAME/..'),('name','x'*40),('license','x'*65),('schema','old')]:
+  for key,value in [('source','https://github.com/test/demo/issues'),('installdir','PSP/GAME/..'),('name','x'*41),('license','x'*61),('schema','old')]:
    with self.subTest(key=key):self.write('bad.json',dict(SPEC,**{key:value}));self.assertNotEqual(self.run_client('parse','bad.json',ok=False).returncode,0)
-  for key in ['schema','source','name','category','installdir']:
+  for key in ['schema','source','name']:
    d=SPEC.copy();del d[key];self.write('bad.json',d);self.assertNotEqual(self.run_client('parse','bad.json',ok=False).returncode,0)
   self.write('unicode.json',dict(SPEC,name='ä'*39,license='GPL-2.0-or-later'));self.run_client('parse','unicode.json')
   for text in ['{"name":"first","name":"second"}',json.dumps(SPEC)+' garbage',json.dumps(SPEC).replace('Demo','D\\u0000emo')]:
@@ -143,9 +145,9 @@ class ClientTests(unittest.TestCase):
   self.fixtures();self.run_client('fetch');cache=next((self.root/'ms0:/PSP/PSPDX/CACHE/catalogs').glob('*.json'));saved=cache.read_bytes()
   catalog=json.loads((self.root/'catalog.json').read_text())
   self.write('catalog.json',dict(catalog,apps=[]));self.assertIn('names no apps',self.run_client('fetch',VERBOSE=1).stderr);self.assertEqual(cache.read_bytes(),saved)
-  self.write('catalog.json',dict(catalog,pad='x'*210000));r=self.run_client('fetch',VERBOSE=1);self.assertIn('larger than',r.stderr);self.assertNotIn('unreachable',r.stderr);self.assertEqual(cache.read_bytes(),saved)
+  self.write('catalog.json',dict(catalog,pad='x'*530000));r=self.run_client('fetch',VERBOSE=1);self.assertIn('larger than',r.stderr);self.assertNotIn('unreachable',r.stderr);self.assertEqual(cache.read_bytes(),saved)
   cache.unlink();r=self.run_client('fetch',VERBOSE=1);self.assertIn('catalog too large',r.stderr);self.assertNotIn('unreachable',r.stderr)
-  first=catalog['apps'][0];other=dict(first,id='io.github.test.other',source='https://github.com/test/other',release=dict(first['release'],download=dict(first['release']['download'],url='https://github.com/test/other/releases/download/v2/download.zip')));self.write('catalog.json',dict(catalog,apps=[catalog['apps'][0],other]))
+  first=catalog['apps'][0];other=dict(first,id='io.github.test.other',source='https://github.com/test/other',releases=[dict(first['releases'][0],url='https://github.com/test/other/releases/download/v2/download.zip')]);self.write('catalog.json',dict(catalog,apps=[catalog['apps'][0],other]))
   r=self.run_client('fetch',VERBOSE=1);self.assertIn('dropped',r.stderr);self.assertIn(ID,r.stdout);self.assertNotIn('io.github.test.other',r.stdout)
  def test_ef0(self):
   self.run_client('install',DEVICE='ef0:/PSP/GAME/PSPDX/EBOOT.PBP');self.assertTrue((self.root/'ef0:/PSP/PSPDX/INSTALLED/io.github.test.demo.state.json').exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX').exists())
@@ -210,7 +212,7 @@ class ClientTests(unittest.TestCase):
   work=self.root/'work';mock.make(str(work),str(self.root/'ms0:'),'https://example.com/')
   catalog=json.loads((work/'mock-site/catalog.json').read_text())
   # The host build has no loophole for a loopback package URL; the address is the one thing rewritten before the parser sees it.
-  for app in catalog['apps']:app['release']['download']['url']='%s/releases/download/%s/download.zip'%(app['source'],app['release']['tag'])
+  for app in catalog['apps']:app['releases'][0]['url']='%s/releases/download/%s/download.zip'%(app['source'],app['releases'][0]['tag'])
   self.write('catalog.json',catalog);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
   r=self.run_client('fetch',VERBOSE=1);rows=[line.split() for line in r.stdout.splitlines()]
   self.assertEqual(len(rows),mock.COUNT,r.stderr);self.assertTrue(all(row[0].startswith(mock.ID_PREFIX) and row[2]=='1' for row in rows))
@@ -220,8 +222,8 @@ class ClientTests(unittest.TestCase):
  def fixtures(self):
   self.run_client('install',VERSION=1)
   size=(self.root/'new.zip').stat().st_size
-  app=dict(id=ID,name='Demo',author='test',category='demo',source=SPEC['source'],installdir=SPEC['installdir'],release=dict(tag='v2',published_at='1970-01-01T00:00:02Z',download=dict(size=size,url='https://github.com/test/demo/releases/download/v2/download.zip')))
-  self.write('catalog.json',dict(schema='https://chriopter.github.io/pspdx/schema/catalog-v1.json',generated_at='2026-09-14T00:00:00Z',apps=[app]));self.write('release.json',dict(tag_name='v3',published_at='2026-09-12T00:00:00Z',assets=[dict(name='download.zip',size=size,browser_download_url='https://github.com/test/demo/releases/download/v2/download.zip')]))
+  app=dict(id=ID,name='Demo',author='test',tags=['demo'],source=SPEC['source'],installdir=SPEC['installdir'],releases=[dict(tag='v2',published_at='1970-01-01T00:00:02Z',size=size,url='https://github.com/test/demo/releases/download/v2/download.zip')])
+  self.write('catalog.json',dict(schema='https://chriopter.github.io/pspdx/schema/catalog-v1.json',generated_at=NOW(),apps=[app]));self.write('release.json',dict(tag_name='v3',published_at='2026-09-12T00:00:00Z',assets=[dict(name='download.zip',size=size,browser_download_url='https://github.com/test/demo/releases/download/v2/download.zip')]))
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
  def test_view_tabs_come_and_go(self):
   # One app, installed with a newer one published: gear, stick, All and its category; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
@@ -264,7 +266,7 @@ class ClientTests(unittest.TestCase):
  def test_invalid_catalog_release_date_uses_original_source(self):
   self.fixtures()
   catalog=json.loads((self.root/'catalog.json').read_text())
-  catalog['apps'][0]['release']['published_at']='2026-09-12T99:00:00Z'
+  catalog['apps'][0]['releases'][0]['published_at']='2026-09-12T99:00:00Z'
   self.write('catalog.json',catalog)
   self.assertIn(ID+' 3 1',self.run_client('fetch').stdout)
  def test_force_and_missing_catalog(self):
@@ -303,4 +305,72 @@ class ClientTests(unittest.TestCase):
   self.fixtures();self.write('ms0:/PSP/PSPDX/INBOX/one.pspdx',SPEC);self.write('ms0:/PSP/PSPDX/INBOX/two.pspdx',SPEC)
   self.assertEqual(self.run_client('inbox').stdout.strip(),'1')
   self.write('ms0:/PSP/PSPDX/INBOX/two.pspdx',dict(SPEC,name='Other'));self.assertEqual(self.run_client('inbox').stdout.strip(),'0')
+ def parse(self,spec,ok=True):
+  (self.root/'p.json').write_text(json.dumps(spec,ensure_ascii=False),encoding='utf-8')
+  r=self.run_client('parse','p.json',ok=False)
+  self.assertEqual(r.returncode==0,ok,(spec,r.stdout,r.stderr));return r.stdout.strip()
+ def test_manifest_v1_rules(self):
+  base=dict(schema=SCHEMA,source='https://github.com/test/demo',name='Demo')
+  # The three required fields are a file; the folder and the id come out of the repository.
+  self.assertEqual(self.parse(base),'PSP/GAME/demo|homebrew|io.github.test.demo|')
+  self.assertEqual(self.parse(dict(base,source='https://github.com/test/'+'r'*40+'.git/')),'PSP/GAME/'+'r'*32+'|homebrew|io.github.test.'+'r'*40+'|')
+  self.assertEqual(self.parse(dict(base,tags=['game','Jeu de rôle'],type='plugin')),'|plugin|io.github.test.demo|game,Jeu de rôle')
+  for good in [dict(base,author='é'*60),dict(base,license='l'*60),dict(base,license='Public domain, see README'),dict(base,tags=['c'*24]),dict(base,tags=['🎮'*24]),dict(base,tags=[]),dict(base,tags=['t%d'%i for i in range(8)]),
+               dict(base,description='d'*2400+'\n'*100),dict(base,description='é'*2500),dict(base,listed_by='https://wijsman.de/psp-homebrew-database/'),dict(base,type='iso'),dict(base,type='homebrew',installdir='PSP/GAME/Demo'),dict(base,summary='s'*60),dict(base,name='é'*39)]:
+   with self.subTest(good=good):self.parse(good)
+  for bad in [dict(base,author='a'*61),dict(base,license='l'*61),dict(base,tags=['c'*25]),dict(base,tags=['']),dict(base,tags='game'),dict(base,tags=['game','game']),dict(base,tags=['t%d'%i for i in range(9)]),dict(base,tags=[1]),dict(base,tags=['a\nb']),
+              dict(base,description='d'*2501),dict(base,description='a\tb'),dict(base,description='a\r\nb'),dict(base,name='a\nb'),dict(base,summary='a\nb'),dict(base,author='a\tb'),dict(base,license='a\rb'),
+              dict(base,listed_by='http://wijsman.de/'),dict(base,listed_by='https://'),dict(base,listed_by=''),dict(base,type='theme'),dict(base,type=''),dict(base,type='Plugin'),dict(base,type='plugin',installdir='PSP/GAME/Demo'),dict(base,type='iso',installdir='PSP/GAME/Demo'),
+              dict(base,category='game'),dict(base,source='http://github.com/test/demo'),dict(base,source='http://example.com/demo'),dict(base,source='https://github.com/test'),dict(base,source='https://github.com/test/demo/issues'),dict(base,source='https://'),dict(base,source='https://github.com/test/.pspdx-stage')]:
+   with self.subTest(bad=bad):self.parse(bad,ok=False)
+ def test_manifest_from_outside_github(self):
+  # Any https source; the id is the vouching list's host and the name, the folder the name.
+  mirror=dict(schema=SCHEMA,source='https://archive.org/details/psp-blocks',name='PSP Blocks!',listed_by='https://www.Wijsman.de/psp-homebrew-database/')
+  self.assertEqual(self.parse(mirror),'PSP/GAME/PSPBlocks|homebrew|de.wijsman.pspblocks|')
+  self.assertEqual(self.parse(dict(mirror,installdir='PSP/GAME/Blocks',tags=['game','demo'])),'PSP/GAME/Blocks|homebrew|de.wijsman.pspblocks|game,demo')
+  self.assertEqual(self.parse(dict(mirror,listed_by='https://user@lists.example.co.uk:8443?x')),'PSP/GAME/PSPBlocks|homebrew|uk.co.example.lists.pspblocks|')
+  for bad in [{k:v for k,v in mirror.items() if k!='listed_by'},dict(mirror,name='★ ★'),dict(mirror,listed_by='https://-/'),dict(mirror,name='.pspdx-stage'),dict(mirror,source='http://archive.org/details/psp-blocks')]:
+   with self.subTest(bad=bad):self.parse(bad,ok=False)
+ def test_install_without_installdir_takes_the_repository_name(self):
+  self.write('manifest.json',{k:v for k,v in SPEC.items() if k!='installdir'})
+  self.run_client('install');self.assertEqual((self.root/'ms0:/PSP/GAME/demo/EBOOT.PBP').read_bytes(),b'new package')
+  installed=self.state()[ID]['installed'];self.assertEqual(installed['installdir'],'PSP/GAME/demo')
+  self.assertEqual(installed['sha256'],hashlib.sha256((self.root/'new.zip').read_bytes()).hexdigest())
+ def test_plugins_and_mirrors_are_listed_and_not_installed(self):
+  plug={k:v for k,v in dict(SPEC,type='plugin').items() if k!='installdir'};self.write('manifest.json',plug)
+  r=self.run_client('install',ok=False,VERBOSE=1);self.assertIn('type plugin cannot be installed yet',r.stderr);self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists())
+  self.write('manifest.json',SPEC);self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0]
+  plugin={k:v for k,v in dict(first,id='io.github.test.plug',name='Plug',type='plugin',tags=['plugin'],source='https://github.com/test/plug',releases=[dict(first['releases'][0],url='https://github.com/test/plug/releases/download/v2/download.zip')]).items() if k!='installdir'}
+  mirror={k:v for k,v in dict(first,id='de.wijsman.blocks',name='Blocks',source='https://archive.org/details/psp-blocks',listed_by='https://wijsman.de/psp-homebrew-database/',releases=[dict(first['releases'][0],url='https://archive.org/download/psp-blocks/blocks.zip')]).items() if k!='installdir'}
+  self.write('catalog.json',dict(catalog,apps=[first,plugin,mirror]))
+  r=self.run_client('fetch',VERBOSE=1);rows={row.split()[0]:row.split() for row in r.stdout.splitlines()}
+  self.assertEqual((rows[ID][4],rows['io.github.test.plug'][4],rows['de.wijsman.blocks'][4]),('0','1','1'),r.stdout);self.assertIn('outside GitHub',r.stderr)
+  for app_id in ('io.github.test.plug','de.wijsman.blocks'):
+   with self.subTest(app_id=app_id):
+    r=self.run_client('prepare',app_id,ok=False,VERBOSE=1);self.assertEqual(r.stdout.strip(),'-1');self.assertIn('cannot be installed yet',r.stderr)
+  # A plugin carrying an installdir, or a mirror whose id is not its list's and name, is not listed at all.
+  self.write('catalog.json',dict(catalog,apps=[first,dict(plugin,installdir='PSP/GAME/Plug'),dict(mirror,id='de.wijsman.other')]))
+  self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID])
+  # The origin path skips a .pspdx whose source is not GitHub, and INBOX keeps a plugin for a later version.
+  (self.root/'catalog.txt').write_text(SPEC['source']+'\n');(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/pspdx/\n')
+  self.write('manifest.json',dict(SPEC,source='https://archive.org/details/psp-blocks',listed_by='https://wijsman.de/'))
+  r=self.run_client('fetch',CATALOG_DOWN=1,FORCE=1,VERBOSE=1);self.assertIn('outside GitHub',r.stderr)
+  self.write('ms0:/PSP/PSPDX/INBOX/plug.pspdx',plug);r=self.run_client('inbox',VERBOSE=1);self.assertEqual(r.stdout.strip(),'0');self.assertIn('cannot install yet; kept',r.stderr)
+ def test_an_update_is_another_zip_not_a_later_date(self):
+  self.fixtures();self.run_client('install',VERSION=100000)
+  same=hashlib.sha256((self.root/'new.zip').read_bytes()).hexdigest();self.assertEqual(self.state()[ID]['installed']['sha256'],same)
+  catalog=json.loads((self.root/'catalog.json').read_text());release=catalog['apps'][0]['releases'][0]
+  for published,sha,state in (('2026-09-12T00:00:00Z',same,'2'),('1970-01-02','0'*63+'1','3'),('1970-01-02',same,'2')):
+   with self.subTest(published=published,sha=sha):
+    release.update(published_at=published,sha256=sha);self.write('catalog.json',catalog)
+    row=next(line.split() for line in self.run_client('fetch').stdout.splitlines() if line.startswith(ID+' '));self.assertEqual(row[3],state,row)
+ def test_tabs_come_from_known_tags_and_the_plugin_type(self):
+  self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]
+  for tags,kind,tabs in ((['Jeu','games','Game'],None,'-3 -2 0'),([],None,'-3 -2 0'),(None,None,'-3 -2 0'),(['game','demo','emulator'],None,'-3 -2 0 1 2 4'),(['plugin'],None,'-3 -2 0'),(['game'],'plugin','-3 -2 0 1 5')):
+   with self.subTest(tags=tags,kind=kind):
+    a={k:v for k,v in app.items() if k!='tags'}
+    if tags is not None:a['tags']=tags
+    if kind:a['type']=kind;a.pop('installdir')
+    self.write('catalog.json',dict(catalog,apps=[a]))
+    self.assertEqual(self.run_client('view').stdout.splitlines()[0],'tabs %d: %s'%(len(tabs.split()),tabs))
 if __name__=='__main__':unittest.main()

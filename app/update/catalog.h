@@ -3,6 +3,7 @@
 
 #include "pspkit-https/https.h"
 #include "install/install.h"
+#include "update/pspdx.h"
 
 #define MAX_APPS 64
 #define MAX_SUMMARY 241
@@ -17,11 +18,19 @@ enum app_state { APP_UNKNOWN, APP_NOT_INSTALLED, APP_CURRENT, APP_UPDATE };
 
 struct app_entry {
     char id[96];
-    char name[157];
-    char author[157];
+    char name[161];
+    char author[241];
     char summary[MAX_SUMMARY];
-    char category[12];
-    char license[257];
+    char license[241];
+    /* The file's tags, a newline between them: the tabs are made of the ones
+       the browser knows, and an app may stand in several. */
+    char tags[PSPDX_TAGS_TEXT];
+    /* The page of the list that vouches for the app, when one does. */
+    char listed_by[256];
+    /* Listed and not installable by this version: a plugin or an ISO, or a
+       source outside GitHub, which has no releases this client can check. */
+    int unsupported;
+    char type[12];              /* homebrew, plugin or iso */
     /* The release the entry installs from, as a cache derived it or as
        GitHub answered at the origin, so what is current is known without
        a fetch per app. repo is the repository it came from: it goes into
@@ -40,6 +49,9 @@ struct app_entry {
     char sound[256];            /* SND0.AT3 out of the EBOOT, the card's own loop */
     enum app_state state;
     unsigned local_rev, remote_rev;
+    /* The installed zip's SHA-256 out of its record, when the record has one. */
+    unsigned char local_sha256[32];
+    int local_has_sha;
     char local_version[32], remote_version[32];
 };
 
