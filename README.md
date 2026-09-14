@@ -48,7 +48,7 @@ publish a release. Open-source apps can be added to the
 own catalog and share the link.
 
 <details>
-<summary><h3>Sources — catalogs, repositories and INBOX</h3></summary>
+<summary>Sources — catalogs, repositories and INBOX</summary>
 
 The default source is `https://chriopter.github.io/pspdx-catalog/`. PSPDX
 reads `catalog.json` for fast browsing. If it fails, PSPDX reads `catalog.txt`
@@ -69,7 +69,7 @@ do. Installed apps keep their own manifests and state if a source is removed.
 </details>
 
 <details>
-<summary><h3>Installation and updates — checks, sources and recovery</h3></summary>
+<summary>Installation and updates — checks, sources and recovery</summary>
 
 **Install:** select an app with **×** and confirm. PSPDX verifies that its
 `.pspdx` source and `installdir` match the selected entry, then downloads the
@@ -108,7 +108,7 @@ restart PSPDX afterward.
 </details>
 
 <details>
-<summary><h3>Network — HTTPS, TLS 1.3 and offline use</h3></summary>
+<summary>Network — HTTPS, TLS 1.3 and offline use</summary>
 
 PSPDX uses the first saved PSP network profile. Catalogs, GitHub checks and
 ZIP downloads use HTTPS. A catalog returns release data for many apps in one
@@ -131,7 +131,7 @@ checks and downloads require a connection.
 </details>
 
 <details>
-<summary><h3>Catalog data — update indicators, previews and cache</h3></summary>
+<summary>Catalog data — update indicators, previews and cache</summary>
 
 The reference catalog's hourly workflow reads its `repos.txt` and publishes
 it as `catalog.txt`. For a new release it reads `.pspdx`, hashes the ZIP and
@@ -160,7 +160,7 @@ caches can be deleted without losing installation state.
 </details>
 
 <details>
-<summary><h3>Files on the Memory Stick — manifests, state and cache</h3></summary>
+<summary>Files on the Memory Stick — manifests, state and cache</summary>
 
 Example on the startup device (`ms0:` or `ef0:`); app IDs are illustrative.
 Temporary and debug files appear only when used.
@@ -256,7 +256,7 @@ is a complete example.
 ```
 
 <details>
-<summary><h3>Format specification — fields, releases and catalogs</h3></summary>
+<summary>Format specification — fields, releases and catalogs</summary>
 
 Version 1: a GitHub repository with a root `.pspdx` and a published release
 containing exactly one ZIP with one `EBOOT.PBP`. Releases supply versions
@@ -324,7 +324,7 @@ a different catalog; the client retains installed apps independently.
 ## Development
 
 <details>
-<summary><h3>Build, code layout and tests</h3></summary>
+<summary>Build, code layout and tests</summary>
 
 Inside the `pspdev/pspdev:latest` container, or with `$PSPDEV`, cmake and
 wget on the host:
@@ -384,7 +384,7 @@ replace real PSP storage, WLAN and power-loss testing.
 </details>
 
 <details>
-<summary><h3>Regenerating icons and EBOOT media</h3></summary>
+<summary>Regenerating icons and EBOOT media</summary>
 
 From `app/`:
 
