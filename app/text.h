@@ -173,6 +173,7 @@
 #define T_SUB_DIRECT         "Direct install"
 #define T_SUB_RESET          "Reset"
 #define T_SUB_ADD_SOURCE     "Add source"
+#define T_SOURCE_UNREACHABLE_NOTE "unreachable"                /* after a source the last fetch could not load */
 #define T_SUB_FROM_GITHUB    "From GitHub"
 #define T_SUB_FROM_INBOX     "From INBOX folder"
 #define T_SUB_SWEEP          "Renew TLS Seed"

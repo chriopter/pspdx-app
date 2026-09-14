@@ -35,5 +35,6 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX/TMP", ""},
     {"PSP/PSPDX/TMP/download.zip", ""},
     {"PSP/PSPDX/TMP/transaction.json", ""},
+    {"PSP/PSPDX/presets.seen", ""},
     {"PSP/PSPDX/sources.txt", ""},
 };

@@ -15,7 +15,10 @@
 
 #define SOURCES_MAX 16
 #define SOURCE_URL 256
-#define SOURCES_DEFAULT "https://chriopter.github.io/pspdx-catalog/"
+/* The list a new file starts with is the presets, util/self_presets.h; the
+   first of them is what the catalog is called before a source answers. */
+#include "util/self_presets.h"
+#define SOURCES_DEFAULT PSPDX_PRESET_FIRST
 
 struct sources {
     char url[SOURCES_MAX][SOURCE_URL];

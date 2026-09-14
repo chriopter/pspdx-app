@@ -5,6 +5,7 @@ import hashlib, json, os, pathlib, shutil, subprocess, tempfile, time, unittest,
 BIN=os.environ.get('PSPDX_TEST_BIN','/tmp/pspdx-host-test')
 SCHEMA='https://chriopter.github.io/pspdx/schema/pspdx-v1.json'
 ID='io.github.test.demo'
+PRESETS=['https://chriopter.github.io/pspdx-catalog/','https://wijsman.de/psp-homebrew-database/']
 SPEC=dict(schema=SCHEMA,source='https://github.com/test/demo',name='Demo',tags=['demo'],installdir='PSP/GAME/Demo',author='test',summary='Demo',license='MIT')
 # A catalog stamped now: one a day old is asked about at the origin, which is another test.
 NOW=lambda:time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
@@ -253,10 +254,66 @@ class ClientTests(unittest.TestCase):
   source.unlink()
   (self.root/'catalog.txt').write_text(SPEC['source']+'\n')
   self.assertIn(ID+' 3 1',self.run_client('fetch',CATALOG_DOWN=1).stdout)
-  self.assertEqual(source.read_text().splitlines()[-1],
-                   'https://chriopter.github.io/pspdx-catalog/')
+  self.assertEqual(source.read_text().splitlines()[1:],PRESETS)
   self.assertIn('https://chriopter.github.io/pspdx-catalog/catalog.txt',
                 (self.root/'requests.log').read_text())
+ def plant_presets(self,text):
+  p=self.root/'ms0:/PSP/GAME/PSPDX/presets.txt';p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
+ def listed(self):return [l for l in (self.root/'ms0:/PSP/PSPDX/sources.txt').read_text().splitlines() if l and not l.startswith('#')]
+ def seen_presets(self):return [l for l in (self.root/'ms0:/PSP/PSPDX/presets.seen').read_text().splitlines() if l and not l.startswith('#')]
+ def test_presets_arrive_once_and_stay_removed(self):
+  # A fresh stick gets the shipped list in its order, and the next start changes nothing.
+  root=pathlib.Path(__file__).resolve().parents[2];self.plant_presets((root/'app/presets.txt').read_text())
+  self.run_client('presets');self.assertEqual(self.listed(),PRESETS);self.assertEqual(self.seen_presets(),PRESETS)
+  self.run_client('presets');self.assertEqual(self.listed(),PRESETS)
+  # The user takes the second out: it stays out.
+  path=self.root/'ms0:/PSP/PSPDX/sources.txt';path.write_text('# mine\n'+PRESETS[0]+'\n')
+  self.run_client('presets');self.assertEqual(path.read_text(),'# mine\n'+PRESETS[0]+'\n')
+  # A newer release brings a third: it arrives once, after what is there.
+  third='https://example.com/third/';self.plant_presets(''.join(p+'\n' for p in PRESETS+[third]))
+  self.run_client('presets');self.assertEqual(self.listed(),[PRESETS[0],third]);self.assertEqual(self.seen_presets(),PRESETS+[third])
+  self.run_client('presets');self.assertEqual(self.listed(),[PRESETS[0],third])
+ def test_presets_on_a_stick_that_has_the_first(self):
+  # The first already there, spelt another way: only the second is appended, and both count as offered.
+  path=self.root/'ms0:/PSP/PSPDX/sources.txt';path.parent.mkdir(parents=True,exist_ok=True)
+  path.write_text('# mine\nhttps://Chriopter.github.io/pspdx-catalog\nhttps://example.com/catalog.json\n')
+  root=pathlib.Path(__file__).resolve().parents[2];self.plant_presets((root/'app/presets.txt').read_text())
+  self.run_client('presets');self.run_client('presets')
+  self.assertEqual(path.read_text(),'# mine\nhttps://Chriopter.github.io/pspdx-catalog\nhttps://example.com/catalog.json\n'+PRESETS[1]+'\n')
+  self.assertEqual(self.seen_presets(),PRESETS)
+ def test_presets_without_the_file_or_with_bad_lines(self):
+  path=self.root/'ms0:/PSP/PSPDX/sources.txt';path.parent.mkdir(parents=True,exist_ok=True);path.write_text('https://example.com/catalog.json\n')
+  r=self.run_client('presets',VERBOSE=1);self.assertIn('built-in list stands',r.stderr)
+  self.assertEqual(self.listed(),['https://example.com/catalog.json']+PRESETS)
+  # Lines that are not sources are said and passed over; the good one still lands.
+  path.write_text('https://example.com/catalog.json\n');(self.root/'ms0:/PSP/PSPDX/presets.seen').unlink()
+  self.plant_presets('not a url\nhttp://example.com/plain/\nhttps://example.com/with space/\nhttps://'+'x'*300+'\n  https://example.com/good/  # a comment\n')
+  r=self.run_client('presets',VERBOSE=1);self.assertEqual(r.stderr.count('skipped'),4,r.stderr)
+  self.assertEqual(self.listed(),['https://example.com/catalog.json','https://example.com/good/'])
+  # A file that names nothing at all is as good as missing.
+  path.write_text('https://example.com/catalog.json\n');(self.root/'ms0:/PSP/PSPDX/presets.seen').unlink()
+  self.plant_presets('\x01\x02 garbage\n');self.run_client('presets')
+  self.assertEqual(self.listed(),['https://example.com/catalog.json']+PRESETS)
+ def test_a_preset_that_does_not_answer_is_any_unreachable_source(self):
+  self.fixtures();(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text(''.join(p+'\n' for p in PRESETS))
+  r=self.run_client('fetch',DOWN_HOST='wijsman.de');self.assertIn(ID,r.stdout)
+  requests=(self.root/'requests.log').read_text();self.assertIn(PRESETS[1]+'catalog.json',requests);self.assertIn(PRESETS[1]+'catalog.txt',requests)
+  lines=self.run_client('reach',DOWN_HOST='wijsman.de').stdout.splitlines()
+  self.assertIn(PRESETS[0]+' ok',lines);self.assertIn(PRESETS[1]+' unreachable',lines)
+ def test_a_source_that_does_not_load_is_marked_and_the_rest_still_load(self):
+  # The second source does not answer: its apps are missing, the first's are there, and only the second is marked. The next fetch starts over.
+  self.fixtures();down='https://down.example.org/pspdx/'
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n'+down+'\n')
+  r=self.run_client('reach',DOWN_HOST='down.example.org',THEN_UP=1);first,again=r.stdout.split('--\n')
+  self.assertEqual(first.splitlines(),[ID,'https://example.com/catalog.json ok',down+' unreachable'])
+  self.assertEqual(again.splitlines(),[ID,'https://example.com/catalog.json ok',down+' ok'])
+ def test_embedded_presets_match_the_file(self):
+  import re
+  root=pathlib.Path(__file__).resolve().parents[2]
+  header=(root/'app/util/self_presets.h').read_text().split('#define',1)[1]
+  embedded=''.join(re.findall(r'"((?:[^"\\]|\\.)*)"',header)).replace('\\n','\n').splitlines()
+  shipped=[l.split('#')[0].strip() for l in (root/'app/presets.txt').read_text().splitlines() if l.split('#')[0].strip()]
+  self.assertEqual(embedded,shipped);self.assertEqual(shipped,PRESETS)
  def test_unknown_catalog_schema_uses_original_source(self):
   self.fixtures()
   catalog=json.loads((self.root/'catalog.json').read_text())

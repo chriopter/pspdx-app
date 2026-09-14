@@ -33,7 +33,7 @@ static int write_default(void) {
     if (storage_exists(SOURCES_PATH))
         return -1;
     static const char text[] =
-        "# One HTTPS catalog, list or repository URL per line\n" SOURCES_DEFAULT "\n";
+        "# One HTTPS catalog, list or repository URL per line\n" PSPDX_PRESETS;
     return storage_write(SOURCES_PATH, text, sizeof(text) - 1);
 }
 
@@ -96,14 +96,13 @@ int sources_same_repo(const char *a, const char *b) {
 int sources_load(struct sources *s) {
     memset(s, 0, sizeof(*s));
     if (read_file() < 0) {
-        if (write_default() < 0 || read_file() < 0) {
+        if (write_default() < 0 || read_file() < 0)
             /* No file and no way to make one: the built-in list still
-               stands, so the browser is not empty for want of a stick. */
-            snprintf(s->url[0], SOURCE_URL, "%s", SOURCES_DEFAULT);
-            s->count = 1;
-            return 1;
-        }
-        logline("sources: wrote the built-in list");
+               stands, read as the file would have been, so the browser is
+               not empty for want of a stick. */
+            snprintf(g_text, sizeof(g_text), "%s", PSPDX_PRESETS);
+        else
+            logline("sources: wrote the built-in list");
     }
     char *line = g_text;
     /* The mark an editor on a PC puts first, which is not part of the line. */

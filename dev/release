@@ -54,9 +54,13 @@ rm -rf "$HERE/dist" "$HERE/pspdx.zip"
 mkdir -p "$HERE/dist/PSP/GAME/PSPDX"
 cp "$APP/EBOOT.PBP" "$HERE/dist/PSP/GAME/PSPDX/EBOOT.PBP"
 cp "$HERE/.pspdx" "$HERE/dist/PSP/GAME/PSPDX/.pspdx"
+# The catalogs the client offers once each; the EBOOT carries the same list
+# for a stick that loses this file.
+cp "$APP/presets.txt" "$HERE/dist/PSP/GAME/PSPDX/presets.txt"
 (cd "$HERE/dist" && zip -q -r "$HERE/pspdx.zip" PSP)
 unzip -tqq "$HERE/pspdx.zip"
 unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/.pspdx | cmp "$HERE/.pspdx" -
+unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/presets.txt | cmp "$APP/presets.txt" -
 rm -rf "$HERE/dist"
 
 gh release create "v$VERSION" "$HERE/pspdx.zip" -t "v$VERSION" -n "$NOTES" \

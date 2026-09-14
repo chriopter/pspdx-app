@@ -18,7 +18,9 @@
 #include "session/options.h"
 #include "session/questions.h"
 #include "session/view.h"
+#include "update/reach.h"
 #include "update/sources.h"
+#include "update/sync.h"
 
 /* An installed package has more than one thing that can be done to it, so X
    opens the short list of them rather than a yes/no. Exactly one of the two
@@ -118,6 +120,10 @@ static void menu_close(void) {
    a .pspdx comes in directly. Drawn by the shell, driven here. */
 static enum sub g_sub;
 static char g_sub_short[SOURCES_MAX][48];
+/* The row as the panel shows it: the short name, and after a source the
+   last fetch could not load, a note saying so. The question that deletes
+   the source names it by the short name alone. */
+static char g_sub_row[SOURCES_MAX][64];
 
 static void sub_push(void) {
     g_menu.title = g_sub == SUB_CATALOGS ? T_SUB_SOURCES : g_sub == SUB_ADD ? T_SUB_DIRECT : T_SUB_RESET;
@@ -129,12 +135,21 @@ void sub_open(enum sub which) {
     g_menu.count = 0;
     if (which == SUB_CATALOGS) {
         sources_load(question_sources());
+        /* The gear opens only once a sync is through, so what that fetch
+           could not load is settled and can be taken. */
+        if (sync_done())
+            reach_take();
         for (int i = 0; i < question_sources()->count; i++) {
             /* The scheme goes; every source has it, and the panel is narrow. */
             const char *u = question_sources()->url[i];
             if (!strncmp(u, "https://", 8)) u += 8;
             snprintf(g_sub_short[i], sizeof(g_sub_short[i]), "%s", u);
-            g_menu.item[g_menu.count++] = g_sub_short[i];
+            if (reach_unreachable(question_sources()->url[i]))
+                snprintf(g_sub_row[i], sizeof(g_sub_row[i]), "%.47s\x02%s", g_sub_short[i],
+                         T_SOURCE_UNREACHABLE_NOTE);
+            else
+                snprintf(g_sub_row[i], sizeof(g_sub_row[i]), "%.47s", g_sub_short[i]);
+            g_menu.item[g_menu.count++] = g_sub_row[i];
         }
         g_menu.item[g_menu.count++] = T_SUB_ADD_SOURCE;
     } else if (which == SUB_ADD) {

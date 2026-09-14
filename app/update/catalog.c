@@ -15,6 +15,7 @@
 #include "install/install.h"
 #include "update/catalog.h"
 #include "update/pspdx.h"
+#include "update/reach.h"
 #include "update/sources.h"
 #include "util/runtime.h"
 
@@ -902,10 +903,14 @@ int catalog_fetch(struct catalog *catalog) {
     g_progress[0] = 0;
     g_refused_url[0] = 0;
     sources_load(&sources);
+    reach_reset();
     int answered = 0;
-    for (int i = 0; i < sources.count; i++)
+    for (int i = 0; i < sources.count; i++) {
         if (fetch_source(catalog, i + 1, sources.url[i]) >= 0)
             answered++;
+        else
+            reach_failed(sources.url[i]);
+    }
     restore_installed(catalog);
     g_progress[0] = 0;
     g_force = 0;

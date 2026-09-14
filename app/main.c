@@ -3,6 +3,7 @@
 #include "install/state.h"
 #include "update/pspdx.h"
 #include "util/self_manifest.h"
+#include "update/presets.h"
 #include "util/files.h"
 /* PSPDX application controller. Feature code lives behind module APIs. */
 
@@ -338,6 +339,10 @@ int main(int argc, char *argv[]) {
             storage_write(self_manifest_path, PSPDX_SELF_MANIFEST, strlen(PSPDX_SELF_MANIFEST));
         free(bundled);
     }
+    /* The catalogs this release ships with, into sources.txt before the
+       first fetch reads it: each once, so a source the user took out stays
+       out and one a newer release brings still arrives. */
+    presets_merge(argc > 0 ? argv[0] : NULL);
     https_set_log(https_log);
     https_set_user_agent("pspdx/0.0");
     entropy_set_seed_file(storage_path("PSP/PSPDX/CRYPTO/seed.bin"));

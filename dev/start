@@ -95,7 +95,7 @@ if [ -d "$MS/PSP/GAME/pspdx" ] && [ ! -d "$MS/PSP/GAME/PSPDX" ]; then
 	mv "$MS/PSP/GAME/pspdx" "$MS/PSP/GAME/PSPDX"
 fi
 mkdir -p "$MS/PSP/PSPDX/CRYPTO" "$MS/PSP/PSPDX/LOGS" "$MS/PSP/PSPDX/DEBUG" "$MS/PSP/GAME/PSPDX" "$MS/PSP/PSPDX/DEBUG/font" "$MS/PSP/PSPDX/CACHE/media"
-cp "$APP/EBOOT.PBP" "$MS/PSP/GAME/PSPDX/"
+cp "$APP/EBOOT.PBP" "$APP/presets.txt" "$MS/PSP/GAME/PSPDX/"
 
 FONTS="$(flatpak info --show-location org.ppsspp.PPSSPP 2>/dev/null)/files/share/ppsspp/assets/flash0/font"
 [ -f "$FONTS/ltn8.pgf" ] && cp "$FONTS/ltn8.pgf" "$MS/PSP/PSPDX/DEBUG/font/ltn8.pgf"

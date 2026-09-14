@@ -931,17 +931,30 @@ static void draw_menu(void) {
                       MARK_PLAIN, 0, 0);
             room -= mark_width(k) + 10;
         }
+        /* A row can carry a note after the byte 2 -- a source the last
+           fetch could not load says so -- drawn at the row's end in the
+           keys' colour, for the same reason: it is about the row. */
+        const char *item = m->item[i];
+        char plain[64];
+        const char *note = strchr(item, '\x02');
+        if (note) {
+            float w = font_width(FONT_META, note + 1);
+            font_print(FONT_META, left + room - w, y, faded(g_dim, on ? 220 : 140), note + 1);
+            room -= w + 8;
+            snprintf(plain, sizeof(plain), "%.*s", (int)(note - item), item);
+            item = plain;
+        }
         /* A row can name a thing by its mark: the byte 1 and then the mark
            plus one end the words, and the mark stands after them. */
-        const char *glyph = strchr(m->item[i], '\x01');
+        const char *glyph = strchr(item, '\x01');
         if (glyph && glyph[1]) {
             char words[32];
-            snprintf(words, sizeof(words), "%.*s", (int)(glyph - m->item[i]), m->item[i]);
+            snprintf(words, sizeof(words), "%.*s", (int)(glyph - item), item);
             float end = font_print_clipped(FONT_BODY, left, y, room, color, words);
             enum mark gm = (enum mark)(glyph[1] - 1);
             mark_draw(gm, end + 6 + mark_width(gm) / 2.0f, y - 4, color, MARK_PLAIN, 0, 0);
         } else {
-            font_print_scrolling(FONT_BODY, left, y, room, color, m->item[i],
+            font_print_scrolling(FONT_BODY, left, y, room, color, item,
                                  on ? hover_age(2, i) : 0.0f);
         }
     }

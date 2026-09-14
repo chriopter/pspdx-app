@@ -132,6 +132,12 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
     const char *path = NULL;
     if (getenv("OFFLINE"))
         return -1;
+    /* One host that does not answer, while the rest do. */
+    const char *down = getenv("DOWN_HOST");
+    if (down && *down && strstr(url, down)) {
+        r->status = 404;
+        return -1;
+    }
     if (strstr(url, "download.zip"))
         path = getenv("ZIP_FILE");
     else if (strstr(url, "catalog.json")) {

@@ -178,10 +178,20 @@ https://github.com/someone/project@v1.2
 | GitHub URL or `owner/repo` | **Direct install** | Add the repository as a source and install its app |
 | `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct install** | Validate and install the selected files |
 
-- Default source: `https://chriopter.github.io/pspdx-catalog/`
+- Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://wijsman.de/psp-homebrew-database/`
+- Presets ship as `PSP/GAME/PSPDX/presets.txt`, same lines as `sources.txt`; the EBOOT carries a copy for a stick without one
+- Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
+- A source that does not load is marked *unreachable* in the list; the rest load as usual
 - Sources are validated before they land in `PSP/PSPDX/sources.txt`
 - Adding a catalog installs nothing; Direct install and INBOX do
 - Removing a source keeps installed apps, their manifests and state
+
+#### Presets
+
+```text
+start -> presets.txt (or the built-in list) -> in presets.seen? skip
+                                            -> append to sources.txt unless there -> note in presets.seen
+```
 
 #### Reading a catalog site
 
@@ -343,7 +353,8 @@ ms0:/
     ├── GAME/
     │   ├── PSPDX/                       # Downloader
     │   │   ├── EBOOT.PBP
-    │   │   └── .pspdx                   # Bundled for offline first start
+    │   │   ├── .pspdx                   # Bundled for offline first start
+    │   │   └── presets.txt              # Sources offered once
     │   ├── Cathedral/                   # Installed homebrew
     │   │   ├── EBOOT.PBP
     │   │   └── ...
@@ -352,6 +363,7 @@ ms0:/
     │   └── Cathedral.bak/               # Unmanaged folder moved aside
     └── PSPDX/
         ├── sources.txt                  # Subscriptions
+        ├── presets.seen                 # Presets already offered
         ├── INBOX/demo.pspdx             # Awaiting import
         ├── INSTALLED/
         │   ├── io.github.chriopter.pspdx.pspdx

@@ -3,6 +3,8 @@
 #include "session/view.h"
 #include "update/catalog.h"
 #include "update/inbox.h"
+#include "update/presets.h"
+#include "update/reach.h"
 #include "update/sources.h"
 #include "util/storage.h"
 #include <stdio.h>
@@ -81,6 +83,32 @@ int main(int argc, char **argv) {
         kept = view_tabs_refresh();
         printf("emptied kept %d kind %d tabs %d moved %d\n", kept, view_tab_kind(),
                view_tab_count(), view_generation() != gen);
+        return 0;
+    }
+    if (!strcmp(argv[1], "reach")) {
+        /* What the gear's list of sources would say after a fetch: the
+           apps, then each source and whether it answered. THEN_UP fetches
+           once more with every host answering. */
+        for (int round = 0; round < (getenv("THEN_UP") ? 2 : 1); round++) {
+            if (round) {
+                unsetenv("DOWN_HOST");
+                printf("--\n");
+            }
+            catalog_fetch(&catalog);
+            reach_take();
+            struct sources s;
+            sources_load(&s);
+            for (int i = 0; i < catalog.count; i++)
+                printf("%s\n", catalog.apps[i].id);
+            for (int i = 0; i < s.count; i++)
+                printf("%s %s\n", s.url[i], reach_unreachable(s.url[i]) ? "unreachable" : "ok");
+        }
+        return 0;
+    }
+    if (!strcmp(argv[1], "presets")) {
+        /* The start's merge alone: the list beside the EBOOT the stick
+           was booted from, into sources.txt. Never fatal. */
+        presets_merge(getenv("DEVICE") ? getenv("DEVICE") : "ms0:/PSP/GAME/PSPDX/EBOOT.PBP");
         return 0;
     }
     if (!strcmp(argv[1], "add")) {

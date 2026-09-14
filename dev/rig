@@ -65,6 +65,7 @@ mkdir -p "$MS/PSP/GAME/PSPDX"
 # copies its own aside, so a rebuild in app/ meanwhile -- by a hand, by
 # another agent -- cannot swap the client under it.
 cp "${EBOOT:-$APP/EBOOT.PBP}" "$MS/PSP/GAME/PSPDX/EBOOT.PBP"
+cp "$APP/presets.txt" "$MS/PSP/GAME/PSPDX/presets.txt"
 
 # PPSSPP ships the PSP system fonts but does not mount flash0 for the guest,
 # so put one where the client's fallback looks. Test rig only: on hardware the
