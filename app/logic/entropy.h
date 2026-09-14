@@ -21,7 +21,7 @@
    turns, so a field is credited only when it is new ground reached under a
    heading different from the one at the last credit: eight headings, one per
    45 degrees, and a stroke pays once however long it runs. The full stick
-   trace in testdata (sweep-full.trace) turns 123 times in 27 seconds, and
+   trace in dev/testdata (sweep-full.trace) turns 123 times in 27 seconds, and
    three turns in four go 45 degrees on from the last heading: measured
    against the heading before it, a turn carries 2.0 bits, and the moment of
    it more. One bit per credit is the conservative half of that. */

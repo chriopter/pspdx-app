@@ -33,7 +33,7 @@
 #include "gui/marks_data.h"
 
 /* The order of the table is the order of the enum and nothing enforces that
-   but the list at the top of tools/marks/embed.py. The count at least can be
+   but the list at the top of dev/marks/embed.py. The count at least can be
    checked, and a negative array size is how C says no at compile time: if
    this line is what failed, a mark was added to one list and not the other. */
 typedef char mark_table_matches_enum[

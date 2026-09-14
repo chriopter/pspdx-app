@@ -476,7 +476,7 @@ static int verify_ignoring_dates(int preverify, WOLFSSL_X509_STORE_CTX *store) {
         char iss[48] = "?";
         if (c) wolfSSL_X509_NAME_oneline(wolfSSL_X509_get_issuer_name(c), iss, sizeof(iss));
         /* ASN_NO_SIGNER_E means a CA we do not carry, not an attack: rebuild
-           the bundle with tools/make-ca-bundle.py and this host works again. */
+           the bundle with dev/make-ca-bundle.py and this host works again. */
         logline("cert %d at depth %d: %.14s from %.24s", store->error,
                 store->error_depth, sub ? sub : "?", iss);
     }

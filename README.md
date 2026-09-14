@@ -466,7 +466,7 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 | `dev/soak/` | Soak campaigns in the emulator, checked against a model of the client |
 | `dev/localcat/`, `dev/nettest/` | The loopback catalog with its throwaway CA, and the network test |
 | `dev/testdata/` | Input traces for the entropy screen |
-| `tools/` | For app authors, not for PSPDX: the EBOOT media scripts and the PSMF wrapper |
+| `dev/tools/` | The EBOOT media scripts and the PSMF wrapper, for any PSP app's ICON1 and SND0 |
 
 </details>
 
@@ -511,11 +511,11 @@ From the repository root:
 ```sh
 sh dev/marks/render.sh                                     # SVG -> PNG
 python3 dev/marks/embed.py                                 # PNG -> app/gui/marks_data.h
-sh tools/eboot-media/make-icon1.sh demo.mp4 app/assets/icon1.pmf
-sh tools/eboot-media/make-snd0.sh theme.wav app/assets/snd0.at3
+sh dev/tools/eboot-media/make-icon1.sh demo.mp4 app/assets/icon1.pmf
+sh dev/tools/eboot-media/make-snd0.sh theme.wav app/assets/snd0.at3
 ```
 
-`tools/` is for anyone packaging a PSP app, PSPDX included: the two scripts make the ICON1 and SND0 a PBP carries, and `tools/mp4-to-psmf.c` wraps an MP4 the way the client does.
+`dev/tools/` is for anyone packaging a PSP app, PSPDX included: the two scripts make the ICON1 and SND0 a PBP carries, and `dev/tools/mp4-to-psmf.c` wraps an MP4 the way the client does.
 
 #### GUI glyphs
 

@@ -1,7 +1,7 @@
 /* Wraps an MP4 the way the client does on the PSP, on a desk, so the result
    can be checked with tools the PSP does not have:
 
-     cd app && cc -I. video/mp4.c video/psmf.c ../tools/mp4-to-psmf.c
+     cd app && cc -I. video/mp4.c video/psmf.c ../dev/tools/mp4-to-psmf.c
      ./a.out video.mp4 video.psmf
      ffprobe video.psmf          # the stream the PSP will see
      ffmpeg -ss 0.8 -i video.psmf -frames:v 1 frame.png

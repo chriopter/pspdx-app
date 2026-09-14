@@ -8,7 +8,7 @@
 # icon is and whose sides are sixteenths, the unit the PSMF header counts in.
 # Thirty frames a second, H.264 Constrained Baseline, since that is what the
 # hardware decodes; a keyframe every second so a restart never waits long.
-# The MP4 that comes out is then wrapped by tools/mp4-to-psmf.c, the same
+# The MP4 that comes out is then wrapped by dev/tools/mp4-to-psmf.c, the same
 # code the client wraps its own clips with: a PSMF header and an MPEG-2
 # program stream in 2048-byte packs, the video in PES 0xE0. That is what
 # sceMpeg reads on the console and what ffprobe reads on the desk, so the
@@ -18,7 +18,7 @@
 # FPS=15 about halves the file for a calm clip.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$HERE/../../app"
+APP="$HERE/../../../app"
 src="$1"
 out="$2"
 start="${3:-0}"
