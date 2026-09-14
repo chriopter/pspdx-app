@@ -12,7 +12,6 @@
 /* 0 if the firmware font is missing, in which case nothing was initialised
    and the caller should stay on the debug screen. */
 int shell_init(void);
-void shell_shutdown(void);
 
 /* One frame, paced at 60 Hz by the vblank wait inside. */
 void shell_draw(const struct catalog *catalog, int cursor);
@@ -51,8 +50,6 @@ enum shell_tab_kind shell_tab_kind(void);
    row's number for them, so the one list draws and walks both kinds. */
 #define SHELL_ROW_SETTING (-100)
 #define SHELL_SETTINGS 5
-const char *shell_setting(int n);
-int shell_view_action(int row);
 
 /* What the action row would do, counted over the rows under it: what can be
    fetched, how much of that is a package already installed and current, what
@@ -72,9 +69,7 @@ void shell_action_plan(struct shell_plan *plan);
    whatever had taken those indices. */
 void shell_basket_toggle(int index);
 void shell_basket_forget(int index);
-void shell_basket_clear(void);
 int shell_basket_has(int index);
-int shell_basket_count(void);
 
 /* The tabs worked out again after something inside the catalog changed rather
    than the catalog itself: an install that was the last update takes the

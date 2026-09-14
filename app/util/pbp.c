@@ -39,7 +39,6 @@ static unsigned le32(const unsigned char *p) {
     return p[0] | (p[1] << 8) | ((unsigned)p[2] << 16) | ((unsigned)p[3] << 24);
 }
 
-static unsigned le16(const unsigned char *p) { return p[0] | (p[1] << 8); }
 
 int pbp_section(const char *path, int which, void **out, size_t *len) {
     *out = 0;
@@ -94,49 +93,6 @@ int pbp_section(const char *path, int which, void **out, size_t *len) {
     *out = buf;
     *len = n;
     return 0;
-}
-
-/* A PARAM.SFO: the magic, a version, then the offsets of a key table and
-   a data table and the count of entries, which follow the twenty-byte
-   header. Each entry is sixteen bytes and names a key by offset into the
-   key table and a value by offset into the data table. */
-int pbp_title(const char *path, char *out, size_t size) {
-    if (!out || size == 0) return -1;
-    out[0] = '\0';
-    void *raw;
-    size_t len;
-    if (pbp_section(path, PBP_SFO, &raw, &len) != 0) return -1;
-    const unsigned char *sfo = raw;
-    int rc = -1;
-    if (len < 20 || memcmp(sfo, "\0PSF", 4) != 0) {
-        logline("pbp: the SFO in %s is not one", path);
-        free(raw);
-        return -1;
-    }
-    unsigned keys = le32(sfo + 8), data = le32(sfo + 12), count = le32(sfo + 16);
-    for (unsigned i = 0; i < count; i++) {
-        size_t at = 20 + (size_t)i * 16;
-        if (at + 16 > len) break;
-        unsigned key = keys + le16(sfo + at);
-        unsigned fmt = le16(sfo + at + 2);
-        unsigned n = le32(sfo + at + 4);
-        unsigned value = data + le32(sfo + at + 12);
-        /* Every key is NUL-terminated inside the table; one that runs off
-           the end is refused rather than read past. */
-        if (key >= len || !memchr(sfo + key, 0, len - key)) break;
-        if (strcmp((const char *)sfo + key, "TITLE") != 0) continue;
-        /* 0x0204 is a UTF-8 string, its length counting the NUL. */
-        if (fmt != 0x0204 || value >= len || n > len - value) break;
-        size_t copy = n;
-        while (copy > 0 && sfo[value + copy - 1] == '\0') copy--;
-        if (copy >= size) copy = size - 1;
-        memcpy(out, sfo + value, copy);
-        out[copy] = '\0';
-        rc = copy > 0 ? 0 : -1;
-        break;
-    }
-    free(raw);
-    return rc;
 }
 
 int pbp_installed_path(const char *id, char *out, size_t size) {

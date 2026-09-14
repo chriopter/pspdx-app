@@ -80,16 +80,6 @@ int manifest_dir_is_safe(const char *dir) {
     return pspdx_install_dir(path);
 }
 
-int manifest_root_is_safe(const char *root) {
-    if (!root || strlen(root) >= 200)
-        return 0;
-    if (root[0] == '/' || root[0] == '\\')
-        return 0;
-    if (strstr(root, "..") || strchr(root, ':'))
-        return 0;
-    return 1;
-}
-
 /* ------------------------------------------------------------- download */
 
 struct dl {

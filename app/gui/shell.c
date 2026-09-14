@@ -198,8 +198,6 @@ int shell_basket_has(int index) {
     return (g_basket[index >> 3] >> (index & 7)) & 1;
 }
 
-int shell_basket_count(void) { return g_basket_n; }
-
 void shell_basket_toggle(int index) {
     if (index < 0 || index >= MAX_APPS) return;
     g_basket[index >> 3] ^= (unsigned char)(1u << (index & 7));
@@ -210,7 +208,7 @@ void shell_basket_forget(int index) {
     if (shell_basket_has(index)) shell_basket_toggle(index);
 }
 
-void shell_basket_clear(void) {
+static void shell_basket_clear(void) {
     memset(g_basket, 0, sizeof(g_basket));
     g_basket_n = 0;
 }
@@ -317,7 +315,7 @@ int shell_view_count(void) {
     return g_view_count + g_view_action;
 }
 
-int shell_view_action(int row) { return g_view_action && row == 0; }
+static int shell_view_action(int row) { return g_view_action && row == 0; }
 
 int shell_view_index(int row) {
     if (g_tabs && g_tab[g_tab_at] == TAB_GEAR)
@@ -373,13 +371,6 @@ int shell_init(void) {
     lattice_init();
     preview_init();
     return 1;
-}
-
-void shell_shutdown(void) {
-    preview_shutdown();
-    icons_reset();
-    font_shutdown();
-    gfx_shutdown();
 }
 
 /* ------------------------------------------------------------------ marks */
@@ -591,6 +582,8 @@ static void draw_action_row(int y, int selected, float t) {
 /* A row under the gear: a word and, where the word is about something that
    is fetched, the sign that names it. The sign sits where a package's icon
    sits, so the column reads as one column whichever tab it is. */
+static const char *shell_setting(int n);    /* named with its note, below */
+
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[SHELL_SETTINGS] = {
         MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_UPDATE, MARK_INFO,
@@ -1264,7 +1257,7 @@ static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
     T_NOTE_INFO,
 };
 
-const char *shell_setting(int n) {
+static const char *shell_setting(int n) {
     return n >= 0 && n < SHELL_SETTINGS ? SETTING[n] : "";
 }
 
@@ -1802,10 +1795,7 @@ void shell_shot_sync(const struct catalog *catalog, int cursor) {
         lattice_touch((LIST_X + LIST_W / 2) / (float)SCR_W);
         preview_show(entry, first);
     }
-    if (preview_tick()) {
-        shell_draw(catalog, cursor);        /* say so before we block */
-        preview_load();
-    }
+    preview_tick();
 }
 
 void shell_word(const char *word) {

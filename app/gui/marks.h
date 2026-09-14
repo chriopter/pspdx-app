@@ -39,7 +39,6 @@ enum mark {
 enum mark_state { MARK_DIM, MARK_PLAIN, MARK_LIT };
 
 int mark_width(enum mark m);
-int mark_height(enum mark m);
 
 /* cx, cy are the centre in screen pixels; colour is ABGR as everywhere else,
  * and its own alpha fades the whole mark, shadow with it. tint is the colour

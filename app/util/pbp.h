@@ -24,10 +24,6 @@ enum pbp_section {
    of its kind has any business being. */
 int pbp_section(const char *path, int which, void **out, size_t *len);
 
-/* TITLE out of the PARAM.SFO, UTF-8 as the SFO carries it. -1 when there
-   is none to read. */
-int pbp_title(const char *path, char *out, size_t size);
-
 /* The EBOOT of an installed package, from the record on the stick that
    says which directory the install went into. -1 when there is no record.
    Here because everything that pictures an installed row asks the same

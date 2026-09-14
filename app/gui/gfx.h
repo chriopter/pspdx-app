@@ -37,12 +37,6 @@ void gfx_rect(int x, int y, int w, int h, unsigned color);
 void gfx_vgrad(int x, int y, int w, int h, unsigned top, unsigned bottom);
 void gfx_hgrad(int x, int y, int w, int h, unsigned left, unsigned right);
 
-/* A ribbon of the kind XMB has: one sine period and a bit, solid along the
-   crest and transparent at the bottom edge, added onto what is behind it.
-   crest is a thin brighter line along the top edge -- the glassy highlight. */
-void gfx_wave(float y, float amp, float thickness, float phase, unsigned color,
-              unsigned crest);
-
 /* A band through n points, half pixels above and below each, one colour per
    point so a line can fade with depth along its own length. Added onto what
    is behind it. */
@@ -177,10 +171,6 @@ void gfx_texture_draw(const struct gfx_texture *t, int x, int y, int w, int h,
 void gfx_texture_draw_part(const struct gfx_texture *t, int sx, int sy,
                            int w, int h, float x, float y, unsigned tint);
 
-/* The same image upside down under y, fading from alpha at the top edge to
-   nothing over h pixels: a reflection in a dark floor. */
-void gfx_texture_reflect(const struct gfx_texture *t, int x, int y, int w,
-                         int h, int src_h, unsigned alpha);
 void gfx_texture_free(struct gfx_texture *t);
 
 /* A card in space: a picture on a plane that can turn a little toward or
@@ -201,14 +191,6 @@ struct gfx_card {
 /* t may be NULL: then only the frame, its shadow and its gloss are drawn,
    which is what the card looks like while its picture is on its way. */
 void gfx_card_draw(const struct gfx_texture *t, const struct gfx_card *c);
-
-/* A plane in space to draw flat things on, like the card but for anyone:
-   begin sets it up at a screen position with a lean, quads are placed in
-   screen pixels relative to its centre (y down, z toward the viewer), end
-   returns to flat drawing. */
-void gfx_plane_begin(float cx, float cy, float yaw, float pitch);
-void gfx_plane_quad(float x, float y, float w, float h, float z, unsigned color);
-void gfx_plane_end(void);
 
 /* Baking a texture: between frames, a corner of the draw buffer is cleared
    to transparent and handed to the caller to draw into with the ordinary 2D

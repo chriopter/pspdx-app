@@ -405,15 +405,15 @@ void preview_show(const struct app_entry *entry, int immediately) {
     g_shown_gen = 0;
 }
 
-int preview_tick(void) {
-    if (g_nothing) return 0;
+void preview_tick(void) {
+    if (g_nothing) return;
     /* The request goes out once the cursor has rested; the thread does
        the rest and this only picks up what it has finished. */
     if (g_shown_gen == 0) {
-        if (!g_immediate && !expired(g_shown_ms, SETTLE_MS)) return 0;
+        if (!g_immediate && !expired(g_shown_ms, SETTLE_MS)) return;
         g_shown_gen = ++g_want.gen;
         wake();
-        return 0;
+        return;
     }
     if (g_still_state == STILL_READY && g_still_pub)
         g_still_alpha += (1.0f - g_still_alpha) * 0.12f;
@@ -424,10 +424,8 @@ int preview_tick(void) {
         if (g_decoded > 0) g_film_alpha += (1.0f - g_film_alpha) * 0.08f;
         if (player_failed()) g_film_state = FILM_FAILED;
     }
-    return 0;
+    return;
 }
-
-void preview_load(void) {}
 
 void preview_poke(void) { wake(); }
 

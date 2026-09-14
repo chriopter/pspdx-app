@@ -16,7 +16,6 @@ enum font_style {
    stay on the debug screen rather than draw an empty UI. */
 int font_init(void);
 void font_shutdown(void);
-int font_ready(void);
 
 /* y is the baseline, not the top of the glyph box. Returns the x the text
    ended at. */
@@ -31,6 +30,5 @@ float font_print_clipped(enum font_style style, float x, float y, float width,
                          unsigned color, const char *text);
 
 float font_width(enum font_style style, const char *text);
-float font_height(enum font_style style);
 
 #endif

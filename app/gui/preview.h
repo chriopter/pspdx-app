@@ -25,10 +25,8 @@ void preview_shutdown(void);
 void preview_show(const struct app_entry *entry, int immediately);
 
 /* Once per frame: sends the request out once the cursor has rested and
-   picks up what the media thread has finished. Never blocks. Returns 0;
-   preview_load() is kept for the shell and does nothing. */
-int preview_tick(void);
-void preview_load(void);
+   picks up what the media thread has finished. Never blocks. */
+void preview_tick(void);
 
 /* Wakes the media thread for work that is not the card's: the list's
    icons, once the rows on screen have changed. */

@@ -82,11 +82,6 @@ int manifest_has_sha256(const struct manifest *m);
    recursively deleted. */
 int manifest_dir_is_safe(const char *dir);
 
-/* A directory inside the zip: relative, going nowhere but down. It may
-   have slashes in it, which is the difference from a dir -- "PSP/GAME/Foo/"
-   is a perfectly ordinary package root. */
-int manifest_root_is_safe(const char *root);
-
 /* Finishes an install interrupted between its two renames. Call once at
    startup, before anything reads the database. */
 void install_recover(void);

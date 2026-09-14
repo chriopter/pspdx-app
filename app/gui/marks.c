@@ -50,7 +50,6 @@ static const struct mark_glyph *glyph(enum mark m) {
 }
 
 int mark_width(enum mark m) { return glyph(m)->w; }
-int mark_height(enum mark m) { return glyph(m)->h; }
 
 /* One cell of coverage into one colour. Everything outside a cell stays the
    zero the buffer was cleared to, so the gutters never sample as anything. */

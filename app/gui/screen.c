@@ -18,19 +18,12 @@ static void print_padded(const char *text, int width) {
 void gui_init(void) { pspDebugScreenInit(); }
 void gui_clear(void) { pspDebugScreenClear(); }
 
-void gui_header(const char *right) {
+static void gui_header(const char *right) {
     pspDebugScreenSetXY(0, 0);
     pspDebugScreenSetTextColor(COL_TEXT);
     pspDebugScreenPrintf("%s", TITLE);
     pspDebugScreenSetTextColor(COL_DIM);
     print_padded(right, SCREEN_COLS - (int)strlen(TITLE));
-    pspDebugScreenSetTextColor(COL_TEXT);
-}
-
-void gui_status(const char *text) {
-    pspDebugScreenSetXY(0, STATUS_ROW);
-    pspDebugScreenSetTextColor(COL_DIM);
-    print_padded(text, SCREEN_COLS);
     pspDebugScreenSetTextColor(COL_TEXT);
 }
 

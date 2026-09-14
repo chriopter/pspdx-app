@@ -391,41 +391,6 @@ void gfx_hgrad(int x, int y, int w, int h, unsigned left, unsigned right) {
     quad(x, y, w, h, left, left, right, right);
 }
 
-#define WAVE_SEGMENTS 48
-
-void gfx_wave(float y, float amp, float thickness, float phase, unsigned color,
-              unsigned crest) {
-    flush_batch();
-    const int n = (WAVE_SEGMENTS + 1) * 2;
-    struct vcol *body = sceGuGetMemory(n * sizeof(struct vcol));
-    struct vcol *line = sceGuGetMemory(n * sizeof(struct vcol));
-    if (!body || !line) return;
-    unsigned fade = color & 0x00FFFFFF;      /* same colour, alpha zero */
-    unsigned crest_fade = crest & 0x00FFFFFF;
-    for (int i = 0; i <= WAVE_SEGMENTS; i++) {
-        float t = (float)i / WAVE_SEGMENTS;
-        float top = y + sinf(t * 9.4248f + phase) * amp
-                      + sinf(t * 4.1000f - phase * 0.7f) * (amp * 0.4f);
-        short px = (short)(t * SCR_W);
-        body[i * 2 + 0].color = color; body[i * 2 + 0].x = px;
-        body[i * 2 + 0].y = (short)top; body[i * 2 + 0].z = 0;
-        body[i * 2 + 1].color = fade;  body[i * 2 + 1].x = px;
-        body[i * 2 + 1].y = (short)(top + thickness); body[i * 2 + 1].z = 0;
-        line[i * 2 + 0].color = crest; line[i * 2 + 0].x = px;
-        line[i * 2 + 0].y = (short)top; line[i * 2 + 0].z = 0;
-        line[i * 2 + 1].color = crest_fade; line[i * 2 + 1].x = px;
-        line[i * 2 + 1].y = (short)(top + 3); line[i * 2 + 1].z = 0;
-    }
-    flat_state();
-    additive();
-    sceGuDrawArray(GU_TRIANGLE_STRIP,
-                   GU_COLOR_8888 | GU_VERTEX_16BIT | GU_TRANSFORM_2D,
-                   n, 0, body);
-    sceGuDrawArray(GU_TRIANGLE_STRIP,
-                   GU_COLOR_8888 | GU_VERTEX_16BIT | GU_TRANSFORM_2D,
-                   n, 0, line);
-}
-
 /* Room for one triangle strip of n vertices. Inside a batch it goes into the
    pending run and *batched says so, so the caller writes and leaves; outside
    one it is scratch the caller draws with itself. */
@@ -789,34 +754,6 @@ void gfx_texture_draw_part(const struct gfx_texture *t, int sx, int sy,
     flat_state();
 }
 
-void gfx_texture_reflect(const struct gfx_texture *t, int x, int y, int w,
-                         int h, int src_h, unsigned alpha) {
-    if (!t || !t->pixels || h <= 0) return;
-    flush_batch();
-    struct vtexc *v = sceGuGetMemory(4 * sizeof(struct vtexc));
-    if (!v) return;
-    /* Only the bottom src_h rows of the image are mirrored, sampled from the
-       bottom up, so the reflection continues the picture's lower edge. */
-    short v_bottom = (short)t->h;
-    short v_top = (short)(t->h - src_h);
-    unsigned top = RGBA(255, 255, 255, alpha);
-    unsigned bottom = RGBA(255, 255, 255, 0);
-    v[0].u = 0;            v[0].v = v_bottom; v[0].color = top;
-    v[0].x = x;            v[0].y = y;        v[0].z = 0;
-    v[1].u = 0;            v[1].v = v_top;    v[1].color = bottom;
-    v[1].x = x;            v[1].y = y + h;    v[1].z = 0;
-    v[2].u = (short)t->w;  v[2].v = v_bottom; v[2].color = top;
-    v[2].x = x + w;        v[2].y = y;        v[2].z = 0;
-    v[3].u = (short)t->w;  v[3].v = v_top;    v[3].color = bottom;
-    v[3].x = x + w;        v[3].y = y + h;    v[3].z = 0;
-    bind(t);
-    sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_ONE_MINUS_SRC_ALPHA, 0, 0);
-    sceGuDrawArray(GU_TRIANGLE_STRIP,
-                   GU_TEXTURE_16BIT | GU_COLOR_8888 | GU_VERTEX_16BIT |
-                   GU_TRANSFORM_2D, 4, 0, v);
-    flat_state();
-}
-
 void gfx_shade(float cx, float cy, float w, float h, int alpha) {
     if (!g_glow.pixels) return;
     flush_batch();
@@ -876,21 +813,6 @@ static void card_quad(float x0, float y0, float x1, float y1, float z,
     v[2].color = tr; v[2].x = x1; v[2].y = y0; v[2].z = z;
     v[3].color = br; v[3].x = x1; v[3].y = y1; v[3].z = z;
     sceGumDrawArray(GU_TRIANGLE_STRIP, FMT3C, 4, 0, v);
-}
-
-void gfx_plane_begin(float cx, float cy, float yaw, float pitch) {
-    struct gfx_card c = { cx, cy, 0, 0, yaw, pitch, 255, -1.0f, 0 };
-    card_matrices(&c);
-    flat_state();
-}
-
-void gfx_plane_quad(float x, float y, float w, float h, float z, unsigned color) {
-    card_quad(x * PX, -y * PX, (x + w) * PX, -(y + h) * PX, z * PX,
-              color, color, color, color);
-}
-
-void gfx_plane_end(void) {
-    flat_state();
 }
 
 /* ------------------------------------------------------------------- bake */

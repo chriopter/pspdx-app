@@ -169,8 +169,6 @@ void font_shutdown(void) {
     intraFontShutdown();
 }
 
-int font_ready(void) { return g_font != 0; }
-
 float font_print(enum font_style style, float x, float y, unsigned color,
                  const char *text) {
     if (!g_font || !text) return x;
@@ -204,7 +202,3 @@ float font_width(enum font_style style, const char *text) {
     return measure(style, text, -1.0f)->width;
 }
 
-float font_height(enum font_style style) {
-    if (!g_font) return 0.0f;
-    return g_font->advancey * STYLES[style].size / 4.0f;
-}
