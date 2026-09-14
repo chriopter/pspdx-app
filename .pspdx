@@ -1,5 +1,5 @@
 {
-  "schema": "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
+  "schema": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json",
   "source": "https://github.com/chriopter/pspdx",
   "name": "PSPDX",
   "author": "chriopter",

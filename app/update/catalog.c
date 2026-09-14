@@ -103,7 +103,7 @@ static int parse(struct catalog *catalog, const char *base) {
     }
     cJSON *schema = cJSON_GetObjectItemCaseSensitive(root, "schema");
     if (!cJSON_IsString(schema) || strcmp(schema->valuestring,
-            "https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json")) {
+            "https://chriopter.github.io/pspdx/schema/catalog-v1.json")) {
         logline("catalog: unsupported schema");
         cJSON_Delete(root);
         return -1;

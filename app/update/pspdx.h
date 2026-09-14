@@ -1,7 +1,7 @@
 #ifndef PSPDX_PSPDX_H
 #define PSPDX_PSPDX_H
 #include <stddef.h>
-#define PSPDX_SCHEMA "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx"
+#define PSPDX_SCHEMA "https://chriopter.github.io/pspdx/schema/pspdx-v1.json"
 #define PSPDX_FILE_MAX 8192
 struct pspdx_file {
     char source[256], installdir[42];

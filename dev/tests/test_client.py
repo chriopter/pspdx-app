@@ -3,7 +3,7 @@ The adapter preserves same-directory rename semantics and supports power cuts.
 """
 import json, os, pathlib, shutil, subprocess, tempfile, unittest, zipfile
 BIN=os.environ.get('PSPDX_TEST_BIN','/tmp/pspdx-host-test')
-SCHEMA='https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx'
+SCHEMA='https://chriopter.github.io/pspdx/schema/pspdx-v1.json'
 ID='io.github.test.demo'
 SPEC=dict(schema=SCHEMA,source='https://github.com/test/demo',name='Demo',category='demo',installdir='PSP/GAME/Demo',author='test',summary='Demo',license='MIT')
 class ClientTests(unittest.TestCase):
@@ -221,7 +221,7 @@ class ClientTests(unittest.TestCase):
   self.run_client('install',VERSION=1)
   size=(self.root/'new.zip').stat().st_size
   app=dict(id=ID,name='Demo',author='test',category='demo',source=SPEC['source'],installdir=SPEC['installdir'],release=dict(tag='v2',published_at='1970-01-01T00:00:02Z',download=dict(size=size,url='https://github.com/test/demo/releases/download/v2/download.zip')))
-  self.write('catalog.json',dict(schema='https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json',generated_at='2026-09-14T00:00:00Z',apps=[app]));self.write('release.json',dict(tag_name='v3',published_at='2026-09-12T00:00:00Z',assets=[dict(name='download.zip',size=size,browser_download_url='https://github.com/test/demo/releases/download/v2/download.zip')]))
+  self.write('catalog.json',dict(schema='https://chriopter.github.io/pspdx/schema/catalog-v1.json',generated_at='2026-09-14T00:00:00Z',apps=[app]));self.write('release.json',dict(tag_name='v3',published_at='2026-09-12T00:00:00Z',assets=[dict(name='download.zip',size=size,browser_download_url='https://github.com/test/demo/releases/download/v2/download.zip')]))
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
  def test_view_tabs_come_and_go(self):
   # One app, installed with a newer one published: gear, stick, All and its category; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.

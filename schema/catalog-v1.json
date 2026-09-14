@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json",
+  "$id": "https://chriopter.github.io/pspdx/schema/catalog-v1.json",
   "title": "PSPDX catalog v1",
   "description": "Aggregated homebrew metadata, release packages and optional EBOOT media. Individual source manifests use schema/pspdx-v1.json.",
   "type": "object",
@@ -12,7 +12,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json"
+      "const": "https://chriopter.github.io/pspdx/schema/catalog-v1.json"
     },
     "generated_at": {
       "type": "string",

@@ -1,2 +1,2 @@
 /* Mirrors the root .pspdx; verified by the host tests. */
-#define PSPDX_SELF_MANIFEST "{\"schema\":\"https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx\",\"source\":\"https://github.com/chriopter/pspdx\",\"name\":\"PSPDX\",\"author\":\"chriopter\",\"summary\":\"Download, run and update homebrew on your PSP.\",\"category\":\"app\",\"license\":\"GPL-2.0-only\",\"installdir\":\"PSP/GAME/PSPDX\"}"
+#define PSPDX_SELF_MANIFEST "{\"schema\":\"https://chriopter.github.io/pspdx/schema/pspdx-v1.json\",\"source\":\"https://github.com/chriopter/pspdx\",\"name\":\"PSPDX\",\"author\":\"chriopter\",\"summary\":\"Download, run and update homebrew on your PSP.\",\"category\":\"app\",\"license\":\"GPL-2.0-only\",\"installdir\":\"PSP/GAME/PSPDX\"}"

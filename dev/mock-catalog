@@ -237,7 +237,7 @@ def make(work, ms, base):
             media[kind] = rel_asset
         if media:
             app["media"] = media
-        manifest=dict(schema="https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",source=app["source"],name=name[:39],category=category,installdir=app["installdir"])
+        manifest=dict(schema="https://chriopter.github.io/pspdx/schema/pspdx-v1.json",source=app["source"],name=name[:39],category=category,installdir=app["installdir"])
         app["_test_manifest"]=manifest
         apps.append(app)
 
@@ -266,7 +266,7 @@ def make(work, ms, base):
         planted.append("dir " + target)
 
     catalog = {
-        "schema": "https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json",
+        "schema": "https://chriopter.github.io/pspdx/schema/catalog-v1.json",
         "generated_at": "2026-01-01T00:00:00Z",
         "apps": apps,
     }

@@ -27,7 +27,7 @@ for i in range(40):
     a["source"] = "https://github.com/pspdxfixture/app%02d" % i
     a["installdir"] = "PSP/GAME/Fixture%02d" % i
     a["name"] = "%s %d" % (a["name"], i + 1)
-    a["_test_manifest"]=dict(schema="https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",source=a["source"],name=a["name"][:39],category=a["category"],installdir=a["installdir"])
+    a["_test_manifest"]=dict(schema="https://chriopter.github.io/pspdx/schema/pspdx-v1.json",source=a["source"],name=a["name"][:39],category=a["category"],installdir=a["installdir"])
     out.append(a)
 
 # Two more, for the installer: the same EBOOT in the two archive layouts the
@@ -52,7 +52,7 @@ def entry(id, name, members):
     a["id"] = id; a["name"] = name
     a["source"] = "https://github.com/chriopter/" + id.rsplit(".",1)[1]
     a["installdir"] = "PSP/GAME/" + id.rsplit(".",1)[1]
-    a["_test_manifest"]=dict(schema="https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",source=a["source"],name=name,category=a["category"],installdir=a["installdir"])
+    a["_test_manifest"]=dict(schema="https://chriopter.github.io/pspdx/schema/pspdx-v1.json",source=a["source"],name=name,category=a["category"],installdir=a["installdir"])
     a["release"]["download"] = dict(url="https://127.0.0.1:8443/" + rel,
                                      sha256=hashlib.sha256(blob).hexdigest(), size=len(blob))
     return a
