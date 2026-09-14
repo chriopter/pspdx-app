@@ -1,12 +1,9 @@
 # PSPDX
 
-**PSP Download Index** — browse, install, update homebrew directly
+**PSP Download Index** — browse, install and update homebrew directly
 on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspdx/releases/latest)**
 
-The [PSPDX Catalog](https://chriopter.github.io/pspdx-catalog/) comes ready to
-browse like a store. You can add other catalogs or `.pspdx` files directly.
-Each installed app keeps its source, so updates still work if a catalog goes
-away.
+Install it, start it, install homebrew. Updates show up on their own.
 
 <img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="images/pspdx-app.webp" />
 
@@ -28,9 +25,27 @@ PSPDX checks for updates at startup. Select an available update and press
 
 ## How it works
 
-- **[Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)** — the PSP app; install and update homebrew from catalogs, `.pspdx` files or GitHub repositories.
-- **[PSPDX Catalog](https://github.com/chriopter/pspdx-catalog)** — lists apps and caches release details and EBOOT previews. [Browse it](https://chriopter.github.io/pspdx-catalog/) or copy its workflows to make your own.
-- **[Demo app](https://github.com/chriopter/pspdx-demo)** — a complete homebrew example for authors using the [`.pspdx` standard](#the-pspdx-standard).
+- **A `.pspdx` file points to your homebrew.** It sits in the app's GitHub
+  repository and names the app and where it installs; releases supply the
+  ZIP. That is the [`.pspdx` standard](#the-pspdx-standard), and the
+  [demo app](https://github.com/chriopter/pspdx-demo) is a complete example.
+- **A catalog is a phonebook of such repositories.** The
+  [PSPDX Catalog](https://github.com/chriopter/pspdx-catalog) is the default;
+  [browse it](https://chriopter.github.io/pspdx-catalog/). Its GitHub
+  workflows cache release details and artwork extracted from each EBOOT, so
+  lists load fast. Copy it to run your own.
+- **No mirror.** PSPDX saves each app's `.pspdx` on install and can check the
+  original repository directly. If a catalog goes away, your apps still
+  update. `.pspdx` files can also be installed directly, without any catalog.
+
+The aim is a setup that still works in ten years, without a mirror going
+down or an abandoned installer in the way. The `.pspdx` file lives on its own.
+
+**Add your app:** put a `.pspdx` in your repository
+([example](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx)) and
+publish a release. Open-source apps can be added to the
+[main catalog](https://github.com/chriopter/pspdx-catalog); or start your
+own catalog and share the link.
 
 How PSPDX finds apps, checks releases and stores installations:
 
@@ -46,12 +61,12 @@ works without a builder. Settings accepts additional sources:
 | Input | Result |
 |---|---|
 | HTTPS catalog site URL, `catalog.json` or text repository list | Browse all listed apps. |
-| GitHub URL or `owner/repo` | Browse one app directly. |
+| GitHub URL or `owner/repo` under **Direct install** | Add the repository as a source and install its app. |
 | `.pspdx` files in `PSP/PSPDX/INBOX/` | Validate and install selected files. |
 
 Catalogs and repositories are validated before being added to `sources.txt`.
-Adding a source does not install its apps; INBOX import does. Installed apps
-keep their own manifests and state if a source is removed.
+Adding a catalog does not install its apps; Direct install and INBOX import
+do. Installed apps keep their own manifests and state if a source is removed.
 
 </details>
 
@@ -62,24 +77,27 @@ keep their own manifests and state if a source is removed.
 `.pspdx` source and `installdir` match the selected entry, then downloads the
 author's release ZIP. It checks size, available SHA-256, ZIP integrity and
 paths before installing the folder containing the single `EBOOT.PBP`.
-Unmanaged folders are never adopted or overwritten.
+An unmanaged folder in the way is never adopted or overwritten; PSPDX offers
+to move it to `<dir>.bak` first.
 
-**Check:** at startup, or through **Update catalog** in settings, PSPDX
+**Check:** at startup, or through **Check for updates** in settings, PSPDX
 compares each installed release's `published_at` with the available release.
-Version strings are not used for update detection.
+Version strings are not used for update detection, except for PSPDX's own
+first-start record, which has no timestamp yet.
 
 | Case | Release lookup |
 |---|---|
 | A configured catalog has a usable entry | Use it; skip the GitHub release lookup. |
 | No usable entry, including an unreachable or invalid catalog | Check the app's saved GitHub source; cached catalog data can still be browsed. |
 | App added through INBOX or a repository | Check its saved GitHub source unless a configured catalog now covers it. |
-| **Check original sources** selected | Query GitHub for installed apps, bypassing catalog release data. |
+| **□** on **Check for updates** | Query GitHub for installed apps, bypassing catalog release data. |
 | **△ → Updates: original source** on one app | Always check that app's GitHub repository directly; **Updates: catalog first** restores the default. PSPDX itself starts in direct mode. |
 | GitHub also unavailable | Keep the last known release; do not record a successful check. |
 
 A reachable catalog is treated as current even if its publisher stopped
-updating it. Use **Check original sources** in that case; an old cached entry
-is not evidence of a current release.
+updating it. PSPDX says so when the catalog is a day old; press **□** on
+**Check for updates** then. An old cached entry is not evidence of a current
+release.
 
 **Apply:** checking never installs an update. Confirm one with **×**. A
 transaction journal covers the installed files, manifest and state so an
@@ -104,9 +122,9 @@ Raw and API hosts; a closed or expired connection is reopened automatically.
 
 wolfSSL uses TLS 1.3, bundled CAs, certificate-chain and hostname checks,
 with X25519 preferred. Analog-stick entropy and `CRYPTO/seed.bin` feed its
-random generator. Certificate date checks are skipped when the PSP clock is
-unset; the other checks remain. Packages are not signed. A catalog SHA-256
-checks ZIP integrity, not author identity.
+random generator. Certificate dates are not checked, because the PSP clock
+cannot be trusted; the other checks remain. Packages are not signed. A
+catalog SHA-256 checks ZIP integrity, not author identity.
 
 Refresh runs in the background. Installation pauses network previews because
 they share the network stack. Cached browsing works offline; fresh release
@@ -160,7 +178,8 @@ ms0:/
     │   │   ├── EBOOT.PBP
     │   │   └── ...
     │   ├── .pspdx-stage/                # Temporary install
-    │   └── Cathedral.old/               # Rollback backup
+    │   ├── Cathedral.old/               # Rollback backup
+    │   └── Cathedral.bak/               # Unmanaged folder moved aside
     └── PSPDX/
         ├── sources.txt                  # Subscriptions
         ├── INBOX/demo.pspdx             # Awaiting import
@@ -171,11 +190,10 @@ ms0:/
         │   └── io.github.chriopter.pspcathedral.state.json
         ├── CACHE/
         │   ├── catalogs/<url-sha1>.json
-        │   └── media/
-        │       ├── <app-id>-icon-<hash>.png
-        │       ├── <app-id>-picture-<hash>.png
-        │       ├── <app-id>-film-<hash>.pmf
-        │       └── <app-id>-sound-<hash>.at3
+        │   └── media/                   # Named after the served file
+        │       ├── <app-id>-<file>.png
+        │       ├── <app-id>-<file>.mp4      # or .pmf, as served
+        │       └── <app-id>-<file>.at3
         ├── TMP/
         │   ├── download.zip
         │   └── transaction.json
@@ -257,7 +275,7 @@ The manifest's `schema` identifies its version; unknown fields are rejected.
 | `source` | Required; an HTTPS GitHub repository URL | — |
 | `name` | Required; 1–39 characters | — |
 | `category` | Required; `game`, `emulator`, `app`, `plugin` or `demo` | — |
-| `installdir` | Required; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.` or `..` | — |
+| `installdir` | Required; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.`, `..` or `.pspdx-stage` | — |
 | `author` | Up to 39 characters | Repository owner |
 | `summary` | Up to 60 characters | Repository description |
 | `license` | SPDX identifier, up to 64 characters | Repository license metadata |
@@ -270,7 +288,7 @@ Release information is derived, never duplicated in the manifest:
 
 | Value | Source |
 |---|---|
-| `id` | `io.github.<owner>.<repo>`; owner and repository lowercased and stripped to `[a-z0-9]`. Colliding identities must be rejected. |
+| `id` | `io.github.<owner>.<repo>`; owner and repository lowercased and stripped to `[a-z0-9]`. A later entry with a colliding identity is dropped. |
 | `version` | Release tag with its leading `v` removed |
 | `rev` | Release `published_at`, in Unix seconds; a higher value signals an update |
 | Download URL and size | The release's single ZIP asset |
@@ -294,7 +312,8 @@ and an `apps` array. Each app carries `id`, `source`, `name`, `author`,
 `tag`, `published_at` and a `download` object with `url`, `size` and `sha256`.
 Optional `media` holds `icon`, `screenshot`, `video` and `sound` URLs.
 Relative media URLs resolve against the catalog URL. `generated_at` is the
-snapshot publication time, even if individual apps failed to build.
+snapshot publication time, even if individual apps failed to build. The
+client tolerates entries without `author`, `summary`, `license` or `sha256`.
 
 The [catalog schema](schema/catalog-v1.json) uses the identifier
 `https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json`.
@@ -312,7 +331,8 @@ a different catalog; the client retains installed apps independently.
 <summary>Build, code layout and tests</summary>
 
 
-With PSPDEV and its SDK libraries installed:
+Inside the `pspdev/pspdev:latest` container, or with `$PSPDEV`, cmake and
+wget on the host:
 
 ```sh
 sh app/wolfssl-psp/build.sh
@@ -322,9 +342,12 @@ make -C app
 The build produces `app/EBOOT.PBP`. It uses wolfSSL, cJSON, intraFont, libpng,
 zlib and PSP SDK libraries; CI builds inside `pspdev/pspdev:latest`.
 `dev/start` builds and launches the client in the configured PPSSPP setup;
-`dev/start --no-build` launches an existing build. These scripts assume
-Linux with Docker and the PPSSPP Flatpak. `dev/release <version> [notes]`
-builds and publishes a GitHub release from a clean `master` checkout.
+`dev/start --no-build` launches an existing build unless that build was made
+against the mock catalog, which is rebuilt regardless. `dev/start --mock`
+runs against the local mock catalog. These scripts assume Linux with Docker,
+the PPSSPP Flatpak, Python, a systemd user session and Wayland.
+`dev/release <version> [notes]` builds and publishes a GitHub release with
+`gh` from a clean `master` checkout.
 
 
 `dev/start` installs `dev/ppsspp/controls.ini`: × S, ○ D, □ A, △ W,
@@ -341,6 +364,8 @@ for the analog stick.
 | `app/logic/` | Entropy pool |
 | `app/audio/`, `app/video/` | Audio and video playback |
 | `app/util/` | Storage paths, PBP access and runtime helpers |
+| `app/ca-extra/` | Extra root certificates folded into the CA bundle |
+| `app/testdata/` | Input traces for the entropy screen |
 | `dev/`, `app/tools/` | Local builds, emulator fixtures and asset generators |
 
 ```sh
@@ -382,9 +407,10 @@ needs only Python. SVGs, generated PNGs and the atlas header are committed,
 so normal builds need no graphics-generation tools. A new glyph also needs
 matching entries in the generator's `ORDER` and `enum mark`.
 
-EBOOT media generation needs ffmpeg and a C compiler; audio also needs
-`atracdenc`. Both scripts accept a start offset as their third argument;
-`DURATION` controls length. Video defaults to six seconds at 144×80;
-audio defaults to eighteen seconds of ATRAC3 at 132 kbps.
+EBOOT media generation needs ffmpeg. Video also needs a C compiler; audio
+also needs Python and `atracdenc`. Both scripts accept a start offset as
+their third argument; `DURATION` controls length. Video defaults to six
+seconds at 144×80, `FPS` adjustable; audio defaults to eighteen seconds of
+ATRAC3 at 132 kbps, `BITRATE` 132 or 66.
 
 </details>
