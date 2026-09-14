@@ -5,18 +5,33 @@
 <title>PSPDX standard</title>
 <meta name="description" content="JSON Schemas for .pspdx files and PSPDX catalogs.">
 <style>
-  :root { --bg: #fff; --fg: #111; --dim: #666; --box: #f4f4f4; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; --dim: #999; --box: #1d1d1d; } }
+  :root { --bg: #fff; --fg: #111; --dim: #666; --box: #f4f4f4; --rule: #e3e3e3; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; --dim: #999; --box: #1d1d1d; --rule: #2c2c2c; } }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
   main { max-width: 38rem; margin: 0 auto; padding: 4rem 1.25rem; }
   h1 { font-size: 1.75rem; margin: 0 0 .5rem; }
   h2 { font-size: 1rem; margin: 2.5rem 0 .5rem; }
+  h3 { font-size: .95rem; margin: 1.75rem 0 .4rem; }
   p { margin: 0 0 1rem; }
   a { color: inherit; }
   .dim { color: var(--dim); }
   code, pre { font: .88em ui-monospace, Menlo, Consolas, monospace; }
-  pre { background: var(--box); padding: 1rem; border-radius: 6px; overflow-x: auto; }
+  pre { background: var(--box); padding: 1rem; border-radius: 6px; overflow-x: auto; margin: .5rem 0 1rem; }
   ul { padding-left: 1.2rem; margin: 0; }
+  li + li { margin-top: .4rem; }
+  summary { cursor: pointer; color: var(--dim); }
+  details[open] > summary { color: var(--fg); }
+  details > div { font-size: .88rem; margin-bottom: 1.5rem; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; }
+  th, td { text-align: left; vertical-align: top; padding: .45rem .5rem; border-bottom: 1px solid var(--rule); }
+  th { color: var(--dim); font-weight: 600; }
+  th:nth-child(3), th:nth-child(4) { width: 40%; }
+  td.name { white-space: nowrap; }
+  td code { overflow-wrap: anywhere; }
+  .req { font-weight: 600; }
+  ul.facts, ul.rules { padding-left: 1rem; }
+  ul.facts li, ul.rules li { margin: .1rem 0; }
 </style>
 <main>
 
@@ -25,12 +40,15 @@
 
 <h2>Schemas</h2>
 <ul>
-  <li><a href="schema/view.html?s=pspdx-v1.json">pspdx-v1</a> <span class="dim">— the .pspdx file ·</span> <a href="schema/pspdx-v1.json" class="dim">raw</a></li>
-  <li><a href="schema/view.html?s=catalog-v1.json">catalog-v1</a> <span class="dim">— a catalog of apps ·</span> <a href="schema/catalog-v1.json" class="dim">raw</a></li>
+  <li><a href="schema/pspdx-v1.json">pspdx-v1</a> <span class="dim">— the .pspdx file</span>
+    <details><summary>Fields and rules</summary><div id="pspdx-v1" data-schema="schema/pspdx-v1.json"><p class="dim">Loading…</p></div></details></li>
+  <li><a href="schema/catalog-v1.json">catalog-v1</a> <span class="dim">— a catalog of apps</span>
+    <details><summary>Fields and rules</summary><div id="catalog-v1" data-schema="schema/catalog-v1.json"><p class="dim">Loading…</p></div></details></li>
 </ul>
 
 <h2>Example</h2>
 <p class="dim">Every field of the <a href="https://github.com/chriopter/pspdx-demo">demo app</a>; only <code>schema</code>, <code>source</code> and <code>name</code> are required.</p>
+<details><summary><code>example.pspdx</code></summary>
 <pre><code>{
   "schema":      "https://chriopter.github.io/pspdx/schema/pspdx-v1.json",
   "source":      "https://github.com/chriopter/pspdx-demo",
@@ -43,6 +61,7 @@
   "license":     "MIT",
   "installdir":  "PSP/GAME/PSPDXDemo"
 }</code></pre>
+</details>
 <p class="dim">One more field, <code>listed_by</code>, is set only by a list that serves a .pspdx for a project without one.</p>
 
 <h2>More</h2>
@@ -54,4 +73,5 @@
 </ul>
 
 </main>
+<script src="schema/render.js"></script>
 </html>
