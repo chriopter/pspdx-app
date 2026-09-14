@@ -95,7 +95,7 @@ int inbox_scan(struct catalog *catalog) {
             continue;
         }
         struct app_entry *entry = &catalog->apps[at];
-        if (!sources_same_url(entry->repo, spec.source)) {
+        if (!sources_same_repo(entry->repo, spec.source)) {
             logline("INBOX: identity collision");
             continue;
         }

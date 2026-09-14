@@ -204,7 +204,7 @@ int state_read_manifest(const char *id, char **raw, struct pspdx_file *f) {
     sources_parse_repo(f->source, &repo);
     sources_repo_id(&repo, expected, sizeof(expected));
     struct installed installed;
-    if (strcmp(id, expected) || (db_read(id,&installed)==0 && !sources_same_url(installed.repo,f->source))) {
+    if (strcmp(id, expected) || (db_read(id,&installed)==0 && !sources_same_repo(installed.repo,f->source))) {
         free(*raw);
         *raw = NULL;
         return -1;

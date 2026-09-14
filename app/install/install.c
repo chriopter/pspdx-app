@@ -693,13 +693,13 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
     }
     struct source_repo repo;
     char derived[96];
-    if (!sources_parse_repo(spec.source, &repo) || !sources_same_url(spec.source, m->repo))
+    if (!sources_parse_repo(spec.source, &repo) || !sources_same_repo(spec.source, m->repo))
         return -1;
     sources_repo_id(&repo, derived, sizeof(derived));
     if (strcmp(derived, m->id))
         return -1;
     struct installed existing;
-    if(db_read(m->id,&existing)==0 && !sources_same_url(existing.repo,m->repo))return -1;
+    if(db_read(m->id,&existing)==0 && !sources_same_repo(existing.repo,m->repo))return -1;
     if (!sources_release_url(m->repo, m->url))
         return -1;
     cJSON *j = begin(m->id, m->dir, "install");

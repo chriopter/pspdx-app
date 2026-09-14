@@ -130,6 +130,10 @@ class ClientTests(unittest.TestCase):
   self.write('ms0:/PSP/PSPDX/INSTALLED/io.github.test.other.state.json',other)
   self.assertNotEqual(self.run_client('install',ok=False).returncode,0)
   self.run_client('remove');self.assertEqual(self.state(),{'io.github.test.other':other});self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists())
+ def test_pinned_record_still_updates_from_the_catalog(self):
+  self.fixtures();record=self.state()[ID];record['source']=SPEC['source']+'@v1';self.write(f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json',record)
+  self.assertIn(ID+' 2 1',self.run_client('fetch').stdout);self.assertEqual(self.state()[ID]['latest']['version'],'2')
+  self.run_client('install');self.assertEqual(self.state()[ID]['installed']['version'],'2')
  def test_ef0(self):
   self.run_client('install',DEVICE='ef0:/PSP/GAME/PSPDX/EBOOT.PBP');self.assertTrue((self.root/'ef0:/PSP/PSPDX/INSTALLED/io.github.test.demo.state.json').exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX').exists())
  def test_power_cuts(self):

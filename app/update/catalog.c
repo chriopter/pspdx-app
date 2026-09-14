@@ -672,7 +672,7 @@ int catalog_refused(const char *url) {
 
 int catalog_find_repo(const struct catalog *catalog, const char *url) {
     for (int i = 0; i < catalog->count; i++)
-        if (sources_same_url(catalog->apps[i].repo, url))
+        if (sources_same_repo(catalog->apps[i].repo, url))
             return i;
     return -1;
 }
@@ -792,7 +792,7 @@ int catalog_prepare(struct app_entry *entry) {
         memcpy(entry->release.raw, response, response_len + 1);
     }
     if (pspdx_parse(entry->release.raw, strlen(entry->release.raw), &file, why, sizeof(why)) < 0 ||
-        !sources_same_url(file.source, entry->repo) ||
+        !sources_same_repo(file.source, entry->repo) ||
         strcmp(file.installdir + 9, entry->release.dir)) {
         logline("install: manifest and selected catalog entry disagree; refresh sources");
         entry->release.raw[0] = 0;

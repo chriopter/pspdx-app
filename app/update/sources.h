@@ -69,6 +69,10 @@ int sources_parse_repo(const char *url, struct source_repo *out);
    place. */
 int sources_same_url(const char *a, const char *b);
 
+/* Two URLs that name the same repository, whatever tag either pins: what
+   a record on the stick and a catalog entry are compared by. */
+int sources_same_repo(const char *a, const char *b);
+
 /* The id the repository derives to: io.github.<owner>.<repo>, lower case,
    [a-z0-9] only, so that "Chris-Opter/PSP-Thing" owns io.github.chrisopter.pspthing.
    It names a directory on the stick and never changes. */

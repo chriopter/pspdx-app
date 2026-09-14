@@ -82,6 +82,17 @@ int sources_same_url(const char *a, const char *b) {
     return 1;
 }
 
+/* The same repository, whatever either side pins: a record on the stick
+   and a catalog entry name the app, and the tag one of them carries is
+   not what is being compared. Anything that is not a repository URL is
+   held to sources_same_url. */
+int sources_same_repo(const char *a, const char *b) {
+    struct source_repo ra, rb;
+    if (sources_parse_repo(a, &ra) && sources_parse_repo(b, &rb))
+        return !strcasecmp(ra.owner, rb.owner) && !strcasecmp(ra.name, rb.name);
+    return sources_same_url(a, b);
+}
+
 int sources_load(struct sources *s) {
     memset(s, 0, sizeof(*s));
     if (read_file() < 0) {
