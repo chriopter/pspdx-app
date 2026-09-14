@@ -68,8 +68,8 @@ is a complete example.
 The catalog is only a shortcut. The `.pspdx` is what counts.
 
 ```text
-catalog up    ->  one request: names, releases, artwork from the EBOOT   fast
-catalog gone  ->  saved .pspdx  ->  the app's own repository             still works
+catalog up    ->  PSP reads the catalog       ->  every app, release and artwork in one request
+catalog gone  ->  PSP reads its saved .pspdx  ->  asks each app's own repository
 ```
 
 The catalog is just a bunch of GitHub workflows that build a static page.
