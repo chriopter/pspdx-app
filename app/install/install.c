@@ -460,8 +460,12 @@ static int restore_manifest(cJSON *j) {
     char path[256];
     storage_app_path(js(j, "id"), path, sizeof(path));
     cJSON *old = cJSON_GetObjectItemCaseSensitive(j, "old_manifest");
-    if (cJSON_IsString(old))
+    if (cJSON_IsString(old) && strlen(old->valuestring) <= PSPDX_FILE_MAX)
         return storage_write(path, old->valuestring, strlen(old->valuestring));
+    /* A file larger than a .pspdx can be is one begin() could not read
+       back, and the app would be refused for as long as it sat there. */
+    if (cJSON_IsString(old))
+        logline("recovery: the saved manifest is larger than a .pspdx can be, not restored");
     return storage_remove(path);
 }
 static int recover_journal(cJSON *j) {
