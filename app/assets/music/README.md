@@ -15,7 +15,7 @@ a change to the code can be compared against what was chosen.
 The same code renders to a WAV on the desk:
 
     cd app
-    cc -O2 -I. audio/synth.c audio/music.c audio/cues.c tools/render-music.c -lm -o render
+    cc -O2 -I. audio/synth.c audio/music.c audio/cues.c ../dev/render-music.c -lm -o render
     ./render out.wav 138          # 128 s of tune, then the cues in the tail
     ffmpeg -i out.wav -t 128 -c:a libmp3lame -q:a 4 assets/music/tune.mp3
     ffmpeg -i out.wav -ss 128 -c:a libmp3lame -q:a 4 assets/music/keys.mp3

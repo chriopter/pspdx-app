@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The soak: a hundred customers through the client, one emulator at a time.
 
-    python3 app/tools/soak/run.py --runs 100 --seed 1
-    python3 app/tools/soak/run.py --perf 20
+    python3 dev/soak/run.py --runs 100 --seed 1
+    python3 dev/soak/run.py --perf 20
 
 The first builds the client against the mock catalog on the host, starts that
 catalog, and then for each run re-plants the thirty apps' install state,
@@ -51,8 +51,8 @@ import edge                                             # noqa: E402
 import model                                            # noqa: E402
 import scenarios                                        # noqa: E402
 
-APP = os.path.abspath(os.path.join(HERE, "..", ".."))
-REPO = os.path.abspath(os.path.join(APP, ".."))
+REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+APP = os.path.join(REPO, "app")
 RIG = os.path.join(HERE, "rig.sh")
 RESULTS = os.path.join(HERE, "results")
 HOLD = os.path.join(HERE, "hold.mjs")
@@ -476,7 +476,7 @@ def keep_build():
 def run_rig(secs, keyfile, extra=()):
     env = dict(os.environ, EBOOT=CAMPAIGN_EBOOT)
     return subprocess.Popen(
-        ["sh", os.path.join(APP, "run-ppsspp.sh"), str(secs),
+        ["sh", os.path.join(REPO, "dev", "rig"), str(secs),
          "--keys", keyfile, *extra],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
 

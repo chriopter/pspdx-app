@@ -1,9 +1,9 @@
 #!/bin/sh
-# Runs EBOOT.PBP under the PPSSPP flatpak, without needing a visible desktop,
-# and leaves PSPDX.LOG and every screenshot the client took (shot.png,
-# shot0.png, shot1.png, shot2.png) next to this script.
+# The rig: runs app/EBOOT.PBP under the PPSSPP flatpak, without needing a
+# visible desktop, and leaves PSPDX.LOG and every screenshot the client took
+# (shot.png, shot0.png, shot1.png, shot2.png) next to this script, in dev/.
 #
-#   sh app/run-ppsspp.sh [seconds] [--sweep] [--keys FILE] [--slow [KB/s]]
+#   sh dev/rig [seconds] [--sweep] [--keys FILE] [--slow [KB/s]]
 #
 # --keys FILE scripts input: one "<ms> <key>" per line, counted from the
 # moment the catalog is up; keys are up, down, cross, circle, square,
@@ -18,16 +18,18 @@
 # and be at the catalog a few seconds in. The seed is the string below and
 # obviously not entropy; nothing from a rig run is fit to sign anything.
 #
-# --sweep replays testdata/sweep.trace through the entropy screen instead,
-# for working on that screen. That trace is a hand drawn from /dev/urandom by
-# tools/sweep-trace.py: headings by lot until the screen has its 128 bits,
-# then X, so the screen is over in about six seconds. sweep-full.trace is a
-# human at the stick and what the rate in logic/entropy.h was measured on.
+# --sweep replays dev/testdata/sweep.trace through the entropy screen
+# instead, for working on that screen. That trace is a hand drawn from
+# /dev/urandom by dev/sweep-trace.py: headings by lot until the screen has
+# its 128 bits, then X, so the screen is over in about six seconds.
+# sweep-full.trace is a human at the stick and what the rate in
+# app/logic/entropy.h was measured on.
 # A replayed sweep never writes a seed -- the client refuses, since replayed
 # input is not entropy either -- so the next
 # default run seeds itself again.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
+APP="$(cd "$HERE/../app" && pwd)"
 MS="$HOME/.var/app/org.ppsspp.PPSSPP/config/ppsspp"
 # The client keeps everything a rig hands it or takes from it under one
 # directory on the stick; nothing is left in the root any more.
@@ -56,10 +58,10 @@ if [ -d "$MS/PSP/GAME/pspdx" ] && [ ! -d "$MS/PSP/GAME/PSPDX" ]; then
 	mv "$MS/PSP/GAME/pspdx" "$MS/PSP/GAME/PSPDX"
 fi
 mkdir -p "$MS/PSP/GAME/PSPDX"
-# EBOOT names another build to run instead of the one beside this script:
-# a campaign copies its own aside, so a rebuild in app/ meanwhile -- by a
-# hand, by another agent -- cannot swap the client under it.
-cp "${EBOOT:-$HERE/EBOOT.PBP}" "$MS/PSP/GAME/PSPDX/EBOOT.PBP"
+# EBOOT names another build to run instead of the one in app/: a campaign
+# copies its own aside, so a rebuild in app/ meanwhile -- by a hand, by
+# another agent -- cannot swap the client under it.
+cp "${EBOOT:-$APP/EBOOT.PBP}" "$MS/PSP/GAME/PSPDX/EBOOT.PBP"
 
 # PPSSPP ships the PSP system fonts but does not mount flash0 for the guest,
 # so put one where the client's fallback looks. Test rig only: on hardware the
@@ -73,8 +75,7 @@ fi
 # The films out of a catalog site built next door go into the client's
 # cache, which it consults before any URL, the same way dev/start plants
 # them. That is how the player gets exercised ahead of a deploy.
-APP="$HERE"
-. "$HERE/tools/localcat/common.sh"
+. "$HERE/localcat/common.sh"
 localcat_plant_films "$MS"
 
 mkdir -p "$DBG" "$LOGS" "$MS/PSP/PSPDX/CRYPTO"
@@ -105,13 +106,13 @@ rm -f "$LOGS/pspdx.log" "$DBG/PSPDX.BMP" "$DBG/PSPDX0.BMP" "$DBG/PSPDX1.BMP" \
 # every rig plays the same way.
 INI="$MS/PSP/SYSTEM/ppsspp.ini"
 if [ -f "$INI" ]; then
-	grep -v '^#' "$HERE/../dev/ppsspp/settings" | while IFS='=' read -r key value; do
+	grep -v '^#' "$HERE/ppsspp/settings" | while IFS='=' read -r key value; do
 		key=$(printf '%s' "$key" | sed 's/ *$//'); value=$(printf '%s' "$value" | sed 's/^ *//')
 		[ -n "$key" ] && sed -i "s/^$key = .*/$key = $value/" "$INI"
 	done
 fi
 mkdir -p "$MS/PSP/SYSTEM"
-cp "$HERE/../dev/ppsspp/controls.ini" "$MS/PSP/SYSTEM/controls.ini"
+cp "$HERE/ppsspp/controls.ini" "$MS/PSP/SYSTEM/controls.ini"
 
 # In its own session, so that the kill below reaches the emulator inside
 # the flatpak sandbox and not only the launcher: an instance that survives

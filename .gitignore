@@ -34,6 +34,6 @@ shot-updates.png
 # Python caches
 __pycache__/
 *.py[cod]
-app/shot0.png
-app/shot1.png
-app/shot2.png
+dev/shot0.png
+dev/shot1.png
+dev/shot2.png

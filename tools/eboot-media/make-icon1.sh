@@ -18,7 +18,7 @@
 # FPS=15 about halves the file for a calm clip.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$HERE/../.."
+APP="$HERE/../../app"
 src="$1"
 out="$2"
 start="${3:-0}"
@@ -32,7 +32,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 # Built every time: it is three small files and a second of cc, and a stale
 # binary lying around would be one more thing to keep in step.
-cc -O2 -I"$APP" "$APP/video/mp4.c" "$APP/video/psmf.c" "$APP/tools/mp4-to-psmf.c" -o "$tmp/mp4-to-psmf"
+cc -O2 -I"$APP" "$APP/video/mp4.c" "$APP/video/psmf.c" "$HERE/../mp4-to-psmf.c" -o "$tmp/mp4-to-psmf"
 
 # force_original_aspect_ratio=increase then crop: fill the frame, cut the
 # overhang, never letterbox. -bf 0 and the baseline profile mean every

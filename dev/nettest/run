@@ -3,22 +3,26 @@
 # same five megabytes, runs the test in PPSSPP, and prints what it logged.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$(cd "$HERE/../.." && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"
+APP="$REPO/app"
 MS="$HOME/.var/app/org.ppsspp.PPSSPP/config/ppsspp"
 LOG="$MS/PSP/PSPDX/LOGS/pspdx.log"
 
 # The CA, the loopback certificate and the header that makes the test trust
-# that CA alone are tools/localcat's; the header is copied here because the
+# that CA alone are dev/localcat's; the header is copied here because the
 # Makefile forces it in by name. The five megabytes are served from the same
 # work directory, made once out of noise so nothing along the way can
 # compress them.
-. "$APP/tools/localcat/common.sh"
+. "$HERE/../localcat/common.sh"
 localcat_certs
 cp "$WORK/testca.h" "$HERE/testca.h"
 [ -f "$WORK/5MB.bin" ] || head -c 5242880 /dev/urandom >"$WORK/5MB.bin"
 
-(cd "$APP" && docker run --rm -v "$PWD:/src" -w /src/tools/nettest pspdev/pspdev:latest \
-	sh -c 'rm -f *.o ../../network/https.o ../../util/runtime.o ../../logic/entropy.o; make' 2>&1 | grep -E 'error|EBOOT' || true)
+# The repository is mounted whole: the test's objects are its own, but the
+# app's three are built in app/ against the test CA, which is why they go
+# and are rebuilt below.
+(cd "$REPO" && docker run --rm -v "$PWD:/src" -w /src/dev/nettest pspdev/pspdev:latest \
+	sh -c 'rm -f *.o ../../app/network/https.o ../../app/util/runtime.o ../../app/logic/entropy.o; make' 2>&1 | grep -E 'error|EBOOT' || true)
 [ -f "$HERE/EBOOT.PBP" ] || { echo "no EBOOT" >&2; exit 1; }
 # The app's objects were built with the test CA; make sure the app rebuilds
 # them with the real one next time.

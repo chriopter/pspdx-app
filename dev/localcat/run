@@ -4,13 +4,13 @@
 # the published catalog's own assets under forty ids, runs the rig with the
 # arguments given, and rebuilds the client for the real catalog afterwards.
 #
-#   sh tools/localcat/run [rig arguments]
+#   sh dev/localcat/run [rig arguments]
 #
 # The work directory, the CA and the two builds are common.sh's; dev/start
 # --mock uses the same ones for a mixed catalog on the desk.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$(cd "$HERE/../.." && pwd)"
+APP="$(cd "$HERE/../../app" && pwd)"
 . "$HERE/common.sh"
 mkdir -p "$WORK/site"
 
@@ -31,7 +31,7 @@ SRV=$!
 sleep 1
 trap 'kill $SRV 2>/dev/null' EXIT
 
-sh "$APP/run-ppsspp.sh" "$@" || true
+sh "$HERE/../rig" "$@" || true
 
 # Back to the real catalog.
 localcat_build_real

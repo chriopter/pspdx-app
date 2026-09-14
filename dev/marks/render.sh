@@ -1,5 +1,5 @@
 #!/bin/sh
-# Rasterises assets/marks/src/*.svg into the PNGs the atlas is built from.
+# Rasterises app/assets/marks/src/*.svg into the PNGs the atlas is built from.
 #
 # Two files come out of each source. The glyph is the drawing at its own
 # size, white, with the anti-aliasing in the alpha -- the SVG's width and
@@ -13,7 +13,7 @@
 # The blur is done at four times the size and scaled back down, so the
 # falloff is smooth rather than quantised to the sigma of a 13-pixel image.
 #
-#     sh tools/marks/render.sh        # from app/, then tools/marks/embed.py
+#     sh dev/marks/render.sh          # then python3 dev/marks/embed.py
 #
 # Needs rsvg-convert and ImageMagick. Neither the build nor the generator
 # needs them: the PNGs and the header are committed.
@@ -21,7 +21,7 @@
 set -e
 
 here=$(dirname "$0")
-marks=$(cd "$here/../../assets/marks" && pwd)
+marks=$(cd "$here/../../app/assets/marks" && pwd)
 src="$marks/src"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

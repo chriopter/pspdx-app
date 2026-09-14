@@ -3,7 +3,7 @@
    Loopback is faster than any radio, so what this measures is the cost of
    the stack and the cipher on the CPU, with nothing else in the way.
 
-   Runs in PPSSPP through tools/nettest/run, which also starts the servers
+   Runs in PPSSPP through dev/nettest/run, which also starts the servers
    and reads the numbers back out of the log. */
 
 #include <pspkernel.h>

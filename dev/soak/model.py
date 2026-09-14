@@ -28,7 +28,7 @@ import os
 import random
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 # ----------------------------------------------------------------- buttons
 

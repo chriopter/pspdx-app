@@ -1,13 +1,14 @@
 #!/bin/sh
 set -eu
-APP=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+APP=$(CDPATH= cd -- "$HERE/../app" && pwd)
 TEST_WORK=$(mktemp -d)
 trap 'rm -rf "$TEST_WORK"' EXIT HUP INT TERM
 cc -g -O1 -fsanitize=address,undefined -Wno-deprecated-declarations \
-  -I"$APP/tests/host" -I"$APP" \
-  "$APP/tests/host/io.c" "$APP/tests/host/main.c" \
+  -I"$HERE/host" -I"$APP" \
+  "$HERE/host/io.c" "$HERE/host/main.c" \
   "$APP/util/storage.c" "$APP/install/state.c" "$APP/install/install.c" \
   "$APP/install/zipread.c" "$APP/update/sources.c" "$APP/update/pspdx.c" \
   "$APP/update/catalog.c" "$APP/update/inbox.c" "$APP/session/view.c" \
   -lcjson -lz -lcrypto -o "$TEST_WORK/client"
-PSPDX_TEST_BIN="$TEST_WORK/client" python3 "$APP/tests/test_client.py" -v
+PSPDX_TEST_BIN="$TEST_WORK/client" python3 "$HERE/test_client.py" -v

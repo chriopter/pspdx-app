@@ -13,7 +13,7 @@
 #   dev/start --slow     the network held to a PSP-1004's 180 KB/s (802.11b)
 #   dev/start --mock     a made-up catalog of thirty served from the host
 #
-# --mock builds the client against tools/localcat's throwaway CA and a
+# --mock builds the client against dev/localcat's throwaway CA and a
 # loopback catalog URL, has dev/mock-catalog generate thirty entries out of
 # the three published apps' assets, plants db records so a third of the rows
 # are installed and a third have an update waiting, and serves the lot over
@@ -53,7 +53,7 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
-. "$APP/tools/localcat/common.sh"
+. "$HERE/dev/localcat/common.sh"
 
 if [ "$MOCK" = 1 ]; then
 	python3 "$HERE/dev/mock-catalog" make --work "$WORK" --ms "$MS" --url "$LOCALCAT_URL"

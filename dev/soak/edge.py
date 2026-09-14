@@ -19,7 +19,7 @@ A scenario is a function returning a Scenario:
                 do: four hundred presses in twenty seconds
     timeline    (host seconds after the catalog is up, what to do) -- the
                 server stopped mid-run, a fault turned off again
-    extra_args  run-ppsspp.sh's, for --slow
+    extra_args  dev/rig's, for --slow
     extra_s     emulator seconds past the end of the key script, for the
                 installs that take minutes
     oracle      what the log must say and the stick must look like
@@ -33,8 +33,8 @@ a `down` and a `shot` -- reached it, PSPDX1.BMP is there, and unless the
 scenario says otherwise the stick is whole: every record has its directory,
 every directory has its record, no staging tree and no .old left behind.
 
-    python3 app/tools/soak/run.py --edge 30
-    python3 app/tools/soak/run.py --edge 1 --only zip-2000-files
+    python3 dev/soak/run.py --edge 30
+    python3 dev/soak/run.py --edge 1 --only zip-2000-files
 """
 
 import hashlib

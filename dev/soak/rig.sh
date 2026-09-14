@@ -1,5 +1,5 @@
 #!/bin/sh
-# The shell half of the soak harness: everything that wants tools/localcat's
+# The shell half of the soak harness: everything that wants dev/localcat's
 # work directory, its throwaway CA and its two builds. run.py calls this and
 # nothing else; the knowledge of where the memory stick is and which EBOOT is
 # on it stays in one place, which is common.sh.
@@ -14,17 +14,18 @@
 #   rig.sh paths        WORK and MS, one per line, for run.py to read
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$(cd "$HERE/../.." && pwd)"
-REPO="$(cd "$APP/.." && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"
+APP="$REPO/app"
 MS="$HOME/.var/app/org.ppsspp.PPSSPP/config/ppsspp"
-. "$APP/tools/localcat/common.sh"
+. "$HERE/../localcat/common.sh"
 
 # A port and a unit of the soak's own. The work directory, the CA and the
-# EBOOT are already private -- they live under this worktree's app/ -- but
-# port 8443 and the unit called pspdx-mock-server are not: dev/start --mock
-# takes them, and a dev/start without --mock stops that unit, which would
-# pull the catalog out from under a campaign halfway through. So the soak
-# serves its own catalog somewhere else and leaves the desk's alone.
+# EBOOT are already private -- they live under this worktree's dev/ and
+# app/ -- but port 8443 and the unit called pspdx-mock-server are not:
+# dev/start --mock takes them, and a dev/start without --mock stops that
+# unit, which would pull the catalog out from under a campaign halfway
+# through. So the soak serves its own catalog somewhere else and leaves the
+# desk's alone.
 LOCALCAT_PORT=8444
 LOCALCAT_URL="https://127.0.0.1:$LOCALCAT_PORT/catalog.json"
 SOAK_UNIT=pspdx-soak-server
@@ -57,7 +58,7 @@ soak_plant_sources() {
 		if [ -f "$SOURCES" ]; then cp "$SOURCES" "$SOURCES_KEPT"
 		else : > "$SOURCES_KEPT.absent"; fi
 	fi
-	printf '# sources.txt -- written by app/tools/soak/rig.sh for a campaign\n%s\n' \
+	printf '# sources.txt -- written by dev/soak/rig.sh for a campaign\n%s\n' \
 		"$LOCALCAT_URL" > "$SOURCES"
 }
 
@@ -90,7 +91,7 @@ case "$1" in
 		# ends that session: an emulator the user opened is theirs to
 		# close, and a campaign that finds one waits and says so. Only
 		# what a run of this rig started itself is its own to stop, and
-		# run-ppsspp.sh does that when its seconds are up.
+		# dev/rig does that when its seconds are up.
 		if pgrep -x PPSSPPSDL >/dev/null 2>&1; then echo busy; else echo idle; fi
 		;;
 	clean)   mock clean; soak_restore_sources ;;

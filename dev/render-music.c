@@ -1,7 +1,7 @@
 /* Renders the tune and the interface cues to a WAV on the desk, with the
    same code the PSP runs:
 
-     cc -O2 -I. audio/synth.c audio/music.c audio/cues.c tools/render-music.c -lm
+     cd app && cc -O2 -I. audio/synth.c audio/music.c audio/cues.c ../dev/render-music.c -lm
      ./a.out music.wav [seconds]
 
    The tail carries the cues: a scroll down five rows, an open, a done, a

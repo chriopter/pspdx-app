@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # Writes a stick trace for the entropy screen: { u8 lx, u8 ly, u16 buttons }
-# per frame, as run-ppsspp.sh --sweep replays it. The hand is /dev/urandom:
+# per frame, as dev/rig --sweep replays it. The hand is /dev/urandom:
 # a heading and a deflection drawn by lot, held for a frame or a few with the
 # stick trembling, until the screen's own rule -- a bit for new ground
 # reached under a new heading, eight headings -- has paid 128 and a few
 # over for the client's float arithmetic, then X.
 #
-#   python3 app/tools/sweep-trace.py app/testdata/sweep.trace
+#   python3 dev/sweep-trace.py dev/testdata/sweep.trace
 #
 # A replayed trace is public input, so this is a development aid and the
 # client refuses it a seed; it only has to get the screen over with quickly.
