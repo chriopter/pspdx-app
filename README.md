@@ -3,6 +3,10 @@
 **PSP Download Index** — browse, install and update homebrew directly
 on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspdx/releases/latest)**
 
+<img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="images/pspdx-app.webp" />
+
+[The same as a video](images/pspdx-app.mp4) (480×272, 34 s).
+
 ## How to use
 
 Just install, start and install homebrew! Updates are shown automatically.
@@ -13,10 +17,6 @@ connection. Extract
 of your Memory Stick.
 
 The app is untested on real hardware so far.
-
-<img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="images/pspdx-app.webp" />
-
-[The same as a video](images/pspdx-app.mp4) (480×272, 34 s).
 
 ## How it works
 
