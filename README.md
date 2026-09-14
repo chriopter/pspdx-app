@@ -47,6 +47,91 @@ publish a release. Open-source apps can be added to the
 [main catalog](https://github.com/chriopter/pspdx-catalog); or start your
 own catalog and share the link.
 
+## The PSPDX standard
+
+Add a `.pspdx` to your repository to make your homebrew installable and
+updatable through PSPDX; the [demo app](https://github.com/chriopter/pspdx-demo)
+is a complete example.
+
+```json
+{
+  "schema":     "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
+  "source":     "https://github.com/chriopter/psp-cathedral",
+  "name":       "Lux Aeterna",
+  "author":     "chriopter",
+  "summary":    "Ten churches, and the sun through their glass.",
+  "category":   "demo",
+  "license":    "BSD-3-Clause",
+  "installdir": "PSP/GAME/Cathedral"
+}
+```
+
+<details>
+<summary>Format specification — fields, releases and catalogs</summary>
+
+Version 1: a GitHub repository with a root `.pspdx` and a published release
+containing exactly one ZIP with one `EBOOT.PBP`. Releases supply versions
+and downloads; EBOOTs supply media. No manifest edit is needed per release.
+
+[Manifest schema](schema/v1.pspdx) · [Catalog schema](schema/catalog-v1.json).
+The manifest's `schema` identifies its version; unknown fields are rejected.
+
+| Field | Rule | Default if omitted |
+|---|---|---|
+| `schema` | Required; the exact v1 schema URL | — |
+| `source` | Required; an HTTPS GitHub repository URL | — |
+| `name` | Required; 1–39 characters | — |
+| `category` | Required; `game`, `emulator`, `app`, `plugin` or `demo` | — |
+| `installdir` | Required; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.`, `..` or `.pspdx-stage` | — |
+| `author` | Up to 39 characters | Repository owner |
+| `summary` | Up to 60 characters | Repository description |
+| `license` | SPDX identifier, up to 64 characters | Repository license metadata |
+
+Version 1 installs only under `PSP/GAME/`. A plugin requiring `seplugins`
+and changes to `plugins.txt` needs a different installation contract.
+A future incompatible manifest format gets a new schema URL.
+
+Release information is derived, never duplicated in the manifest:
+
+| Value | Source |
+|---|---|
+| `id` | `io.github.<owner>.<repo>`; owner and repository lowercased and stripped to `[a-z0-9]`. A later entry with a colliding identity is dropped. |
+| `version` | Release tag with its leading `v` removed |
+| `rev` | Release `published_at`, in Unix seconds; a higher value signals an update |
+| Download URL and size | The release's single ZIP asset |
+| SHA-256 | The downloaded ZIP, hashed by the catalog builder |
+| Package contents | The directory containing the ZIP's single `EBOOT.PBP`, including its files and subdirectories |
+| Media | `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3` inside the EBOOT; all optional |
+
+The default source lookup uses GitHub's latest published, non-prerelease
+release. A text list can pin a repository to a release tag:
+
+```text
+cache https://chriopter.github.io/pspdx-catalog/catalog.json
+https://github.com/chriopter/pspdx-demo
+https://github.com/someone/project@v1.2
+```
+
+Each list contains one repository URL per line. Its optional `cache` line
+names an aggregated catalog. `catalog.json` contains `schema`, `generated_at`
+and an `apps` array. Each app carries `id`, `source`, `name`, `author`,
+`summary`, `category`, `license`, `installdir` and `release`: the original
+`tag`, `published_at` and a `download` object with `url`, `size` and `sha256`.
+Optional `media` holds `icon`, `screenshot`, `video` and `sound` URLs.
+Relative media URLs resolve against the catalog URL. `generated_at` is the
+snapshot publication time, even if individual apps failed to build. The
+client tolerates entries without `author`, `summary`, `license` or `sha256`.
+
+The [catalog schema](schema/catalog-v1.json) uses the identifier
+`https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json`.
+
+The reference builder checks releases hourly, reuses unchanged entries and
+publishes a fresh snapshot each hour. Manifest-only edits require a new
+release or a forced catalog rebuild. Anyone can reuse the builder or publish
+a different catalog; the client retains installed apps independently.
+
+</details>
+
 ## In detail
 
 <details>
@@ -235,91 +320,6 @@ under `GAME/` because PSP directory renames require the same parent. Keep
 `INSTALLED/` for updates; `CACHE/` is disposable. Do not delete a pending
 transaction's files. Only per-app state files are loaded; older combined
 state files are ignored. Corrupt app records are preserved and block writes.
-
-</details>
-
-## The PSPDX standard
-
-Add a `.pspdx` to your repository to make your homebrew installable and
-updatable through PSPDX; the [demo app](https://github.com/chriopter/pspdx-demo)
-is a complete example.
-
-```json
-{
-  "schema":     "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
-  "source":     "https://github.com/chriopter/psp-cathedral",
-  "name":       "Lux Aeterna",
-  "author":     "chriopter",
-  "summary":    "Ten churches, and the sun through their glass.",
-  "category":   "demo",
-  "license":    "BSD-3-Clause",
-  "installdir": "PSP/GAME/Cathedral"
-}
-```
-
-<details>
-<summary>Format specification — fields, releases and catalogs</summary>
-
-Version 1: a GitHub repository with a root `.pspdx` and a published release
-containing exactly one ZIP with one `EBOOT.PBP`. Releases supply versions
-and downloads; EBOOTs supply media. No manifest edit is needed per release.
-
-[Manifest schema](schema/v1.pspdx) · [Catalog schema](schema/catalog-v1.json).
-The manifest's `schema` identifies its version; unknown fields are rejected.
-
-| Field | Rule | Default if omitted |
-|---|---|---|
-| `schema` | Required; the exact v1 schema URL | — |
-| `source` | Required; an HTTPS GitHub repository URL | — |
-| `name` | Required; 1–39 characters | — |
-| `category` | Required; `game`, `emulator`, `app`, `plugin` or `demo` | — |
-| `installdir` | Required; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.`, `..` or `.pspdx-stage` | — |
-| `author` | Up to 39 characters | Repository owner |
-| `summary` | Up to 60 characters | Repository description |
-| `license` | SPDX identifier, up to 64 characters | Repository license metadata |
-
-Version 1 installs only under `PSP/GAME/`. A plugin requiring `seplugins`
-and changes to `plugins.txt` needs a different installation contract.
-A future incompatible manifest format gets a new schema URL.
-
-Release information is derived, never duplicated in the manifest:
-
-| Value | Source |
-|---|---|
-| `id` | `io.github.<owner>.<repo>`; owner and repository lowercased and stripped to `[a-z0-9]`. A later entry with a colliding identity is dropped. |
-| `version` | Release tag with its leading `v` removed |
-| `rev` | Release `published_at`, in Unix seconds; a higher value signals an update |
-| Download URL and size | The release's single ZIP asset |
-| SHA-256 | The downloaded ZIP, hashed by the catalog builder |
-| Package contents | The directory containing the ZIP's single `EBOOT.PBP`, including its files and subdirectories |
-| Media | `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3` inside the EBOOT; all optional |
-
-The default source lookup uses GitHub's latest published, non-prerelease
-release. A text list can pin a repository to a release tag:
-
-```text
-cache https://chriopter.github.io/pspdx-catalog/catalog.json
-https://github.com/chriopter/pspdx-demo
-https://github.com/someone/project@v1.2
-```
-
-Each list contains one repository URL per line. Its optional `cache` line
-names an aggregated catalog. `catalog.json` contains `schema`, `generated_at`
-and an `apps` array. Each app carries `id`, `source`, `name`, `author`,
-`summary`, `category`, `license`, `installdir` and `release`: the original
-`tag`, `published_at` and a `download` object with `url`, `size` and `sha256`.
-Optional `media` holds `icon`, `screenshot`, `video` and `sound` URLs.
-Relative media URLs resolve against the catalog URL. `generated_at` is the
-snapshot publication time, even if individual apps failed to build. The
-client tolerates entries without `author`, `summary`, `license` or `sha256`.
-
-The [catalog schema](schema/catalog-v1.json) uses the identifier
-`https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json`.
-
-The reference builder checks releases hourly, reuses unchanged entries and
-publishes a fresh snapshot each hour. Manifest-only edits require a new
-release or a forced catalog rebuild. Anyone can reuse the builder or publish
-a different catalog; the client retains installed apps independently.
 
 </details>
 
