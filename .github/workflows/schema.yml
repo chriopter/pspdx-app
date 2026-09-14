@@ -46,6 +46,7 @@ jobs:
           mkdir -p site/schema
           cp schema/*.json site/schema/
           cp schema/index.html site/index.html
+          cp schema/view.html site/schema/view.html
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

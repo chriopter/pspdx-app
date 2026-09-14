@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PSPDX schema</title>
+<style>
+  :root { --bg: #fff; --fg: #111; --dim: #666; --box: #f4f4f4; --rule: #e3e3e3; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; --dim: #999; --box: #1d1d1d; --rule: #2c2c2c; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.05rem; margin: 2.5rem 0 .5rem; }
+  p { margin: 0 0 1rem; max-width: 70ch; }
+  a { color: inherit; }
+  .dim { color: var(--dim); }
+  code { font: .88em ui-monospace, Menlo, Consolas, monospace; background: var(--box); padding: .05em .3em; border-radius: 3px; overflow-wrap: anywhere; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 40rem; }
+  th, td { text-align: left; vertical-align: top; padding: .55rem .6rem; border-bottom: 1px solid var(--rule); }
+  th { font-size: .85rem; color: var(--dim); font-weight: 600; }
+  td.name { white-space: nowrap; }
+  .req { font-size: .8rem; font-weight: 600; }
+  .opt { font-size: .8rem; color: var(--dim); }
+  ul.facts { margin: 0; padding-left: 1.1rem; }
+  ul.facts li { margin: .1rem 0; }
+  ul.rules { padding-left: 1.2rem; }
+  nav { font-size: .95rem; margin-bottom: 2rem; }
+</style>
+<main>
+<nav><a href="../">← PSPDX standard</a> · <a id="raw" href="#">raw JSON</a></nav>
+<h1 id="title">Schema</h1>
+<p id="lede" class="dim"></p>
+<div id="out"><p class="dim">Loading…</p></div>
+</main>
+<script>
+// Reads a schema and writes it out for people: every object as a table of its
+// fields, with what is required, what values are allowed and what the rules
+// between fields say. Nothing here is written by hand, so the page cannot
+// drift from the file.
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const code = v => `<code>${esc(typeof v === "string" ? v : JSON.stringify(v))}</code>`;
+const list = a => a.map(code).join(", ");
+const name = new URLSearchParams(location.search).get("s") || "pspdx-v1.json";
+const file = name.replace(/[^A-Za-z0-9._-]/g, "");
+
+// The patterns that only keep out control characters or ask for https say
+// so in words; any other pattern is shown as it is written.
+const SAID = {
+  "^[^\\u0000-\\u001f]*(?![\\s\\S])": "no control characters",
+  "^[^\\u0000-\\u0009\\u000b-\\u001f]*(?![\\s\\S])": "no control characters except a newline",
+  "^https://[^\\u0000-\\u001f]+(?![\\s\\S])": "an https:// address",
+  "^https://": "an https:// address",
+  "^[0-9a-f]{64}(?![\\s\\S])": "64 lowercase hex digits",
+  "^[0-9a-f]{32}(?![\\s\\S])": "32 lowercase hex digits",
+};
+function said(pattern) { return SAID[pattern] || `matches ${code(pattern)}`; }
+
+function strip(desc) { return (desc || "").replace(/^(required|optional);\s*/i, ""); }
+
+function typeOf(p, root) {
+  if (p.$ref) return `object <a href="#${esc(p.$ref.split("/").pop())}">${esc(p.$ref.split("/").pop())}</a>`;
+  if (p.const !== undefined) return "fixed value";
+  if (p.enum) return "one of";
+  if (p.type === "array") return `list of ${p.items ? typeOf(p.items, root) : "values"}`;
+  if (p.type === "object" && p.properties) return "object, below";
+  return esc(p.type || (p.anyOf ? "string" : "any"));
+}
+
+function facts(p) {
+  const f = [];
+  if (p.const !== undefined) f.push(`exactly ${code(p.const)}`);
+  if (p.enum) f.push(list(p.enum));
+  if (p.default !== undefined) f.push(`default ${code(p.default)}`);
+  const len = (lo, hi, unit) => {
+    if (lo !== undefined && hi !== undefined) return lo === hi ? `${lo} ${unit}` : `${lo}–${hi} ${unit}`;
+    if (hi !== undefined) return `up to ${hi} ${unit}`;
+    if (lo !== undefined) return `at least ${lo} ${unit}`;
+  };
+  const l = len(p.minLength, p.maxLength, "characters"); if (l) f.push(l);
+  const n = len(p.minItems, p.maxItems, "entries"); if (n) f.push(n);
+  if (p.uniqueItems) f.push("no duplicates");
+  if (p.minimum !== undefined) f.push(`at least ${p.minimum}`);
+  if (p.format) f.push(`format ${code(p.format)}`);
+  if (p.pattern) f.push(said(p.pattern));
+  if (p.anyOf) f.push("either " + p.anyOf.map(a => [a.format && `format ${code(a.format)}`, a.pattern && `matching ${code(a.pattern)}`].filter(Boolean).join(" ")).join("<br>or "));
+  if (p.if && p.then) f.push(`if it ${cond(p.if)}, then it also ${cond(p.then)}`);
+  if (p.items && p.items.type !== "object" && !p.items.$ref) {
+    const inner = facts(p.items); if (inner.length) f.push("each: " + inner.join("; "));
+  }
+  return f;
+}
+
+// The few shapes of condition the PSPDX schemas use, said in words; anything
+// else is shown as JSON rather than guessed at.
+function cond(c) {
+  const parts = [];
+  if (c.pattern) parts.push(`matches ${code(c.pattern)}`);
+  if (c.not && c.not.pattern) parts.push(`does not match ${code(c.not.pattern)}`);
+  if (c.required) parts.push(`has ${list(c.required)}`);
+  if (c.not && c.not.required) parts.push(`has no ${list(c.not.required)}`);
+  if (c.anyOf) parts.push(c.anyOf.map(cond).join(" or "));
+  if (c.properties) for (const [k, v] of Object.entries(c.properties)) {
+    if (v.enum) parts.push(`${code(k)} is one of ${list(v.enum)}`);
+    else if (v.const !== undefined) parts.push(`${code(k)} is ${code(v.const)}`);
+    else if (v.not && v.not.pattern) parts.push(`${code(k)} does not match ${code(v.not.pattern)}`);
+    else if (v.pattern) parts.push(`${code(k)} matches ${code(v.pattern)}`);
+  }
+  return parts.length ? parts.join(" and ") : code(c);
+}
+
+function rules(obj) {
+  return (obj.allOf || []).map(r => {
+    if (r.if) return `<li>If the entry ${cond(r.if)}, then it ${cond(r.then)}${r.else ? `; otherwise it ${cond(r.else)}` : ""}.</li>`;
+    return `<li>${code(r)}</li>`;
+  }).join("");
+}
+
+function table(id, obj, heading) {
+  const req = new Set(obj.required || []);
+  let html = `<h2 id="${esc(id)}">${heading}</h2>`;
+  if (obj.description) html += `<p class="dim">${esc(strip(obj.description))}</p>`;
+  html += `<div class="scroll"><table><tr><th>Field</th><th></th><th>Type</th><th>Allowed</th><th>Meaning</th></tr>`;
+  const nested = [];
+  for (const [k, p] of Object.entries(obj.properties || {})) {
+    const f = facts(p);
+    html += `<tr><td class="name">${code(k)}</td><td>${req.has(k) ? '<span class="req">required</span>' : '<span class="opt">optional</span>'}</td>` +
+            `<td>${typeOf(p)}</td><td>${f.length ? `<ul class="facts">${f.map(x => `<li>${x}</li>`).join("")}</ul>` : ""}</td>` +
+            `<td>${esc(strip(p.description))}</td></tr>`;
+    if (p.type === "object" && p.properties) nested.push([`${id}-${k}`, p, `${code(k)} in ${esc(heading.replace(/<[^>]+>/g, ""))}`]);
+  }
+  html += `</table></div>`;
+  const r = rules(obj); if (r) html += `<p><strong>Rules</strong></p><ul class="rules">${r}</ul>`;
+  html += `<p class="dim">${obj.additionalProperties === false ? "Fields not listed here are rejected." : "Fields not listed here are allowed and ignored."}</p>`;
+  for (const [nid, p, h] of nested) html += table(nid, p, h);
+  return html;
+}
+
+fetch(file).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(s => {
+  document.title = `${s.title || file} · PSPDX`;
+  document.getElementById("title").textContent = s.title || file;
+  document.getElementById("raw").href = file;
+  document.getElementById("lede").innerHTML = `${code(file)} · ${esc(s.$id || "")}`;
+  let html = table("top", s, "Top level");
+  for (const [k, d] of Object.entries(s.$defs || {})) if (d.properties) html += table(k, d, code(k));
+  document.getElementById("out").innerHTML = html;
+}).catch(e => {
+  document.getElementById("out").innerHTML = `<p>Could not read ${code(file)} (${esc(e.message)}).</p>`;
+});
+</script>
+</html>
