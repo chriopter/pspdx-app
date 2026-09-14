@@ -347,8 +347,10 @@ static void fill_installed(struct file_view *v) {
         if (state_read_manifest(id, &raw, &f) >= 0) snprintf(r->name, sizeof(r->name), "%.39s", f.name);
         else snprintf(r->name, sizeof(r->name), "%.39s", id);
         free(raw);
-        if (db_read(id, &rec) == 0) snprintf(r->detail, sizeof(r->detail), "%.23s", rec.version);
-        else r->detail[0] = '\0';
+        if (db_read(id, &rec) == 0) {
+            snprintf(r->detail, sizeof(r->detail), "%.23s", rec.version);
+            pspdx_utf8_mend(r->detail);
+        } else r->detail[0] = '\0';
         snprintf(g_id[v->count], sizeof(g_id[0]), "%s", id);
         v->count++;
     }

@@ -60,6 +60,7 @@ void ask_install(int index) {
     } else {
         snprintf(line, sizeof(line), T_INSTALL_LINE_NOSIZE, version);
     }
+    pspdx_utf8_mend(line);
     struct installed previous;
     int recorded = db_read(entry->id, &previous) == 0;
     /* Something already under the name the release wants, and not this
@@ -195,10 +196,12 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
        until the console loads the new, so that is offered as soon as
        nothing else is being asked. */
     if (g_question == ASK_NOTHING) {
-        char version[32];
+        /* Twenty bytes of the version at most, and never half a letter. */
+        char version[21];
         int of = restart_take(version, sizeof(version));
         if (of >= 0) {
             char line[64];
+            pspdx_utf8_mend(version);
             snprintf(line, sizeof(line), T_RESTART_LINE, version);
             shell_ask(T_RESTART_ASK, line);
             g_question = ASK_RESTART;

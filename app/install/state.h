@@ -13,6 +13,8 @@ int state_commit(const struct manifest *m, const char *dir, const unsigned char 
 int state_forget(const char *id);
 int state_count(void);
 const char *state_id(int index);
+/* The record's latest release into m, which is zeroed first and so must hold
+   no text of its own. */
 int state_latest(const char *id, struct manifest *m);
 int state_note_latest(const struct manifest *m);
 int state_read_manifest(const char *id, char **raw, struct pspdx_file *file);

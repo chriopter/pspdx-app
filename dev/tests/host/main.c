@@ -146,8 +146,8 @@ int main(int argc, char **argv) {
         int n = storage_read("manifest.json", &raw, PSPDX_FILE_MAX);
         if (n < 0 || pspdx_parse(raw, n, &spec, why, sizeof(why)) < 0)
             return 2;
-        memcpy(m.raw, raw, n + 1);
-        free(raw);
+        /* The text is the manifest's until the install is over. */
+        m.raw = raw;
         struct source_repo repo;
         sources_parse_repo(spec.source, &repo);
         sources_repo_id(&repo, m.id, sizeof(m.id));
@@ -166,6 +166,7 @@ int main(int argc, char **argv) {
         struct install_report report;
         host_fault(argc > 2 ? atol(argv[2]) : 0);
         int rc = install_release(&m, &report, NULL, NULL, NULL);
+        manifest_forget(&m);
         printf("%d %u\n", rc, host_operations());
         return rc < 0 ? 1 : 0;
     }

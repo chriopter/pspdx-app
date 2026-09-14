@@ -75,7 +75,7 @@
 #define T_MENU_RESTART       "Restart"
 #define T_MENU_INSTALL       "Install"
 #define T_MENU_REINSTALL     "Reinstall"
-#define T_MENU_UPDATE        "Update to %.20s"                    /* version */
+#define T_MENU_UPDATE        "Update to %s"                       /* version, at most 20 bytes */
 #define T_MENU_DELETE        "Delete"
 #define T_MENU_BASKET_IN     "Add to"                             /* then the basket mark */
 #define T_MENU_BASKET_OUT    "Remove from"                        /* then the basket mark */
@@ -107,7 +107,7 @@
 #define T_RUN_ASK            "Do you want to start %.40s?"        /* name */
 #define T_RUN_LINE           "PSPDX will close."
 #define T_RESTART_ASK        "Do you want to restart PSPDX now?"
-#define T_RESTART_LINE       "Version %.20s takes effect after restarting." /* version */
+#define T_RESTART_LINE       "Version %s takes effect after restarting." /* version, at most 20 bytes */
 #define T_RESTART_LATER      "Restart PSPDX to finish the update."
 #define T_INBOX_ASK          "Do you want to install %d apps from INBOX?" /* n */
 #define T_SOURCE_DELETE_ASK  "Do you want to delete this source?"
@@ -205,7 +205,7 @@
 #define T_DETAIL_SIZE        "Size"
 #define T_DETAIL_ID          "ID"
 #define T_DETAIL_CHECKED     "Last checked"
-#define T_DETAIL_UPDATE      "%.31s, %.31s available"             /* installed, published */
+#define T_DETAIL_UPDATE      "%s, %s available"                   /* installed, published */
 #define T_DETAIL_INSTALLED   "%s (installed)"                     /* version */
 #define T_DETAIL_SAVED       "Saved "
 #define T_DETAIL_THIS_SESSION "This session"

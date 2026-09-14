@@ -97,7 +97,7 @@ static void install_progress(void *ctx, size_t done, size_t total) {
 /* Set when PSPDX has replaced itself: the loop asks to restart once the
    install that did it, or the batch it was the last of, is over. */
 static int g_restart_of = -1;
-static char g_restart_version[32];
+static char g_restart_version[VERSION_SIZE];
 
 int restart_take(char *version, size_t size) {
     int of = g_restart_of;
@@ -145,7 +145,9 @@ int install_app(int index, int screenshot, int at, int of) {
     sceKernelChangeThreadPriority(self, 0x20);
     preview_resume();
 
-    char message[96];
+    /* A name and a version of 64 characters whole; the status line cuts it
+       to its own room, between letters. */
+    char message[sizeof(entry->name) + VERSION_SIZE + 64];
     if (rc == 0) {
         entry->state = APP_CURRENT;
         entry->local_rev = report.rev;
@@ -163,6 +165,7 @@ int install_app(int index, int screenshot, int at, int of) {
         } else {
             snprintf(message, sizeof(message), T_INSTALLED, entry->name, report.version);
         }
+        pspdx_utf8_mend(message);
         logline("installed %s %s: %d files, %luK, %us", entry->name, report.version,
                 report.files, (unsigned long)(report.bytes / 1024), seconds);
     } else if (rc == INSTALL_CANCELLED) {

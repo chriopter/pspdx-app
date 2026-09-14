@@ -72,6 +72,22 @@ int manifest_has_sha256(const struct manifest *m) {
     return 0;
 }
 
+int manifest_keep_raw(struct manifest *m, const char *text, size_t len) {
+    char *copy = malloc(len + 1);
+    manifest_forget(m);
+    if (!copy)
+        return -1;
+    memcpy(copy, text, len);
+    copy[len] = '\0';
+    m->raw = copy;
+    return 0;
+}
+
+void manifest_forget(struct manifest *m) {
+    free(m->raw);
+    m->raw = NULL;
+}
+
 int manifest_dir_is_safe(const char *dir) {
     char path[64];
     if (!dir || strlen(dir) > 32)
@@ -699,7 +715,7 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
         !manifest_size_in_range(m->size) || !manifest_rev_in_range(m->rev) ||
         strncmp(m->url, "https://", 8))
         return -1;
-    if (pspdx_parse(m->raw, strlen(m->raw), &spec, why, sizeof(why)) < 0) {
+    if (!m->raw || pspdx_parse(m->raw, strlen(m->raw), &spec, why, sizeof(why)) < 0) {
         logline("install: valid original manifest required");
         return -1;
     }

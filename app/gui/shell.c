@@ -1212,7 +1212,9 @@ int draw_wrapped(enum font_style style, float x, float y, float width,
    reading. */
 static void draw_details(void) {
     const struct app_entry *e = g_details;
-    char value[96], size[24];
+    /* Room for two versions of 64 characters: the row is cut to its width
+       when it is drawn, not here in the middle of a letter. */
+    char value[2 * VERSION_SIZE + 32], size[24];
     draw_band(INFO_Y, INFO_H);
 
     float w = font_width(FONT_BODY, e->name);
@@ -1475,6 +1477,7 @@ void shell_word(const char *word) {
 
 void shell_status(const char *text) {
     snprintf(g_status, sizeof(g_status), "%s", text ? text : "");
+    pspdx_utf8_mend(g_status);
 }
 
 void shell_ask(const char *title, const char *line) {
@@ -1555,6 +1558,7 @@ void shell_install_progress(void *ctx, size_t done, size_t total) {
 void shell_install_end(const char *message) {
     g_installing = 0;
     snprintf(g_status, sizeof(g_status), "%s", message ? message : "");
+    pspdx_utf8_mend(g_status);
     logline("%s", g_status);
     lattice_touch(0.5f);
 }

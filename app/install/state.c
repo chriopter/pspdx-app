@@ -32,7 +32,13 @@ int state_validate(const cJSON *r) {
         if (!cJSON_IsObject(in) || !pspdx_install_dir(str(in, "installdir")) ||
             !manifest_rev_in_range(number(in, "published_at")))
             return 0;
-        if (strlen(str(in, "version")) >= 32)
+        if (strlen(str(in, "version")) >= VERSION_SIZE)
+            return 0;
+        /* Where a list's .pspdx was read, for an app whose repository has
+           none; a URL the size of a list's line, or not there. */
+        const cJSON *from = cJSON_GetObjectItemCaseSensitive(v, "manifest_url");
+        if (from && (!cJSON_IsString(from) || strncmp(from->valuestring, "https://", 8) ||
+                     strlen(from->valuestring) >= MANIFEST_URL_SIZE))
             return 0;
         /* A GitHub record is held to the id its repository makes. One from
            anywhere else has its id out of its list and its name, which the
@@ -224,6 +230,7 @@ int db_read(const char *id, struct installed *out) {
     out->rev = number(in, "published_at");
     hex_bytes(str(in, "sha256"), out->sha256);
     snprintf(out->repo, sizeof(out->repo), "%s", str(r, "source"));
+    snprintf(out->manifest_url, sizeof(out->manifest_url), "%s", str(r, "manifest_url"));
     return 0;
 }
 static cJSON *latest_json(const struct manifest *m) {
@@ -261,6 +268,11 @@ int state_commit(const struct manifest *m, const char *dir, const unsigned char 
     }
     cJSON_DeleteItemFromObjectCaseSensitive(r, "source");
     cJSON_AddStringToObject(r, "source", m->repo);
+    /* The list's .pspdx the install came from, or none once the repository's
+       own is what was installed. */
+    cJSON_DeleteItemFromObjectCaseSensitive(r, "manifest_url");
+    if (m->manifest_url[0])
+        cJSON_AddStringToObject(r, "manifest_url", m->manifest_url);
     cJSON_DeleteItemFromObjectCaseSensitive(r, "installed");
     cJSON *in = cJSON_AddObjectToObject(r, "installed");
     char target[64];
@@ -292,6 +304,7 @@ int db_write_record(const struct installed *r) {
     snprintf(m.id, sizeof(m.id), "%s", r->id);
     snprintf(m.repo, sizeof(m.repo), "%s", r->repo);
     snprintf(m.version, sizeof(m.version), "%s", r->version);
+    snprintf(m.manifest_url, sizeof(m.manifest_url), "%s", r->manifest_url);
     m.rev = r->rev;
     return state_commit(&m, r->dir, r->sha256);
 }
@@ -345,6 +358,7 @@ int state_latest(const char *id, struct manifest *m) {
     snprintf(m->id, sizeof(m->id), "%s", id);
     snprintf(m->repo, sizeof(m->repo), "%s", str(r, "source"));
     snprintf(m->added_from, sizeof(m->added_from), "%s", str(r, "added_from"));
+    snprintf(m->manifest_url, sizeof(m->manifest_url), "%s", str(r, "manifest_url"));
     if (!manifest_rev_in_range(number(l, "published_at")) ||
         !manifest_size_in_range(number(l, "size")))
         return -1;

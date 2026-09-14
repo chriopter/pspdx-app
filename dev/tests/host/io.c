@@ -148,6 +148,9 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
             path = "catalog.txt";
     } else if (strstr(url, "/.pspdx"))
         path = "manifest.json";
+    else if (strlen(url) > 6 && !strcmp(url + strlen(url) - 6, ".pspdx"))
+        /* A list's .pspdx, served from a file of the same name. */
+        path = strrchr(url, '/') + 1;
     else if (strstr(url, "/releases/"))
         path = "release.json";
     else if (strstr(url, "api.github.com/repos/"))

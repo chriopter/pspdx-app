@@ -71,9 +71,13 @@ void menu_open(int index) {
        Reinstall for the one already current. */
     snprintf(g_choice_text[CHOICE_RUN], sizeof(g_choice_text[0]), "%s",
              strcmp(entry->id, PSPDX_SELF_ID) == 0 ? T_MENU_RESTART : T_MENU_RUN);
-    if (entry->state == APP_UPDATE)
-        snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), T_MENU_UPDATE,
-                 entry->remote_version);
+    if (entry->state == APP_UPDATE) {
+        /* The row is narrow: twenty bytes of the version, cut between letters. */
+        char version[21];
+        snprintf(version, sizeof(version), "%s", entry->remote_version);
+        pspdx_utf8_mend(version);
+        snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), T_MENU_UPDATE, version);
+    }
     else
         snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]),
                  installed ? T_MENU_REINSTALL : T_MENU_INSTALL);

@@ -3,13 +3,12 @@
 #include <cjson/cJSON.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-/* How long a string is in the characters the schema counts: code points of
-   well-formed UTF-8, or -1. A control character is -1 too, since no string
-   of the format holds one -- except the newline a description may put
-   between its paragraphs, when newline says it may. */
-static int characters(const char *s, int newline) {
+/* No string of the format holds a control character -- except the newline a
+   description may put between its paragraphs, when newline says it may. */
+int pspdx_characters(const char *s, int newline) {
     int n = 0;
     const unsigned char *p = (const unsigned char *)s;
     while (*p) {
@@ -43,6 +42,32 @@ static int characters(const char *s, int newline) {
         n++;
     }
     return n;
+}
+void pspdx_utf8_mend(char *s) {
+    size_t n = strlen(s), lead = n;
+    /* Back over the continuation bytes to the byte that starts the last
+       character, and keep it only if all the bytes it announces are there. */
+    while (lead > 0 && (s[lead - 1] & 0xc0) == 0x80 && n - lead < 3)
+        lead--;
+    if (!lead)
+        return;
+    unsigned char c = (unsigned char)s[lead - 1];
+    size_t want = c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : c >= 0xc0 ? 2 : 1;
+    if (c >= 0x80 && n - (lead - 1) < want)
+        s[lead - 1] = '\0';
+}
+char *pspdx_description(const char *text, size_t len) {
+    cJSON *root = cJSON_ParseWithLength(text, len);
+    cJSON *v = cJSON_GetObjectItemCaseSensitive(root, "description");
+    char *out = NULL;
+    if (cJSON_IsString(v) && v->valuestring[0] && pspdx_characters(v->valuestring, 1) >= 0) {
+        size_t n = strlen(v->valuestring);
+        out = malloc(n + 1);
+        if (out)
+            memcpy(out, v->valuestring, n + 1);
+    }
+    cJSON_Delete(root);
+    return out;
 }
 int pspdx_install_dir(const char *path) {
     if (!path || strncmp(path, "PSP/GAME/", 9))
@@ -141,7 +166,7 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
         v = cJSON_GetObjectItemCaseSensitive(root, f->key);
         if (!v && !f->required)
             continue;
-        int n = cJSON_IsString(v) ? characters(v->valuestring, f->newline) : -1;
+        int n = cJSON_IsString(v) ? pspdx_characters(v->valuestring, f->newline) : -1;
         if (n < 0 || n > f->limit || (f->required && !n) || strlen(v->valuestring) >= f->size) {
             snprintf(reason, cap, "invalid %s", f->key);
             goto bad;
@@ -213,7 +238,7 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
             goto bad;
         }
         cJSON_ArrayForEach(tag, v) {
-            int n = cJSON_IsString(tag) ? characters(tag->valuestring, 0) : -1;
+            int n = cJSON_IsString(tag) ? pspdx_characters(tag->valuestring, 0) : -1;
             size_t k = n > 0 ? strlen(tag->valuestring) : 0;
             if (n < 1 || n > 24 || used + (used > 0) + k >= sizeof(out->tags)) {
                 snprintf(reason, cap, "invalid tag");

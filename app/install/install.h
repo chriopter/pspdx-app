@@ -3,6 +3,15 @@
 
 #include <stddef.h>
 #include "pspkit-https/https.h"
+#include "update/pspdx.h"
+
+/* A release tag is at most 64 characters, and a character at most four
+   bytes: what a version is kept in, the tag with its "v" taken off. */
+#define VERSION_SIZE (64 * 4 + 1)
+
+/* Where a .pspdx was read when a list served it in place of the
+   repository's own: a URL of a list's line, as long as one. */
+#define MANIFEST_URL_SIZE 256
 
 /* One release, as the console installs it: the fields that go into a
    download and an unpack, and the repository it came from, which goes
@@ -15,14 +24,22 @@ struct manifest {
     char url[512];
     unsigned char sha256[32];
     size_t size;
-    char version[32];
-    char repo[256];
+    char version[VERSION_SIZE];
+    char repo[PSPDX_URL_SIZE];
+    /* The .pspdx as it was read, on the heap and owned by this manifest, or
+       NULL until it has been: a file is up to 16 KB and most entries of a
+       catalog never have one read. A copy of the struct shares the pointer,
+       so whoever copies one hands the text over with manifest_forget on the
+       other, or clears it, and never frees it twice. */
+    char *raw;
+    /* The list's URL the .pspdx came from, when the repository has none of
+       its own; empty when it is the repository's. */
+    char manifest_url[MANIFEST_URL_SIZE];
     /* What the .pspdx said about the shape of the zip, straight from the
        file or from a cache entry's "install", and empty when it said
        nothing: root is the directory inside the zip that is the package,
        dir the name it takes under PSP/GAME. Only a zip that is not one
        directory with the EBOOT in it needs either. */
-    char raw[8193];
     char added_from[256], checked_from[256];
     unsigned checked_at;
     char root[200];
@@ -32,7 +49,7 @@ struct manifest {
 struct install_report {
     char id[96];
     char dir[64];               /* PSP/GAME/<dir> actually written */
-    char version[32];
+    char version[VERSION_SIZE];
     unsigned rev;
     int files;
     size_t bytes;
@@ -42,9 +59,13 @@ struct install_report {
 struct installed {
     char id[96];
     char dir[64];
-    char version[32];
+    char version[VERSION_SIZE];
     unsigned rev;
-    char repo[256];
+    char repo[PSPDX_URL_SIZE];
+    /* The list's .pspdx the app was installed from, when its repository has
+       none; empty otherwise. An update check asks the repository first and
+       this second. */
+    char manifest_url[MANIFEST_URL_SIZE];
     /* The zip that was installed, by its SHA-256, which is what an update is
        told by; all zeros for a record written before hashes were kept. */
     unsigned char sha256[32];
@@ -78,6 +99,13 @@ int manifest_id_is_safe(const char *id);
 int manifest_rev_in_range(double rev);
 int manifest_size_in_range(double size);
 int manifest_has_sha256(const struct manifest *m);
+
+/* The text of the .pspdx given to the manifest, copied onto the heap, and
+   whatever it held before let go of. Returns 0, or -1 without memory, when
+   the manifest holds nothing. */
+int manifest_keep_raw(struct manifest *m, const char *text, size_t len);
+/* The text let go of: the manifest holds none afterwards. */
+void manifest_forget(struct manifest *m);
 
 /* A directory under PSP/GAME, wherever the name came from -- a record on
    the stick, a .pspdx, a cache entry: a plain name and nothing else, since

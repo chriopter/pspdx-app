@@ -26,7 +26,10 @@ struct app_entry {
        the browser knows, and an app may stand in several. */
     char tags[PSPDX_TAGS_TEXT];
     /* The page of the list that vouches for the app, when one does. */
-    char listed_by[256];
+    char listed_by[PSPDX_URL_SIZE];
+    /* The file's description, on the heap and owned by the entry, or NULL
+       when it has none: kilobytes that only the details band reads. */
+    char *description;
     /* Listed and not installable by this version: a plugin or an ISO, or a
        source outside GitHub, which has no releases this client can check. */
     int unsupported;
@@ -40,7 +43,7 @@ struct app_entry {
     int has_release;
     int fresh;
     int media_cached_only;
-    char repo[256];
+    char repo[PSPDX_URL_SIZE];
     /* Absolute already: the catalog serves these relative to itself, and
        resolving them once at parse time keeps the base URL in this file. */
     char icon[256];
@@ -52,8 +55,13 @@ struct app_entry {
     /* The installed zip's SHA-256 out of its record, when the record has one. */
     unsigned char local_sha256[32];
     int local_has_sha;
-    char local_version[32], remote_version[32];
+    char local_version[VERSION_SIZE], remote_version[VERSION_SIZE];
 };
+
+/* An entry lets go of what it holds on the heap and is all zeros again. Every
+   slot of a catalog is either zeros or an entry that owns its text, so this
+   is safe on any of them, whether or not it was ever counted. */
+void entry_clear(struct app_entry *entry);
 
 struct catalog {
     struct app_entry apps[MAX_APPS];
@@ -71,6 +79,8 @@ struct catalog {
    there is no cache, is asked at the origin. Returns the number of apps,
    or -1 when no source answered at all. */
 int catalog_fetch(struct catalog *catalog);
+/* Every slot of the catalog cleared, counted or not, and the count with them. */
+void catalog_free(struct catalog *catalog);
 void catalog_offline(int value);
 /* Whether the last catalog that did not come was one too big for the
    buffer, which is a different sentence from one that did not answer. */

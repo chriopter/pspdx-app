@@ -223,7 +223,15 @@ int sources_remove(const char *url) {
     return 1;
 }
 
+int sources_is_pspdx(const char *line) {
+    size_t n = strlen(line);
+    return n > 14 && n < SOURCE_URL && !strncmp(line, "https://", 8) &&
+           !strcasecmp(line + n - 6, ".pspdx") && !strpbrk(line, " \t\r\n#");
+}
+
 enum source_kind sources_kind(const char *url) {
+    if (sources_is_pspdx(url))
+        return SOURCE_PSPDX;
     size_t n = strlen(url);
     if (n > 8 && url[n - 1] == '/') {
         struct source_repo r;
@@ -308,7 +316,9 @@ int sources_parse_list(const char *text, struct source_list *out) {
                    made to refuse the repository, since the .pspdx says all
                    of it now. */
                 line[strcspn(line, " \t")] = '\0';
-                if (sources_parse_repo(line, &out->repo[out->count]))
+                if (sources_is_pspdx(line))
+                    memcpy(out->pspdx[out->count++], line, strlen(line) + 1);
+                else if (sources_parse_repo(line, &out->repo[out->count]))
                     out->count++;
             }
         }
