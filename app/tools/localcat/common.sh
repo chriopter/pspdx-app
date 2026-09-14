@@ -88,6 +88,20 @@ localcat_build_real() {
 # True while the EBOOT that was last built points at the host.
 localcat_is_local() { [ -f "$LOCALCAT_MARK" ]; }
 
+# The films out of a catalog site built next door, planted on the stick
+# under the name an entry that links no film is looked up by, so a row has
+# something to play before anything is fetched. The catalog keeps one
+# directory an app, and the directory is the id. The desk and the rig plant
+# the same ones the same way.
+localcat_plant_films() {
+	mkdir -p "$1/PSP/PSPDX/CACHE/media"
+	for clip in "$APP"/../../pspdx-catalog/site/apps/*/film-*.pmf \
+	            "$APP"/../catalog/site/apps/*/film-*.pmf; do
+		[ -f "$clip" ] || continue
+		cp "$clip" "$1/PSP/PSPDX/CACHE/media/$(basename "$(dirname "$clip")").mp4"
+	done
+}
+
 # dev/start --mock leaves a server behind on purpose, as a user unit, so it
 # outlives the shell that started it. Anything else that wants the port --
 # the rig, or a run without --mock -- takes it back here first.

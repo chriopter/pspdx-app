@@ -70,15 +70,12 @@ if [ -f "$FONTS/ltn8.pgf" ]; then
 	cp "$FONTS/ltn8.pgf" "$DBG/font/ltn8.pgf"
 fi
 
-# Clips the catalog repo holds but the published catalog does not link yet
-# go straight into the client's cache, which it consults before any URL.
-# That is how the player gets exercised ahead of a deploy.
-for clip in "$HERE"/../catalog/apps/*/video.mp4; do
-	[ -f "$clip" ] || continue
-	id="$(basename "$(dirname "$clip")")"
-	mkdir -p "$MS/PSP/PSPDX/cache"
-	cp "$clip" "$MS/PSP/PSPDX/cache/$id.mp4"
-done
+# The films out of a catalog site built next door go into the client's
+# cache, which it consults before any URL, the same way dev/start plants
+# them. That is how the player gets exercised ahead of a deploy.
+APP="$HERE"
+. "$HERE/tools/localcat/common.sh"
+localcat_plant_films "$MS"
 
 mkdir -p "$DBG" "$LOGS" "$MS/PSP/PSPDX/CRYPTO"
 if [ "$SWEEP" = 1 ]; then
