@@ -123,13 +123,11 @@ static char g_status[96];
    outside and only drawn here -- what is pressed in answer, and which row the
    cursor is on, is the main loop's business. */
 static char g_ask_title[64], g_ask_line[200];
-#define MENU_MAX 7
-static char g_menu_title[48], g_menu_item[MENU_MAX][32];
-static unsigned char g_menu_on[MENU_MAX];
-static signed char g_menu_key[MENU_MAX];
-static int g_menu_count, g_menu_cursor;
+#define MENU_MAX 7                      /* rows the panel has room for */
+static const struct menu *g_menu;       /* the caller's, while it is up */
+static struct menu g_menu_gone;         /* its last rows, while it slides out */
 static float g_menu_slide;              /* 0 off the right edge, 1 in place */
-static int g_menu_leaving;              /* sliding out; count drops at 0 */
+static int g_menu_leaving;              /* sliding out; done at 0 */
 static int g_info;
 static const struct app_entry *g_details;   /* the package the band is about */
 static int g_resting;                   /* left alone: where the picture is going */
@@ -884,12 +882,15 @@ static void draw_ask(void) {
 #define MENU_W 214
 
 static void draw_menu(void) {
+    /* The menu draws its last rows while sliding out, from the copy taken
+       as it closed. */
+    const struct menu *m = g_menu_leaving ? &g_menu_gone : g_menu;
+    int count = m->count > MENU_MAX ? MENU_MAX : m->count;
     /* Eased both ways: a fifth of the way there each frame is a slide that
        lands without a bump, about a quarter of a second either way. */
     float goal = g_menu_leaving ? 0.0f : 1.0f;
     g_menu_slide += (goal - g_menu_slide) * 0.22f;
     if (g_menu_leaving && g_menu_slide < 0.02f) {
-        g_menu_count = 0;
         g_menu_leaving = 0;
         return;
     }
@@ -906,40 +907,40 @@ static void draw_menu(void) {
     gfx_vgrad((int)x0, SCR_H / 2, 1, SCR_H / 2, bright, clear);
 
     float left = x0 + 18, right = x0 + MENU_W - 16;
-    font_print_clipped(FONT_BODY, left, 34, right - left, g_text, g_menu_title);
+    font_print_clipped(FONT_BODY, left, 34, right - left, g_text, m->title);
     gfx_hgrad((int)left, 44, MENU_W - 34, 1, bright, clear);
 
     unsigned grey = rgb_pack(rgb_mix(NIGHT_BOTTOM, RGB_WHITE, 0.32f), 255);
-    for (int i = 0; i < g_menu_count; i++) {
+    for (int i = 0; i < count; i++) {
         int y = 78 + i * 26;
-        int on = i == g_menu_cursor;
+        int on = i == m->cursor;
         if (on) {
             gfx_glow(x0 + MENU_W / 2.0f, y - 5, MENU_W + 60, 30, rgb_pack(g_tint, 120));
             gfx_glow(x0 + MENU_W / 2.0f, y + 5, MENU_W - 20, 8,
                      rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 150));
         }
-        unsigned color = !g_menu_on[i] ? grey : on ? g_text : g_dim;
+        unsigned color = !m->on[i] ? grey : on ? g_text : g_dim;
         /* The key that does this without the menu, at the row's end and
            in its own colour rather than the row's: it is a note about the
            row, not part of it. */
         float room = right - left;
-        if (g_menu_key[i] >= 0) {
-            enum mark m = (enum mark)g_menu_key[i];
-            mark_draw(m, right - mark_width(m) / 2.0f, y - 4, faded(g_dim, on ? 220 : 140),
+        if (m->key[i] >= 0) {
+            enum mark k = (enum mark)m->key[i];
+            mark_draw(k, right - mark_width(k) / 2.0f, y - 4, faded(g_dim, on ? 220 : 140),
                       MARK_PLAIN, 0, 0);
-            room -= mark_width(m) + 10;
+            room -= mark_width(k) + 10;
         }
         /* A row can name a thing by its mark: the byte 1 and then the mark
            plus one end the words, and the mark stands after them. */
-        const char *glyph = strchr(g_menu_item[i], '\x01');
+        const char *glyph = strchr(m->item[i], '\x01');
         if (glyph && glyph[1]) {
             char words[32];
-            snprintf(words, sizeof(words), "%.*s", (int)(glyph - g_menu_item[i]), g_menu_item[i]);
+            snprintf(words, sizeof(words), "%.*s", (int)(glyph - m->item[i]), m->item[i]);
             float end = font_print_clipped(FONT_BODY, left, y, room, color, words);
             enum mark gm = (enum mark)(glyph[1] - 1);
             mark_draw(gm, end + 6 + mark_width(gm) / 2.0f, y - 4, color, MARK_PLAIN, 0, 0);
         } else {
-            font_print_scrolling(FONT_BODY, left, y, room, color, g_menu_item[i],
+            font_print_scrolling(FONT_BODY, left, y, room, color, m->item[i],
                                  on ? hover_age(2, i) : 0.0f);
         }
     }
@@ -1239,7 +1240,7 @@ static void draw_footer(void) {
        one line that is not a legend -- what is being waited for -- and the
        way back out of a band that fills the screen. Otherwise there is no
        strip, and the water runs to the edge. */
-    if (g_ask_title[0] || g_menu_count || g_installing) return;
+    if (g_ask_title[0] || g_menu || g_menu_leaving || g_installing) return;
     if (!g_details && !g_status[0]) return;
     /* No edge: the strip comes in as a shadow rising from the bottom, the
        way the PSP's own bars sit on their backgrounds. */
@@ -1370,7 +1371,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     }
     if (g_info) draw_info();
     if (g_details) draw_details();
-    if (g_menu_count) draw_menu();
+    if (g_menu || g_menu_leaving) draw_menu();
     if (g_installing) draw_install();
     if (g_ask_title[0]) draw_ask();
     draw_footer();
@@ -1451,28 +1452,23 @@ void shell_ask(const char *title, const char *line) {
     if (g_ask_title[0]) g_status[0] = '\0';
 }
 
-void shell_menu(const char *title, const char *const *items,
-                const unsigned char *takeable, const signed char *keys,
-                int count, int cursor) {
-    if (count > MENU_MAX) count = MENU_MAX;
-    if (count < 0) count = 0;
-    g_menu_cursor = cursor;
+void shell_menu(const struct menu *menu) {
     /* Closing is a slide out, so the rows stay until the panel is off the
-       edge; the count says the menu is drawn, g_menu_leaving that it is
-       on its way out. */
-    if (!count) {
-        g_menu_leaving = 1;
+       edge: a copy of the menu as it closed, g_menu_leaving saying it is
+       on its way out. The cursor went with the close, as it always has, so
+       the rows slide out with the first of them lit. */
+    if (!menu) {
+        if (g_menu) {
+            g_menu_gone = *g_menu;
+            g_menu_gone.cursor = 0;
+            g_menu_leaving = 1;
+        }
+        g_menu = NULL;
         return;
     }
-    if (!g_menu_count || g_menu_leaving) g_menu_slide = 0.0f;
+    if (!g_menu || g_menu_leaving) g_menu_slide = 0.0f;
     g_menu_leaving = 0;
-    g_menu_count = count;
-    snprintf(g_menu_title, sizeof(g_menu_title), "%s", title ? title : "");
-    for (int i = 0; i < count; i++) {
-        snprintf(g_menu_item[i], sizeof(g_menu_item[i]), "%s", items[i] ? items[i] : "");
-        g_menu_on[i] = takeable ? takeable[i] : 1;
-        g_menu_key[i] = keys ? keys[i] : -1;
-    }
+    g_menu = menu;
     g_status[0] = '\0';
 }
 

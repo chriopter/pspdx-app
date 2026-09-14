@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "update/catalog.h"
+#include "update/sources.h"
 
 /* The catalog browser, drawn with the GE and the system font. Everything the
    user sees after the entropy sweep goes through here; the debug screen stays
@@ -48,15 +49,24 @@ void shell_word(const char *word);
 void shell_ask(const char *title, const char *line);
 
 /* The options menu, the system's own: a panel sliding in from the right
-   with a title and the choices under it, the cursor on one. takeable[i]
-   zero draws that row grey -- the choice exists and cannot be taken, which
-   is how a package that has no update says so. keys[i], where not -1, is
-   the mark of the key that does the same thing without the menu, drawn at
-   the row's end: the menu is where the keys are learned. count 0 slides it
-   out again. Like the question, it is drawn here and driven there. */
-void shell_menu(const char *title, const char *const *items,
-                const unsigned char *takeable, const signed char *keys,
-                int count, int cursor);
+   with a title and the choices under it, the cursor on one. on[i] zero
+   draws that row grey -- the choice exists and cannot be taken, which is
+   how a package that has no update says so. key[i], where not -1, is the
+   mark of the key that does the same thing without the menu, drawn at the
+   row's end: the menu is where the keys are learned. The menu is the
+   caller's: built and walked there, drawn from here through the pointer
+   for as long as it is up, so the words it points at have to stay where
+   they are until it has slid out. NULL slides it out again. Like the
+   question, it is drawn here and driven there. */
+#define MENU_ROWS (SOURCES_MAX + 1)     /* the catalogs and Add, the longest of them */
+struct menu {
+    const char *title;
+    const char *item[MENU_ROWS];
+    unsigned char on[MENU_ROWS];
+    signed char key[MENU_ROWS];
+    int count, cursor;
+};
+void shell_menu(const struct menu *menu);
 
 /* The band of facts about the session, which the last row under the gear
    opens. It says and does nothing else; O closes it. */

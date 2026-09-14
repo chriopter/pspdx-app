@@ -536,13 +536,13 @@ enum choice { CHOICE_RUN, CHOICE_GET, CHOICE_DELETE, CHOICE_BASKET, CHOICE_DETAI
 
 static char g_choice_text[CHOICE_COUNT][32];
 static unsigned char g_choice_on[CHOICE_COUNT], g_choice_shown[CHOICE_COUNT];
+/* The one menu the shell draws, whichever is up: the package's options, or
+   a popup under the gear. */
+static struct menu g_menu;
 /* The rows the panel is handed: the shown choices, in order. */
-static int g_rows, g_row[CHOICE_COUNT];
-static const char *g_row_text[CHOICE_COUNT];
-static unsigned char g_row_on[CHOICE_COUNT];
-static signed char g_row_key[CHOICE_COUNT];
+static int g_row[CHOICE_COUNT];
 static char g_menu_title[48];
-static int g_menu_open, g_menu_cursor, g_menu_of, g_details_from_menu;
+static int g_menu_open, g_menu_of, g_details_from_menu;
 
 /* The keys that do a row's thing without the menu, named at the row: the
    menu is where they are learned. */
@@ -552,11 +552,11 @@ static const signed char g_choice_key[CHOICE_COUNT] = {
 };
 
 static void menu_push(void) {
-    shell_menu(g_menu_title, g_row_text, g_row_on, g_row_key, g_rows, g_menu_cursor);
+    shell_menu(&g_menu);
 }
 
 static int row_of(enum choice c) {
-    for (int r = 0; r < g_rows; r++)
+    for (int r = 0; r < g_menu.count; r++)
         if (g_row[r] == c) return r;
     return 0;
 }
@@ -565,6 +565,7 @@ static void menu_open(int index) {
     const struct app_entry *entry = &catalog.apps[index];
     int installed = entry->state != APP_NOT_INSTALLED;
     snprintf(g_menu_title, sizeof(g_menu_title), "%s", entry->name);
+    g_menu.title = g_menu_title;
     /* Five rows, the same five for every package, in the same places; what
        a row cannot do to this package it says by being grey. The second
        fetches the package, and says which fetch it would be: Install for
@@ -593,16 +594,16 @@ static void menu_open(int index) {
     g_choice_on[CHOICE_DETAILS] = 1;
     for (int i = 0; i < CHOICE_COUNT; i++) g_choice_shown[i] = 1;
     g_choice_shown[CHOICE_BASKET] = !installed || shell_basket_has(index);
-    g_rows = 0;
+    g_menu.count = 0;
     for (int i = 0; i < CHOICE_COUNT; i++) {
         if (!g_choice_shown[i]) continue;
-        g_row[g_rows] = i;
-        g_row_text[g_rows] = g_choice_text[i];
-        g_row_on[g_rows] = g_choice_on[i];
-        g_row_key[g_rows] = g_choice_key[i];
-        g_rows++;
+        g_row[g_menu.count] = i;
+        g_menu.item[g_menu.count] = g_choice_text[i];
+        g_menu.on[g_menu.count] = g_choice_on[i];
+        g_menu.key[g_menu.count] = g_choice_key[i];
+        g_menu.count++;
     }
-    g_menu_cursor = row_of(entry->state == APP_NOT_INSTALLED || entry->state == APP_UPDATE
+    g_menu.cursor = row_of(entry->state == APP_NOT_INSTALLED || entry->state == APP_UPDATE
                            ? CHOICE_GET : CHOICE_RUN);
     g_menu_of = index;
     g_menu_open = 1;
@@ -611,7 +612,7 @@ static void menu_open(int index) {
 
 static void menu_close(void) {
     g_menu_open = 0;
-    shell_menu(NULL, NULL, NULL, NULL, 0, 0);
+    shell_menu(NULL);
 }
 
 /* The two popups under the gear, in the same panel the options use: the
@@ -619,21 +620,17 @@ static void menu_close(void) {
    a .pspdx comes in directly. Drawn by the shell, driven here. */
 enum sub { SUB_NONE, SUB_CATALOGS, SUB_ADD, SUB_RESET };
 static enum sub g_sub;
-static int g_sub_cursor, g_sub_count;
 static struct sources g_sources;
 static char g_sub_short[SOURCES_MAX][48];
-static const char *g_sub_item[SOURCES_MAX + 1];
-static unsigned char g_sub_on[SOURCES_MAX + 1];
-static signed char g_sub_key[SOURCES_MAX + 1];
 
 static void sub_push(void) {
-    shell_menu(g_sub == SUB_CATALOGS ? T_SUB_SOURCES : g_sub == SUB_ADD ? T_SUB_DIRECT : T_SUB_RESET,
-               g_sub_item, g_sub_on, g_sub_key, g_sub_count, g_sub_cursor);
+    g_menu.title = g_sub == SUB_CATALOGS ? T_SUB_SOURCES : g_sub == SUB_ADD ? T_SUB_DIRECT : T_SUB_RESET;
+    shell_menu(&g_menu);
 }
 
 static void sub_open(enum sub which) {
     g_sub = which;
-    g_sub_count = 0;
+    g_menu.count = 0;
     if (which == SUB_CATALOGS) {
         sources_load(&g_sources);
         for (int i = 0; i < g_sources.count; i++) {
@@ -641,32 +638,32 @@ static void sub_open(enum sub which) {
             const char *u = g_sources.url[i];
             if (!strncmp(u, "https://", 8)) u += 8;
             snprintf(g_sub_short[i], sizeof(g_sub_short[i]), "%s", u);
-            g_sub_item[g_sub_count++] = g_sub_short[i];
+            g_menu.item[g_menu.count++] = g_sub_short[i];
         }
-        g_sub_item[g_sub_count++] = T_SUB_ADD_SOURCE;
+        g_menu.item[g_menu.count++] = T_SUB_ADD_SOURCE;
     } else if (which == SUB_ADD) {
-        g_sub_item[g_sub_count++] = T_SUB_FROM_GITHUB;
-        g_sub_item[g_sub_count++] = T_SUB_FROM_INBOX;
+        g_menu.item[g_menu.count++] = T_SUB_FROM_GITHUB;
+        g_menu.item[g_menu.count++] = T_SUB_FROM_INBOX;
     } else {
-        g_sub_item[g_sub_count++] = T_SUB_RESET_ALL;
-        g_sub_item[g_sub_count++] = T_SUB_CLEAR_CACHE;
+        g_menu.item[g_menu.count++] = T_SUB_RESET_ALL;
+        g_menu.item[g_menu.count++] = T_SUB_CLEAR_CACHE;
     }
-    for (int i = 0; i < g_sub_count; i++) { g_sub_on[i] = 1; g_sub_key[i] = -1; }
-    g_sub_cursor = 0;
+    for (int i = 0; i < g_menu.count; i++) { g_menu.on[i] = 1; g_menu.key[i] = -1; }
+    g_menu.cursor = 0;
     sub_push();
 }
 
 static void sub_close(void) {
     g_sub = SUB_NONE;
-    shell_menu(NULL, NULL, NULL, NULL, 0, 0);
+    shell_menu(NULL);
 }
 
 /* A greyed row is stepped over rather than landed on: the cursor only ever
    sits where X would do something. */
 static void menu_move(int by) {
-    for (int i = 0; i < g_rows; i++) {
-        g_menu_cursor = (g_menu_cursor + by + g_rows) % g_rows;
-        if (g_row_on[g_menu_cursor]) break;
+    for (int i = 0; i < g_menu.count; i++) {
+        g_menu.cursor = (g_menu.cursor + by + g_menu.count) % g_menu.count;
+        if (g_menu.on[g_menu.cursor]) break;
     }
     menu_push();
 }
@@ -1298,11 +1295,11 @@ int main(int argc, char *argv[]) {
         } else if (files_view_shown() && !g_sub) {
             files_view_keys(pressed, &pad);
         } else if (g_sub) {
-            if (pressed & PSP_CTRL_DOWN) { g_sub_cursor = (g_sub_cursor + 1) % g_sub_count; sub_push(); cues_post(CUE_MOVE, 0); }
-            else if (pressed & PSP_CTRL_UP) { g_sub_cursor = (g_sub_cursor + g_sub_count - 1) % g_sub_count; sub_push(); cues_post(CUE_MOVE, 0); }
+            if (pressed & PSP_CTRL_DOWN) { g_menu.cursor = (g_menu.cursor + 1) % g_menu.count; sub_push(); cues_post(CUE_MOVE, 0); }
+            else if (pressed & PSP_CTRL_UP) { g_menu.cursor = (g_menu.cursor + g_menu.count - 1) % g_menu.count; sub_push(); cues_post(CUE_MOVE, 0); }
             else if (pressed & PSP_CTRL_CIRCLE) sub_close();
             else if (pressed & PSP_CTRL_CROSS) {
-                int chosen = g_sub_cursor;
+                int chosen = g_menu.cursor;
                 enum sub kind = g_sub;
                 sub_close();
                 if (kind == SUB_CATALOGS) {
@@ -1351,7 +1348,7 @@ int main(int argc, char *argv[]) {
             else if (pressed & PSP_CTRL_UP) { menu_move(-1); cues_post(CUE_MOVE, 0); }
             else if (pressed & PSP_CTRL_CIRCLE) menu_close();
             else if (pressed & PSP_CTRL_CROSS) {
-                int chosen = g_row[g_menu_cursor], index = g_menu_of;
+                int chosen = g_row[g_menu.cursor], index = g_menu_of;
                 menu_close();
                 /* Deleting cannot be undone by pressing the same button
                    again, and a first install is a download worth a look at
@@ -1391,7 +1388,7 @@ int main(int argc, char *argv[]) {
                 if (g_details_from_menu) {
                     g_details_from_menu = 0;
                     menu_open(g_menu_of);
-                    g_menu_cursor = row_of(CHOICE_DETAILS);
+                    g_menu.cursor = row_of(CHOICE_DETAILS);
                     menu_push();
                 }
             }
