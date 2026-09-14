@@ -196,28 +196,39 @@ x on app -> confirm -> verify .pspdx source + installdir
 
 #### Check
 
-Runs at startup and on **Check for updates**. An update is a newer
-`published_at` than the installed one. Version strings are not compared,
-except for PSPDX's own first-start record, which has no timestamp yet.
+Runs at startup and on **Check for updates**, the top row of the stick tab.
+An update is a newer `published_at` than the installed one. Version strings
+are not compared, except for PSPDX's own first-start record, which has no
+timestamp yet.
 
 ```text
-catalog entry usable?  -> yes: use it, skip GitHub
-                       -> no:  ask the app's saved GitHub source
-GitHub unavailable too -> keep the last known release, record no check
+× on Check for updates              □ on Check for updates
+        |                                   |
+        v                                   v
+fetch every source in sources.txt   same, but forced
+        |
+for each installed app:
+  listed in a live catalog, generated less than 24 h ago?
+      yes, not forced -> use the catalog entry, no GitHub request
+  otherwise: is a direct check due?
+      due when forced, never asked, last answer came from a catalog,
+      or the last direct answer is older than 6 h
+      due     -> .pspdx from raw.githubusercontent.com   (no limit)
+                 latest release from api.github.com      (1 of 60 an hour)
+      not due -> the last answer saved in the record
+compare published_at -> "Update to x.y", or current
+catalog older than 24 h -> the status line names its host
 ```
 
-| Override | Effect |
-|---|---|
-| **□** on **Check for updates** | Ask GitHub for every installed app, bypassing catalog data |
-| **△ → Updates: original source** on one app | Always ask that app's repository; **Updates: catalog first** restores the default. PSPDX itself starts in direct mode |
-
-A reachable catalog counts as current even if its publisher stopped updating
-it. PSPDX says so once the catalog is a day old; press **□** then.
+- A check against a maintained catalog is one request and no API call
+- An app added by **Direct install** or from INBOX costs one API call, then none for six hours
+- Nothing is topped up from GitHub: a `.pspdx` without author is by the account in its URL, a missing summary or licence stays empty
 
 #### Apply
 
 - Checking never installs; confirm an update with **×**
-- Batches: hold **○** to stop between packages; INBOX skips conflicts, only successful imports leave INBOX
+- **○** during download or unpack cancels the install and puts the stick back; in a batch it also stops the rest
+- INBOX skips conflicts; only successful imports leave INBOX
 - Self-updates run last; restart PSPDX afterward
 
 #### Keys
@@ -289,7 +300,7 @@ hourly:  repos.txt -> catalog.txt
 #### Cache
 
 - Catalogs in `PSP/PSPDX/CACHE/catalogs/`, media in `CACHE/media/`
-- Failed fetch: the last usable catalog stays for browsing; installed apps ask their saved GitHub source
+- Failed fetch: the last usable catalog stays for browsing; installed apps ask their saved GitHub source, at most every six hours
 - Offline: saved records and media only
 - Both caches can be deleted without losing installation state
 
@@ -358,7 +369,7 @@ ms0:/
 | `source`, `added_from` | Original repository and import route |
 | `installed` | Version, `published_at`, install directory |
 | `latest` | Version, `published_at`, download URL, size, optional SHA-256, last successful check time and source |
-| `update_check` | `auto` (catalog first) or `source` (GitHub first); PSPDX itself defaults to `source` |
+| `update_check` | Written by older versions; read and ignored |
 
 ```text
 install or update       ->  writes installed
