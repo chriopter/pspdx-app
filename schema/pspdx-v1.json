@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json",
   "title": ".pspdx",
-  "description": "What a PSP homebrew project says about itself to PSPDX. The id comes from the source: io.github.<owner>.<repository> on GitHub, the host of listed_by and the name elsewhere. Version, date, package and size come from the project's releases, the icon, picture, film and sound out of the EBOOT. A list may serve a .pspdx for a project that has none; it sets listed_by. No string holds a control character, except a newline in description. Readers ignore fields they don't know, so a newer optional field never breaks an older reader; this schema lists only the known ones, so a typo shows up when a file is checked against it.",
+  "description": "What a PSP homebrew project says about itself to PSPDX. The id comes from the source: io.github.<owner>.<repository> on GitHub, the host of listed_by and the name elsewhere. Version, date, package and size come from the project's releases, the icon, picture, film and sound out of the EBOOT. A catalog may list a project that has no .pspdx; it sets listed_by on its entry. No string holds a control character, except a newline in description. Readers ignore fields they don't know, so a newer optional field never breaks an older reader; this schema lists only the known ones, so a typo shows up when a file is checked against it.",
   "type": "object",
   "required": [
     "schema",
@@ -137,7 +137,7 @@
       "type": "string",
       "maxLength": 255,
       "pattern": "^https://[^\\u0000-\\u001f]+(?![\\s\\S])",
-      "description": "optional; the https:// home page of the list that vouches for the app, set when a list serves this file for a repository that has none"
+      "description": "optional; the https:// home page of a list that vouches for the app. A catalog sets it on the entry of an app whose repository has no .pspdx of its own; the repository's own file wins once it has one."
     }
   },
   "$defs": {}

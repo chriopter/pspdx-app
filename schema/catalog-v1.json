@@ -163,7 +163,7 @@
           "type": "string",
           "maxLength": 255,
           "pattern": "^https://[^\\u0000-\\u001f]+(?![\\s\\S])",
-          "description": "optional; the https:// home page of the list that vouches for the app, set when a list serves this file for a repository that has none"
+          "description": "optional; the https:// home page of a list that vouches for the app. A catalog sets it on the entry of an app whose repository has no .pspdx of its own; the repository's own file wins once it has one."
         },
         "website": {
           "type": "string",
