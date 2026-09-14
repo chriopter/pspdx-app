@@ -21,9 +21,10 @@
 #include "logic/entropy.h"
 #include "network/https.h"
 #include "gui/shell.h"
+#include "gui/shell_internal.h"
+#include "gui/files_view.h"
 #include "gui/font.h"
 #include "gui/gfx.h"
-#include "gui/image.h"
 #include "gui/icons.h"
 #include "gui/lattice.h"
 #include "gui/marks.h"
@@ -36,12 +37,6 @@
    screen, FONT_BODY for the list and the summary, FONT_META for facts. */
 
 #define HEADER_H 32
-#define FOOTER_Y 252
-#define FOOTER_BASE (FOOTER_Y + 11)     /* the hints' baseline, clear of the edge */
-
-#define LIST_X 16
-#define LIST_W 200
-#define LIST_Y 44
 #define ITEM_H 32
 /* The bundle's icon, 144x80 shown at a third: as tall as the row allows
    with a little air, and the name starts after it. */
@@ -50,7 +45,6 @@
 #define NAME_X (LIST_X + ICON_W + 9)
 #define VISIBLE ((FOOTER_Y - 6 - LIST_Y) / ITEM_H)
 
-#define PANEL_X 232
 #define SHOT_W 224
 #define SHOT_H (SHOT_W * SCR_H / SCR_W)     /* the screen's own 480:272 */
 #define SHOT_Y 43
@@ -99,8 +93,8 @@ static struct rgb draw_lot(void) {
 
 /* The palette of the current frame, derived from the eased tint once per
    frame so every element agrees. */
-static struct rgb g_tint = { 80, 140, 255 };
-static unsigned g_accent, g_text, g_dim;
+struct rgb g_tint = { 80, 140, 255 };
+unsigned g_accent, g_text, g_dim;
 
 static void derive_palette(void) {
     g_accent = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.45f), 255);
@@ -136,7 +130,6 @@ static int g_menu_count, g_menu_cursor;
 static float g_menu_slide;              /* 0 off the right edge, 1 in place */
 static int g_menu_leaving;              /* sliding out; count drops at 0 */
 static int g_info;
-static const struct file_view *g_files;   /* the file browser, while it is open */
 static const struct app_entry *g_details;   /* the package the band is about */
 static int g_resting;                   /* left alone: where the picture is going */
 static float g_rest;                    /* 0 no picture, 1 the picture whole */
@@ -381,7 +374,7 @@ static float update_pulse(float t) { return 0.85f + 0.15f * sinf(t * 1.6f); }
 
 /* The same colour, quieter: a mark on a row the eye is not on should be
    read only when it is looked for. */
-static unsigned faded(unsigned color, int alpha) {
+unsigned faded(unsigned color, int alpha) {
     return (color & 0x00FFFFFFu) | ((unsigned)alpha << 24);
 }
 
@@ -412,7 +405,7 @@ static void download_time(unsigned long long bytes, char *out, size_t size) {
 
 /* Under a block of text the floor is dimmed, but with a soft spot and not
    a plate: the lattice runs everywhere, it only gets quieter here. */
-static void draw_shade(int cx, int cy, int w, int h) {
+void draw_shade(int cx, int cy, int w, int h) {
     gfx_shade(cx, cy, w * 1.6f, h * 1.8f, 170);
 }
 
@@ -516,7 +509,7 @@ static void draw_chrome(const struct catalog *catalog, float t) {
        open tab, said in words here and lit as a sign among the others on
        the right. Nothing is counted; the list is there to be looked at. */
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
-    const char *title = g_files ? T_HEAD_FILES : tab == TAB_GEAR ? T_HEAD_GEAR
+    const char *title = files_view_shown() ? T_HEAD_FILES : tab == TAB_GEAR ? T_HEAD_GEAR
                       : tab == TAB_STICK ? T_HEAD_STICK
                       : tab == TAB_BASKET ? T_HEAD_BASKET : TAB_NAME[tab];
     gfx_glow(LIST_X + 24, 18, 110, 56, rgb_pack(g_tint, 80));
@@ -595,7 +588,7 @@ static void draw_setting_row(int n, int y, int selected, float t) {
    too long for its room starts over each time it moves. One clock, keyed
    by the list and the row. */
 static float g_now;
-static float hover_age(int list, int key) {
+float hover_age(int list, int key) {
     static int last_list = -1, last_key = -1;
     static float since;
     if (list != last_list || key != last_key) {
@@ -721,10 +714,6 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
    what X is going to fetch. What the space is worth instead is the bill --
    every package that would come down, what each weighs, the total, and how
    long that is over a PSP's own radio. */
-static float draw_hint(float x, float base, enum mark m, const char *text, unsigned color);
-static int draw_wrapped(enum font_style style, float x, float y, float width,
-                        float step, int lines, unsigned color, const char *text);
-
 static void draw_action_panel(const struct catalog *catalog, float t) {
     struct shell_plan plan;
     char value[48], size[24];
@@ -981,8 +970,6 @@ static void draw_panel(const struct app_entry *entry, float t) {
 #define BAND_Y ((SCR_H - BAND_H) / 2)
 #define MENU_H 226
 #define MENU_Y ((SCR_H - MENU_H) / 2)
-#define INFO_Y 36
-#define INFO_H (FOOTER_Y - 6 - INFO_Y)
 
 static void band_edge(int y) {
     unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.55f), 210);
@@ -994,14 +981,14 @@ static void band_edge(int y) {
 }
 
 /* A line of the same kind but shorter, for dividing a band's inside. */
-static void band_rule(int y, int half_w, int alpha) {
+void band_rule(int y, int half_w, int alpha) {
     unsigned faint = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.4f), alpha);
     unsigned clear = rgb_pack(g_tint, 0);
     gfx_hgrad(SCR_W / 2 - half_w, y, half_w, 1, clear, faint);
     gfx_hgrad(SCR_W / 2, y, half_w, 1, faint, clear);
 }
 
-static void draw_band(int y, int h) {
+void draw_band(int y, int h) {
     /* The whole room steps back a little so the band is the front. */
     gfx_rect(0, 0, SCR_W, SCR_H, RGBA(0, 0, 0, 110));
     gfx_rect(0, y, SCR_W, h, RGBA(0, 0, 0, 215));
@@ -1019,14 +1006,14 @@ static void draw_band(int y, int h) {
 #define HINT_GAP 5              /* between a mark and its word */
 #define HINT_SPACE 26           /* between one hint and the next */
 
-static float hint_width(enum mark m, const char *text) {
+float hint_width(enum mark m, const char *text) {
     return mark_width(m) + HINT_GAP + font_width(FONT_META, text);
 }
 
 /* The mark a shade brighter than the word: the button is what the eye
    looks for, the word is what it reads once it has found it. */
-static float draw_hint(float x, float base, enum mark m, const char *text,
-                       unsigned color) {
+float draw_hint(float x, float base, enum mark m, const char *text,
+                unsigned color) {
     unsigned bright = faded(rgb_pack(rgb_mix(RGB_WHITE, g_tint, 0.1f), 255),
                             (int)(((color >> 24) & 0xFF) * 0.9f + 25));
     mark_draw(m, x + mark_width(m) / 2.0f, base - 4, bright, MARK_PLAIN, 0, 0);
@@ -1383,8 +1370,8 @@ static void draw_info(void) {
 
 /* Prints text over at most `lines` lines of `width`, breaking at spaces,
    the last line clipped. Returns the lines used. */
-static int draw_wrapped(enum font_style style, float x, float y, float width,
-                        float step, int lines, unsigned color, const char *text) {
+int draw_wrapped(enum font_style style, float x, float y, float width,
+                 float step, int lines, unsigned color, const char *text) {
     char line[128];
     int used = 0;
     const char *p = text;
@@ -1532,259 +1519,6 @@ static void draw_setting_panel(int n) {
     draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 3, g_dim, SETTING_NOTE[n]);
 }
 
-/* The file the media thread has been asked for, while the browser is up. */
-static char g_file_shown[160];
-
-void shell_files(const struct file_view *view) {
-    g_files = view;
-    /* The browser closing gives the card back its entry, at once. */
-    if (!view && g_file_shown[0]) { g_file_shown[0] = '\0'; g_last_cursor = -1; }
-}
-
-/* Manage Files. Left, the rows of the level the browser is on, one short
-   row each with a word on the right saying how much is there; right, the
-   row under the cursor: what it is, and then its lines. A file's own bytes
-   are laid out at a fixed width, since a record is one long line of JSON
-   with nothing to break at; everything else is a line a row. */
-#define FILE_ROW_H 26
-static void draw_raw_band(void);
-#define FILE_TEXT_COLS 40
-#define FILE_TEXT_STEP 13
-
-int shell_files_page(void) {
-    int y = LIST_Y + 12 + 36;
-    return (FOOTER_Y - 8 - y) / FILE_TEXT_STEP;
-}
-
-/* How many lines the column and the band held at the last draw, for the
-   scrolling to stop where the last of the text is in view. */
-static int g_files_room, g_band_room;
-
-/* The rows the text comes to once a raw line is cut at cols: what the
-   scrolling counts, since a file of one long line is many rows. */
-static int text_rows(const struct file_view *v, int cols) {
-    int rows = 0;
-    for (const char *p = v->text; *p;) {
-        const char *end = strchr(p, '\n');
-        int len = end ? (int)(end - p) : (int)strlen(p);
-        rows += v->raw && len > cols ? (len + cols - 1) / cols : 1;
-        p = end ? end + 1 : p + len;
-    }
-    return rows;
-}
-
-/* A picture out of a file, decoded once and kept until another is asked
-   for, fitted into the space given. */
-static struct gfx_texture g_picture;
-static char g_picture_of[160];
-
-static void picture_drop(void) {
-    if (g_picture_of[0]) {
-        gfx_texture_free(&g_picture);
-        g_picture_of[0] = '\0';
-    }
-}
-
-static void draw_picture_file(const char *file, int x, int y, int maxw, int maxh);
-
-/* The file under the cursor as what it is: a picture decoded here, a film
-   the media thread plays into the card's own texture, a sound heard and
-   said to be. */
-static void draw_media(const struct file_view *v, int x, int y, int maxw, int maxh) {
-    if (v->media_kind == FILE_MEDIA_PICTURE) { draw_picture_file(v->media, x, y, maxw, maxh); return; }
-    picture_drop();
-    if (v->media_kind == FILE_MEDIA_SOUND) { font_print(FONT_META, x, y + 12, g_dim, T_FILES_PLAYING); return; }
-    int alpha;
-    const struct gfx_texture *film = preview_film(&alpha);
-    if (film && film->w > 0 && film->h > 0) {
-        int pw = film->w, ph = film->h;
-        if (pw > maxw) { ph = ph * maxw / pw; pw = maxw; }
-        if (ph > maxh) { pw = pw * maxh / ph; ph = maxh; }
-        gfx_texture_draw(film, x, y, pw, ph, RGB(255, 255, 255));
-    } else {
-        font_print(FONT_META, x, y + 12, g_dim, preview_film_failed() ? T_FILES_BINARY : T_FILES_LOADING);
-    }
-}
-
-static void draw_picture_file(const char *file, int x, int y, int maxw, int maxh) {
-    if (strcmp(g_picture_of, file)) {
-        picture_drop();
-        char *png = NULL;
-        int n = storage_read(file, &png, 512 * 1024);
-        if (n > 0 && image_decode_png(png, (size_t)n, &g_picture) == 0)
-            snprintf(g_picture_of, sizeof(g_picture_of), "%s", file);
-        free(png);
-    }
-    if (g_picture_of[0] && g_picture.w > 0 && g_picture.h > 0) {
-        int pw = g_picture.w, ph = g_picture.h;
-        if (pw > maxw) { ph = ph * maxw / pw; pw = maxw; }
-        if (ph > maxh) { pw = pw * maxh / ph; ph = maxh; }
-        gfx_texture_draw(&g_picture, x, y, pw, ph, RGB(255, 255, 255));
-    } else {
-        font_print(FONT_META, x, y, g_dim, T_FILES_BINARY);
-    }
-}
-
-static void draw_files(float t) {
-    const struct file_view *v = g_files;
-    int top = LIST_Y + 4;
-    draw_shade(LIST_X + LIST_W / 2, top + FILES_ROWS * FILE_ROW_H / 2, LIST_W,
-               FILES_ROWS * FILE_ROW_H);
-    if (v->count == 0)
-        font_print(FONT_META, LIST_X, top + 16, g_dim, T_FILES_EMPTY);
-    for (int i = v->first; i < v->count && i < v->first + FILES_ROWS; i++) {
-        int y = top + (i - v->first) * FILE_ROW_H;
-        const struct file_row *r = &v->row[i];
-        int selected = i == v->cursor;
-        if (selected) {
-            float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
-            gfx_glow(LIST_X + 60, y + FILE_ROW_H / 2, LIST_W + 120, FILE_ROW_H * 2.2f,
-                     rgb_pack(g_tint, (int)(120 * breathe)));
-            gfx_glow(LIST_X + LIST_W / 2, y + FILE_ROW_H - 3, LIST_W + 30, 8,
-                     rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 140));
-        }
-        float dw = r->detail[0] ? font_width(FONT_META, r->detail) : 0.0f;
-        font_print_scrolling(FONT_BODY, LIST_X, y + 18, LIST_W - dw - 14,
-                             selected ? g_text : g_dim, r->name,
-                             selected ? hover_age(1, v->level * 1000 + i) : 0.0f);
-        if (r->detail[0])
-            font_print(FONT_META, LIST_X + LIST_W - dw, y + 18, faded(g_dim, 200), r->detail);
-    }
-    if (v->count > FILES_ROWS) {
-        int track = FILES_ROWS * FILE_ROW_H, knob = track * FILES_ROWS / v->count;
-        int at = track * v->first / v->count;
-        gfx_rect(LIST_X + LIST_W + 10, top, 2, track, RGBA(255, 255, 255, 24));
-        gfx_rect(LIST_X + LIST_W + 10, top + at, 2, knob, g_accent);
-    }
-
-    int x = PANEL_X, w = SCR_W - PANEL_X - 12, y = LIST_Y + 12;
-    draw_shade(x + w / 2, (y + FOOTER_Y) / 2, w, FOOTER_Y - y);
-    font_print_clipped(FONT_H1, x, y, w, g_text, v->head);
-    /* The path in full, broken at a slash when it is longer than the
-       column, since a path has no space to break at. */
-    int path_lines = 1;
-    {
-        const char *p = v->path;
-        char first[128];
-        snprintf(first, sizeof(first), "%s", p);
-        if (font_width(FONT_META, first) > w) {
-            int cut = -1;
-            for (int i = 0; first[i]; i++) {
-                if (first[i] != '/') continue;
-                char head[128];
-                snprintf(head, sizeof(head), "%.*s", i + 1, first);
-                if (font_width(FONT_META, head) <= w) cut = i + 1;
-            }
-            if (cut > 0) {
-                char head[128];
-                snprintf(head, sizeof(head), "%.*s", cut, first);
-                font_print(FONT_META, x, y + 16, faded(g_dim, 170), head);
-                font_print_clipped(FONT_META, x, y + 28, w, faded(g_dim, 170), first + cut);
-                path_lines = 2;
-            } else {
-                font_print_clipped(FONT_META, x, y + 16, w, faded(g_dim, 170), first);
-            }
-        } else {
-            font_print(FONT_META, x, y + 16, faded(g_dim, 170), first);
-        }
-    }
-    int note_y = y + 16 + 12 * path_lines + 4;
-    int lines = draw_wrapped(FONT_META, x, note_y, w, 14, 2, g_dim, v->note);
-    y = note_y + 14 * lines + 8;
-    int room = (FOOTER_Y - 8 - y) / FILE_TEXT_STEP;
-    g_files_room = room;
-    if (v->media_kind) draw_media(v, x, y, w, FOOTER_Y - 8 - y);
-    else picture_drop();
-    /* The lines, from the one the scrolling is at; a raw file is cut at a
-       fixed width so a long line becomes several. Under the band the column
-       is dimmed and its lines are the band's: printed once, not twice. */
-    const char *p = v->band ? "" : v->text;
-    int line = 0;
-    while (*p && line < v->text_first + room) {
-        const char *end = strchr(p, '\n');
-        int len = end ? (int)(end - p) : (int)strlen(p);
-        do {
-            int take = v->raw && len > FILE_TEXT_COLS ? FILE_TEXT_COLS : len;
-            if (line >= v->text_first) {
-                char chunk[FILE_TEXT_COLS + 1];
-                if (!v->raw && take > FILE_TEXT_COLS) take = FILE_TEXT_COLS;
-                memcpy(chunk, p, (size_t)take);
-                chunk[take] = '\0';
-                if (v->raw)
-                    font_print(FONT_META, x, y + (line - v->text_first) * FILE_TEXT_STEP,
-                               g_text, chunk);
-                else
-                    font_print_clipped(FONT_META, x, y + (line - v->text_first) * FILE_TEXT_STEP,
-                                       w, g_text, chunk);
-                if (!v->raw) { p += len; len = 0; take = len; }
-            }
-            p += take;
-            len -= take;
-            line++;
-        } while (len > 0 && line < v->text_first + room);
-        if (end && *p == '\n') p++;
-        else if (!end) break;
-    }
-    /* The keys at the foot: into a row, back out, and the page keys over
-       the lines when there are more than fit. */
-    float hx = LIST_X;
-    if (v->deeper) hx = draw_hint(hx, FOOTER_BASE, MARK_CROSS, T_HINT_OPEN, g_dim);
-    if (v->band) { draw_raw_band(); return; }
-    hx = draw_hint(hx, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
-    if (text_rows(v, FILE_TEXT_COLS) > room) draw_hint(hx, FOOTER_BASE, MARK_L, T_HINT_SCROLL, g_dim);
-}
-
-/* The raw bytes of a file, in a band over the dimmed columns like the
-   Information band: as many fixed-width lines as fit, from the one the
-   stick has scrolled to. */
-#define RAW_COLS 66
-#define RAW_STEP 12
-
-static void draw_raw_band(void) {
-    const struct file_view *v = g_files;
-    draw_band(INFO_Y, INFO_H);
-    int x = 40, w = SCR_W - 80, y = INFO_Y + 14;
-    font_print_clipped(FONT_BODY, x, y + 12, w, g_text, v->head);
-    font_print_clipped(FONT_META, x, y + 26, w, faded(g_dim, 170), v->path);
-    band_rule(y + 34, 200, 120);
-    y += 44;
-    int room = (INFO_Y + INFO_H - 22 - y) / RAW_STEP;
-    g_band_room = room;
-    if (v->media_kind) {
-        draw_media(v, x, y, w, INFO_Y + INFO_H - 22 - y);
-        float bw = hint_width(MARK_CIRCLE, T_HINT_BACK);
-        draw_hint(SCR_W / 2 - bw / 2, INFO_Y + INFO_H - 8, MARK_CIRCLE, T_HINT_BACK, g_dim);
-        return;
-    }
-    const char *p = v->text;
-    int line = 0;
-    while (*p && line < v->text_first + room) {
-        const char *end = strchr(p, '\n');
-        int len = end ? (int)(end - p) : (int)strlen(p);
-        do {
-            int take = len > RAW_COLS ? RAW_COLS : len;
-            if (line >= v->text_first) {
-                char chunk[RAW_COLS + 1];
-                memcpy(chunk, p, (size_t)take);
-                chunk[take] = '\0';
-                font_print(FONT_META, x, y + (line - v->text_first) * RAW_STEP, g_text, chunk);
-            }
-            p += take;
-            len -= take;
-            line++;
-        } while (len > 0 && line < v->text_first + room);
-        if (end && *p == '\n') p++;
-        else if (!end) break;
-    }
-    float hw = hint_width(MARK_CIRCLE, T_HINT_BACK);
-    draw_hint(SCR_W / 2 - hw / 2, INFO_Y + INFO_H - 8, MARK_CIRCLE, T_HINT_BACK, g_dim);
-}
-
-void shell_files_extent(const struct file_view *v, int *rows, int *room) {
-    *rows = text_rows(v, v->band ? RAW_COLS : FILE_TEXT_COLS);
-    *room = v->band ? g_band_room : g_files_room;
-}
-
 void shell_draw(const struct catalog *catalog, int cursor) {
     g_catalog = catalog;
     g_cursor = cursor;
@@ -1832,8 +1566,8 @@ void shell_draw(const struct catalog *catalog, int cursor) {
        nothing over it, until a key brings the rows back in a few frames. */
     gfx_veil((int)(256.0f * (1.0f - g_rest)));
     draw_chrome(catalog, t);
-    if (g_files) {
-        draw_files(t);
+    if (files_view_shown()) {
+        files_view_draw(t);
     } else if (catalog->count > 0 && shell_view_count() > 0) {
         int rows = shell_view_count();
         int index = shell_view_index(cursor < rows ? cursor : 0);
@@ -1888,22 +1622,7 @@ int shell_settled(void) {
 /* ------------------------------------------------------------- screenshot */
 
 void shell_shot_sync(const struct catalog *catalog, int cursor) {
-    if (g_files) {
-        /* The browser's film or sound takes the card's place on the media
-           thread; a row that is neither leaves it showing nothing. */
-        if (g_files->media_kind >= FILE_MEDIA_FILM) {
-            if (strcmp(g_file_shown, g_files->media)) {
-                snprintf(g_file_shown, sizeof(g_file_shown), "%s", g_files->media);
-                preview_show_file(g_files->media, g_files->media_kind == FILE_MEDIA_FILM
-                                  ? PREVIEW_FILE_FILM : PREVIEW_FILE_SOUND);
-            }
-        } else if (g_file_shown[0]) {
-            g_file_shown[0] = '\0';
-            preview_show(NULL, 1);
-        }
-        preview_tick();
-        return;
-    }
+    if (files_view_sync()) return;
     int index = shell_view_index(cursor);
     if (catalog->count <= 0 || index == -1) return;
     /* The action row is a row with no package behind it, and the card is
@@ -1927,6 +1646,8 @@ void shell_shot_sync(const struct catalog *catalog, int cursor) {
     }
     preview_tick();
 }
+
+void shell_reshow_card(void) { g_last_cursor = -1; }
 
 void shell_word(const char *word) {
     snprintf(g_word, sizeof(g_word), "%s", word ? word : T_WORD_CONNECTING);

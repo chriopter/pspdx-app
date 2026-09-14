@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "util/files.h"
+#include "gui/files_view.h"
 #include "install/install.h"
 #include "install/state.h"
 #include "text.h"

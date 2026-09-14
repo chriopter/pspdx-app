@@ -22,6 +22,7 @@
 #include "audio/audio.h"
 #include "audio/cues.h"
 #include "gui/entropy_screen.h"
+#include "gui/files_view.h"
 #include "gui/gfx.h"
 #include "gui/icons.h"
 #include "gui/preview.h"
@@ -724,11 +725,6 @@ static unsigned button_named(const char *name) {
 
 /* ------------------------------------------------------------------ files */
 
-/* Manage Files: the view util/files.c fills out of the stick, and whether
-   it is on screen. */
-static struct file_view g_files;
-static int g_files_open;
-
 /* The catalog knows the names of apps the stick has no record of. */
 static const char *files_name_of(const char *id) {
     for (int i = 0; i < catalog.count; i++)
@@ -1196,7 +1192,7 @@ int main(int argc, char *argv[]) {
            is: a question that scrolls out from under its answer is a trap,
            up and down belong to the menu while one is open, and a tab
            changing under a band would change what the band is about. */
-        int modal = g_question != ASK_NOTHING || g_menu_open || g_sub || details || g_files_open;
+        int modal = g_question != ASK_NOTHING || g_menu_open || g_sub || details || files_view_shown();
 
         /* Twenty-five seconds without a key and the picture of the package under
            the cursor rises behind the interface, which stays where it is
@@ -1298,26 +1294,8 @@ int main(int argc, char *argv[]) {
                 ask_forget();
                 shell_status(later ? T_RESTART_LATER : declined ? T_TRUST_DECLINED : "");
             }
-        } else if (g_files_open && !g_sub) {
-            struct file_view *v = &g_files;
-            if ((pressed & PSP_CTRL_DOWN) && v->count) { files_move(v, 1); cues_post(CUE_MOVE, v->cursor); }
-            else if ((pressed & PSP_CTRL_UP) && v->count) { files_move(v, -1); cues_post(CUE_MOVE, v->cursor); }
-            else if ((pressed & PSP_CTRL_CROSS) && v->count) { if (files_enter(v)) cues_post(CUE_OPEN, 0); }
-            else if (pressed & PSP_CTRL_CIRCLE) {
-                if (!files_back(v)) { g_files_open = 0; shell_files(NULL); }
-            }
-            else if (pressed & PSP_CTRL_RTRIGGER) files_scroll(v, shell_files_page());
-            else if (pressed & PSP_CTRL_LTRIGGER) files_scroll(v, -shell_files_page());
-            /* The stick scrolls the band, a line every few frames the further
-               it is pushed; the columns under it are not moved by it. */
-            if (v->band) {
-                static int tick;
-                int push = (int)pad.Ly - 128;
-                if (push > 40 || push < -40) {
-                    int every = push > 100 || push < -100 ? 1 : 3;
-                    if (++tick >= every) { files_scroll(v, push > 0 ? 1 : -1); tick = 0; }
-                } else tick = 0;
-            }
+        } else if (files_view_shown() && !g_sub) {
+            files_view_keys(pressed, &pad);
         } else if (g_sub) {
             if (pressed & PSP_CTRL_DOWN) { g_sub_cursor = (g_sub_cursor + 1) % g_sub_count; sub_push(); cues_post(CUE_MOVE, 0); }
             else if (pressed & PSP_CTRL_UP) { g_sub_cursor = (g_sub_cursor + g_sub_count - 1) % g_sub_count; sub_push(); cues_post(CUE_MOVE, 0); }
@@ -1430,7 +1408,7 @@ int main(int argc, char *argv[]) {
                 int which = SHELL_ROW_SETTING - at;
                 if (which == 0 && synced) sub_open(SUB_CATALOGS);
                 else if (which == 1 && synced) sub_open(SUB_ADD);
-                else if (which == 2) { files_names(files_name_of); files_open(&g_files); g_files_open = 1; shell_files(&g_files); }
+                else if (which == 2) { files_names(files_name_of); files_view_open(); }
                 else if (which == 3) sub_open(SUB_RESET);
                 else if (which == 4) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {

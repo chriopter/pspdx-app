@@ -128,40 +128,6 @@ void shell_menu(const char *title, const char *const *items,
    opens. It says and does nothing else; O closes it. */
 void shell_info(int open);
 
-/* Manage Files: what PSPDX keeps on the stick, in two columns. The left
-   column is a list of rows, the right column what the row under the cursor
-   comes to: a sentence saying what it is, then its contents as lines. The
-   view is filled by util/files.c, which reads the stick; the shell only
-   draws it. NULL closes it. */
-#define FILES_MAX 96
-#define FILES_ROWS 6
-#define FILES_TEXT 4096
-struct file_row { char name[40]; char detail[24]; };
-enum { FILE_MEDIA_NONE, FILE_MEDIA_PICTURE, FILE_MEDIA_FILM, FILE_MEDIA_SOUND };
-struct file_view {
-    int level;                          /* 0 the areas, 1 inside one, 2 a file's bytes */
-    int area;
-    int group;                          /* the system areas are one row on top, opened as a list */
-    int deeper;                         /* X opens the row under the cursor */
-    int band;                           /* the raw bytes are up, in a band over the columns */
-    char head[40];                      /* over the right column */
-    char path[128];                     /* where on the stick, in full, under it */
-    char media[160];                    /* a file shown for itself instead of lines, or "" */
-    int media_kind;                     /* what it is, one of FILE_MEDIA_* */
-    char note[200];                     /* the sentence under it */
-    struct file_row row[FILES_MAX];
-    int count, cursor, first;
-    char text[FILES_TEXT];              /* the lines under the sentence */
-    int text_first, text_lines;
-    int raw;                            /* text is a file's bytes: fixed width, wrapped */
-};
-void shell_files(const struct file_view *view);
-int shell_files_page(void);            /* lines of text the right column holds */
-/* The rows the text comes to where it is shown now (column or band), and
-   how many of them are in view at once; a long line cut at the width counts
-   as the rows it becomes. */
-void shell_files_extent(const struct file_view *v, int *rows, int *room);
-
 /* Idle: the package's own picture rises behind the interface, which stays
    where it is. Nothing is hidden by it. */
 void shell_rest(int resting);
