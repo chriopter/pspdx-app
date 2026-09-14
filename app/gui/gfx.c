@@ -262,14 +262,17 @@ void gfx_frame_begin(unsigned clear) {
     sceGuClear(GU_COLOR_BUFFER_BIT | GU_FAST_CLEAR_BIT);
 }
 
-static unsigned g_worst_ge, g_worst_vblank;
+static unsigned g_worst_ge, g_worst_vblank, g_worst_list;
 static void (*g_overlay)(void);
 
 void gfx_frame_overlay(void (*overlay)(void)) { g_overlay = overlay; }
 
 void gfx_frame_end(void) {
     gfx_batch_end();
-    sceGuFinish();
+    /* How much of the list the frame took: a frame that fills it writes
+       past it, and the first sign of that would be a hang. */
+    unsigned used = (unsigned)sceGuFinish();
+    if (used > g_worst_list) g_worst_list = used;
     unsigned t0 = now_us();
     sceGuSync(0, 0);
     unsigned t1 = now_us();
@@ -285,10 +288,11 @@ void gfx_frame_end(void) {
     g_frames++;
 }
 
-void gfx_frame_worst(unsigned *ge_us, unsigned *vblank_us) {
+void gfx_frame_worst(unsigned *ge_us, unsigned *vblank_us, unsigned *list_bytes) {
     *ge_us = g_worst_ge;
     *vblank_us = g_worst_vblank;
-    g_worst_ge = g_worst_vblank = 0;
+    *list_bytes = g_worst_list;
+    g_worst_ge = g_worst_vblank = g_worst_list = 0;
 }
 
 unsigned gfx_frames(void) { return g_frames; }
@@ -813,6 +817,22 @@ static void card_quad(float x0, float y0, float x1, float y1, float z,
     v[2].color = tr; v[2].x = x1; v[2].y = y0; v[2].z = z;
     v[3].color = br; v[3].x = x1; v[3].y = y1; v[3].z = z;
     sceGumDrawArray(GU_TRIANGLE_STRIP, FMT3C, 4, 0, v);
+}
+
+void gfx_clip(int x, int y, int w, int h) {
+    flush_batch();
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (w < 0) w = 0;
+    if (h < 0) h = 0;
+    /* This SDK's sceGuScissor takes a width and a height, whatever older
+       code (intraFont among it) passes it as a far corner. */
+    sceGuScissor(x, y, w, h);
+}
+
+void gfx_unclip(void) {
+    flush_batch();
+    sceGuScissor(0, 0, SCR_W, SCR_H);
 }
 
 /* ------------------------------------------------------------------- bake */

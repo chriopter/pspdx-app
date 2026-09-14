@@ -190,8 +190,34 @@ float font_print_clipped(enum font_style style, float x, float y, float width,
     if (!g_font || !text) return x;
     if (width < 0.0f) return x;         /* no column left to print into */
     /* Print down to the last character that still fits and stop there; the
-       column printers wrap or scroll instead, and this UI wants neither. */
+       column printers wrap or scroll instead, and this UI wants neither.
+       The font has to carry the style before the measuring, or the fit is
+       that of whatever was printed last. */
+    use(style, color);
     return shadowed(style, x, y, color, text, measure(style, text, width)->fit);
+}
+
+#define SCROLL_WAIT 1.2f        /* seconds still before it walks, and after */
+#define SCROLL_SPEED 28.0f      /* pixels a second */
+
+float font_print_scrolling(enum font_style style, float x, float y, float width,
+                           unsigned color, const char *text, float age) {
+    if (!g_font || !text) return x;
+    if (width < 0.0f) return x;
+    use(style, color);
+    float full = measure(style, text, -1.0f)->width;
+    if (full <= width || age <= 0.0f)
+        return font_print_clipped(style, x, y, width, color, text);
+    /* Wait, walk the overflow, wait, and around again. */
+    float over = full - width, walk = over / SCROLL_SPEED;
+    float cycle = SCROLL_WAIT + walk + SCROLL_WAIT;
+    float in = age - (int)(age / cycle) * cycle;
+    float offset = in < SCROLL_WAIT ? 0.0f
+                 : in < SCROLL_WAIT + walk ? (in - SCROLL_WAIT) * SCROLL_SPEED : over;
+    gfx_clip((int)x, (int)y - 24, (int)width + 1, 32);
+    float end = shadowed(style, x - offset, y, color, text, (int)strlen(text));
+    gfx_unclip();
+    return end > x + width ? x + width : end;
 }
 
 float font_width(enum font_style style, const char *text) {

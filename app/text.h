@@ -110,10 +110,14 @@
 #define T_RESTART_LATER      "Restart PSPDX to finish the update."
 #define T_INBOX_ASK          "Do you want to install %d apps from INBOX?" /* n */
 #define T_SOURCE_DELETE_ASK  "Do you want to delete this source?"
+#define T_TRUST_ASK          "Do you want to connect anyway?"
+#define T_TRUST_EXPIRED      "The security certificate of %s has expired. The connection cannot be verified."
+#define T_TRUST_ISSUER       "The security certificate of %s is not from a known issuer. The connection cannot be verified."
+#define T_TRUST_DECLINED     "Not connected."
 #define T_RESET_ASK          "Do you want to reset PSPDX?"
 #define T_RESET_LINE         "All PSPDX data is deleted. Installed apps are not deleted."
-#define T_DISCARD_ASK        "Do you want to clean up the failed install?"
-#define T_DISCARD_LINE       "Leftover download data is deleted. Installed apps are not changed."
+#define T_DISCARD_ASK        "Do you want to clear the cache?"
+#define T_DISCARD_LINE       "Downloaded catalogs, previews and any failed install are deleted. Installed apps are not changed."
 
 #define T_YES                "Yes"
 #define T_NO                 "No"
@@ -134,7 +138,6 @@
 #define T_NO_EBOOT           "This app cannot be started."
 #define T_START_REFUSED      "Could not start the app."
 #define T_SELF_DELETE        "PSPDX cannot delete itself."
-#define T_DISCARD_FAILED     "Could not clean up the failed install."
 
 /* Direct install and sources. */
 #define T_OSK_GITHUB         "Enter GitHub owner/repository"
@@ -161,7 +164,7 @@
 #define T_NOTE_SOURCES       "Add or delete the catalogs PSPDX reads apps from."
 #define T_NOTE_DIRECT        "Install an app from GitHub or from the INBOX folder."
 #define T_NOTE_FILES         "View the data PSPDX keeps on the Memory Stick."
-#define T_NOTE_RESET         "Reset PSPDX, clean up after a failed install, or renew the TLS seed."
+#define T_NOTE_RESET         "Reset PSPDX, or clear the cache and any failed install."
 #define T_NOTE_INFO          "View details about PSPDX and this system."
 
 #define T_SUB_SOURCES        "Sources"
@@ -171,6 +174,9 @@
 #define T_SUB_FROM_GITHUB    "From GitHub"
 #define T_SUB_FROM_INBOX     "From INBOX folder"
 #define T_SUB_SWEEP          "Renew TLS Seed"
+#define T_SUB_CLEAR_CACHE    "Clear Cache"
+#define T_CACHE_CLEARED      "Cache cleared."
+#define T_CACHE_CLEAR_FAILED "Could not clear the cache."
 #define T_SUB_RESET_ALL      "Reset PSPDX"
 #define T_SUB_DISCARD        "Clean Up Failed Installs"
 
@@ -206,6 +212,8 @@
 
 #define T_FILES_EMPTY        "Nothing here."
 #define T_FILES_BINARY       "This file cannot be displayed."
+#define T_FILES_LOADING      "Loading..."
+#define T_FILES_PLAYING      "Now playing."
 #define T_FILES_BYTES        "%u bytes"                           /* size */
 #define T_FILES_KB           "%u KB"                              /* size */
 #define T_FILES_MB           "%u.%u MB"                           /* MB, tenths */

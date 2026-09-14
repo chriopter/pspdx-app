@@ -31,7 +31,7 @@ void gfx_frame_overlay(void (*overlay)(void));
 /* The worst wait for the GE to finish and the worst wait for vblank since
    last asked, in microseconds: how much of a frame the drawing itself takes
    and how much is slack. */
-void gfx_frame_worst(unsigned *ge_us, unsigned *vblank_us);
+void gfx_frame_worst(unsigned *ge_us, unsigned *vblank_us, unsigned *list_bytes);
 
 void gfx_rect(int x, int y, int w, int h, unsigned color);
 void gfx_vgrad(int x, int y, int w, int h, unsigned top, unsigned bottom);
@@ -199,6 +199,11 @@ void gfx_card_draw(const struct gfx_texture *t, const struct gfx_card *c);
    the frame that follows paints over the corner. The draw buffer is the one
    surface the emulator keeps honest for a copy -- an off-screen target
    comes back empty. Call outside a frame only. */
+/* Everything drawn between the two stays inside the rectangle: what a
+   scrolling line is cut off at. Nests once. */
+void gfx_clip(int x, int y, int w, int h);
+void gfx_unclip(void);
+
 int gfx_bake_begin(int w, int h);
 void gfx_bake_end(struct gfx_texture *into);
 

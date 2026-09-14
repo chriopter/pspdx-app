@@ -71,6 +71,25 @@ void https_prefer(const char *suites) {
    read by the one that draws: four short strings that are replaced whole, so
    the worst a reader can see is the previous connection's. */
 static struct https_info g_last;
+
+/* The doubt the verify callback left for the main thread, and the host it
+   was about; the callback does not know the host, so the request writes
+   it down before the handshake. taken last, so a reader that sees the
+   kind sees the host it goes with. */
+static char g_verify_host[128];
+static char g_doubt_host[128];
+static volatile enum https_doubt g_doubt;
+static int g_trust_anyway;
+
+enum https_doubt https_doubt_take(char *host, size_t size) {
+    enum https_doubt d = g_doubt;
+    if (d == HTTPS_DOUBT_NONE) return d;
+    snprintf(host, size, "%s", g_doubt_host);
+    g_doubt = HTTPS_DOUBT_NONE;
+    return d;
+}
+
+void https_trust_anyway(void) { g_trust_anyway = 1; }
 const struct https_info *https_last(void) { return &g_last; }
 
 /* ------------------------------------------------------------------- net */
@@ -424,12 +443,32 @@ static int expired_before_build(WOLFSSL_X509_STORE_CTX *store) {
    the client was built is refused whichever way the clock is wrong: without
    that, a key leaked from any certificate ever issued would open every
    console for ever, and a client this old is due an update anyway. */
+/* A doubt is not a refusal: the chain is turned down this once and the
+   person asked, since a console that has lain in a drawer for years meets
+   run-out certificates and issuers it never heard of, and must still work.
+   Once they have said so, such chains pass for the rest of the run. What
+   never passes is a chain that is wrong rather than old or unfamiliar: a
+   bad signature, another host's name. */
+static int doubt(WOLFSSL_X509_STORE_CTX *store, enum https_doubt kind) {
+    if (g_trust_anyway) {
+        logline("cert %d at depth %d taken on the person's word", store->error, store->error_depth);
+        return 1;
+    }
+    snprintf(g_doubt_host, sizeof(g_doubt_host), "%s", g_verify_host);
+    g_doubt = kind;
+    return 0;
+}
+
 static int verify_ignoring_dates(int preverify, WOLFSSL_X509_STORE_CTX *store) {
     if (preverify) return 1;
     if (store->error == ASN_BEFORE_DATE_E || store->error == ASN_AFTER_DATE_E) {
-        if (expired_before_build(store)) return 0;
+        if (expired_before_build(store)) return doubt(store, HTTPS_DOUBT_EXPIRED);
         logline("cert date ignored: the console clock is not trustworthy");
         return 1;
+    }
+    if (store->error == ASN_NO_SIGNER_E || store->error == ASN_SELF_SIGNED_E) {
+        logline("cert at depth %d from an issuer this client does not carry", store->error_depth);
+        return doubt(store, HTTPS_DOUBT_ISSUER);
     }
     {
         WOLFSSL_X509 *c = wolfSSL_X509_STORE_CTX_get_current_cert(store);
@@ -479,6 +518,8 @@ static void close_idle(void) {
         g_idle[i] = NULL;
     }
 }
+
+void https_close_idle(void) { close_idle(); }
 
 static struct connection *take_idle(const struct url *u) {
     for (int i = 0; i < IDLE_SLOTS; i++) {
@@ -644,6 +685,7 @@ static int one_request(const struct url *u, https_sink sink, void *sink_ctx,
         logline("x25519 key share unavailable");
 
     phase("tls handshake");
+    snprintf(g_verify_host, sizeof(g_verify_host), "%s", u->host);
     start = now_ms();
     while ((rc = wolfSSL_connect(ssl)) != WOLFSSL_SUCCESS) {
         int e = wolfSSL_get_error(ssl, rc);

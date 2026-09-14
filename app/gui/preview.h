@@ -24,6 +24,12 @@ void preview_shutdown(void);
    ten connections -- unless immediately, for the first selection. */
 void preview_show(const struct app_entry *entry, int immediately);
 
+/* A film or a sound off the stick, shown for its own sake -- the cache
+   browser's -- in place of the card's entry: read whole, nothing fetched.
+   preview_show puts an entry back. */
+enum preview_file { PREVIEW_FILE_FILM = 1, PREVIEW_FILE_SOUND };
+void preview_show_file(const char *path, enum preview_file kind);
+
 /* Once per frame: sends the request out once the cursor has rested and
    picks up what the media thread has finished. Never blocks. */
 void preview_tick(void);
@@ -49,5 +55,8 @@ int preview_settled(void);
 
 /* True while a film is on the card. */
 int preview_playing(void);
+
+/* True once the film asked for turned out not to play. */
+int preview_film_failed(void);
 
 #endif

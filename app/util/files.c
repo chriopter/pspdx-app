@@ -82,7 +82,25 @@ static void put(struct file_view *v, const char *fmt, ...) {
 static void clear_text(struct file_view *v) {
     v->text[0] = '\0';
     v->text_first = v->text_lines = v->raw = 0;
-    v->image[0] = '\0';
+    v->media[0] = '\0';
+    v->media_kind = FILE_MEDIA_NONE;
+}
+
+/* What a file is by its name, when it is something to look at or listen
+   to rather than read: the pictures, films and sounds the cache holds and
+   the screenshots the developer's folder does. */
+static int media_kind_of(const char *file) {
+    size_t len = strlen(file);
+    const char *ext = len > 4 ? file + len - 4 : "";
+    if (!strcasecmp(ext, ".png")) return FILE_MEDIA_PICTURE;
+    if (!strcasecmp(ext, ".pmf") || !strcasecmp(ext, ".mp4")) return FILE_MEDIA_FILM;
+    if (!strcasecmp(ext, ".at3")) return FILE_MEDIA_SOUND;
+    return FILE_MEDIA_NONE;
+}
+
+static void show_media(struct file_view *v, int kind) {
+    v->media_kind = kind;
+    snprintf(v->media, sizeof(v->media), "%s", v->path);
 }
 
 /* Where the thing under the cursor is, in full, for the line under the
@@ -427,7 +445,12 @@ static void fill_files(struct file_view *v, int area) {
         int from = v->count;
         list_dir(v, "CACHE/catalogs", "");
         list_dir(v, "CACHE/media", "");
-        for (int i = from; i < v->count; i++) name_cached(&v->row[i], v->row[i].name);
+        /* Named from the path, which is whole; the row's name may already
+           have lost its tail to the row's width. */
+        for (int i = from; i < v->count; i++) {
+            const char *slash = strrchr(g_path[i], '/');
+            name_cached(&v->row[i], slash ? slash + 1 : g_path[i]);
+        }
     } else {
         list_dir(v, AREA[area].dir + 10, "");
     }
@@ -443,14 +466,9 @@ static void describe_file(struct file_view *v) {
     at_path(v, g_path[v->cursor]);
     if (r->name[strlen(r->name) - 1] == '/') return;
     if (v->area == A_SEED) { put(v, "%s", T_AREA_SEED_NOTE); return; }
-    /* A picture is shown as one: the icons and stills the cache holds, the
-       screenshots the developer's folder does. */
-    const char *file = g_path[v->cursor];
-    size_t len = strlen(file);
-    if (len > 4 && !strcasecmp(file + len - 4, ".png")) {
-        snprintf(v->image, sizeof(v->image), "%s", v->path);
-        return;
-    }
+    /* A picture is shown as one, a film played, a sound heard. */
+    int kind = media_kind_of(g_path[v->cursor]);
+    if (kind) { show_media(v, kind); return; }
     read_text(v, g_path[v->cursor], v->area == A_LOGS, 1);
 }
 
@@ -495,7 +513,10 @@ void files_move(struct file_view *v, int by) {
 }
 
 void files_scroll(struct file_view *v, int lines) {
-    int last = v->text_lines - 1;
+    int rows, room;
+    shell_files_extent(v, &rows, &room);
+    int last = rows - room;                 /* the last page full, not one row */
+    if (last < 0) last = 0;
     v->text_first += lines;
     if (v->text_first > last) v->text_first = last;
     if (v->text_first < 0) v->text_first = 0;
@@ -572,11 +593,9 @@ int files_raw(struct file_view *v) {
         if (r->name[strlen(r->name) - 1] == '/') return 0;
         clear_text(v);
         at_path(v, g_path[v->cursor]);
-        const char *file = g_path[v->cursor];
-        size_t len = strlen(file);
+        int kind = media_kind_of(g_path[v->cursor]);
         if (v->area == A_SEED) put(v, "%s", T_AREA_SEED_NOTE);
-        else if (len > 4 && !strcasecmp(file + len - 4, ".png"))
-            snprintf(v->image, sizeof(v->image), "%s", v->path);
+        else if (kind) show_media(v, kind);
         else read_text(v, g_path[v->cursor], 0, 0);
     }
     v->raw = 1;

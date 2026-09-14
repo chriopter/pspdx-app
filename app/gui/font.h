@@ -31,4 +31,11 @@ float font_print_clipped(enum font_style style, float x, float y, float width,
 
 float font_width(enum font_style style, const char *text);
 
+/* The system's way with a line too long for its room: cut off at the room
+   while nobody is looking, and once the cursor is on it, after a pause, the
+   whole line walks by. age is how long the cursor has been on it; a row
+   nobody is on passes 0 and is cut. Returns where the line ends. */
+float font_print_scrolling(enum font_style style, float x, float y, float width,
+                           unsigned color, const char *text, float age);
+
 #endif

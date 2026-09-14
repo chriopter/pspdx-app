@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "audio/audio.h"
+#include "util/storage.h"
 #include "gui/preview.h"
 #include "gui/icons.h"
 #include "gui/image.h"
@@ -51,6 +52,8 @@ enum film_state { FILM_NONE, FILM_LOADING, FILM_PLAYING, FILM_FAILED };
 struct request {
     char id[96], shot_url[256], video_url[256], sound_url[256];
     int installed, cached_only;
+    char file[160];                     /* a file off the stick instead, and */
+    int file_kind;                      /* what it is, a preview_file */
     char pbp[128];                      /* the thread's, empty in g_want */
     volatile unsigned gen;
 };
@@ -148,6 +151,8 @@ static void play_psmf(unsigned char *psmf, size_t len, unsigned gen) {
     play(psmf, len, gen);
 }
 
+static void load_bytes(const unsigned char *mp4, size_t len, unsigned gen);
+
 /* The same out of the asset buffer, which the next fetch overwrites: the
    stream is copied out first. */
 static void load_psmf(const unsigned char *data, size_t len, unsigned gen) {
@@ -173,6 +178,12 @@ static void load_film(const struct request *req, unsigned gen) {
     const unsigned char *mp4 = asset_fetch(ASSET_VIDEO, req->id, req->video_url, req->cached_only, &len);
     if (stale(gen)) return;
     if (!mp4) { g_film_state = FILM_FAILED; return; }
+    load_bytes(mp4, len, gen);
+}
+
+/* A film as bytes, whatever they were called: a PSMF goes as it is, an
+   MP4 is wrapped. The buffer stays the caller's. */
+static void load_bytes(const unsigned char *mp4, size_t len, unsigned gen) {
     /* The bytes say what they are, not the name they were served under. */
     if (psmf_is(mp4, len)) { load_psmf(mp4, len, gen); return; }
     if (mp4_parse(mp4, len, &g_track) != 0) {
@@ -262,6 +273,28 @@ static int media_thread(SceSize args, void *argp) {
         player_stop();
         free(g_psmf);
         g_psmf = 0;
+
+        if (req.file[0]) {
+            /* One file for its own sake: read whole, played, nothing else
+               touched. The still is left empty on purpose. */
+            char *bytes = NULL;
+            int n = storage_read(req.file, &bytes, 2 * 1024 * 1024);
+            if (n <= 0 || stale(gen)) {
+                if (n <= 0) logline("file: %s would not read", req.file);
+                g_film_state = FILM_FAILED;
+            } else if (req.file_kind == PREVIEW_FILE_FILM) {
+                g_film_state = FILM_LOADING;
+                load_bytes((unsigned char *)bytes, (size_t)n, gen);
+            } else {
+                audio_sound_play(bytes, (size_t)n);
+                if (stale(gen)) audio_sound_stop();
+            }
+            free(bytes);
+            if (gen == g_want.gen) g_done_gen = gen;
+            else if (g_film_state == FILM_PLAYING) { player_stop(); free(g_psmf); g_psmf = 0; g_film_state = FILM_NONE; }
+            load_icons(gen);
+            continue;
+        }
 
         int slot = g_still_slot ^ 1;
         gfx_texture_free(&g_stills[slot]);
@@ -388,6 +421,7 @@ void preview_show(const struct app_entry *entry, int immediately) {
     snprintf(g_want.sound_url, sizeof(g_want.sound_url), "%s",
              entry ? entry->sound : "");
     g_want.installed = entry && entry->state != APP_NOT_INSTALLED;
+    g_want.file[0] = '\0';
     g_nothing = !entry;
     /* The sound goes with the pictures: out now, over its fade, whether
        or not the next row has one. */
@@ -404,6 +438,33 @@ void preview_show(const struct app_entry *entry, int immediately) {
     g_immediate = immediately;
     g_shown_gen = 0;
 }
+
+void preview_show_file(const char *path, enum preview_file kind) {
+    /* The id is the request's identity; a path is as good a one as any,
+       and cannot be a package's. */
+    char id[96];
+    snprintf(id, sizeof(id), "file:%s", strlen(path) > 90 ? path + strlen(path) - 90 : path);
+    if (strcmp(g_want.id, id) == 0) return;
+    snprintf(g_want.id, sizeof(g_want.id), "%s", id);
+    g_want.cached_only = 1;
+    g_want.shot_url[0] = g_want.video_url[0] = g_want.sound_url[0] = '\0';
+    g_want.installed = 0;
+    snprintf(g_want.file, sizeof(g_want.file), "%s", path);
+    g_want.file_kind = kind;
+    g_nothing = 0;
+    audio_sound_stop();
+    g_still_pub = 0;
+    g_still_state = STILL_NONE;
+    g_still_alpha = 0.0f;
+    g_film_state = FILM_NONE;
+    g_film_alpha = 0.0f;
+    g_decoded = 0;
+    g_shown_ms = now_ms();
+    g_immediate = 1;
+    g_shown_gen = 0;
+}
+
+int preview_film_failed(void) { return g_film_state == FILM_FAILED; }
 
 void preview_tick(void) {
     if (g_nothing) return;

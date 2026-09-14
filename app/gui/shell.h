@@ -137,6 +137,7 @@ void shell_info(int open);
 #define FILES_ROWS 6
 #define FILES_TEXT 4096
 struct file_row { char name[40]; char detail[24]; };
+enum { FILE_MEDIA_NONE, FILE_MEDIA_PICTURE, FILE_MEDIA_FILM, FILE_MEDIA_SOUND };
 struct file_view {
     int level;                          /* 0 the areas, 1 inside one, 2 a file's bytes */
     int area;
@@ -145,7 +146,8 @@ struct file_view {
     int band;                           /* the raw bytes are up, in a band over the columns */
     char head[40];                      /* over the right column */
     char path[128];                     /* where on the stick, in full, under it */
-    char image[160];                    /* a PNG to show instead of lines, or "" */
+    char media[160];                    /* a file shown for itself instead of lines, or "" */
+    int media_kind;                     /* what it is, one of FILE_MEDIA_* */
     char note[200];                     /* the sentence under it */
     struct file_row row[FILES_MAX];
     int count, cursor, first;
@@ -155,6 +157,10 @@ struct file_view {
 };
 void shell_files(const struct file_view *view);
 int shell_files_page(void);            /* lines of text the right column holds */
+/* The rows the text comes to where it is shown now (column or band), and
+   how many of them are in view at once; a long line cut at the width counts
+   as the rows it becomes. */
+void shell_files_extent(const struct file_view *v, int *rows, int *room);
 
 /* Idle: the package's own picture rises behind the interface, which stays
    where it is. Nothing is hidden by it. */

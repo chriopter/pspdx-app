@@ -42,6 +42,20 @@ const char *https_phase(void);
    progress callback. The connection is closed rather than kept. */
 void https_abort(void);
 
+/* Closes the connections kept for reuse. The next request handshakes
+   again -- which is the point when the seed behind it has just changed. */
+void https_close_idle(void);
+
+/* A handshake refused on a doubt a person can settle -- a certificate that
+   had run out, or one from an issuer this client does not carry -- rather
+   than on a proof of tampering. The doubt waits here for the main thread
+   to ask about it; https_doubt_take hands it over once and clears it.
+   https_trust_anyway makes every later handshake take such a chain, for
+   the rest of the run. */
+enum https_doubt { HTTPS_DOUBT_NONE, HTTPS_DOUBT_EXPIRED, HTTPS_DOUBT_ISSUER };
+enum https_doubt https_doubt_take(char *host, size_t size);
+void https_trust_anyway(void);
+
 int https_get(const char *url, https_sink sink, void *sink_ctx,
               https_progress progress, void *progress_ctx,
               struct https_result *out);

@@ -5,6 +5,7 @@
 #include "update/inbox.h"
 #include "util/self_manifest.h"
 #include "util/files.h"
+#include "network/https.h"
 /* PSPDX application controller. Feature code lives behind module APIs. */
 
 #include <pspkernel.h>
@@ -332,7 +333,7 @@ static void launch_app(int index) {
    draws the question and the footer that answers it; the answer arrives
    through the pad, which is read down in the loop, so the two halves meet
    in these two variables and nowhere else. */
-enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART };
+enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART, ASK_TRUST };
 static enum question g_question;
 static int g_question_of;
 
@@ -640,14 +641,9 @@ static void sub_open(enum sub which) {
         g_sub_item[g_sub_count++] = T_SUB_FROM_INBOX;
     } else {
         g_sub_item[g_sub_count++] = T_SUB_RESET_ALL;
-        g_sub_item[g_sub_count++] = T_SUB_DISCARD;
-        g_sub_item[g_sub_count++] = T_SUB_SWEEP;
+        g_sub_item[g_sub_count++] = T_SUB_CLEAR_CACHE;
     }
     for (int i = 0; i < g_sub_count; i++) { g_sub_on[i] = 1; g_sub_key[i] = -1; }
-    /* The row is there for the one case recovery could not settle, and
-       greyed while there is nothing unfinished. */
-    if (which == SUB_RESET)
-        g_sub_on[2] = storage_exists(storage_path("PSP/PSPDX/TMP/transaction.json"));
     g_sub_cursor = 0;
     sub_push();
 }
@@ -831,10 +827,37 @@ static void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
    of stick work and this one is two presses from the list, so it has to
    be possible to leave, and leaving puts the old count back. */
 static void sweep_again(void) {
+    /* No connection outlives the seed it was made under: the kept ones
+       are closed and the media thread parked, so nothing handshakes while
+       the field is being swept. */
+    preview_quiesce();
+    https_close_idle();
     entropy_stash();
     entropy_init();
     if (entropy_screen_run() == 0) entropy_restore();
     entropy_save(entropy_screen_is_replay());
+    preview_resume();
+}
+
+/* The cache goes and its folders come back empty: catalogs and pictures
+   are fetched again the next time they are wanted. An install that never
+   finished is cache too -- a download nobody will resume -- and goes with
+   it, which is also what unblocks installs after a recovery that could not
+   settle. Nothing else moves. The media thread is parked meanwhile, so no
+   fetch lands in a folder that is being emptied. */
+static void clear_cache(void) {
+    preview_quiesce();
+    int bad = storage_remove_tree(storage_path("PSP/PSPDX/CACHE/catalogs")) < 0;
+    bad |= storage_remove_tree(storage_path("PSP/PSPDX/CACHE/media")) < 0;
+    sceIoMkdir(storage_path("PSP/PSPDX/CACHE"), 0777);
+    sceIoMkdir(storage_path("PSP/PSPDX/CACHE/catalogs"), 0777);
+    sceIoMkdir(storage_path("PSP/PSPDX/CACHE/media"), 0777);
+    char line[128];
+    if (storage_exists(storage_path("PSP/PSPDX/TMP/transaction.json")) &&
+        install_discard(line, sizeof(line)) < 0)
+        bad = 1;
+    preview_resume();
+    shell_status(bad ? T_CACHE_CLEAR_FAILED : T_CACHE_CLEARED);
 }
 
 /* Back to the first start: everything this client keeps on the stick goes,
@@ -846,16 +869,6 @@ static void reset_completely(void) {
     if (storage_remove_tree(storage_path("PSP/PSPDX")) < 0)
         logline("reset: some of PSP/PSPDX would not go");
     sceKernelExitGame();
-}
-
-/* A journal recovery could not finish blocks every install; this is the
-   hand that clears it. What is under PSP/GAME stays, and the line says so. */
-static void discard_unfinished(void) {
-    char line[128];
-    if (install_discard(line, sizeof(line)) < 0)
-        shell_status(T_DISCARD_FAILED);
-    else
-        shell_status(line);
 }
 
 /* Reads a source from the keyboard and adds it. Returns 1 when the catalog
@@ -1231,6 +1244,22 @@ int main(int argc, char *argv[]) {
             g_restart_of = -1;
         }
 
+        /* A handshake turned down on a doubt -- a run-out certificate, an
+           issuer not carried -- is put to the person, once, as soon as
+           nothing else is being asked: a console that has lain in a drawer
+           still has to connect, on their word. */
+        if (g_question == ASK_NOTHING) {
+            char host[128];
+            enum https_doubt d = https_doubt_take(host, sizeof(host));
+            if (d != HTTPS_DOUBT_NONE) {
+                char line[200];
+                snprintf(line, sizeof(line), d == HTTPS_DOUBT_EXPIRED ? T_TRUST_EXPIRED : T_TRUST_ISSUER, host);
+                shell_ask(T_TRUST_ASK, line);
+                g_question = ASK_TRUST;
+                g_question_of = -1;
+            }
+        }
+
         if (g_question != ASK_NOTHING) {
             /* The answer, and only then the thing that was asked about. */
             if (pressed & PSP_CTRL_CROSS) {
@@ -1242,8 +1271,12 @@ int main(int argc, char *argv[]) {
                 else if (asked == ASK_ALL) install_all();
                 else if (asked == ASK_INBOX) install_inbox();
                 else if (asked == ASK_RESET) reset_completely();
-                else if (asked == ASK_DISCARD) discard_unfinished();
+                else if (asked == ASK_DISCARD) clear_cache();
                 else if (asked == ASK_RUN || asked == ASK_RESTART) launch_app(index);
+                else if (asked == ASK_TRUST) {
+                    https_trust_anyway();
+                    refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
+                }
                 else if (asked == ASK_CATALOG) {
                     if (index >= 0 && index < g_sources.count &&
                         sources_remove(g_sources.url[index]) > 0)
@@ -1255,9 +1288,9 @@ int main(int argc, char *argv[]) {
                 view_settled(&cursor);
                 count = shell_view_count();
             } else if (pressed & PSP_CTRL_CIRCLE) {
-                int later = g_question == ASK_RESTART;
+                int later = g_question == ASK_RESTART, declined = g_question == ASK_TRUST;
                 ask_forget();
-                shell_status(later ? T_RESTART_LATER : "");
+                shell_status(later ? T_RESTART_LATER : declined ? T_TRUST_DECLINED : "");
             }
         } else if (g_files_open && !g_sub) {
             struct file_view *v = &g_files;
@@ -1300,8 +1333,7 @@ int main(int argc, char *argv[]) {
                         refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
                     else if (chosen == 1 && synced) ask_inbox();
                 } else {
-                    if (chosen == 2) sweep_again();
-                    else if (chosen == 0) {
+                    if (chosen == 0) {
                         shell_ask(T_RESET_ASK, T_RESET_LINE);
                         g_question = ASK_RESET;
                         g_question_of = -1;
@@ -1361,9 +1393,10 @@ int main(int argc, char *argv[]) {
                 }
             }
         } else if (info) {
-            /* The band says and does nothing: what there is to do sits in
-               the list behind it, under the gear. */
+            /* The band says what the session is; the one thing to do in it
+               is the seed's, next to the entropy it reports. */
             if (pressed & (PSP_CTRL_CIRCLE | PSP_CTRL_CROSS)) shell_info(info = 0);
+            else if (pressed & PSP_CTRL_SQUARE) { shell_info(info = 0); sweep_again(); }
         } else if (details) {
             if (pressed & PSP_CTRL_CIRCLE) {
                 shell_details(0);
