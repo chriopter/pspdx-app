@@ -734,8 +734,8 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
         /* The row has two keys, and the panel names them the way the footer
            does, with the key's own mark rather than a word for it. */
         float base = y + 20 + 16 * lines + 14;
-        draw_hint(PANEL_X, base, MARK_CROSS, "Quick check", g_dim);
-        draw_hint(PANEL_X, base + 18, MARK_SQUARE, "Full check", g_dim);
+        draw_hint(PANEL_X, base, MARK_CROSS, "Check via catalog", g_dim);
+        draw_hint(PANEL_X, base + 18, MARK_SQUARE, "Check directly on GitHub", g_dim);
         return;
     }
     if (plan.apps > 0) {
