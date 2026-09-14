@@ -110,7 +110,7 @@ text holds a control character, except a newline in `description`.
 |---|---|---|
 | `schema` | Required; the exact v1 schema URL | — |
 | `source` | Required; an HTTPS URL, on GitHub a repository URL | — |
-| `name` | Required; 1–39 characters | — |
+| `name` | Required; 1–40 characters | — |
 | `type` | `homebrew`, `plugin` or `iso` | `homebrew` |
 | `tags` | Up to 8 different words, each 1–24 characters; `game`, `emulator`, `app` and `demo` get a tab | Only in All |
 | `installdir` | `homebrew` only; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.`, `..` or `.pspdx-stage` | `PSP/GAME/<repository name>` on GitHub, `PSP/GAME/<name>` elsewhere, reduced to those characters |

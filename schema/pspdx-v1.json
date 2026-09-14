@@ -79,7 +79,7 @@
     "name": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 39,
+      "maxLength": 40,
       "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
       "description": "required; what the list shows"
     },
