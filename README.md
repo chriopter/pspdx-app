@@ -3,49 +3,51 @@
 **PSP Download Index** — browse, install and update homebrew directly
 on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspdx/releases/latest)**
 
-Install it, start it, install homebrew. Updates show up on their own.
-
 <img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="images/pspdx-app.webp" />
 
 [The same as a video](images/pspdx-app.mp4) (480×272, 34 s).
 
-## Getting started
+## How to use
 
-You need a PSP running [ARK-5](https://github.com/PSP-Arkfive/ARK-5) with
-WPA2 support and a saved Wi-Fi connection. PSPDX uses the first saved profile.
+Just install, start and install homebrew. Updates show up automatically.
 
-1. Download [`pspdx.zip`](https://github.com/chriopter/pspdx/releases/latest)
-   and extract it to the root of your Memory Stick or internal storage.
-2. Enable WLAN, launch PSPDX from **Game**, and follow the first-launch prompt.
-3. Choose an app in the catalog and press **×** to install it. Press **START**
-   to run it.
-
-PSPDX checks for updates at startup. Select an available update and press
-**×** to install it.
+- You need a PSP running [ARK-5](https://github.com/PSP-Arkfive/ARK-5) with
+  WPA2 support and a saved Wi-Fi connection.
+- Download [`pspdx.zip`](https://github.com/chriopter/pspdx/releases/latest)
+  and extract it to the root of your Memory Stick.
+- Enable WLAN, launch PSPDX from **Game** and follow the first-launch prompt.
+- Pick an app and press **×** to install it. **START** runs it.
 
 ## How it works
 
-- **A `.pspdx` file points to your homebrew.** It sits in the app's GitHub
-  repository and names the app and where it installs; releases supply the
-  ZIP. That is the [`.pspdx` standard](#the-pspdx-standard), and the
-  [demo app](https://github.com/chriopter/pspdx-demo) is a complete example.
-- **A catalog is a phonebook of such repositories.** The
-  [PSPDX Catalog](https://github.com/chriopter/pspdx-catalog) is the default;
-  [browse it](https://chriopter.github.io/pspdx-catalog/). Its GitHub
-  workflows cache release details and artwork extracted from each EBOOT, so
-  lists load fast. Copy it to run your own.
-- **No mirror.** PSPDX saves each app's `.pspdx` on install and can check the
-  original repository directly. If a catalog goes away, your apps still
-  update. `.pspdx` files can also be installed directly, without any catalog.
+- **The [`.pspdx` standard](#the-pspdx-standard).** A small file that points
+  to your homebrew.
+- **Catalogs.** Many `.pspdx` files make a catalog,
+  [like this one](https://github.com/chriopter/pspdx-catalog/blob/master/repos.txt).
+  It's just a phonebook.
+- **No mirror.** PSPDX saves the `.pspdx` on install, so it updates directly
+  from the source.
 
-The aim is a setup that still works in ten years, without a mirror going
-down or an abandoned installer in the way. The `.pspdx` file lives on its own.
+**Add your app**
 
-**Add your app:** put a `.pspdx` in your repository
-([example](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx)) and
-publish a release. Open-source apps can be added to the
-[main catalog](https://github.com/chriopter/pspdx-catalog); or start your
-own catalog and share the link.
+- Add a `.pspdx` to your repo. Done!
+  [Example](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx)
+- Open-source repos can be added to the
+  [main catalog](https://github.com/chriopter/pspdx-catalog).
+- Or start your own catalog:
+  [copy this](https://github.com/chriopter/pspdx-catalog) and share the link.
+
+**The magic**
+
+- The catalog delivers cached app names and artwork extracted from the EBOOT,
+  so lists load *very fast*. It's just GitHub workflows building a static
+  page. [Steal it](https://github.com/chriopter/pspdx-catalog) for yours.
+- `.pspdx` is a portable file, independent of any catalog. If the catalog goes
+  down, your PSP still polls the original source. You can even install
+  `.pspdx` files directly.
+
+This should still work ten years from now, without another mirror going down
+or an abandoned installer in the way. The `.pspdx` file lives on its own.
 
 ## The PSPDX standard
 
