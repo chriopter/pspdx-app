@@ -15,6 +15,7 @@
 #include <pspkernel.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "logic/entropy.h"
@@ -22,6 +23,7 @@
 #include "gui/shell.h"
 #include "gui/font.h"
 #include "gui/gfx.h"
+#include "gui/image.h"
 #include "gui/icons.h"
 #include "gui/lattice.h"
 #include "gui/marks.h"
@@ -139,6 +141,7 @@ static int g_menu_count, g_menu_cursor;
 static float g_menu_slide;              /* 0 off the right edge, 1 in place */
 static int g_menu_leaving;              /* sliding out; count drops at 0 */
 static int g_info;
+static const struct file_view *g_files;   /* the file browser, while it is open */
 static const struct app_entry *g_details;   /* the package the band is about */
 static int g_resting;                   /* left alone: where the picture is going */
 static float g_rest;                    /* 0 no picture, 1 the picture whole */
@@ -527,7 +530,7 @@ static void draw_chrome(const struct catalog *catalog, float t) {
        open tab, said in words here and lit as a sign among the others on
        the right. Nothing is counted; the list is there to be looked at. */
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
-    const char *title = tab == TAB_GEAR ? T_HEAD_GEAR
+    const char *title = g_files ? T_HEAD_FILES : tab == TAB_GEAR ? T_HEAD_GEAR
                       : tab == TAB_STICK ? T_HEAD_STICK
                       : tab == TAB_BASKET ? T_HEAD_BASKET : TAB_NAME[tab];
     gfx_glow(LIST_X + 24, 18, 110, 56, rgb_pack(g_tint, 80));
@@ -590,7 +593,7 @@ static void draw_action_row(int y, int selected, float t) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[SHELL_SETTINGS] = {
-        MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_INFO,
+        MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_UPDATE, MARK_INFO,
     };
     float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     enum mark m = (enum mark)SIGN[n];
@@ -1246,6 +1249,7 @@ static void read_storage(void) {
 static const char *const SETTING[SHELL_SETTINGS] = {
     T_SET_SOURCES,
     T_SET_DIRECT,
+    T_SET_FILES,
     T_SET_RESET,
     T_SET_INFO,
 };
@@ -1255,6 +1259,7 @@ static const char *const SETTING[SHELL_SETTINGS] = {
 static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
     T_NOTE_SOURCES,
     T_NOTE_DIRECT,
+    T_NOTE_FILES,
     T_NOTE_RESET,
     T_NOTE_INFO,
 };
@@ -1487,6 +1492,126 @@ static void draw_setting_panel(int n) {
     draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 3, g_dim, SETTING_NOTE[n]);
 }
 
+void shell_files(const struct file_view *view) { g_files = view; }
+
+/* Manage Files. Left, the rows of the level the browser is on, one short
+   row each with a word on the right saying how much is there; right, the
+   row under the cursor: what it is, and then its lines. A file's own bytes
+   are laid out at a fixed width, since a record is one long line of JSON
+   with nothing to break at; everything else is a line a row. */
+#define FILE_ROW_H 26
+#define FILE_TEXT_COLS 40
+#define FILE_TEXT_STEP 13
+
+int shell_files_page(void) {
+    int y = LIST_Y + 12 + 36;
+    return (FOOTER_Y - 8 - y) / FILE_TEXT_STEP;
+}
+
+static void draw_files(float t) {
+    const struct file_view *v = g_files;
+    int top = LIST_Y + 4;
+    draw_shade(LIST_X + LIST_W / 2, top + FILES_ROWS * FILE_ROW_H / 2, LIST_W,
+               FILES_ROWS * FILE_ROW_H);
+    if (v->count == 0)
+        font_print(FONT_META, LIST_X, top + 16, g_dim, T_FILES_EMPTY);
+    for (int i = v->first; i < v->count && i < v->first + FILES_ROWS; i++) {
+        int y = top + (i - v->first) * FILE_ROW_H;
+        const struct file_row *r = &v->row[i];
+        int selected = i == v->cursor;
+        if (selected) {
+            float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
+            gfx_glow(LIST_X + 60, y + FILE_ROW_H / 2, LIST_W + 120, FILE_ROW_H * 2.2f,
+                     rgb_pack(g_tint, (int)(120 * breathe)));
+            gfx_glow(LIST_X + LIST_W / 2, y + FILE_ROW_H - 3, LIST_W + 30, 8,
+                     rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 140));
+        }
+        float dw = r->detail[0] ? font_width(FONT_META, r->detail) : 0.0f;
+        font_print_clipped(FONT_BODY, LIST_X, y + 18, LIST_W - dw - 10,
+                           selected ? g_text : g_dim, r->name);
+        if (r->detail[0])
+            font_print(FONT_META, LIST_X + LIST_W - dw, y + 18, faded(g_dim, 200), r->detail);
+    }
+    if (v->count > FILES_ROWS) {
+        int track = FILES_ROWS * FILE_ROW_H, knob = track * FILES_ROWS / v->count;
+        int at = track * v->first / v->count;
+        gfx_rect(LIST_X + LIST_W + 10, top, 2, track, RGBA(255, 255, 255, 24));
+        gfx_rect(LIST_X + LIST_W + 10, top + at, 2, knob, g_accent);
+    }
+
+    int x = PANEL_X, w = SCR_W - PANEL_X - 12, y = LIST_Y + 12;
+    draw_shade(x + w / 2, (y + FOOTER_Y) / 2, w, FOOTER_Y - y);
+    font_print_clipped(FONT_H1, x, y, w, g_text, v->head);
+    font_print_clipped(FONT_META, x, y + 16, w, faded(g_dim, 170), v->path);
+    int lines = draw_wrapped(FONT_META, x, y + 32, w, 14, 2, g_dim, v->note);
+    y += 32 + 14 * lines + 8;
+    int room = (FOOTER_Y - 8 - y) / FILE_TEXT_STEP;
+    /* A picture instead of lines: decoded once per file, kept until the
+       cursor leaves it, fitted into what is left of the column. */
+    static struct gfx_texture picture;
+    static char shown[160];
+    if (v->image[0]) {
+        if (strcmp(shown, v->image)) {
+            gfx_texture_free(&picture);
+            shown[0] = '\0';
+            char *png = NULL;
+            int n = storage_read(v->image, &png, 512 * 1024);
+            if (n > 0 && image_decode_png(png, (size_t)n, &picture) == 0)
+                snprintf(shown, sizeof(shown), "%s", v->image);
+            free(png);
+        }
+        if (shown[0] && picture.w > 0 && picture.h > 0) {
+            int maxw = w, maxh = FOOTER_Y - 8 - y;
+            int pw = picture.w, ph = picture.h;
+            if (pw > maxw) { ph = ph * maxw / pw; pw = maxw; }
+            if (ph > maxh) { pw = pw * maxh / ph; ph = maxh; }
+            gfx_texture_draw(&picture, x, y, pw, ph, RGB(255, 255, 255));
+        } else {
+            font_print(FONT_META, x, y, g_dim, T_FILES_BINARY);
+        }
+    } else if (shown[0]) {
+        gfx_texture_free(&picture);
+        shown[0] = '\0';
+    }
+    /* The lines, from the one the scrolling is at; a raw file is cut at a
+       fixed width so a long line becomes several. */
+    const char *p = v->text;
+    int line = 0;
+    while (*p && line < v->text_first + room) {
+        const char *end = strchr(p, '\n');
+        int len = end ? (int)(end - p) : (int)strlen(p);
+        do {
+            int take = v->raw && len > FILE_TEXT_COLS ? FILE_TEXT_COLS : len;
+            if (line >= v->text_first) {
+                char chunk[FILE_TEXT_COLS + 1];
+                if (!v->raw && take > FILE_TEXT_COLS) take = FILE_TEXT_COLS;
+                memcpy(chunk, p, (size_t)take);
+                chunk[take] = '\0';
+                if (v->raw)
+                    font_print(FONT_META, x, y + (line - v->text_first) * FILE_TEXT_STEP,
+                               g_text, chunk);
+                else
+                    font_print_clipped(FONT_META, x, y + (line - v->text_first) * FILE_TEXT_STEP,
+                                       w, g_text, chunk);
+                if (!v->raw) { p += len; len = 0; take = len; }
+            }
+            p += take;
+            len -= take;
+            line++;
+        } while (len > 0 && line < v->text_first + room);
+        if (end && *p == '\n') p++;
+        else if (!end) break;
+    }
+    /* The keys at the foot: into a row, back out, and the page keys over
+       the lines when there are more than fit. */
+    float hx = LIST_X;
+    if (v->deeper) hx = draw_hint(hx, FOOTER_BASE, MARK_CROSS, T_HINT_OPEN, g_dim);
+    hx = draw_hint(hx, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
+    if (v->level > 0 && v->level < 3 && !(v->level == 1 && v->group))
+        hx = draw_hint(hx, FOOTER_BASE, MARK_TRIANGLE, T_HINT_OPTIONS, g_dim);
+    if (v->text_lines > room) draw_hint(hx, FOOTER_BASE, MARK_L, T_HINT_SCROLL, g_dim);
+}
+
 void shell_draw(const struct catalog *catalog, int cursor) {
     g_catalog = catalog;
     g_cursor = cursor;
@@ -1533,7 +1658,9 @@ void shell_draw(const struct catalog *catalog, int cursor) {
        nothing over it, until a key brings the rows back in a few frames. */
     gfx_veil((int)(256.0f * (1.0f - g_rest)));
     draw_chrome(catalog, t);
-    if (catalog->count > 0 && shell_view_count() > 0) {
+    if (g_files) {
+        draw_files(t);
+    } else if (catalog->count > 0 && shell_view_count() > 0) {
         int rows = shell_view_count();
         int index = shell_view_index(cursor < rows ? cursor : 0);
         draw_list(catalog, cursor, t);

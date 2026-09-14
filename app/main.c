@@ -4,6 +4,7 @@
 #include "update/pspdx.h"
 #include "update/inbox.h"
 #include "util/self_manifest.h"
+#include "util/files.h"
 /* PSPDX application controller. Feature code lives behind module APIs. */
 
 #include <pspkernel.h>
@@ -607,7 +608,7 @@ static void menu_close(void) {
 /* The two popups under the gear, in the same panel the options use: the
    catalogs this console reads, one a row with "Add" last; and the two ways
    a .pspdx comes in directly. Drawn by the shell, driven here. */
-enum sub { SUB_NONE, SUB_CATALOGS, SUB_ADD, SUB_RESET };
+enum sub { SUB_NONE, SUB_CATALOGS, SUB_ADD, SUB_RESET, SUB_FILES };
 static enum sub g_sub;
 static int g_sub_cursor, g_sub_count;
 static struct sources g_sources;
@@ -617,7 +618,8 @@ static unsigned char g_sub_on[SOURCES_MAX + 1];
 static signed char g_sub_key[SOURCES_MAX + 1];
 
 static void sub_push(void) {
-    shell_menu(g_sub == SUB_CATALOGS ? T_SUB_SOURCES : g_sub == SUB_ADD ? T_SUB_DIRECT : T_SUB_RESET,
+    shell_menu(g_sub == SUB_CATALOGS ? T_SUB_SOURCES : g_sub == SUB_ADD ? T_SUB_DIRECT
+               : g_sub == SUB_FILES ? T_SUB_FILES : T_SUB_RESET,
                g_sub_item, g_sub_on, g_sub_key, g_sub_count, g_sub_cursor);
 }
 
@@ -637,6 +639,8 @@ static void sub_open(enum sub which) {
     } else if (which == SUB_ADD) {
         g_sub_item[g_sub_count++] = T_SUB_FROM_GITHUB;
         g_sub_item[g_sub_count++] = T_SUB_FROM_INBOX;
+    } else if (which == SUB_FILES) {
+        g_sub_item[g_sub_count++] = T_SUB_VIEW_RAW;
     } else {
         g_sub_item[g_sub_count++] = T_SUB_SWEEP;
         g_sub_item[g_sub_count++] = T_SUB_RESET_ALL;
@@ -718,6 +722,13 @@ static unsigned button_named(const char *name) {
     if (strcmp(name, "start") == 0) return PSP_CTRL_START;
     return 0;
 }
+
+/* ------------------------------------------------------------------ files */
+
+/* Manage Files: the view util/files.c fills out of the stick, and whether
+   it is on screen. */
+static struct file_view g_files;
+static int g_files_open;
 
 static void keys_load(void) {
     static char text[4096];
@@ -1162,7 +1173,7 @@ int main(int argc, char *argv[]) {
            is: a question that scrolls out from under its answer is a trap,
            up and down belong to the menu while one is open, and a tab
            changing under a band would change what the band is about. */
-        int modal = g_question != ASK_NOTHING || g_menu_open || g_sub || details;
+        int modal = g_question != ASK_NOTHING || g_menu_open || g_sub || details || g_files_open;
 
         /* Ten seconds without a key and the picture of the package under
            the cursor rises behind the interface, which stays where it is
@@ -1244,6 +1255,18 @@ int main(int argc, char *argv[]) {
                 ask_forget();
                 shell_status(later ? T_RESTART_LATER : "");
             }
+        } else if (g_files_open && !g_sub) {
+            struct file_view *v = &g_files;
+            if ((pressed & PSP_CTRL_DOWN) && v->count) { files_move(v, 1); cues_post(CUE_MOVE, v->cursor); }
+            else if ((pressed & PSP_CTRL_UP) && v->count) { files_move(v, -1); cues_post(CUE_MOVE, v->cursor); }
+            else if ((pressed & PSP_CTRL_CROSS) && v->count) { if (files_enter(v)) cues_post(CUE_OPEN, 0); }
+            else if (pressed & PSP_CTRL_CIRCLE) {
+                if (!files_back(v)) { g_files_open = 0; shell_files(NULL); }
+            }
+            else if ((pressed & PSP_CTRL_TRIANGLE) && v->count && !v->deeper) sub_open(SUB_FILES);
+            else if ((pressed & PSP_CTRL_TRIANGLE) && v->count && v->level == 1 && v->area >= 0) sub_open(SUB_FILES);
+            else if (pressed & PSP_CTRL_RTRIGGER) files_scroll(v, shell_files_page());
+            else if (pressed & PSP_CTRL_LTRIGGER) files_scroll(v, -shell_files_page());
         } else if (g_sub) {
             if (pressed & PSP_CTRL_DOWN) { g_sub_cursor = (g_sub_cursor + 1) % g_sub_count; sub_push(); cues_post(CUE_MOVE, 0); }
             else if (pressed & PSP_CTRL_UP) { g_sub_cursor = (g_sub_cursor + g_sub_count - 1) % g_sub_count; sub_push(); cues_post(CUE_MOVE, 0); }
@@ -1260,6 +1283,8 @@ int main(int argc, char *argv[]) {
                     } else if (synced && type_source(0)) {
                         refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
                     }
+                } else if (kind == SUB_FILES) {
+                    if (chosen == 0) files_raw(&g_files);
                 } else if (kind == SUB_ADD) {
                     if (chosen == 0 && synced && type_source(1))
                         refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
@@ -1356,8 +1381,9 @@ int main(int argc, char *argv[]) {
                 int which = SHELL_ROW_SETTING - at;
                 if (which == 0 && synced) sub_open(SUB_CATALOGS);
                 else if (which == 1 && synced) sub_open(SUB_ADD);
-                else if (which == 2) sub_open(SUB_RESET);
-                else if (which == 3) shell_info(info = 1);
+                else if (which == 2) { files_open(&g_files); g_files_open = 1; shell_files(&g_files); }
+                else if (which == 3) sub_open(SUB_RESET);
+                else if (which == 4) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X is the one thing there is to do to the package: have
                    it, have the newer one, or start it -- each asked about

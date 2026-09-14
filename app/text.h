@@ -20,6 +20,7 @@
 #define T_HEAD_GEAR          "PSPDX"
 #define T_HEAD_STICK         "Installed"
 #define T_HEAD_BASKET        "Basket"
+#define T_HEAD_FILES         "Manage Data"
 
 /* ------------------------------------------------------ waiting and status */
 
@@ -142,10 +143,12 @@
 
 #define T_SET_SOURCES        "Add sources"
 #define T_SET_DIRECT         "Direct install"
+#define T_SET_FILES          "Manage Data"
 #define T_SET_RESET          "Reset"
 #define T_SET_INFO           "Information"
 #define T_NOTE_SOURCES       "Add or delete the catalogs PSPDX reads apps from."
 #define T_NOTE_DIRECT        "Install an app from GitHub or from the INBOX folder."
+#define T_NOTE_FILES         "View the data PSPDX keeps on the Memory Stick."
 #define T_NOTE_RESET         "Renew the encryption seed, or reset all PSPDX data."
 #define T_NOTE_INFO          "View details about PSPDX and this system."
 
@@ -183,5 +186,51 @@
 #define T_DETAIL_SAVED       "Saved "
 #define T_DETAIL_THIS_SESSION "This session"
 #define T_UNKNOWN            "Unknown"
+
+/* ------------------------------------------------------------------ files */
+
+#define T_FILES_EMPTY        "Nothing here."
+#define T_FILES_BINARY       "This file cannot be displayed."
+#define T_FILES_BYTES        "%u bytes"                           /* size */
+#define T_FILES_KB           "%u KB"                              /* size */
+#define T_FILES_MB           "%u.%u MB"                           /* MB, tenths */
+#define T_FILES_N            "%d"                                 /* count */
+#define T_FILES_NONE         "none"
+#define T_HINT_OPEN          "Open"
+#define T_HINT_SCROLL        "Scroll"
+#define T_SUB_FILES          "File"
+#define T_SUB_VIEW_RAW       "View raw file"
+#define T_HINT_OPTIONS       "Options"
+
+/* The areas, in the order a person asks about them. */
+#define T_AREA_SYSTEM        "System"
+#define T_AREA_SYSTEM_NOTE   "Cache, logs and other files PSPDX keeps for itself."
+#define T_AREA_SOURCES       "Sources"
+#define T_AREA_INSTALLED     "Installed apps"
+#define T_AREA_INBOX         "Inbox"
+#define T_AREA_CACHE         "Cache"
+#define T_AREA_PENDING       "Unfinished install"
+#define T_AREA_LOGS          "Logs"
+#define T_AREA_SEED          "Encryption seed"
+#define T_AREA_DEBUG         "Developer files"
+#define T_AREA_SOURCES_NOTE  "Where PSPDX looks for apps. Edit under Add sources."
+#define T_AREA_INSTALLED_NOTE "What is installed and where it came from. One entry per app."
+#define T_AREA_INBOX_NOTE    ".pspdx files copied here are installed via Direct install."
+#define T_AREA_CACHE_NOTE    "Catalogs and previews already downloaded. Safe to delete."
+#define T_AREA_PENDING_NOTE  "Used only while an install is running. Empty means nothing is stuck."
+#define T_AREA_LOGS_NOTE     "What PSPDX did, for troubleshooting."
+#define T_AREA_SEED_NOTE     "The random seed for secure connections. Never shown."
+#define T_AREA_DEBUG_NOTE    "Screenshots and test files for development."
+#define T_KIND_CATALOG       "Catalog"
+#define T_KIND_LIST          "Repository list"
+#define T_KIND_REPO          "Repository"
+#define T_APP_INSTALLED      "Installed: %s"                      /* version */
+#define T_APP_LATEST         "Latest: %s"                         /* version */
+#define T_APP_FOLDER         "Folder: PSP/GAME/%s"                /* dir */
+#define T_APP_SOURCE         "Source: %s"                         /* url */
+#define T_APP_CHECKED        "Checked: %s"                        /* when */
+#define T_APP_VIA            "Via: %s"                            /* host */
+#define T_APP_FILES_NOTE     "The two files PSPDX keeps for this app."
+#define T_FILE_NOTE          "%s in %s"                           /* size, area */
 
 #endif
