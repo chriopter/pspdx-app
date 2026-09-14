@@ -90,6 +90,16 @@ class ClientTests(unittest.TestCase):
   self.zip('new.zip',{'EBOOT.PBP':b'a','f'*205:b'x'});self.assertNotEqual(self.run_client('install',ok=False).returncode,0);self.assertFalse((self.root/'ms0:/PSP/GAME'/d).exists())
   self.zip('new.zip',{'EBOOT.PBP':b'a','f'*204:b'x','a/'*40+'deep':b'y'});self.run_client('install');self.run_client('remove')
   self.assertFalse((self.root/'ms0:/PSP/GAME'/d).exists());self.assertFalse((self.root/'ms0:/PSP/GAME'/(d+'.old')).exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists())
+ def test_discard_clears_what_recovery_cannot(self):
+  self.run_client('install',VERSION=1)
+  tmp=self.root/'ms0:/PSP/PSPDX/TMP';(tmp/'transaction.json').write_text('{"id":"io.github.test.demo","dir":"Demo","phase":"wat"}');(tmp/'download.zip').write_bytes(b'x')
+  stage=self.root/'ms0:/PSP/GAME/.pspdx-stage';stage.mkdir();(stage/'EBOOT.PBP').write_bytes(b'half')
+  old=self.root/'ms0:/PSP/GAME/Demo.old';old.mkdir();(old/'save').write_text('keep')
+  self.assertNotEqual(self.run_client('install',ok=False).returncode,0)
+  r=self.run_client('discard');self.assertIn('Demo.old',r.stdout)
+  self.assertEqual(sorted(p.name for p in tmp.iterdir()),[]);self.assertFalse(stage.exists());self.assertEqual((old/'save').read_text(),'keep')
+  old.rename(str(old)[:-4]+'.bak');self.run_client('install');self.assertEqual(self.state()[ID]['installed']['version'],'2')
+  self.run_client('discard')
  def test_ef0(self):
   self.run_client('install',DEVICE='ef0:/PSP/GAME/PSPDX/EBOOT.PBP');self.assertTrue((self.root/'ef0:/PSP/PSPDX/INSTALLED/io.github.test.demo.state.json').exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX').exists())
  def test_power_cuts(self):

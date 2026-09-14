@@ -64,6 +64,12 @@ int main(int argc, char **argv) {
         printf("%d\n", n);
         return 0;
     }
+    if (!strcmp(argv[1], "discard")) {
+        char line[128];
+        int rc = install_discard(line, sizeof(line));
+        puts(line);
+        return rc < 0 ? 1 : 0;
+    }
     if (!strcmp(argv[1], "remove")) {
         host_fault(argc > 2 ? atol(argv[2]) : 0);
         return uninstall("io.github.test.demo") < 0 ? 1 : 0;

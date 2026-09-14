@@ -315,7 +315,7 @@ static void launch_app(int index) {
    draws the question and the footer that answers it; the answer arrives
    through the pad, which is read down in the loop, so the two halves meet
    in these two variables and nowhere else. */
-enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_RUN };
+enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN };
 static enum question g_question;
 static int g_question_of;
 
@@ -609,8 +609,13 @@ static void sub_open(enum sub which) {
     } else {
         g_sub_item[g_sub_count++] = "Sweep TLS entropy again";
         g_sub_item[g_sub_count++] = "Reset PSPDX completely";
+        g_sub_item[g_sub_count++] = "Discard unfinished install";
     }
     for (int i = 0; i < g_sub_count; i++) { g_sub_on[i] = 1; g_sub_key[i] = -1; }
+    /* The row is there for the one case recovery could not settle, and
+       greyed while there is nothing unfinished. */
+    if (which == SUB_RESET)
+        g_sub_on[2] = storage_exists(storage_path("PSP/PSPDX/TMP/transaction.json"));
     g_sub_cursor = 0;
     sub_push();
 }
@@ -795,6 +800,16 @@ static void reset_completely(void) {
     if (storage_remove_tree(storage_path("PSP/PSPDX")) < 0)
         logline("reset: some of PSP/PSPDX would not go");
     sceKernelExitGame();
+}
+
+/* A journal recovery could not finish blocks every install; this is the
+   hand that clears it. What is under PSP/GAME stays, and the line says so. */
+static void discard_unfinished(void) {
+    char line[128];
+    if (install_discard(line, sizeof(line)) < 0)
+        shell_status("The unfinished install would not go; see the log");
+    else
+        shell_status(line);
 }
 
 /* Reads a source from the keyboard and adds it. Returns 1 when the catalog
@@ -1170,6 +1185,7 @@ int main(int argc, char *argv[]) {
                 else if (asked == ASK_ALL) install_all();
                 else if (asked == ASK_INBOX) install_inbox();
                 else if (asked == ASK_RESET) reset_completely();
+                else if (asked == ASK_DISCARD) discard_unfinished();
                 else if (asked == ASK_RUN) launch_app(index);
                 else if (asked == ASK_CATALOG) {
                     if (index >= 0 && index < g_sources.count &&
@@ -1207,10 +1223,15 @@ int main(int argc, char *argv[]) {
                     else if (chosen == 1 && synced) ask_inbox();
                 } else {
                     if (chosen == 0) sweep_again();
-                    else {
+                    else if (chosen == 1) {
                         shell_ask("Reset PSPDX completely?",
                                   "Everything under PSP/PSPDX goes; apps in PSP/GAME stay");
                         g_question = ASK_RESET;
+                        g_question_of = -1;
+                    } else {
+                        shell_ask("Discard the unfinished install?",
+                                  "Its journal, archive and staging go; PSP/GAME stays as it is");
+                        g_question = ASK_DISCARD;
                         g_question_of = -1;
                     }
                 }

@@ -91,6 +91,11 @@ int manifest_root_is_safe(const char *root);
    startup, before anything reads the database. */
 void install_recover(void);
 
+/* The user's way out of a transaction recovery could not finish: the
+   journal, the archive and the staging directory go, whatever is under
+   PSP/GAME stays and is named in line. Returns 0 when the journal is gone. */
+int install_discard(char *line, size_t size);
+
 /* Download, verify, unpack, rename into place. Returns 0 on success;
    negative on the phase that failed. Nothing is left half-written. */
 int install_release(const struct manifest *release, struct install_report *rep,

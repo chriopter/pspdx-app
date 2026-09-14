@@ -537,6 +537,38 @@ void install_recover(void) {
         logline("recovery: an unfinished transaction was put back");
     cJSON_Delete(j);
 }
+/* The way out when recovery cannot finish what it found: the journal, the
+   archive and the staging directory go. What the transaction may have put
+   under PSP/GAME -- a backup under <dir>.old, the target itself -- stays,
+   since which of the two is the app is the user's call now, and both are
+   named in line. Returns 0 when the journal is gone. */
+int install_discard(char *line, size_t size) {
+    char *raw = NULL, dir[64] = "", dest[256], old[256];
+    int n = storage_read(JOURNAL, &raw, 512 * 1024);
+    if (n >= 0) {
+        cJSON *j = cJSON_ParseWithLengthOpts(raw, n + 1, NULL, 1);
+        if (j && manifest_dir_is_safe(js(j, "dir")))
+            snprintf(dir, sizeof(dir), "%s", js(j, "dir"));
+        cJSON_Delete(j);
+    }
+    free(raw);
+    if (remove_tree(STAGE) < 0)
+        logline("discard: the staging directory would not go");
+    if (storage_remove(ARCHIVE) < 0)
+        logline("discard: the archive would not go");
+    if (storage_remove(JOURNAL) < 0)
+        logline("discard: the journal would not go");
+    snprintf(dest, sizeof(dest), "%s/%s", GAME_DIR, dir);
+    snprintf(old, sizeof(old), "%s/%s.old", GAME_DIR, dir);
+    int has_dest = *dir && storage_exists(dest), has_old = *dir && storage_exists(old);
+    snprintf(line, size, "Unfinished install discarded%s%s%s%s%s%s",
+             has_dest || has_old ? "; " : "", has_dest ? "PSP/GAME/" : "", has_dest ? dir : "",
+             has_dest && has_old ? " and " : "", has_old ? dir : "",
+             has_old ? ".old stay" : has_dest ? " stays" : "");
+    logline("discard: %s", line);
+    return storage_exists(JOURNAL) ? -1 : 0;
+}
+
 static cJSON *begin(const char *id, const char *dir, const char *op) {
     install_recover();
     if (!state_ok() || storage_exists(JOURNAL) || storage_exists(STAGE)) {
