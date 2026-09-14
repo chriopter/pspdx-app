@@ -1117,7 +1117,7 @@ int main(int argc, char *argv[]) {
                     /* Nothing came: say so, and offer the one thing that
                        can be done about it. */
                     char again[96];
-                    snprintf(again, sizeof(again), "%s   X to try again", sync_message());
+                    snprintf(again, sizeof(again), T_STATUS_RETRY, sync_message());
                     shell_word(T_WORD_OFFLINE);
                     shell_status(again);
                 }
@@ -1140,7 +1140,7 @@ int main(int argc, char *argv[]) {
                 int bench = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.BENCH"), PSP_O_RDONLY, 0777);
                 if (bench >= 0) {
                     sceIoClose(bench);
-                    shell_status("benchmarking ciphers");
+                    shell_status(T_STATUS_BENCH);
                     shell_draw(shown(), cursor);
                     preview_quiesce();
                     bench_run(catalog_url());

@@ -34,6 +34,11 @@
 #define T_STATUS_ORIGIN      "Checking %.28s (%d of %d)..."       /* repository, at, of */
 #define T_STALE              "%s has not been updated for %u day%s." /* host, days, "s" */
 #define T_CATALOG_EMPTY      "No apps are available."
+#define T_STATUS_UNREACHABLE "Could not load the catalog."
+#define T_STATUS_TOO_LARGE   "The catalog is too large."
+#define T_STATUS_OFFLINE     "Offline: last known releases"
+#define T_STATUS_RETRY       "%s   X to try again"                 /* what went wrong */
+#define T_STATUS_BENCH       "Benchmarking ciphers..."
 
 /* ---------------------------------------------------------------- the list */
 
@@ -58,6 +63,10 @@
 #define T_PANEL_INSTALLED    "Version %s"                         /* version */
 #define T_PANEL_NO_RELEASE   "No release"
 #define T_PANEL_IN_BASKET    "   In basket"
+
+/* On the card, in place of a picture. */
+#define T_CARD_LOADING       "loading"
+#define T_CARD_NO_PICTURE    "no picture"
 
 /* ---------------------------------------------------------------- options */
 
@@ -105,6 +114,9 @@
 #define T_RESET_LINE         "All PSPDX data is deleted. Installed apps are not deleted."
 #define T_DISCARD_ASK        "Do you want to clean up the failed install?"
 #define T_DISCARD_LINE       "Leftover download data is deleted. Installed apps are not changed."
+
+#define T_YES                "Yes"
+#define T_NO                 "No"
 
 /* ---------------------------------------------------------------- results */
 
@@ -173,6 +185,9 @@
 #define T_INFO_INSTALLED     "Installed"
 #define T_INFO_MEMORY        "Memory free"
 #define T_INFO_STICK         "Stick free"
+#define T_INFO_TLS           "TLS 1.3  %s  %s"                    /* cipher, group */
+#define T_INFO_NOT_CONNECTED "not connected"
+#define T_INFO_UNKNOWN       "unknown"
 
 #define T_DETAIL_VERSION     "Version"
 #define T_DETAIL_AUTHOR      "Author"

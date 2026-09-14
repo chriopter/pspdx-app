@@ -28,7 +28,7 @@ static int run(SceSize args, void *argp) {
     int count = catalog_fetch(g_catalog);
     if (count < 0) {
         snprintf(g_message, sizeof(g_message),
-                 catalog_too_large() ? "catalog too large" : "catalog unreachable");
+                 catalog_too_large() ? T_STATUS_TOO_LARGE : T_STATUS_UNREACHABLE);
         g_catalog->count = 0;
         g_state = SYNC_FAILED;
         return 0;
@@ -36,7 +36,7 @@ static int run(SceSize args, void *argp) {
     g_catalog->count = count;
     g_state = SYNC_CHECKING;
     if (count > 0) catalog_check_updates(g_catalog);
-    snprintf(g_message,sizeof(g_message),"%s",online?"":"Offline: last known releases");
+    snprintf(g_message, sizeof(g_message), "%s", online ? "" : T_STATUS_OFFLINE);
     g_state = SYNC_DONE;
     return 0;
 }

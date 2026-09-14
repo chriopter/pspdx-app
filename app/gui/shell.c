@@ -892,8 +892,8 @@ static void draw_picture(float t) {
         if (picture == PREVIEW_LOADING)
             gfx_glow(card.cx, card.cy, 70 + sinf(t * 4) * 14, 36 + sinf(t * 4) * 8,
                      rgb_pack(g_tint, 120));
-        const char *note = picture == PREVIEW_LOADING ? "loading"
-                         : picture == PREVIEW_MISSING ? "no picture" : "";
+        const char *note = picture == PREVIEW_LOADING ? T_CARD_LOADING
+                         : picture == PREVIEW_MISSING ? T_CARD_NO_PICTURE : "";
         font_print(FONT_META, card.cx - font_width(FONT_META, note) / 2,
                    card.cy + 4, g_dim, note);
     }
@@ -1037,7 +1037,7 @@ static void draw_ask(void) {
     w = font_width(FONT_META, g_ask_line);
     font_print_clipped(FONT_META, SCR_W / 2 - w / 2, BAND_Y + 68, SCR_W - 40,
                        g_dim, g_ask_line);
-    draw_answers(BAND_Y + BAND_H - 22, "Yes", "No");
+    draw_answers(BAND_Y + BAND_H - 22, T_YES, T_NO);
 }
 
 /* ------------------------------------------------------------------ menu */
@@ -1221,7 +1221,7 @@ static void read_storage(void) {
     memset(&info, 0, sizeof(info));
     g_storage_used = -1.0f;
     if (sceIoDevctl(storage_device(), 0x02425818, &command, sizeof(command), NULL, 0) < 0) {
-        snprintf(g_storage, sizeof(g_storage), "unknown");
+        snprintf(g_storage, sizeof(g_storage), T_INFO_UNKNOWN);
         return;
     }
     unsigned long long unit = (unsigned long long)info.sector_count * info.sector_size;
@@ -1279,9 +1279,9 @@ static void draw_info(void) {
     if (tls->cipher[0]) {
         char cipher[48];
         tidy_cipher(tls->cipher, cipher, sizeof(cipher));
-        snprintf(value, sizeof(value), "TLS 1.3  %s  %s", cipher, tls->group);
+        snprintf(value, sizeof(value), T_INFO_TLS, cipher, tls->group);
     } else {
-        snprintf(value, sizeof(value), "not connected");
+        snprintf(value, sizeof(value), T_INFO_NOT_CONNECTED);
     }
     fact(INFO_Y + 54, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
          T_INFO_CONNECTION, value);
@@ -1794,7 +1794,7 @@ void shell_shot_sync(const struct catalog *catalog, int cursor) {
 }
 
 void shell_word(const char *word) {
-    snprintf(g_word, sizeof(g_word), "%s", word ? word : "Connecting");
+    snprintf(g_word, sizeof(g_word), "%s", word ? word : T_WORD_CONNECTING);
 }
 
 void shell_status(const char *text) {
