@@ -278,9 +278,9 @@ static int wanted_settled(int *cursor) {
     }
     /* The tab that is open need not show it: All does, and is at most a
        ring of tabs away. */
-    for (int n = shell_tab_count(); n > 0 && shell_view_row(found) < 0; n--)
-        shell_tab_move(1);
-    *cursor = shell_view_row(found);
+    for (int n = view_tab_count(); n > 0 && view_row(found) < 0; n--)
+        view_tab_move(1);
+    *cursor = view_row(found);
     if (*cursor < 0) *cursor = 0;
     const struct app_entry *entry = &catalog.apps[found];
     if (entry->state == APP_NOT_INSTALLED || entry->state == APP_UPDATE) {
@@ -438,7 +438,7 @@ int main(int argc, char *argv[]) {
                    worth less than a look at the repositories themselves. */
                 if (catalog.generated && catalog.generated + 24u * 3600u < (unsigned)time(NULL)) {
                     unsigned days = ((unsigned)time(NULL) - catalog.generated) / 86400u;
-                    char stale[96];
+                    char stale[128];
                     snprintf(stale, sizeof(stale),
                              T_STALE,
                              catalog.generated_from, days, days == 1 ? "" : "s");
@@ -449,13 +449,13 @@ int main(int argc, char *argv[]) {
                    cached against the old one no longer stand for the same
                    entries. */
                 cursor = 0;
-                shell_view_rebuild(&catalog);
+                view_rebuild(&catalog);
                 if (keep[0]) {
                     /* Back to the package the cursor was on, if the catalog
                        still has it; the top of the list if it does not. */
                     for (int i = 0; i < catalog.count; i++)
                         if (strcmp(catalog.apps[i].id, keep) == 0) {
-                            int row = shell_view_row(i);
+                            int row = view_row(i);
                             if (row >= 0) cursor = row;
                             break;
                         }
@@ -489,7 +489,7 @@ int main(int argc, char *argv[]) {
                 dump_diagnostics();
                 automatic = catalog.count > 0 ? auto_install_index() : -1;
                 if (automatic >= 0) {
-                    cursor = shell_view_row(automatic);
+                    cursor = view_row(automatic);
                     if (cursor < 0) cursor = 0;
                     install_app(automatic, 1, 0, 0);
                     dump_diagnostics();
@@ -525,7 +525,7 @@ int main(int argc, char *argv[]) {
         /* Everything below counts in rows of the shell's view -- the
            catalog filtered to the active tab -- and there are none of those
            while the catalog is being fetched. */
-        int count = shown()->count > 0 ? shell_view_count() : 0;
+        int count = shown()->count > 0 ? view_count() : 0;
 
         /* With something standing over the browser, the list stays where it
            is: a question that scrolls out from under its answer is a trap,
@@ -557,9 +557,9 @@ int main(int argc, char *argv[]) {
            closes it, so the band is left the way any tab is. */
         unsigned tabs = PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_LEFT | PSP_CTRL_RIGHT;
         if ((pressed & tabs) && count > 0 && !modal) {
-            shell_tab_move(pressed & (PSP_CTRL_RTRIGGER | PSP_CTRL_RIGHT) ? 1 : -1);
+            view_tab_move(pressed & (PSP_CTRL_RTRIGGER | PSP_CTRL_RIGHT) ? 1 : -1);
             cues_post(CUE_MOVE, cursor = 0);
-            count = shell_view_count();
+            count = view_count();
 
         }
         modal = modal || info;
@@ -593,8 +593,8 @@ int main(int argc, char *argv[]) {
                 menu_return();
             }
         } else if (count > 0) {
-            int at = shell_view_index(cursor);
-            if ((pressed & PSP_CTRL_CROSS) && at <= SHELL_ROW_SETTING) {
+            int at = view_index(cursor);
+            if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_SETTING) {
                 /* A row under the gear does what it says. The three that
                    fetch all end in the same place: the list gives way to
                    the word and the status line and comes back with what is
@@ -603,7 +603,7 @@ int main(int argc, char *argv[]) {
                    media thread share the one HTTPS stack and the one asset
                    buffer, so the media thread steps aside for the length of
                    it, as it does for an install. */
-                int which = SHELL_ROW_SETTING - at;
+                int which = VIEW_ROW_SETTING - at;
                 if (which == 0 && synced) sub_open(SUB_CATALOGS);
                 else if (which == 1 && synced) sub_open(SUB_ADD);
                 else if (which == 2) { files_names(files_name_of); files_view_open(); }
@@ -614,10 +614,10 @@ int main(int argc, char *argv[]) {
                    it, have the newer one, or start it -- each asked about
                    first. The options, with the same things and the rest,
                    are on triangle. */
-                if (at == SHELL_ROW_ACTION) {
-                    struct shell_plan plan;
-                    shell_action_plan(&plan);
-                    if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK) {
+                if (at == VIEW_ROW_ACTION) {
+                    struct view_plan plan;
+                    view_action_plan(&plan);
+                    if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_STICK) {
                         if (synced)
                             refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
                     } else ask_all();
@@ -640,17 +640,17 @@ int main(int argc, char *argv[]) {
             /* Square on the stick's own row: the same check, but every app is
                asked at its own repository now, whatever the catalogs said and
                however recently it was asked. */
-            if ((pressed & PSP_CTRL_SQUARE) && at == SHELL_ROW_ACTION &&
-                shell_tab_kind() == SHELL_TAB_STICK && synced) {
+            if ((pressed & PSP_CTRL_SQUARE) && at == VIEW_ROW_ACTION &&
+                view_tab_kind() == VIEW_TAB_STICK && synced) {
                 catalog_force_sources();
                 refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
             }
             if ((pressed & PSP_CTRL_SQUARE) && at >= 0 &&
-                (catalog.apps[at].state == APP_NOT_INSTALLED || shell_basket_has(at))) {
-                shell_basket_toggle(at);
+                (catalog.apps[at].state == APP_NOT_INSTALLED || view_basket_has(at))) {
+                view_basket_toggle(at);
                 cues_post(CUE_MOVE, cursor);
                 view_settled(&cursor);
-                count = shell_view_count();
+                count = view_count();
             }
             if ((pressed & PSP_CTRL_START) && at >= 0 &&
                 catalog.apps[at].state != APP_NOT_INSTALLED)

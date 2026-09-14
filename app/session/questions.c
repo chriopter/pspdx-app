@@ -131,8 +131,8 @@ void ask_remove(int index) {
    business, not this loop's -- so all that happens here is putting the tally
    into words. */
 void ask_all(void) {
-    struct shell_plan plan;
-    shell_action_plan(&plan);
+    struct view_plan plan;
+    view_action_plan(&plan);
     if (plan.apps <= 0) {
         shell_status(T_NOTHING_TO_DOWNLOAD);
         return;
@@ -165,7 +165,7 @@ static void ask_forget(void) {
 void ask_inbox(void){
     preview_quiesce();catalog_offline(net_up()<0);
     shell_word(T_WORD_INBOX);
-    int n=inbox_scan(actions_catalog());preview_resume();shell_view_rebuild(actions_catalog());
+    int n=inbox_scan(actions_catalog());preview_resume();view_rebuild(actions_catalog());
     if(n<=0){shell_status(T_INBOX_EMPTY);return;}
     char title[64],line[96];snprintf(title,sizeof(title),T_INBOX_ASK,n);
     snprintf(line,sizeof(line),"%s",inbox_summary());shell_ask(title,line);g_question=ASK_INBOX;
@@ -242,7 +242,7 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         dump_diagnostics();
         /* What was just done can have emptied a tab. */
         view_settled(cursor);
-        *count = shell_view_count();
+        *count = view_count();
     } else if (pressed & PSP_CTRL_CIRCLE) {
         int later = g_question == ASK_RESTART, declined = g_question == ASK_TRUST;
         ask_forget();

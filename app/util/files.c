@@ -8,7 +8,6 @@
 #include <time.h>
 
 #include "util/files.h"
-#include "gui/files_view.h"
 #include "install/install.h"
 #include "install/state.h"
 #include "text.h"
@@ -34,7 +33,7 @@ static const struct { const char *name, *note, *dir; } AREA[A_COUNT] = {
 
 /* The rows of an area are files, and the file a row stands for is remembered
    beside the view, since the row itself carries only what is read. */
-static char g_path[FILES_MAX][64];      /* relative to PSP/PSPDX */
+static char g_path[FILES_MAX][272];     /* relative to PSP/PSPDX: an area, a slash, a name as long as FAT allows */
 static char g_id[FILES_MAX][96];        /* the app, in the installed area */
 static struct sources g_sources;
 static const char *(*g_name_of)(const char *id);
@@ -129,7 +128,7 @@ static int list_dir(struct file_view *v, const char *rel, const char *prefix) {
         if (strcmp(e.d_name, ".") && strcmp(e.d_name, "..")) {
             struct file_row *r = &v->row[v->count];
             int dir = FIO_S_ISDIR(e.d_stat.st_mode);
-            snprintf(r->name, sizeof(r->name), "%s%s%s", prefix, e.d_name, dir ? "/" : "");
+            snprintf(r->name, sizeof(r->name), "%s%.38s%s", prefix, e.d_name, dir ? "/" : "");
             if (dir) r->detail[0] = '\0';
             else size_text((unsigned)e.d_stat.st_size, r->detail, sizeof(r->detail));
             snprintf(g_path[v->count], sizeof(g_path[0]), "%s/%s", rel, e.d_name);
@@ -146,7 +145,7 @@ static void sort_rows(struct file_view *v, int from) {
     for (int i = from + 1; i < v->count; i++)
         for (int j = i; j > from && cmp_rows(&v->row[j - 1], &v->row[j]) > 0; j--) {
             struct file_row t = v->row[j]; v->row[j] = v->row[j - 1]; v->row[j - 1] = t;
-            char p[64]; memcpy(p, g_path[j], 64); memcpy(g_path[j], g_path[j - 1], 64); memcpy(g_path[j - 1], p, 64);
+            char p[sizeof(g_path[0])]; memcpy(p, g_path[j], sizeof(p)); memcpy(g_path[j], g_path[j - 1], sizeof(p)); memcpy(g_path[j - 1], p, sizeof(p));
         }
 }
 
@@ -345,10 +344,10 @@ static void fill_installed(struct file_view *v) {
         struct pspdx_file f;
         char *raw = NULL;
         struct installed rec;
-        if (state_read_manifest(id, &raw, &f) >= 0) snprintf(r->name, sizeof(r->name), "%s", f.name);
-        else snprintf(r->name, sizeof(r->name), "%s", id);
+        if (state_read_manifest(id, &raw, &f) >= 0) snprintf(r->name, sizeof(r->name), "%.39s", f.name);
+        else snprintf(r->name, sizeof(r->name), "%.39s", id);
         free(raw);
-        if (db_read(id, &rec) == 0) snprintf(r->detail, sizeof(r->detail), "%s", rec.version);
+        if (db_read(id, &rec) == 0) snprintf(r->detail, sizeof(r->detail), "%.23s", rec.version);
         else r->detail[0] = '\0';
         snprintf(g_id[v->count], sizeof(g_id[0]), "%s", id);
         v->count++;
@@ -362,7 +361,7 @@ static void describe_app(struct file_view *v) {
     struct installed rec;
     struct manifest latest;
     int have = state_read_manifest(id, &raw, &f) >= 0;
-    snprintf(v->head, sizeof(v->head), "%s", have ? f.name : id);
+    snprintf(v->head, sizeof(v->head), "%.39s", have ? f.name : id);
     snprintf(v->note, sizeof(v->note), "%s", have && f.summary[0] ? f.summary : "");
     clear_text(v);
     char rel[128];
@@ -393,7 +392,7 @@ static void fill_sources(struct file_view *v) {
         struct file_row *r = &v->row[v->count];
         char host[48];
         host_of(g_sources.url[i], host, sizeof(host));
-        snprintf(r->name, sizeof(r->name), "%s", host);
+        snprintf(r->name, sizeof(r->name), "%.39s", host);
         enum source_kind k = sources_kind(g_sources.url[i]);
         snprintf(r->detail, sizeof(r->detail), "%s",
                  k == SOURCE_REPO ? T_KIND_REPO : k == SOURCE_LIST ? T_KIND_LIST : T_KIND_CATALOG);
@@ -425,11 +424,11 @@ static void name_cached(struct file_row *r, const char *file) {
         struct pspdx_file f;
         char *raw = NULL;
         const char *known = g_name_of ? g_name_of(id) : NULL;
-        if (state_read_manifest(id, &raw, &f) >= 0) snprintf(app, sizeof(app), "%s", f.name);
+        if (state_read_manifest(id, &raw, &f) >= 0) snprintf(app, sizeof(app), "%.63s", f.name);
         else if (known && known[0]) snprintf(app, sizeof(app), "%s", known);
         else {
             const char *dot = strrchr(id, '.');
-            snprintf(app, sizeof(app), "%s", dot ? dot + 1 : id);
+            snprintf(app, sizeof(app), "%.63s", dot ? dot + 1 : id);
         }
         free(raw);
         snprintf(r->name, sizeof(r->name), words[k], app);
@@ -513,9 +512,18 @@ void files_move(struct file_view *v, int by) {
     settle(v);
 }
 
-void files_scroll(struct file_view *v, int lines) {
-    int rows, room;
-    shell_files_extent(v, &rows, &room);
+int files_rows(const struct file_view *v, int cols) {
+    int rows = 0;
+    for (const char *p = v->text; *p;) {
+        const char *end = strchr(p, '\n');
+        int len = end ? (int)(end - p) : (int)strlen(p);
+        rows += v->raw && len > cols ? (len + cols - 1) / cols : 1;
+        p = end ? end + 1 : p + len;
+    }
+    return rows;
+}
+
+void files_scroll(struct file_view *v, int lines, int rows, int room) {
     int last = rows - room;                 /* the last page full, not one row */
     if (last < 0) last = 0;
     v->text_first += lines;

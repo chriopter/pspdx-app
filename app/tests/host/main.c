@@ -47,32 +47,32 @@ int main(int argc, char **argv) {
            the caller is told when the tab under its cursor goes. */
         catalog_fetch(&catalog);
         catalog_check_updates(&catalog);
-        shell_view_rebuild(&catalog);
-        int tabs = shell_tab_count();
+        view_rebuild(&catalog);
+        int tabs = view_tab_count();
         printf("tabs %d:", tabs);
-        for (int i = 0; i < tabs; i++) printf(" %d", shell_tab_at(i));
+        for (int i = 0; i < tabs; i++) printf(" %d", view_tab_at(i));
         printf("\n");
         for (int i = 0; i < tabs; i++) {
-            struct shell_plan plan;
-            shell_action_plan(&plan);
-            printf("tab %d kind %d rows %d first %d plan %d %d\n", shell_tab_current(),
-                   shell_tab_kind(), shell_view_count(), shell_view_index(0),
+            struct view_plan plan;
+            view_action_plan(&plan);
+            printf("tab %d kind %d rows %d first %d plan %d %d\n", view_tab_current(),
+                   view_tab_kind(), view_count(), view_index(0),
                    plan.apps, plan.updates);
-            shell_tab_move(1);
+            view_tab_move(1);
         }
-        unsigned gen = shell_view_generation();
-        shell_basket_toggle(0);
-        int kept = shell_tabs_refresh();
-        printf("basket %d kept %d tabs %d moved %d\n", shell_basket_count(), kept,
-               shell_tab_count(), shell_view_generation() != gen);
-        while (shell_tab_kind() != SHELL_TAB_BASKET) shell_tab_move(1);
-        printf("basket tab rows %d first %d index %d row %d\n", shell_view_count(),
-               shell_view_index(0), shell_view_index(1), shell_view_row(0));
-        gen = shell_view_generation();
-        shell_basket_forget(0);
-        kept = shell_tabs_refresh();
-        printf("emptied kept %d kind %d tabs %d moved %d\n", kept, shell_tab_kind(),
-               shell_tab_count(), shell_view_generation() != gen);
+        unsigned gen = view_generation();
+        view_basket_toggle(0);
+        int kept = view_tabs_refresh();
+        printf("basket %d kept %d tabs %d moved %d\n", view_basket_count(), kept,
+               view_tab_count(), view_generation() != gen);
+        while (view_tab_kind() != VIEW_TAB_BASKET) view_tab_move(1);
+        printf("basket tab rows %d first %d index %d row %d\n", view_count(),
+               view_index(0), view_index(1), view_row(0));
+        gen = view_generation();
+        view_basket_forget(0);
+        kept = view_tabs_refresh();
+        printf("emptied kept %d kind %d tabs %d moved %d\n", kept, view_tab_kind(),
+               view_tab_count(), view_generation() != gen);
         return 0;
     }
     if (!strcmp(argv[1], "add")) {

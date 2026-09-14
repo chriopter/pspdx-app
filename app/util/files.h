@@ -15,6 +15,9 @@
 #define FILES_MAX 96
 #define FILES_ROWS 6
 #define FILES_TEXT 4096
+/* A path on the stick in full: the device, PSP/PSPDX, an area, and a name
+   as long as FAT allows. */
+#define FILES_PATH 288
 struct file_row { char name[40]; char detail[24]; };
 enum { FILE_MEDIA_NONE, FILE_MEDIA_PICTURE, FILE_MEDIA_FILM, FILE_MEDIA_SOUND };
 struct file_view {
@@ -24,10 +27,10 @@ struct file_view {
     int deeper;                         /* X opens the row under the cursor */
     int band;                           /* the raw bytes are up, in a band over the columns */
     char head[40];                      /* over the right column */
-    char path[128];                     /* where on the stick, in full, under it */
-    char media[160];                    /* a file shown for itself instead of lines, or "" */
+    char path[FILES_PATH];              /* where on the stick, in full, under it */
+    char media[FILES_PATH];             /* a file shown for itself instead of lines, or "" */
     int media_kind;                     /* what it is, one of FILE_MEDIA_* */
-    char note[200];                     /* the sentence under it */
+    char note[256];                     /* the sentence under it: a manifest's summary at most */
     struct file_row row[FILES_MAX];
     int count, cursor, first;
     char text[FILES_TEXT];              /* the lines under the sentence */
@@ -41,7 +44,15 @@ void files_names(const char *(*name_of)(const char *id));
 
 void files_open(struct file_view *v);
 void files_move(struct file_view *v, int by);
-void files_scroll(struct file_view *v, int lines);
+
+/* The rows the text comes to once a raw line is cut at cols: what the
+   scrolling counts, since a file of one long line is many rows. */
+int files_rows(const struct file_view *v, int cols);
+
+/* The lines scrolled by; rows is what the text comes to at the width it is
+   drawn at and room how many of them the last draw held, both the view's
+   to say, so that the scrolling stops with the last of the text in view. */
+void files_scroll(struct file_view *v, int lines, int rows, int room);
 
 /* Into the row under the cursor. Returns 1 when there was a level to go
    into, 0 when the row is as deep as it goes. */

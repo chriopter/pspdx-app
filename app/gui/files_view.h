@@ -29,9 +29,4 @@ int files_view_sync(void);
 /* The keys, while the browser is up and nothing stands over it. */
 void files_view_keys(unsigned pressed, const SceCtrlData *pad);
 
-/* The rows the text comes to where it is shown now (column or band), and
-   how many of them are in view at once; a long line cut at the width counts
-   as the rows it becomes. */
-void shell_files_extent(const struct file_view *v, int *rows, int *room);
-
 #endif

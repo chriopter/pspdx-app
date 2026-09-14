@@ -109,7 +109,7 @@ int restart_take(char *version, size_t size) {
 
 int install_app(int index, int screenshot, int at, int of) {
     if (index < 0 || index >= g_catalog->count) return -1;
-    int row = shell_view_row(index);
+    int row = view_row(index);
     if (row < 0) row = 0;
     struct app_entry *entry = &g_catalog->apps[index];
     struct install_report report;
@@ -150,10 +150,11 @@ int install_app(int index, int screenshot, int at, int of) {
             snprintf(message, sizeof(message), T_UPDATED_SELF, report.version);
             snprintf(g_restart_version, sizeof(g_restart_version), "%s", report.version);
             g_restart_of = index;
-        } else
+        } else {
             snprintf(message, sizeof(message), T_INSTALLED, entry->name, report.version);
-            logline("installed %s %s: %d files, %luK, %us", entry->name, report.version,
-                    report.files, (unsigned long)(report.bytes / 1024), seconds);
+        }
+        logline("installed %s %s: %d files, %luK, %us", entry->name, report.version,
+                report.files, (unsigned long)(report.bytes / 1024), seconds);
     } else if (rc == INSTALL_CANCELLED) {
         snprintf(message, sizeof(message), T_CANCELLED, entry->name);
     } else {
@@ -193,10 +194,10 @@ void uninstall_app(int index) {
    package is still shown; a tab that has gone out from under it puts it back
    on All at the top, which is the only row that is certainly there. */
 void view_settled(int *cursor) {
-    int at = shell_view_index(*cursor);
-    if (!shell_tabs_refresh()) { *cursor = 0; return; }
-    int row = at >= 0 ? shell_view_row(at) : -1;
-    int count = shell_view_count();
+    int at = view_index(*cursor);
+    if (!view_tabs_refresh()) { *cursor = 0; return; }
+    int row = at >= 0 ? view_row(at) : -1;
+    int count = view_count();
     if (row >= 0) *cursor = row;
     else if (*cursor >= count) *cursor = count > 0 ? count - 1 : 0;
 }
@@ -269,13 +270,13 @@ int set_aside(int index) {
    did. */
 void install_all(void) {
     int list[MAX_APPS], n = 0;
-    for (int row = 0; row < shell_view_count() && n < MAX_APPS; row++) {
-        int at = shell_view_index(row);
+    for (int row = 0; row < view_count() && n < MAX_APPS; row++) {
+        int at = view_index(row);
         if (at < 0) continue;
         const struct app_entry *entry = &g_catalog->apps[at];
         if (!entry->has_release || !entry->release.size) continue;
         /* On the stick the job is the updates alone. */
-        if (shell_tab_kind() == SHELL_TAB_STICK && entry->state != APP_UPDATE) continue;
+        if (view_tab_kind() == VIEW_TAB_STICK && entry->state != APP_UPDATE) continue;
         list[n] = at;
         n++;
     }
@@ -284,7 +285,7 @@ void install_all(void) {
     for (int i = 0; i < n; i++) {
         SceCtrlData pad;sceCtrlPeekBufferPositive(&pad,1);if(pad.Buttons&PSP_CTRL_CIRCLE)break;
         if (install_app(list[i], 0, i + 1, n) == 0) {
-            shell_basket_forget(list[i]);
+            view_basket_forget(list[i]);
             done++;
         }
         dump_diagnostics();
@@ -319,7 +320,7 @@ int auto_install_index(void) {
     int index = catalog_add_repo(g_catalog, url);
     preview_resume();
     if (index < 0) logline("PSPDX.INSTALL: nothing to install at %s", url);
-    else shell_view_rebuild(g_catalog);
+    else view_rebuild(g_catalog);
     return index;
 }
 
@@ -341,7 +342,7 @@ void wanted_forget(void) { g_wanted_url[0] = '\0'; }
    the media thread steps aside for the length of it. */
 void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
                         int *refreshing) {
-    int was = shell_view_index(cursor);
+    int was = view_index(cursor);
     snprintf(keep, keep_size, "%s", was >= 0 ? g_catalog->apps[was].id : "");
     preview_quiesce();
     shell_word(T_WORD_CHECKING);

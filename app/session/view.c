@@ -50,22 +50,22 @@ static unsigned g_generation;           /* counted up when the rows stand for ot
 static unsigned char g_basket[(MAX_APPS + 7) / 8];
 static int g_basket_n;
 
-int shell_basket_has(int index) {
+int view_basket_has(int index) {
     if (index < 0 || index >= MAX_APPS) return 0;
     return (g_basket[index >> 3] >> (index & 7)) & 1;
 }
 
-void shell_basket_toggle(int index) {
+void view_basket_toggle(int index) {
     if (index < 0 || index >= MAX_APPS) return;
     g_basket[index >> 3] ^= (unsigned char)(1u << (index & 7));
-    g_basket_n += shell_basket_has(index) ? 1 : -1;
+    g_basket_n += view_basket_has(index) ? 1 : -1;
 }
 
-void shell_basket_forget(int index) {
-    if (shell_basket_has(index)) shell_basket_toggle(index);
+void view_basket_forget(int index) {
+    if (view_basket_has(index)) view_basket_toggle(index);
 }
 
-static void shell_basket_clear(void) {
+static void view_basket_clear(void) {
     memset(g_basket, 0, sizeof(g_basket));
     g_basket_n = 0;
 }
@@ -73,7 +73,7 @@ static void shell_basket_clear(void) {
 /* How many packages on the stick have a newer one published. The number is
    the updates tab's own label and the reason it exists at all, so it is asked
    for rather than remembered. */
-int shell_updates_waiting(void) {
+int view_updates_waiting(void) {
     int n = 0;
     if (!g_view_of) return 0;
     for (int i = 0; i < g_view_of->count; i++)
@@ -93,7 +93,7 @@ static void build_view(int restart) {
         int take;
         if (tab == TAB_STICK) take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_GEAR) take = 0;     /* its rows are not packages */
-        else if (tab == TAB_BASKET) take = shell_basket_has(i);
+        else if (tab == TAB_BASKET) take = view_basket_has(i);
         else take = !TAB_KEY[tab][0] ||
                     strcmp(g_view_of->apps[i].category, TAB_KEY[tab]) == 0;
         if (take) g_view[g_view_count++] = (unsigned char)i;
@@ -148,53 +148,53 @@ static int collect_tabs(int keep) {
     return found;
 }
 
-void shell_view_rebuild(const struct catalog *catalog) {
+void view_rebuild(const struct catalog *catalog) {
     int was = g_tabs ? g_tab[g_tab_at] : 0;
     /* A fetch rewrites the array the basket's indices point into, and row
        seventeen of the new catalog is not the package row seventeen of the
        old one was. Nothing is carried across. */
-    shell_basket_clear();
+    view_basket_clear();
     g_view_of = catalog;
     collect_tabs(was);
     build_view(1);
 }
 
-int shell_tabs_refresh(void) {
+int view_tabs_refresh(void) {
     int was = g_tabs ? g_tab[g_tab_at] : 0;
     int kept = collect_tabs(was);
     build_view(!kept);
     return kept;
 }
 
-int shell_view_count(void) {
-    if (g_tabs && g_tab[g_tab_at] == TAB_GEAR) return SHELL_SETTINGS;
+int view_count(void) {
+    if (g_tabs && g_tab[g_tab_at] == TAB_GEAR) return VIEW_SETTINGS;
     return g_view_count + g_view_action;
 }
 
-static int shell_view_action(int row) { return g_view_action && row == 0; }
+static int view_action(int row) { return g_view_action && row == 0; }
 
-int shell_view_index(int row) {
+int view_index(int row) {
     if (g_tabs && g_tab[g_tab_at] == TAB_GEAR)
-        return row >= 0 && row < SHELL_SETTINGS ? SHELL_ROW_SETTING - row : -1;
-    if (shell_view_action(row)) return SHELL_ROW_ACTION;
+        return row >= 0 && row < VIEW_SETTINGS ? VIEW_ROW_SETTING - row : -1;
+    if (view_action(row)) return VIEW_ROW_ACTION;
     row -= g_view_action;
     return row >= 0 && row < g_view_count ? g_view[row] : -1;
 }
 
-int shell_view_row(int index) {
+int view_row(int index) {
     for (int row = 0; row < g_view_count; row++)
         if (g_view[row] == index) return row + g_view_action;
     return -1;
 }
 
-enum shell_tab_kind shell_tab_kind(void) {
+enum view_tab_kind view_tab_kind(void) {
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
-    return tab == TAB_GEAR ? SHELL_TAB_GEAR
-         : tab == TAB_STICK ? SHELL_TAB_STICK
-         : tab == TAB_BASKET ? SHELL_TAB_BASKET : SHELL_TAB_CATEGORY;
+    return tab == TAB_GEAR ? VIEW_TAB_GEAR
+         : tab == TAB_STICK ? VIEW_TAB_STICK
+         : tab == TAB_BASKET ? VIEW_TAB_BASKET : VIEW_TAB_CATEGORY;
 }
 
-void shell_action_plan(struct shell_plan *plan) {
+void view_action_plan(struct view_plan *plan) {
     memset(plan, 0, sizeof(*plan));
     if (!g_view_of || !g_view_action) return;
     plan->updates = g_tab[g_tab_at] == TAB_STICK;
@@ -213,9 +213,9 @@ void shell_action_plan(struct shell_plan *plan) {
     }
 }
 
-int shell_tab_count(void) { return g_tabs; }
+int view_tab_count(void) { return g_tabs; }
 
-void shell_tab_move(int step) {
+void view_tab_move(int step) {
     if (g_tabs <= 1) return;
     g_tab_at = (g_tab_at + step + g_tabs) % g_tabs;
     build_view(1);
@@ -224,22 +224,22 @@ void shell_tab_move(int step) {
 
 /* The tab that is open, and the ones on screen in their order: what the
    header names and the row of signs draws. */
-int shell_tab_current(void) { return g_tabs ? g_tab[g_tab_at] : 0; }
-int shell_tab_at(int i) { return i >= 0 && i < g_tabs ? g_tab[i] : 0; }
-int shell_tab_active(void) { return g_tab_at; }
+int view_tab_current(void) { return g_tabs ? g_tab[g_tab_at] : 0; }
+int view_tab_at(int i) { return i >= 0 && i < g_tabs ? g_tab[i] : 0; }
+int view_tab_active(void) { return g_tab_at; }
 
-const char *shell_tab_name(int tab) {
+const char *view_tab_name(int tab) {
     return tab >= 0 && tab < TAB_ALL ? TAB_NAME[tab] : "";
 }
 
-int shell_basket_count(void) { return g_basket_n; }
+int view_basket_count(void) { return g_basket_n; }
 
-unsigned shell_view_generation(void) { return g_generation; }
+unsigned view_generation(void) { return g_generation; }
 
 /* What the gear holds: the things this session can do to itself, and last
    the band that says what it is. A row here is read and taken the way a
    package's row is, because at this depth nothing is deeper. */
-static const char *const SETTING[SHELL_SETTINGS] = {
+static const char *const SETTING[VIEW_SETTINGS] = {
     T_SET_SOURCES,
     T_SET_DIRECT,
     T_SET_FILES,
@@ -247,6 +247,6 @@ static const char *const SETTING[SHELL_SETTINGS] = {
     T_SET_INFO,
 };
 
-const char *shell_setting(int n) {
-    return n >= 0 && n < SHELL_SETTINGS ? SETTING[n] : "";
+const char *view_setting(int n) {
+    return n >= 0 && n < VIEW_SETTINGS ? SETTING[n] : "";
 }

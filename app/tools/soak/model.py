@@ -305,7 +305,7 @@ class Sim:
 
     def view_rebuild(self):
         was = self.tabs[self.tab_at] if self.tabs else 0
-        self.basket.clear()             # shell_view_rebuild() drops it whole
+        self.basket.clear()             # view_rebuild() drops it whole
         self.collect_tabs(was)
         self.build_view()
 
@@ -336,7 +336,7 @@ class Sim:
         return self.tabs[self.tab_at] if self.tabs else 0
 
     def action_plan(self):
-        """shell_action_plan(): on the stick the job is the updates alone
+        """view_action_plan(): on the stick the job is the updates alone
         and what is merely installed is not counted at all, not even as
         skipped."""
         plan = {"apps": 0, "again": 0, "skipped": 0, "bytes": 0, "updates": 0}
@@ -427,7 +427,7 @@ class Sim:
             picked.append(at)
         for at in picked:
             self.install_app(at, t)
-            self.basket.discard(at)     # shell_basket_forget on success
+            self.basket.discard(at)     # view_basket_forget on success
         self.away(t, len(picked) * INSTALL_MS)
         return len(picked)
 

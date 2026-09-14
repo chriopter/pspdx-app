@@ -652,7 +652,7 @@ def storm_refresh(world):
 
 
 def storm_refresh_basket(world):
-    """A refetch with five packages in the basket. shell_view_rebuild()
+    """A refetch with five packages in the basket. view_rebuild()
     drops the basket whole, because the indices in it point into an array
     the fetch has just rewritten -- so the basket tab goes with it.
 

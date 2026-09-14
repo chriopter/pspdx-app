@@ -17,24 +17,24 @@
    Called whenever the catalog has been rewritten: it works out which tabs
    have anything in them, keeps the active category if it survived, and
    builds the view. */
-void shell_view_rebuild(const struct catalog *catalog);
+void view_rebuild(const struct catalog *catalog);
 
-int shell_view_count(void);
-int shell_view_index(int row);      /* view row -> catalog index, -1 if none */
-int shell_view_row(int index);      /* catalog index -> view row, -1 if hidden */
+int view_count(void);
+int view_index(int row);      /* view row -> catalog index, -1 if none */
+int view_row(int index);      /* catalog index -> view row, -1 if hidden */
 
 /* Counted up every time the rows come to stand for other packages than
    they did -- another tab, another catalog -- so that what draws the list
    can start it from the top and fetch the card afresh exactly then. */
-unsigned shell_view_generation(void);
+unsigned view_generation(void);
 
 /* Two of the tabs are not categories: the updates waiting and the basket
    this session has filled. Both stand to the left of All, both come and go
    with what is in them, and both carry one row that is not a package but the
    whole tab as a thing to do. */
-enum shell_tab_kind { SHELL_TAB_CATEGORY, SHELL_TAB_STICK, SHELL_TAB_BASKET,
-                      SHELL_TAB_GEAR };
-enum shell_tab_kind shell_tab_kind(void);
+enum view_tab_kind { VIEW_TAB_CATEGORY, VIEW_TAB_STICK, VIEW_TAB_BASKET,
+                      VIEW_TAB_GEAR };
+enum view_tab_kind view_tab_kind(void);
 
 /* A tab is a number: an index into the categories, All first and then the
    catalog's own words in the order they are shown, or one of three below
@@ -47,62 +47,62 @@ enum shell_tab_kind shell_tab_kind(void);
 
 /* The tab that is open; the ones on screen, in their order, by position;
    which position is the open one; and a category tab's word. */
-int shell_tab_current(void);
-int shell_tab_at(int i);
-int shell_tab_active(void);
-const char *shell_tab_name(int tab);
+int view_tab_current(void);
+int view_tab_at(int i);
+int view_tab_active(void);
+const char *view_tab_name(int tab);
 
 /* How many packages on the stick have a newer one published: the updates
    tab's own label and the reason it exists at all. */
-int shell_updates_waiting(void);
+int view_updates_waiting(void);
 
-/* That row. shell_view_index() answers SHELL_ROW_ACTION for it, which is
+/* That row. view_index() answers VIEW_ROW_ACTION for it, which is
    below zero like the no-such-row answer, so anything that only ever wanted
    a package goes on being right by asking for one. */
-#define SHELL_ROW_ACTION (-2)
+#define VIEW_ROW_ACTION (-2)
 
 /* Under the gear the rows are not packages but the things this session can
-   do to itself: shell_view_index() answers SHELL_ROW_SETTING minus the
+   do to itself: view_index() answers VIEW_ROW_SETTING minus the
    row's number for them, so the one list draws and walks both kinds. */
-#define SHELL_ROW_SETTING (-100)
-#define SHELL_SETTINGS 5
+#define VIEW_ROW_SETTING (-100)
+#define VIEW_SETTINGS 5
 
 /* The word on a row under the gear. */
-const char *shell_setting(int n);
+const char *view_setting(int n);
 
 /* What the action row would do, counted over the rows under it: what can be
    fetched, how much of that is a package already installed and current, what
    was passed over for naming no release, and the bytes of the rest. */
-struct shell_plan {
+struct view_plan {
     int apps;
     int again;
     int skipped;
     unsigned long long bytes;
     int updates;                    /* the updates tab, not the basket */
 };
-void shell_action_plan(struct shell_plan *plan);
+void view_action_plan(struct view_plan *plan);
 
 /* The basket: catalog indices set aside this session, a bit each. It is not
    written to the stick -- what to fetch next is a thought that lasts as long
    as the client is open, and a stale basket after a refresh would point at
    whatever had taken those indices. */
-void shell_basket_toggle(int index);
-void shell_basket_forget(int index);
-int shell_basket_has(int index);
-int shell_basket_count(void);
+void view_basket_toggle(int index);
+void view_basket_forget(int index);
+int view_basket_has(int index);
+int view_basket_count(void);
 
 /* The tabs worked out again after something inside the catalog changed rather
    than the catalog itself: an install that was the last update takes the
    updates tab away, a basket emptied takes the basket tab. Returns 0 when the
    tab that was active has gone -- the caller is then standing on All with a
    cursor that means nothing, and puts it back at the top. */
-int shell_tabs_refresh(void);
+int view_tabs_refresh(void);
 
 /* How many tabs are on screen: one means there is nothing to switch. */
-int shell_tab_count(void);
+int view_tab_count(void);
 
 /* L and R: one tab along, wrapping. The view follows; the caller resets
    its cursor. */
-void shell_tab_move(int step);
+void view_tab_move(int step);
 
 #endif

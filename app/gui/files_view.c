@@ -29,7 +29,7 @@ static struct file_view g_view;
 static const struct file_view *g_files;   /* the file browser, while it is open */
 
 /* The file the media thread has been asked for, while the browser is up. */
-static char g_file_shown[160];
+static char g_file_shown[FILES_PATH];
 
 void files_view_open(void) {
     files_open(&g_view);
@@ -63,23 +63,10 @@ static int shell_files_page(void) {
    scrolling to stop where the last of the text is in view. */
 static int g_files_room, g_band_room;
 
-/* The rows the text comes to once a raw line is cut at cols: what the
-   scrolling counts, since a file of one long line is many rows. */
-static int text_rows(const struct file_view *v, int cols) {
-    int rows = 0;
-    for (const char *p = v->text; *p;) {
-        const char *end = strchr(p, '\n');
-        int len = end ? (int)(end - p) : (int)strlen(p);
-        rows += v->raw && len > cols ? (len + cols - 1) / cols : 1;
-        p = end ? end + 1 : p + len;
-    }
-    return rows;
-}
-
 /* A picture out of a file, decoded once and kept until another is asked
    for, fitted into the space given. */
 static struct gfx_texture g_picture;
-static char g_picture_of[160];
+static char g_picture_of[FILES_PATH];
 
 static void picture_drop(void) {
     if (g_picture_of[0]) {
@@ -168,7 +155,7 @@ void files_view_draw(float t) {
     int path_lines = 1;
     {
         const char *p = v->path;
-        char first[128];
+        char first[FILES_PATH];
         snprintf(first, sizeof(first), "%s", p);
         if (font_width(FONT_META, first) > w) {
             int cut = -1;
@@ -234,7 +221,7 @@ void files_view_draw(float t) {
     if (v->deeper) hx = draw_hint(hx, FOOTER_BASE, MARK_CROSS, T_HINT_OPEN, g_dim);
     if (v->band) { draw_raw_band(); return; }
     hx = draw_hint(hx, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
-    if (text_rows(v, FILE_TEXT_COLS) > room) draw_hint(hx, FOOTER_BASE, MARK_L, T_HINT_SCROLL, g_dim);
+    if (files_rows(v, FILE_TEXT_COLS) > room) draw_hint(hx, FOOTER_BASE, MARK_L, T_HINT_SCROLL, g_dim);
 }
 
 /* The raw bytes of a file, in a band over the dimmed columns like the
@@ -283,9 +270,12 @@ static void draw_raw_band(void) {
     draw_hint(SCR_W / 2 - hw / 2, INFO_Y + INFO_H - 8, MARK_CIRCLE, T_HINT_BACK, g_dim);
 }
 
-void shell_files_extent(const struct file_view *v, int *rows, int *room) {
-    *rows = text_rows(v, v->band ? RAW_COLS : FILE_TEXT_COLS);
-    *room = v->band ? g_band_room : g_files_room;
+/* The lines scrolled by: the model is told how many rows the text comes to
+   where it is shown now (column or band) and how many of them the last
+   draw held. */
+static void scroll(struct file_view *v, int lines) {
+    int rows = files_rows(v, v->band ? RAW_COLS : FILE_TEXT_COLS);
+    files_scroll(v, lines, rows, v->band ? g_band_room : g_files_room);
 }
 
 /* The media thread's frame while the browser is up. Returns 0 while it
@@ -319,8 +309,8 @@ void files_view_keys(unsigned pressed, const SceCtrlData *pad) {
     else if (pressed & PSP_CTRL_CIRCLE) {
         if (!files_back(v)) files_view_close();
     }
-    else if (pressed & PSP_CTRL_RTRIGGER) files_scroll(v, shell_files_page());
-    else if (pressed & PSP_CTRL_LTRIGGER) files_scroll(v, -shell_files_page());
+    else if (pressed & PSP_CTRL_RTRIGGER) scroll(v, shell_files_page());
+    else if (pressed & PSP_CTRL_LTRIGGER) scroll(v, -shell_files_page());
     /* The stick scrolls the band, a line every few frames the further
        it is pushed; the columns under it are not moved by it. */
     if (v->band) {
@@ -328,7 +318,7 @@ void files_view_keys(unsigned pressed, const SceCtrlData *pad) {
         int push = (int)pad->Ly - 128;
         if (push > 40 || push < -40) {
             int every = push > 100 || push < -100 ? 1 : 3;
-            if (++tick >= every) { files_scroll(v, push > 0 ? 1 : -1); tick = 0; }
+            if (++tick >= every) { scroll(v, push > 0 ? 1 : -1); tick = 0; }
         } else tick = 0;
     }
 }

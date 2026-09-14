@@ -145,7 +145,7 @@ static int g_cursor;
    is told to fetch afresh, once, before either is read for the frame. */
 static void follow_view(void) {
     static unsigned seen;
-    unsigned now = shell_view_generation();
+    unsigned now = view_generation();
     if (now == seen) return;
     seen = now;
     g_first = 0;
@@ -215,7 +215,7 @@ void draw_shade(int cx, int cy, int w, int h) {
 static const char *tab_count(int tab) {
     static char text[8];
     snprintf(text, sizeof(text), "%d",
-             tab == TAB_STICK ? shell_updates_waiting() : shell_basket_count());
+             tab == TAB_STICK ? view_updates_waiting() : view_basket_count());
     return text;
 }
 
@@ -224,13 +224,13 @@ static const char *tab_count(int tab) {
 static enum mark tab_mark(int tab) {
     if (tab == TAB_GEAR) return MARK_GEAR;
     if (tab == TAB_BASKET) return MARK_BASKET;
-    return shell_updates_waiting() > 0 ? MARK_UPDATE : MARK_STICK;
+    return view_updates_waiting() > 0 ? MARK_UPDATE : MARK_STICK;
 }
 
 static float tab_width(int tab) {
     if (tab >= 0) return mark_width(MARK_ALL + tab);
     if (tab == TAB_GEAR) return mark_width(MARK_GEAR);
-    if (tab == TAB_STICK && shell_updates_waiting() == 0) return mark_width(MARK_STICK);
+    if (tab == TAB_STICK && view_updates_waiting() == 0) return mark_width(MARK_STICK);
     return mark_width(tab_mark(tab)) + 5 + font_width(FONT_META, tab_count(tab));
 }
 
@@ -272,19 +272,19 @@ static void draw_tab(int tab, int on, float x, float t) {
 
 static void draw_tabs(float left, float right, float t) {
     (void)left; (void)right;
-    int tabs = shell_tab_count(), at = shell_tab_active();
+    int tabs = view_tab_count(), at = view_tab_active();
     if (tabs <= 1) return;
     float x = TAB_X;
     for (int i = 0; i < tabs; i++) {
-        if (shell_tab_at(i) < 0) continue;
-        draw_tab(shell_tab_at(i), i == at, x, t);
-        x += tab_width(shell_tab_at(i)) + TAB_GAP;
+        if (view_tab_at(i) < 0) continue;
+        draw_tab(view_tab_at(i), i == at, x, t);
+        x += tab_width(view_tab_at(i)) + TAB_GAP;
     }
     x = TAB_X - TAB_GAP;
     for (int i = tabs - 1; i >= 0; i--) {
-        if (shell_tab_at(i) >= 0) continue;
-        x -= tab_width(shell_tab_at(i));
-        draw_tab(shell_tab_at(i), i == at, x, t);
+        if (view_tab_at(i) >= 0) continue;
+        x -= tab_width(view_tab_at(i));
+        draw_tab(view_tab_at(i), i == at, x, t);
         x -= TAB_GAP;
     }
     /* A hair between the console's own tabs and the catalog's: the gear
@@ -308,10 +308,10 @@ static void draw_chrome(const struct catalog *catalog, float t) {
     /* The one word in the header is the name of what the list holds: the
        open tab, said in words here and lit as a sign among the others on
        the right. Nothing is counted; the list is there to be looked at. */
-    int tab = shell_tab_current();
+    int tab = view_tab_current();
     const char *title = files_view_shown() ? T_HEAD_FILES : tab == TAB_GEAR ? T_HEAD_GEAR
                       : tab == TAB_STICK ? T_HEAD_STICK
-                      : tab == TAB_BASKET ? T_HEAD_BASKET : shell_tab_name(tab);
+                      : tab == TAB_BASKET ? T_HEAD_BASKET : view_tab_name(tab);
     gfx_glow(LIST_X + 24, 18, 110, 56, rgb_pack(g_tint, 80));
     font_print(FONT_H1, LIST_X, 23, g_text, title);
     if (catalog->count > 0) draw_tabs(0, 0, t);
@@ -324,18 +324,18 @@ static void draw_chrome(const struct catalog *catalog, float t) {
    Both are wanted in the list and again in the panel, so they are made in one
    place. */
 static const char *action_title(void) {
-    if (shell_tab_kind() != SHELL_TAB_STICK) return T_DOWNLOAD_ALL;
-    return shell_updates_waiting() > 0 ? T_UPDATE_ALL : T_CHECK;
+    if (view_tab_kind() != VIEW_TAB_STICK) return T_DOWNLOAD_ALL;
+    return view_updates_waiting() > 0 ? T_UPDATE_ALL : T_CHECK;
 }
 
 /* "3 apps, 61.5 MB" -- or, when nothing in the tab has a release with a
    size, what is in the way instead. */
 static const char *action_line(void) {
     static char line[48];
-    struct shell_plan plan;
+    struct view_plan plan;
     char size[24];
-    shell_action_plan(&plan);
-    if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK)
+    view_action_plan(&plan);
+    if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_STICK)
         snprintf(line, sizeof(line), T_ALL_CURRENT);
     else if (plan.apps <= 0)
         snprintf(line, sizeof(line), T_NO_RELEASES);
@@ -352,7 +352,7 @@ static const char *action_line(void) {
    face, and stacked they read as a heading with its tally under it, which is
    what they are. Where a package would have its icon, the tab's own sign. */
 static void draw_action_row(int y, int selected, float t) {
-    int updates = shell_tab_kind() == SHELL_TAB_STICK;
+    int updates = view_tab_kind() == VIEW_TAB_STICK;
     float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     if (updates)
         mark_draw(MARK_UPDATE, gx, gy,
@@ -371,7 +371,7 @@ static void draw_action_row(int y, int selected, float t) {
    is fetched, the sign that names it. The sign sits where a package's icon
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
-    static const signed char SIGN[SHELL_SETTINGS] = {
+    static const signed char SIGN[VIEW_SETTINGS] = {
         MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_UPDATE, MARK_INFO,
     };
     float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
@@ -379,7 +379,7 @@ static void draw_setting_row(int n, int y, int selected, float t) {
     mark_draw(m, gx, gy, selected ? g_text : faded(g_dim, 170),
               selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     font_print_clipped(FONT_BODY, NAME_X, y + 21, LIST_X + LIST_W - NAME_X,
-                       selected ? g_text : g_dim, shell_setting(n));
+                       selected ? g_text : g_dim, view_setting(n));
 }
 
 /* How long the cursor has sat on what it sits on: the scrolling of a line
@@ -398,7 +398,7 @@ float hover_age(int list, int key) {
 }
 
 static void draw_list(const struct catalog *catalog, int cursor, float t) {
-    int count = shell_view_count();
+    int count = view_count();
     if (cursor < g_first) g_first = cursor;
     if (cursor >= g_first + VISIBLE) g_first = cursor - VISIBLE + 1;
     if (g_first < 0) g_first = 0;
@@ -428,7 +428,7 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
        for none, so it asks for nothing. */
     int wanted[VISIBLE], want_count = 0;
     for (int i = g_first; i < count && i < g_first + VISIBLE; i++) {
-        int index = shell_view_index(i);
+        int index = view_index(i);
         if (index >= 0) wanted[want_count++] = index;
     }
     icons_bind(catalog);
@@ -437,10 +437,10 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
     for (int i = g_first; i < count && i < g_first + VISIBLE; i++) {
         int y = LIST_Y + (i - g_first) * ITEM_H;
         int selected = i == cursor;
-        int index = shell_view_index(i);
-        if (index == SHELL_ROW_ACTION) { draw_action_row(y, selected, t); continue; }
-        if (index <= SHELL_ROW_SETTING) {
-            draw_setting_row(SHELL_ROW_SETTING - index, y, selected, t);
+        int index = view_index(i);
+        if (index == VIEW_ROW_ACTION) { draw_action_row(y, selected, t); continue; }
+        if (index <= VIEW_ROW_SETTING) {
+            draw_setting_row(VIEW_ROW_SETTING - index, y, selected, t);
             continue;
         }
         if (index < 0) continue;
@@ -484,7 +484,7 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
         /* Set aside: the basket, inside whatever the row carries about the
            stick, so a package that is both waiting and set aside shows
            both. */
-        if (shell_basket_has(index)) {
+        if (view_basket_has(index)) {
             mark_draw(MARK_BASKET, mx, my, selected ? g_text : faded(g_dim, 170),
                       selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
             name_w -= 22;
@@ -513,17 +513,17 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
    every package that would come down, what each weighs, the total, and how
    long that is over a PSP's own radio. */
 static void draw_action_panel(const struct catalog *catalog, float t) {
-    struct shell_plan plan;
+    struct view_plan plan;
     char value[48], size[24];
     int y = SHOT_Y + 14;
 
-    shell_action_plan(&plan);
+    view_action_plan(&plan);
     draw_shade(PANEL_X + SHOT_W / 2, y + 70, SHOT_W, 170);
     gfx_glow(PANEL_X + SHOT_W / 2, y + 60, SHOT_W + 90, 200,
              rgb_pack(g_tint, (int)(70 * update_pulse(t))));
 
     font_print(FONT_H1, PANEL_X, y, g_text, action_title());
-    if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK) {
+    if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_STICK) {
         int lines = draw_wrapped(FONT_META, PANEL_X, y + 20, SHOT_W, 16, 2, g_dim, T_CHECK_NOTE);
         /* The row has two keys, and the panel names them the way the footer
            does, with the key's own mark rather than a word for it; what the
@@ -546,8 +546,8 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
     /* One line a package, in the order they would be fetched, for as many as
        the panel holds; the rest are counted rather than named. */
     int line = 0, room = (FOOTER_Y - 20 - (y + 40)) / 14;
-    for (int row = 0; row < shell_view_count(); row++) {
-        int index = shell_view_index(row);
+    for (int row = 0; row < view_count(); row++) {
+        int index = view_index(row);
         if (index < 0) continue;
         const struct app_entry *entry = &catalog->apps[index];
         if (!entry->has_release || !entry->release.size) continue;
@@ -716,7 +716,7 @@ static void draw_panel(const struct app_entry *entry, float t) {
     static const struct app_entry *line_of;
     static enum app_state line_state;
     static int line_basket;
-    int in_basket = shell_basket_has((int)(entry - g_catalog->apps));
+    int in_basket = view_basket_has((int)(entry - g_catalog->apps));
     unsigned state_color = g_dim;
     if (entry != line_of || entry->state != line_state || in_basket != line_basket) {
         line_of = entry;
@@ -1070,7 +1070,7 @@ static void read_storage(void) {
 
 /* What each row does, said on the right while the cursor is on it: the
    list names the thing, the panel says what it comes to. */
-static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
+static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
     T_NOTE_SOURCES,
     T_NOTE_DIRECT,
     T_NOTE_FILES,
@@ -1301,7 +1301,7 @@ void shell_profile(char *out, int size) {
 static void draw_setting_panel(int n) {
     int y = SHOT_Y + 14;
     draw_shade(PANEL_X + SHOT_W / 2, y + 30, SHOT_W, 90);
-    font_print(FONT_H1, PANEL_X, y, g_text, shell_setting(n));
+    font_print(FONT_H1, PANEL_X, y, g_text, view_setting(n));
     draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 3, g_dim, SETTING_NOTE[n]);
 }
 
@@ -1355,12 +1355,12 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     draw_chrome(catalog, t);
     if (files_view_shown()) {
         files_view_draw(t);
-    } else if (catalog->count > 0 && shell_view_count() > 0) {
-        int rows = shell_view_count();
-        int index = shell_view_index(cursor < rows ? cursor : 0);
+    } else if (catalog->count > 0 && view_count() > 0) {
+        int rows = view_count();
+        int index = view_index(cursor < rows ? cursor : 0);
         draw_list(catalog, cursor, t);
-        if (index == SHELL_ROW_ACTION) draw_action_panel(catalog, t);
-        else if (index <= SHELL_ROW_SETTING) draw_setting_panel(SHELL_ROW_SETTING - index);
+        if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
+        else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
         else if (index >= 0) draw_panel(&catalog->apps[index], t);
     } else if (g_status[0]) {
         /* Nothing to browse yet: the word stands in the room, lit from
@@ -1411,7 +1411,7 @@ int shell_settled(void) {
 void shell_shot_sync(const struct catalog *catalog, int cursor) {
     follow_view();
     if (files_view_sync()) return;
-    int index = shell_view_index(cursor);
+    int index = view_index(cursor);
     if (catalog->count <= 0 || index == -1) return;
     /* The action row is a row with no package behind it, and the card is
        told to show nothing rather than left holding whatever the cursor

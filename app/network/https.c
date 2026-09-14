@@ -892,13 +892,13 @@ int https_get(const char *url, https_sink sink, void *sink_ctx,
             rc = one_request(&u, sink, sink_ctx, progress, progress_ctx, &res, &next, &stale);
         }
         if (rc != 2) {
-            strncpy(res.host, u.host, sizeof(res.host) - 1);
+            snprintf(res.host, sizeof(res.host), "%s", u.host);
             if (out) *out = res;
             return rc;
         }
         if (res.redirects >= MAX_REDIRECTS) {
             logline("too many redirects");
-            strncpy(res.host, u.host, sizeof(res.host) - 1);
+            snprintf(res.host, sizeof(res.host), "%s", u.host);
             if (out) *out = res;
             return -3;
         }
