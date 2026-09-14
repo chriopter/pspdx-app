@@ -718,6 +718,10 @@ static void restore_installed(struct catalog *catalog) {
         const char *source = n >= 0 ? file.source : rec.repo;
         struct source_repo repo;
         struct catalog *one = calloc(1, sizeof(*one));
+        /* The status line follows the apps being asked, the way it follows a
+           list being walked; a full check is nearly all of this. */
+        if (one && due && !g_offline)
+            snprintf(g_progress, sizeof(g_progress), T_STATUS_ORIGIN, i + 1, state_count());
         if (one && due && !g_offline && sources_parse_repo(source, &repo) &&
             take_origin(one, &repo) > 0) {
             fetched = 1;
@@ -784,6 +788,7 @@ int catalog_fetch(struct catalog *catalog) {
         if (fetch_source(catalog, i + 1, sources.url[i]) >= 0)
             answered++;
     restore_installed(catalog);
+    g_progress[0] = 0;
     g_force = 0;
     return answered || catalog->count ? catalog->count : -1;
 }
