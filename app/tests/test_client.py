@@ -124,6 +124,12 @@ class ClientTests(unittest.TestCase):
   self.run_client('fetch');self.assertIn('https://example.com/catalog.json',(self.root/'requests.log').read_text())
   path.write_text('# a\nhttps://example.com/'+'x'*300+'\n');self.assertIn('too long',self.run_client('fetch',ok=False,VERBOSE=1).stderr)
   path.write_text('#'*20000);self.assertIn('over',self.run_client('fetch',ok=False,VERBOSE=1).stderr);self.assertEqual(len(path.read_text()),20000)
+ def test_records_claiming_one_name_can_still_be_removed(self):
+  # FAT is case-blind: a second record with PSP/GAME/demo refuses an install under Demo, but never a removal.
+  self.run_client('install',VERSION=1);other=self.second_record();other['installed']['installdir']='PSP/GAME/demo'
+  self.write('ms0:/PSP/PSPDX/INSTALLED/io.github.test.other.state.json',other)
+  self.assertNotEqual(self.run_client('install',ok=False).returncode,0)
+  self.run_client('remove');self.assertEqual(self.state(),{'io.github.test.other':other});self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists())
  def test_ef0(self):
   self.run_client('install',DEVICE='ef0:/PSP/GAME/PSPDX/EBOOT.PBP');self.assertTrue((self.root/'ef0:/PSP/PSPDX/INSTALLED/io.github.test.demo.state.json').exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX').exists())
  def test_power_cuts(self):

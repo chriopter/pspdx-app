@@ -480,10 +480,14 @@ static int recover_journal(cJSON *j) {
                 prior)) ||
         (!*prior && previous))
         return logline("recovery: the prior directory is not the saved one"), -1;
+    /* Whose the name is matters to an install; a removal takes the app's
+       own recorded directory, and two records that claim one name on a
+       case-blind stick would otherwise hold each other's removal up. */
     const cJSON *other;
     cJSON_ArrayForEach(other, snapshot) {
         const cJSON *oi = cJSON_GetObjectItemCaseSensitive(other, "installed");
-        if (strcmp(other->string, id) && !strcasecmp(js(oi, "installdir") + 9, dir))
+        if (strcmp(op, "remove") && strcmp(other->string, id) &&
+            !strcasecmp(js(oi, "installdir") + 9, dir))
             return logline("recovery: the target belongs to another app"), -1;
     }
     if (strcmp(op, "install") && strcmp(op, "remove"))
@@ -599,7 +603,7 @@ static cJSON *begin(const char *id, const char *dir, const char *op) {
     /* Three things can sit under the name the release wants, and each is
        a different sentence on screen: the shell shows the last log line
        when an install fails, so the reason is spelled out here. */
-    if (state_target_owner(dir, id) != 0)
+    if (strcmp(op, "remove") && state_target_owner(dir, id) != 0)
         return logline("install: PSP/GAME/%s is another app's, remove that app first", dir), NULL;
     if (storage_exists(backup))
         return logline("install: PSP/GAME/%s.old is in the way, delete or rename it", dir), NULL;
