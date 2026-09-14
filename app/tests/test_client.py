@@ -223,6 +223,10 @@ class ClientTests(unittest.TestCase):
   app=dict(id=ID,name='Demo',author='test',category='demo',source=SPEC['source'],installdir=SPEC['installdir'],release=dict(tag='v2',published_at='1970-01-01T00:00:02Z',download=dict(size=size,url='https://github.com/test/demo/releases/download/v2/download.zip')))
   self.write('catalog.json',dict(schema='https://github.com/chriopter/pspdx/blob/master/schema/catalog-v1.json',generated_at='2026-09-14T00:00:00Z',apps=[app]));self.write('release.json',dict(tag_name='v3',published_at='2026-09-12T00:00:00Z',assets=[dict(name='download.zip',size=size,browser_download_url='https://github.com/test/demo/releases/download/v2/download.zip')]))
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
+ def test_view_tabs_come_and_go(self):
+  # One app, installed with a newer one published: gear, stick, All and its category; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
+  self.fixtures();r=self.run_client('view')
+  self.assertEqual(r.stdout.splitlines(),['tabs 4: -3 -2 0 2','tab 0 kind 0 rows 1 first 0 plan 0 0','tab 2 kind 0 rows 1 first 0 plan 0 0','tab -3 kind 3 rows 5 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
  def test_catalog_offline_fallback(self):
   self.fixtures();r=self.run_client('fetch');self.assertIn(ID+' 2 1',r.stdout)
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)

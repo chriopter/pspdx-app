@@ -31,6 +31,7 @@
 #include "gui/title.h"
 #include "gui/palette.h"
 #include "gui/preview.h"
+#include "session/view.h"
 #include "util/runtime.h"
 
 /* Three type roles and nowhere else a fourth: FONT_H1 for the one name on
@@ -141,216 +142,16 @@ static char g_word[24] = T_WORD_CONNECTING;
 static const struct catalog *g_catalog;
 static int g_cursor;
 
-/* --------------------------------------------------------------- the view */
-
-/* The tabs, in the order they are shown. The first takes everything; the
-   rest match the catalog's own category word, which schema/v1.pspdx spells
-   in the singular: a tab holds many, an app is one. */
-static const char *const TAB_NAME[] = {
-    T_TAB_ALL, T_TAB_GAMES, T_TAB_DEMOS, T_TAB_APPS, T_TAB_EMULATORS, T_TAB_PLUGINS
-};
-static const char *const TAB_KEY[] = {
-    "", "game", "demo", "app", "emulator", "plugin"
-};
-#define TAB_ALL 6
-
-/* Two tabs are not categories and are named by a sign rather than a word:
-   the stick -- what is installed, with whatever newer is waiting for it at
-   the top, and the sign turning into the update arrows while anything is --
-   and the basket this session has filled. They are numbered below zero so
-   that a tab is either an index into TAB_NAME or one of these, with nothing
-   to keep in step, and they stand to the left of All because what is one's
-   own comes before what is merely there to browse. */
-#define TAB_STICK   (-2)
-/* And, leftmost, where the system's own shell keeps its settings: the band
-   about this session -- what it is connected to, what it is standing on --
-   and the two things that can be done about either. Reached the way a tab
-   is, so that it needs no key of its own. */
-#define TAB_GEAR    (-3)
-#define TAB_BASKET  (-1)
-
-static int g_tab[TAB_ALL + 3];          /* which of them have anything */
-static int g_tabs;
-static int g_tab_at;                    /* index into g_tab, not into TAB_NAME */
-static const struct catalog *g_view_of;
-static unsigned char g_view[MAX_APPS];
-static int g_view_count;                /* packages; the action row is extra */
-static int g_view_action;               /* 1 when row 0 is the action row */
-
-/* The basket: catalog indices set aside this session, a bit each. */
-static unsigned char g_basket[(MAX_APPS + 7) / 8];
-static int g_basket_n;
-
-int shell_basket_has(int index) {
-    if (index < 0 || index >= MAX_APPS) return 0;
-    return (g_basket[index >> 3] >> (index & 7)) & 1;
-}
-
-void shell_basket_toggle(int index) {
-    if (index < 0 || index >= MAX_APPS) return;
-    g_basket[index >> 3] ^= (unsigned char)(1u << (index & 7));
-    g_basket_n += shell_basket_has(index) ? 1 : -1;
-}
-
-void shell_basket_forget(int index) {
-    if (shell_basket_has(index)) shell_basket_toggle(index);
-}
-
-static void shell_basket_clear(void) {
-    memset(g_basket, 0, sizeof(g_basket));
-    g_basket_n = 0;
-}
-
-/* How many packages on the stick have a newer one published. The number is
-   the updates tab's own label and the reason it exists at all, so it is asked
-   for rather than remembered. */
-static int updates_waiting(void) {
-    int n = 0;
-    if (!g_view_of) return 0;
-    for (int i = 0; i < g_view_of->count; i++)
-        if (g_view_of->apps[i].state == APP_UPDATE) n++;
-    return n;
-}
-
-/* restart is for a view whose rows now stand for other packages than they
-   did: the list goes back to the top and the card is told to fetch afresh.
-   A view merely rebuilt under the same tab keeps where it was scrolled to. */
-static void build_view(int restart) {
-    int tab = g_tabs ? g_tab[g_tab_at] : 0;
-    g_view_count = 0;
-    g_view_action = 0;
-    if (!g_view_of || g_tabs <= 0) return;
-    for (int i = 0; i < g_view_of->count; i++) {
-        int take;
-        if (tab == TAB_STICK) take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
-        else if (tab == TAB_GEAR) take = 0;     /* its rows are not packages */
-        else if (tab == TAB_BASKET) take = shell_basket_has(i);
-        else take = !TAB_KEY[tab][0] ||
-                    strcmp(g_view_of->apps[i].category, TAB_KEY[tab]) == 0;
-        if (take) g_view[g_view_count++] = (unsigned char)i;
-    }
-    /* On the stick, what has something waiting for it stands first, in the
-       order the catalog has them; the rest after, likewise. */
-    if (tab == TAB_STICK) {
-        unsigned char sorted[MAX_APPS];
-        int n = 0;
-        for (int pass = 0; pass < 2; pass++)
-            for (int i = 0; i < g_view_count; i++) {
-                int waiting = g_view_of->apps[g_view[i]].state == APP_UPDATE;
-                if (waiting == !pass) sorted[n++] = g_view[i];
-            }
-        memcpy(g_view, sorted, (size_t)n);
-    }
-    /* A tab that is a job rather than a category carries the job itself at
-       the top, above the packages it would be done to -- the stick only
-       while there is a job on it. */
-    g_view_action = tab == TAB_BASKET || tab == TAB_STICK;
-    if (!restart) return;
+/* The view's rows have come to stand for other packages than they did --
+   another tab, another catalog: the list starts from the top and the card
+   is told to fetch afresh, once, before either is read for the frame. */
+static void follow_view(void) {
+    static unsigned seen;
+    unsigned now = shell_view_generation();
+    if (now == seen) return;
+    seen = now;
     g_first = 0;
     g_last_cursor = -1;
-}
-
-/* Which tabs have anything in them, in the order they are shown, and where
-   the one named by keep ended up. Returns 0 if keep did not survive. */
-static int collect_tabs(int keep) {
-    int found = 0;
-    g_tabs = 0;
-    g_tab_at = 0;
-    if (!g_view_of || g_view_of->count <= 0) return 0;
-    int installed = 0;
-    for (int i = 0; i < g_view_of->count; i++)
-        if (g_view_of->apps[i].state != APP_NOT_INSTALLED) installed = 1;
-    g_tab[g_tabs++] = TAB_GEAR;
-    if (installed) g_tab[g_tabs++] = TAB_STICK;
-    if (g_basket_n > 0) g_tab[g_tabs++] = TAB_BASKET;
-    for (int t = 0; t < TAB_ALL; t++) {
-        int has = !TAB_KEY[t][0];
-        for (int i = 0; !has && i < g_view_of->count; i++)
-            has = strcmp(g_view_of->apps[i].category, TAB_KEY[t]) == 0;
-        if (has) g_tab[g_tabs++] = t;
-    }
-    for (int i = 0; i < g_tabs; i++)
-        if (g_tab[i] == keep) { g_tab_at = i; found = 1; }
-    /* A tab that has gone -- the last thing taken out of the basket -- is
-       answered with All, not with whatever stands leftmost, which is the
-       band about the session and not a list at all. */
-    if (!found)
-        for (int i = 0; i < g_tabs; i++)
-            if (g_tab[i] == 0) g_tab_at = i;
-    return found;
-}
-
-void shell_view_rebuild(const struct catalog *catalog) {
-    int was = g_tabs ? g_tab[g_tab_at] : 0;
-    /* A fetch rewrites the array the basket's indices point into, and row
-       seventeen of the new catalog is not the package row seventeen of the
-       old one was. Nothing is carried across. */
-    shell_basket_clear();
-    g_view_of = catalog;
-    collect_tabs(was);
-    build_view(1);
-}
-
-int shell_tabs_refresh(void) {
-    int was = g_tabs ? g_tab[g_tab_at] : 0;
-    int kept = collect_tabs(was);
-    build_view(!kept);
-    return kept;
-}
-
-int shell_view_count(void) {
-    if (g_tabs && g_tab[g_tab_at] == TAB_GEAR) return SHELL_SETTINGS;
-    return g_view_count + g_view_action;
-}
-
-static int shell_view_action(int row) { return g_view_action && row == 0; }
-
-int shell_view_index(int row) {
-    if (g_tabs && g_tab[g_tab_at] == TAB_GEAR)
-        return row >= 0 && row < SHELL_SETTINGS ? SHELL_ROW_SETTING - row : -1;
-    if (shell_view_action(row)) return SHELL_ROW_ACTION;
-    row -= g_view_action;
-    return row >= 0 && row < g_view_count ? g_view[row] : -1;
-}
-
-int shell_view_row(int index) {
-    for (int row = 0; row < g_view_count; row++)
-        if (g_view[row] == index) return row + g_view_action;
-    return -1;
-}
-
-enum shell_tab_kind shell_tab_kind(void) {
-    int tab = g_tabs ? g_tab[g_tab_at] : 0;
-    return tab == TAB_GEAR ? SHELL_TAB_GEAR
-         : tab == TAB_STICK ? SHELL_TAB_STICK
-         : tab == TAB_BASKET ? SHELL_TAB_BASKET : SHELL_TAB_CATEGORY;
-}
-
-void shell_action_plan(struct shell_plan *plan) {
-    memset(plan, 0, sizeof(*plan));
-    if (!g_view_of || !g_view_action) return;
-    plan->updates = g_tab[g_tab_at] == TAB_STICK;
-    for (int row = 0; row < g_view_count; row++) {
-        const struct app_entry *entry = &g_view_of->apps[g_view[row]];
-        /* On the stick the job is the updates; what is merely installed is
-           not part of it. */
-        if (plan->updates && entry->state != APP_UPDATE) continue;
-        /* An entry whose release says no size is one a run of installs
-           cannot say beforehand what it will download for, and that is not
-           one to offer in a single press. Those are counted and left out. */
-        if (!entry->has_release || !entry->release.size) { plan->skipped++; continue; }
-        plan->apps++;
-        plan->bytes += entry->release.size;
-        if (entry->state == APP_CURRENT) plan->again++;
-    }
-}
-
-int shell_tab_count(void) { return g_tabs; }
-
-void shell_tab_move(int step) {
-    if (g_tabs <= 1) return;
-    g_tab_at = (g_tab_at + step + g_tabs) % g_tabs;
-    build_view(1);
 }
 
 int shell_init(void) {
@@ -416,7 +217,7 @@ void draw_shade(int cx, int cy, int w, int h) {
 static const char *tab_count(int tab) {
     static char text[8];
     snprintf(text, sizeof(text), "%d",
-             tab == TAB_STICK ? updates_waiting() : g_basket_n);
+             tab == TAB_STICK ? shell_updates_waiting() : shell_basket_count());
     return text;
 }
 
@@ -425,13 +226,13 @@ static const char *tab_count(int tab) {
 static enum mark tab_mark(int tab) {
     if (tab == TAB_GEAR) return MARK_GEAR;
     if (tab == TAB_BASKET) return MARK_BASKET;
-    return updates_waiting() > 0 ? MARK_UPDATE : MARK_STICK;
+    return shell_updates_waiting() > 0 ? MARK_UPDATE : MARK_STICK;
 }
 
 static float tab_width(int tab) {
     if (tab >= 0) return mark_width(MARK_ALL + tab);
     if (tab == TAB_GEAR) return mark_width(MARK_GEAR);
-    if (tab == TAB_STICK && updates_waiting() == 0) return mark_width(MARK_STICK);
+    if (tab == TAB_STICK && shell_updates_waiting() == 0) return mark_width(MARK_STICK);
     return mark_width(tab_mark(tab)) + 5 + font_width(FONT_META, tab_count(tab));
 }
 
@@ -473,18 +274,19 @@ static void draw_tab(int tab, int on, float x, float t) {
 
 static void draw_tabs(float left, float right, float t) {
     (void)left; (void)right;
-    if (g_tabs <= 1) return;
+    int tabs = shell_tab_count(), at = shell_tab_active();
+    if (tabs <= 1) return;
     float x = TAB_X;
-    for (int i = 0; i < g_tabs; i++) {
-        if (g_tab[i] < 0) continue;
-        draw_tab(g_tab[i], i == g_tab_at, x, t);
-        x += tab_width(g_tab[i]) + TAB_GAP;
+    for (int i = 0; i < tabs; i++) {
+        if (shell_tab_at(i) < 0) continue;
+        draw_tab(shell_tab_at(i), i == at, x, t);
+        x += tab_width(shell_tab_at(i)) + TAB_GAP;
     }
     x = TAB_X - TAB_GAP;
-    for (int i = g_tabs - 1; i >= 0; i--) {
-        if (g_tab[i] >= 0) continue;
-        x -= tab_width(g_tab[i]);
-        draw_tab(g_tab[i], i == g_tab_at, x, t);
+    for (int i = tabs - 1; i >= 0; i--) {
+        if (shell_tab_at(i) >= 0) continue;
+        x -= tab_width(shell_tab_at(i));
+        draw_tab(shell_tab_at(i), i == at, x, t);
         x -= TAB_GAP;
     }
     /* A hair between the console's own tabs and the catalog's: the gear
@@ -508,10 +310,10 @@ static void draw_chrome(const struct catalog *catalog, float t) {
     /* The one word in the header is the name of what the list holds: the
        open tab, said in words here and lit as a sign among the others on
        the right. Nothing is counted; the list is there to be looked at. */
-    int tab = g_tabs ? g_tab[g_tab_at] : 0;
+    int tab = shell_tab_current();
     const char *title = files_view_shown() ? T_HEAD_FILES : tab == TAB_GEAR ? T_HEAD_GEAR
                       : tab == TAB_STICK ? T_HEAD_STICK
-                      : tab == TAB_BASKET ? T_HEAD_BASKET : TAB_NAME[tab];
+                      : tab == TAB_BASKET ? T_HEAD_BASKET : shell_tab_name(tab);
     gfx_glow(LIST_X + 24, 18, 110, 56, rgb_pack(g_tint, 80));
     font_print(FONT_H1, LIST_X, 23, g_text, title);
     if (catalog->count > 0) draw_tabs(0, 0, t);
@@ -525,7 +327,7 @@ static void draw_chrome(const struct catalog *catalog, float t) {
    place. */
 static const char *action_title(void) {
     if (shell_tab_kind() != SHELL_TAB_STICK) return T_DOWNLOAD_ALL;
-    return updates_waiting() > 0 ? T_UPDATE_ALL : T_CHECK;
+    return shell_updates_waiting() > 0 ? T_UPDATE_ALL : T_CHECK;
 }
 
 /* "3 apps, 61.5 MB" -- or, when nothing in the tab has a release with a
@@ -570,8 +372,6 @@ static void draw_action_row(int y, int selected, float t) {
 /* A row under the gear: a word and, where the word is about something that
    is fetched, the sign that names it. The sign sits where a package's icon
    sits, so the column reads as one column whichever tab it is. */
-static const char *shell_setting(int n);    /* named with its note, below */
-
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[SHELL_SETTINGS] = {
         MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_UPDATE, MARK_INFO,
@@ -1267,17 +1067,6 @@ static void read_storage(void) {
     if (all) g_storage_used = 1.0f - (float)((double)left / (double)all);
 }
 
-/* What the gear holds: the things this session can do to itself, and last
-   the band that says what it is. A row here is read and taken the way a
-   package's row is, because at this depth nothing is deeper. */
-static const char *const SETTING[SHELL_SETTINGS] = {
-    T_SET_SOURCES,
-    T_SET_DIRECT,
-    T_SET_FILES,
-    T_SET_RESET,
-    T_SET_INFO,
-};
-
 /* What each row does, said on the right while the cursor is on it: the
    list names the thing, the panel says what it comes to. */
 static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
@@ -1287,10 +1076,6 @@ static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
     T_NOTE_RESET,
     T_NOTE_INFO,
 };
-
-static const char *shell_setting(int n) {
-    return n >= 0 && n < SHELL_SETTINGS ? SETTING[n] : "";
-}
 
 /* Four rows at the foot leave the facts above them 18 pixels apart rather
    than 24, which the small face reads at without touching. */
@@ -1520,6 +1305,7 @@ static void draw_setting_panel(int n) {
 }
 
 void shell_draw(const struct catalog *catalog, int cursor) {
+    follow_view();
     g_catalog = catalog;
     g_cursor = cursor;
     float t = gfx_frames() * (1.0f / 60.0f);
@@ -1622,6 +1408,7 @@ int shell_settled(void) {
 /* ------------------------------------------------------------- screenshot */
 
 void shell_shot_sync(const struct catalog *catalog, int cursor) {
+    follow_view();
     if (files_view_sync()) return;
     int index = shell_view_index(cursor);
     if (catalog->count <= 0 || index == -1) return;

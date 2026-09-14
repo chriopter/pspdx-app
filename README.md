@@ -444,6 +444,7 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 | `app/text.h` | Every word the screen shows, in one place |
 | `app/gui/` | Browser, rendering, icons, previews and firmware keyboard |
 | `app/gui/files_view.c` | Manage Data on screen: the two columns, the raw band, its keys, and the film or sound handed to the media thread |
+| `app/session/view.c` | The browser's model, with nothing of the drawing in it: the tabs, the catalog filtered to the open one, the basket, what the action row would fetch, the gear's rows |
 | `app/update/` | Manifests, sources, catalogs, INBOX, media cache and synchronization |
 | `app/install/` | ZIP reader, installation transactions and persistent app state |
 | `app/network/` | HTTPS and network diagnostics |

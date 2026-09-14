@@ -1,5 +1,6 @@
 #include "install/state.h"
 #include "pspiofilemgr.h"
+#include "session/view.h"
 #include "update/catalog.h"
 #include "update/inbox.h"
 #include "update/sources.h"
@@ -39,6 +40,40 @@ int main(int argc, char **argv) {
             printf("%s %s %d %d\n", catalog.apps[i].id, catalog.apps[i].release.version,
                    catalog.apps[i].fresh, catalog.apps[i].state);
         return rc < 0 ? 1 : 0;
+    }
+    if (!strcmp(argv[1], "view")) {
+        /* The browser's model over the fetched catalog: which tabs there
+           are, what each holds, the basket's tab coming and going, and what
+           the caller is told when the tab under its cursor goes. */
+        catalog_fetch(&catalog);
+        catalog_check_updates(&catalog);
+        shell_view_rebuild(&catalog);
+        int tabs = shell_tab_count();
+        printf("tabs %d:", tabs);
+        for (int i = 0; i < tabs; i++) printf(" %d", shell_tab_at(i));
+        printf("\n");
+        for (int i = 0; i < tabs; i++) {
+            struct shell_plan plan;
+            shell_action_plan(&plan);
+            printf("tab %d kind %d rows %d first %d plan %d %d\n", shell_tab_current(),
+                   shell_tab_kind(), shell_view_count(), shell_view_index(0),
+                   plan.apps, plan.updates);
+            shell_tab_move(1);
+        }
+        unsigned gen = shell_view_generation();
+        shell_basket_toggle(0);
+        int kept = shell_tabs_refresh();
+        printf("basket %d kept %d tabs %d moved %d\n", shell_basket_count(), kept,
+               shell_tab_count(), shell_view_generation() != gen);
+        while (shell_tab_kind() != SHELL_TAB_BASKET) shell_tab_move(1);
+        printf("basket tab rows %d first %d index %d row %d\n", shell_view_count(),
+               shell_view_index(0), shell_view_index(1), shell_view_row(0));
+        gen = shell_view_generation();
+        shell_basket_forget(0);
+        kept = shell_tabs_refresh();
+        printf("emptied kept %d kind %d tabs %d moved %d\n", kept, shell_tab_kind(),
+               shell_tab_count(), shell_view_generation() != gen);
+        return 0;
     }
     if (!strcmp(argv[1], "add")) {
         char url[SOURCE_URL];

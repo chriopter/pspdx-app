@@ -34,6 +34,7 @@
 #include "install/install.h"
 #include "logic/entropy.h"
 #include "network/bench.h"
+#include "session/view.h"
 #include "update/catalog.h"
 #include "update/sources.h"
 #include "update/sync.h"
