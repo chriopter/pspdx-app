@@ -11,12 +11,10 @@ on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspd
 
 Just install, start and install homebrew! Updates are shown automatically.
 
-- You need a PSP running [ARK-5](https://github.com/PSP-Arkfive/ARK-5) with
-  WPA2 support and a saved Wi-Fi connection.
-- Download [`pspdx.zip`](https://github.com/chriopter/pspdx/releases/latest)
-  and extract it to the root of your Memory Stick.
-- Enable WLAN, launch PSPDX from **Game** and follow the first-launch prompt.
-- Pick an app and press **×** to install it. **START** runs it.
+Needs [ARK-5](https://github.com/PSP-Arkfive/ARK-5) and a saved Wi-Fi
+connection. Extract
+[`pspdx.zip`](https://github.com/chriopter/pspdx/releases/latest) to the root
+of your Memory Stick.
 
 The app is untested on real hardware so far.
 
