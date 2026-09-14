@@ -1384,8 +1384,8 @@ int main(int argc, char *argv[]) {
                 int which = SHELL_ROW_SETTING - at;
                 if (which == 0 && synced) sub_open(SUB_CATALOGS);
                 else if (which == 1 && synced) sub_open(SUB_ADD);
-                else if (which == 2) sub_open(SUB_RESET);
-                else if (which == 3) { files_open(&g_files); g_files_open = 1; shell_files(&g_files); }
+                else if (which == 2) { files_open(&g_files); g_files_open = 1; shell_files(&g_files); }
+                else if (which == 3) sub_open(SUB_RESET);
                 else if (which == 4) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X is the one thing there is to do to the package: have

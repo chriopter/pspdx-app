@@ -593,7 +593,7 @@ static void draw_action_row(int y, int selected, float t) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[SHELL_SETTINGS] = {
-        MARK_DOWNLOAD, MARK_BASKET, MARK_UPDATE, MARK_STICK, MARK_INFO,
+        MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_UPDATE, MARK_INFO,
     };
     float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     enum mark m = (enum mark)SIGN[n];
@@ -1249,8 +1249,8 @@ static void read_storage(void) {
 static const char *const SETTING[SHELL_SETTINGS] = {
     T_SET_SOURCES,
     T_SET_DIRECT,
-    T_SET_RESET,
     T_SET_FILES,
+    T_SET_RESET,
     T_SET_INFO,
 };
 
@@ -1259,8 +1259,8 @@ static const char *const SETTING[SHELL_SETTINGS] = {
 static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
     T_NOTE_SOURCES,
     T_NOTE_DIRECT,
-    T_NOTE_RESET,
     T_NOTE_FILES,
+    T_NOTE_RESET,
     T_NOTE_INFO,
 };
 
