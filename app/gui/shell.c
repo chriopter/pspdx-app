@@ -1101,7 +1101,18 @@ static void draw_menu(void) {
                       MARK_PLAIN, 0, 0);
             room -= mark_width(m) + 10;
         }
-        font_print_clipped(FONT_BODY, left, y, room, color, g_menu_item[i]);
+        /* A row can name a thing by its mark: the byte 1 and then the mark
+           plus one end the words, and the mark stands after them. */
+        const char *glyph = strchr(g_menu_item[i], '\x01');
+        if (glyph && glyph[1]) {
+            char words[32];
+            snprintf(words, sizeof(words), "%.*s", (int)(glyph - g_menu_item[i]), g_menu_item[i]);
+            float end = font_print_clipped(FONT_BODY, left, y, room, color, words);
+            enum mark gm = (enum mark)(glyph[1] - 1);
+            mark_draw(gm, end + 6 + mark_width(gm) / 2.0f, y - 4, color, MARK_PLAIN, 0, 0);
+        } else {
+            font_print_clipped(FONT_BODY, left, y, room, color, g_menu_item[i]);
+        }
     }
     /* Enter and back, the way every band ends, at the panel's foot. */
     float hx = left;

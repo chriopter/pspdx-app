@@ -522,8 +522,12 @@ enum choice { CHOICE_RUN, CHOICE_GET, CHOICE_DELETE, CHOICE_BASKET, CHOICE_DETAI
               CHOICE_COUNT };
 
 static char g_choice_text[CHOICE_COUNT][32];
-static const char *g_choice[CHOICE_COUNT];
-static unsigned char g_choice_on[CHOICE_COUNT];
+static unsigned char g_choice_on[CHOICE_COUNT], g_choice_shown[CHOICE_COUNT];
+/* The rows the panel is handed: the shown choices, in order. */
+static int g_rows, g_row[CHOICE_COUNT];
+static const char *g_row_text[CHOICE_COUNT];
+static unsigned char g_row_on[CHOICE_COUNT];
+static signed char g_row_key[CHOICE_COUNT];
 static char g_menu_title[48];
 static int g_menu_open, g_menu_cursor, g_menu_of, g_details_from_menu;
 
@@ -535,8 +539,13 @@ static const signed char g_choice_key[CHOICE_COUNT] = {
 };
 
 static void menu_push(void) {
-    shell_menu(g_menu_title, g_choice, g_choice_on, g_choice_key, CHOICE_COUNT,
-               g_menu_cursor);
+    shell_menu(g_menu_title, g_row_text, g_row_on, g_row_key, g_rows, g_menu_cursor);
+}
+
+static int row_of(enum choice c) {
+    for (int r = 0; r < g_rows; r++)
+        if (g_row[r] == c) return r;
+    return 0;
 }
 
 static void menu_open(int index) {
@@ -556,19 +565,31 @@ static void menu_open(int index) {
         snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]),
                  installed ? "Reinstall" : "Install");
     snprintf(g_choice_text[CHOICE_DELETE], sizeof(g_choice_text[0]), "Delete");
-    /* The basket is here so that it can be found; square is the short way
-       once it has been. */
-    snprintf(g_choice_text[CHOICE_BASKET], sizeof(g_choice_text[0]),
-             shell_basket_has(index) ? "Take out of basket" : "Add to basket");
+    /* The basket is for what is not on the stick yet, so only such a package
+       has the row; one already in the basket keeps it, to come out again.
+       The basket is named by its mark, which the shell draws after the
+       words. */
+    snprintf(g_choice_text[CHOICE_BASKET], sizeof(g_choice_text[0]), "%s\x01%c",
+             shell_basket_has(index) ? "Remove from" : "Add to", (char)(MARK_BASKET + 1));
     snprintf(g_choice_text[CHOICE_DETAILS], sizeof(g_choice_text[0]), "Information");
-    for (int i = 0; i < CHOICE_COUNT; i++) g_choice[i] = g_choice_text[i];
     g_choice_on[CHOICE_RUN] = installed;
     g_choice_on[CHOICE_GET] = 1;
     g_choice_on[CHOICE_DELETE] = installed && strcmp(entry->id, PSPDX_SELF_ID) != 0;
     g_choice_on[CHOICE_BASKET] = 1;
     g_choice_on[CHOICE_DETAILS] = 1;
-    g_menu_cursor = entry->state == APP_NOT_INSTALLED || entry->state == APP_UPDATE
-                  ? CHOICE_GET : CHOICE_RUN;
+    for (int i = 0; i < CHOICE_COUNT; i++) g_choice_shown[i] = 1;
+    g_choice_shown[CHOICE_BASKET] = !installed || shell_basket_has(index);
+    g_rows = 0;
+    for (int i = 0; i < CHOICE_COUNT; i++) {
+        if (!g_choice_shown[i]) continue;
+        g_row[g_rows] = i;
+        g_row_text[g_rows] = g_choice_text[i];
+        g_row_on[g_rows] = g_choice_on[i];
+        g_row_key[g_rows] = g_choice_key[i];
+        g_rows++;
+    }
+    g_menu_cursor = row_of(entry->state == APP_NOT_INSTALLED || entry->state == APP_UPDATE
+                           ? CHOICE_GET : CHOICE_RUN);
     g_menu_of = index;
     g_menu_open = 1;
     menu_push();
@@ -634,9 +655,9 @@ static void sub_close(void) {
 /* A greyed row is stepped over rather than landed on: the cursor only ever
    sits where X would do something. */
 static void menu_move(int by) {
-    for (int i = 0; i < CHOICE_COUNT; i++) {
-        g_menu_cursor = (g_menu_cursor + by + CHOICE_COUNT) % CHOICE_COUNT;
-        if (g_choice_on[g_menu_cursor]) break;
+    for (int i = 0; i < g_rows; i++) {
+        g_menu_cursor = (g_menu_cursor + by + g_rows) % g_rows;
+        if (g_row_on[g_menu_cursor]) break;
     }
     menu_push();
 }
@@ -1247,7 +1268,8 @@ int main(int argc, char *argv[]) {
                is read there can be pressed there: square, START and SELECT
                do their row's thing and take the menu with them. */
             int index = g_menu_of;
-            if (pressed & PSP_CTRL_SQUARE) {
+            if ((pressed & PSP_CTRL_SQUARE) &&
+                (catalog.apps[index].state == APP_NOT_INSTALLED || shell_basket_has(index))) {
                 menu_close();
                 shell_basket_toggle(index);
                 cues_post(CUE_MOVE, cursor);
@@ -1263,7 +1285,7 @@ int main(int argc, char *argv[]) {
             else if (pressed & PSP_CTRL_UP) { menu_move(-1); cues_post(CUE_MOVE, 0); }
             else if (pressed & PSP_CTRL_CIRCLE) menu_close();
             else if (pressed & PSP_CTRL_CROSS) {
-                int chosen = g_menu_cursor, index = g_menu_of;
+                int chosen = g_row[g_menu_cursor], index = g_menu_of;
                 menu_close();
                 /* Deleting cannot be undone by pressing the same button
                    again, and a first install is a download worth a look at
@@ -1302,7 +1324,7 @@ int main(int argc, char *argv[]) {
                 if (g_details_from_menu) {
                     g_details_from_menu = 0;
                     menu_open(g_menu_of);
-                    g_menu_cursor = CHOICE_DETAILS;
+                    g_menu_cursor = row_of(CHOICE_DETAILS);
                     menu_push();
                 }
             }
@@ -1360,7 +1382,8 @@ int main(int argc, char *argv[]) {
                 catalog_force_sources();
                 refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
             }
-            if ((pressed & PSP_CTRL_SQUARE) && at >= 0) {
+            if ((pressed & PSP_CTRL_SQUARE) && at >= 0 &&
+                (catalog.apps[at].state == APP_NOT_INSTALLED || shell_basket_has(at))) {
                 shell_basket_toggle(at);
                 cues_post(CUE_MOVE, cursor);
                 view_settled(&cursor);
