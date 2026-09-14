@@ -189,21 +189,21 @@ class ClientTests(unittest.TestCase):
   self.assertIn(ID,self.run_client('fetch',OFFLINE=1).stdout)
  def test_storage_paths_are_registered(self):
   import re
-  app=pathlib.Path(__file__).resolve().parents[1]/'app'
+  app=pathlib.Path(__file__).resolve().parents[2]/'app'
   registered=set(re.findall(r'\{"([^"\n]*)",', (app/'util/storage_paths.inc').read_text()))
   for path in app.rglob('*.c'):
    if 'wolfssl-psp' in path.parts:continue
    for name in re.findall(r'storage_path\("([^"\n]*)"\)',path.read_text()):self.assertIn(name,registered,str(path))
  def test_embedded_manifest_matches_root(self):
   import re
-  root=pathlib.Path(__file__).resolve().parents[1]
+  root=pathlib.Path(__file__).resolve().parents[2]
   header=(root/'app/util/self_manifest.h').read_text()
   literal=re.search(r'#define PSPDX_SELF_MANIFEST (.*)',header).group(1)
   self.assertEqual(json.loads(json.loads(literal)),json.loads((root/'.pspdx').read_text()))
  def test_mock_catalog_is_what_the_client_reads(self):
   # dev/mock-catalog writes the desk's catalog and records; the same parser that reads a published one reads them here, so the two cannot drift apart.
   import importlib.machinery,importlib.util
-  path=pathlib.Path(__file__).resolve().parents[1]/'dev/mock-catalog'
+  path=pathlib.Path(__file__).resolve().parents[2]/'dev/mock-catalog'
   loader=importlib.machinery.SourceFileLoader('mock_catalog',str(path));spec=importlib.util.spec_from_loader('mock_catalog',loader);mock=importlib.util.module_from_spec(spec);loader.exec_module(mock)
   for name in ('icon.png','shot.png','film.pmf'):(self.root/name).write_bytes(name.encode())
   mock.assets=lambda work:({'icon':[str(self.root/'icon.png')],'screenshot':[str(self.root/'shot.png')],'video':[str(self.root/'film.pmf')]},str(self.root/'new.zip'))

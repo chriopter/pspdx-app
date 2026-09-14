@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-APP=$(CDPATH= cd -- "$HERE/../app" && pwd)
+APP=$(CDPATH= cd -- "$HERE/../../app" && pwd)
 TEST_WORK=$(mktemp -d)
 trap 'rm -rf "$TEST_WORK"' EXIT HUP INT TERM
 cc -g -O1 -fsanitize=address,undefined -Wno-deprecated-declarations \

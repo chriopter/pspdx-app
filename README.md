@@ -460,7 +460,7 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 | `app/util/` | Storage paths, PBP access and runtime helpers |
 | `app/util/files.c` | What Manage Data reads off the stick: sources, installs, INBOX, the client's own files, filled into the view `gui/files_view.c` draws |
 | `app/ca-extra/` | Extra root certificates folded into the CA bundle |
-| `tests/` | Host tests: the parsers, the records and the installer, with power cuts |
+| `dev/tests/` | Host tests: the parsers, the records and the installer, with power cuts |
 | `dev/` | Developing PSPDX: `start`, `release`, the mock catalog, the emulator settings, and the generators (`marks/`, `make-ca-bundle.py`, `render-music.c`, `sweep-trace.py`) |
 | `dev/rig` | The rig: one emulator run with scripted keys, leaving the log and screenshots |
 | `dev/soak/` | Soak campaigns in the emulator, checked against a model of the client |
@@ -476,7 +476,7 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 #### Host tests
 
 ```sh
-sh tests/run
+sh dev/tests/run
 ```
 
 - Needs a C compiler, Python, cJSON, zlib and OpenSSL development files

@@ -198,7 +198,7 @@ def make(work, ms, base):
 
         # The shape schema/catalog-v1.json gives an entry, which is what
         # update/catalog.c reads: a release is a tag, when it was published
-        # and a download. tests/test_client.py feeds one of these through
+        # and a download. dev/tests/test_client.py feeds one of these through
         # that parser, so the two cannot drift apart unnoticed.
         app = {
             "id": entry_id,
