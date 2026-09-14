@@ -544,6 +544,10 @@ int main(int argc, char *argv[]) {
         sceCtrlReadBufferPositive(&pad, 1);
         /* The stick is a hand in the water, whenever it is off centre. */
         lattice_stir((pad.Lx - 128) / 127.0f, (pad.Ly - 128) / 127.0f);
+        /* In the band about one package the same hand scrolls what it has
+           to say, and the water goes on following it underneath. */
+        if (details)
+            shell_details_scroll((pad.Ly - 128) / 127.0f);
         unsigned pressed = pad.Buttons & ~last_buttons;
         last_buttons = pad.Buttons;
         pressed |= repeat(pad.Buttons & (PSP_CTRL_UP | PSP_CTRL_DOWN |

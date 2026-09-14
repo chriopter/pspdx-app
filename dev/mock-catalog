@@ -74,8 +74,65 @@ ROWS = [
 ]
 
 # Where a row says more than its one tag, or nothing: an app in two tabs,
-# one with a tag no tab has, and one with no tags, which stands in All alone.
-TAGS = {"Nine Lives": [], "gpSP": ["emulator", "game"], "Chip-8": ["emulator", "interpreter"]}
+# one with a tag no tab has, one with no tags, which stands in All alone, and
+# one with all eight the format allows, up to 24 characters and some of them
+# letters of two bytes, for the details band's tag row.
+TAGS = {"Nine Lives": [], "gpSP": ["emulator", "game"], "Chip-8": ["emulator", "interpreter"],
+        "Chronicles of the Dawnbringer Saga II": [
+            "game", "Rundenbasierte Strategie", "Jeu de rôle japonais", "Mazmorras y dragones",
+            "Kurzweil für Busfahrten", "Pixel art à l'ancienne", "Große Weltkarte zu Fuß",
+            "Soundtrack på kassett"]}
+
+# The longest a description may be, 2500 characters with its newlines, and
+# near it: paragraphs of letters beyond ASCII, for the details band to break
+# into lines once and scroll. schema/catalog-v1.json and the client both
+# count characters, not bytes, and in bytes this is longer.
+DESCRIPTIONS = {"Chronicles of the Dawnbringer Saga II": "\n\n".join([
+    "The second part of the Dawnbringer saga picks up where the first one left "
+    "its heroes: stranded on the frozen coast of Nørrevik, with a broken airship, "
+    "three days of food and a map that nobody in the party can read. What follows "
+    "is a long, slow, turn-based journey across a continent that remembers every "
+    "choice you make — villages you helped will open their gates, towns you "
+    "robbed will send the watch after you, and the old ferryman at Château-Lumière "
+    "will only take you across if you still carry the lantern from chapter one.",
+    "Combat happens on a small grid. Each character has a stance (défense, "
+    "ataque, Überblick) that changes which of their four skills can be used and "
+    "how far they can move. Stances are switched for free once a turn, which "
+    "makes every fight a little puzzle about positioning rather than a race of "
+    "numbers. There are no random encounters: every enemy is visible on the map, "
+    "and most of them can be avoided, bribed or talked out of fighting at all.",
+    "Features:\n"
+    "- Around 30 hours for the main story, 50 with everything else\n"
+    "- Twelve playable characters, among them Señora Ibáñez, the smuggler, and "
+    "Björn, who only speaks in proverbs\n"
+    "- A fully hand-drawn world map, walked on foot, by cart or by the repaired airship\n"
+    "- A soundtrack of 41 pieces, written for the PSP's own speakers and "
+    "sounding best with headphones\n"
+    "- Saves on the Memory Stick at any inn, and a quick save anywhere on the map",
+    "Controls: the D-pad or the analog stick moves the party, × talks and "
+    "confirms, ○ cancels, △ opens the camp menu and □ switches the leader. "
+    "In battle, L and R cycle through the characters that still have a move "
+    "left, and SELECT shows the whole grid with every enemy's range drawn on it.",
+    "A note on the translation: the game was written in German and translated by "
+    "volunteers into English, French and Spanish. Names of places were kept as "
+    "they are in the original — so you will visit Übersee, Fjällbacka and "
+    "Montaña Roja rather than their English guesses. Where a joke did not "
+    "survive the trip, the translators left a footnote in the in-game library, "
+    "which is also where the bestiary, the recipes and the map legend are kept.",
+    "Known issues: on firmware older than 6.20 the intro film plays without "
+    "sound; the rest of the game is unaffected. The airship's last upgrade can be "
+    "missed if you sell the brass compass in chapter four — keep it.",
+    "Thanks to everyone who tested the first part on real hardware and wrote "
+    "long letters about it. This one is for you. Viel Spaß, bon voyage, ¡buen "
+    "viaje!"])}
+
+# One release tag the longest the format allows, 64 characters, which the
+# details band, the options' update row and the status line each cut to
+# their own room.
+LONG_TAGS = {"Master System": "v2.0.0-beta.3+build.20260911.gitabcdef0123456789-rc2-final-final"}
+
+# A GitHub app that a list vouches for, so the band has a listed_by to say.
+LISTED = {"ScummVM": "https://wijsman.de/psp-homebrew-database/"}
 
 # Plugins by their type, which is what the plugins tab goes by. They name no
 # folder under PSP/GAME; the catalog lists them and the console will not
@@ -207,6 +264,8 @@ def make(work, ms, base):
         dirname = "%s%02d%s" % (DIR_PREFIX, i, slug(name)[:21])
         rev = REV_BASE + i * 1000
         version = "%d.%d.%d" % (1 + i // 10, i % 10, i % 3)
+        if name in LONG_TAGS:
+            version = LONG_TAGS[name][1:]
         rel, sha, size = package(site, entry_id, dirname, payload)
 
         # The shape schema/catalog-v1.json gives an entry, which is what
@@ -223,6 +282,8 @@ def make(work, ms, base):
             "author": AUTHORS[author],
             "summary": SUMMARIES[rng.randrange(len(SUMMARIES))],
             "license": LICENSES[i % len(LICENSES)],
+            **({"description": DESCRIPTIONS[name]} if name in DESCRIPTIONS else {}),
+            **({"listed_by": LISTED[name]} if name in LISTED else {}),
             "releases": [{
                 "tag": "v" + version,
                 "published_at": iso(rev),
@@ -255,7 +316,8 @@ def make(work, ms, base):
         if media:
             app["media"] = media
         manifest=dict(schema="https://chriopter.github.io/pspdx/schema/pspdx-v1.json",source=app["source"],name=name[:39],
-                      **{k: app[k] for k in ("type", "tags", "installdir") if k in app})
+                      **{k: app[k] for k in ("type", "tags", "installdir", "description", "listed_by")
+                         if k in app})
         app["_test_manifest"]=manifest
         apps.append(app)
 
@@ -271,6 +333,8 @@ def make(work, ms, base):
             record = {"id": entry_id, "rev": rev - 500, "dir": dirname,
                       "manifest": "",
                       "version": "%d.%d.%d" % (i // 10, i % 10, i % 3)}
+            if name in LONG_TAGS:
+                record["version"] = version[:-len("final")] + "draft"
         rec_path = os.path.join(db_dir, entry_id + ".pspdx")
         with open(rec_path,"w") as output:json.dump(manifest,output)
         installed[entry_id]=dict(source=app["source"],added_from=base,installed=dict(version=record["version"],published_at=record["rev"],installdir="PSP/GAME/"+dirname))

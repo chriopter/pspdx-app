@@ -729,17 +729,25 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
         logline("install: valid original manifest required");
         return -1;
     }
-    struct source_repo repo;
-    char derived[96];
-    if (!sources_parse_repo(spec.source, &repo) || !sources_same_repo(spec.source, m->repo))
-        return -1;
-    sources_repo_id(&repo, derived, sizeof(derived));
-    if (strcmp(derived, m->id))
+    /* The id is the one the file makes: its repository's on GitHub, and
+       its list's and its name's anywhere else. */
+    if (!sources_same_repo(spec.source, m->repo) || strcmp(spec.id, m->id))
         return -1;
     struct installed existing;
     if(db_read(m->id,&existing)==0 && !sources_same_repo(existing.repo,m->repo))return -1;
-    if (!sources_release_url(m->repo, m->url))
+    /* A GitHub release is held to coming out of the repository. Anywhere
+       else nothing says where a download may come from, so the catalog's
+       hash of it has to, and a release without one has nothing to be held
+       to. */
+    struct source_repo repo;
+    if (sources_parse_repo(spec.source, &repo)) {
+        if (!sources_release_url(m->repo, m->url))
+            return -1;
+    } else if (!manifest_has_sha256(m)) {
+        logline("install: %s is from outside GitHub, and no SHA-256 came with it to hold the "
+                "download to", m->id);
         return -1;
+    }
     cJSON *j = begin(m->id, m->dir, "install");
     if (!j)
         return -1;

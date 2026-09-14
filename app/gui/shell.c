@@ -29,9 +29,11 @@
 #include "gui/lattice.h"
 #include "gui/marks.h"
 #include "gui/title.h"
+#include "gui/wrap.h"
 #include "gui/palette.h"
 #include "gui/preview.h"
 #include "session/view.h"
+#include "update/pspdx.h"
 #include "util/runtime.h"
 
 /* Three type roles and nowhere else a fourth: FONT_H1 for the one name on
@@ -130,6 +132,19 @@ static float g_menu_slide;              /* 0 off the right edge, 1 in place */
 static int g_menu_leaving;              /* sliding out; done at 0 */
 static int g_info;
 static const struct app_entry *g_details;   /* the package the band is about */
+/* What the band has to say under its facts -- the summary, a blank line and
+   the description -- copied when it opens and broken into lines once then,
+   since measuring kilobytes of text is no work for a frame. The copy is the
+   band's own: a refetch may free the entry's description while it is up.
+   A summary of 60 characters and a description of 2500 of up to four bytes
+   each; a line per character at the most, and one for the blank. */
+#define DETAIL_TEXT (sizeof(((struct app_entry *)0)->summary) + 2 + 2500 * 4 + 1)
+#define DETAIL_LINES (60 + 1 + 2500)
+#define DETAIL_LINE_BYTES 255
+static char g_detail_text[DETAIL_TEXT];
+static struct wrap_line g_detail_lines[DETAIL_LINES];
+static int g_detail_count;
+static float g_detail_scroll, g_detail_max;     /* pixels scrolled, and how far it can */
 static int g_resting;                   /* left alone: where the picture is going */
 static float g_rest;                    /* 0 no picture, 1 the picture whole */
 /* The share of a frame that goes into drawing it, eased over about a second
@@ -1207,6 +1222,29 @@ int draw_wrapped(enum font_style style, float x, float y, float width,
     return used ? used : 1;
 }
 
+/* Where the band's scrolling part stands: under the name's rule, down to
+   the band's foot, facts from DETAIL_Y and the text DETAIL_TEXT_Y below
+   them, a line every DETAIL_STEP, the last of them no lower than
+   DETAIL_LAST once scrolled to the end. */
+#define DETAIL_TOP (INFO_Y + 38)
+#define DETAIL_BOTTOM (INFO_Y + INFO_H)
+#define DETAIL_Y (INFO_Y + 56)
+#define DETAIL_TEXT_Y 134
+#define DETAIL_STEP 16
+#define DETAIL_LAST (DETAIL_BOTTOM - 4)
+#define DETAIL_X 40
+/* The stick rests a little off centre on most PSPs: under this nothing
+   moves. At a full push the text moves this many pixels a frame. */
+#define DETAIL_DEAD 0.2f
+#define DETAIL_SPEED 5.0f
+
+/* A small triangle, pointing up or down, of four rows of pixels: the font
+   has no arrow, and a mark would say more than "there is more". */
+static void draw_more(int cx, int y, int up, unsigned color) {
+    for (int i = 0; i < 4; i++)
+        gfx_rect(cx - i, up ? y + i : y + 3 - i, 2 * i + 1, 1, color);
+}
+
 /* Everything the catalog says about the one package, in the band the rest
    of the questions are asked in: the card is for looking, this is for
    reading. */
@@ -1222,7 +1260,10 @@ static void draw_details(void) {
                        g_text, e->name);
     band_rule(INFO_Y + 34, 150, 110);
 
-    int y = INFO_Y + 56;
+    /* Under the name everything moves as one when the stick scrolls, and
+       stays inside the band while it does. */
+    gfx_clip(0, DETAIL_TOP, SCR_W, DETAIL_BOTTOM - DETAIL_TOP);
+    int y = DETAIL_Y - (int)g_detail_scroll;
     if (e->state == APP_UPDATE)
         snprintf(value, sizeof(value), T_DETAIL_UPDATE,
                  e->local_version, e->remote_version);
@@ -1235,18 +1276,24 @@ static void draw_details(void) {
     fact(y, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_VERSION, value);
     fact(y + 20, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_AUTHOR, e->author);
     fact(y + 40, FACT_LABEL, FACT_VALUE, 140, T_DETAIL_LICENSE, e->license);
-    /* The tags on one line, a comma between them, for as many as fit. */
-    char tags[96];
+    /* The tags on one line, a comma between them: eight of 24 characters of
+       up to four bytes each and seven separators of two, so all of them fit
+       and the row is cut to its width where it is drawn, between letters.
+       Were one ever to overflow, no half of a letter is left at the end. */
+    char tags[PSPDX_TAGS * 24 * 4 + (PSPDX_TAGS - 1) * 2 + 1];
     size_t t = 0;
-    for (const char *p = e->tags; *p && t + 3 < sizeof(tags); p++) {
-        if (*p == '\n') {
+    for (const char *p = e->tags; *p; p++) {
+        if (*p == '\n' && t + 2 < sizeof(tags)) {
             tags[t++] = ',';
             tags[t++] = ' ';
-        } else {
+        } else if (*p != '\n' && t + 1 < sizeof(tags)) {
             tags[t++] = *p;
+        } else {
+            break;
         }
     }
     tags[t] = '\0';
+    pspdx_utf8_mend(tags);
     fact(y + 40, FACT_LABEL2, FACT_VALUE2, 110, T_DETAIL_TAGS, tags);
     if (e->has_release && e->release.size) {
         size_mb(e->release.size, size, sizeof(size));
@@ -1261,10 +1308,71 @@ static void draw_details(void) {
     }else snprintf(value,sizeof(value),"%s",e->fresh?T_DETAIL_THIS_SESSION:T_UNKNOWN);
     fact(y+100,FACT_LABEL,FACT_VALUE,SCR_W-FACT_VALUE-30,T_DETAIL_CHECKED,value);
     band_rule(y + 116, 160, 120);
-    draw_wrapped(FONT_META, 40, y + 134, SCR_W - 80, 16, 2, g_dim, e->summary);
+    /* The lines made when the band opened, only the ones in view. */
+    char line[DETAIL_LINE_BYTES + 1];
+    for (int i = 0; i < g_detail_count; i++) {
+        int base = y + DETAIL_TEXT_Y + i * DETAIL_STEP;
+        if (base + 4 < DETAIL_TOP)
+            continue;
+        if (base - DETAIL_STEP > DETAIL_BOTTOM)
+            break;
+        memcpy(line, g_detail_text + g_detail_lines[i].start, g_detail_lines[i].len);
+        line[g_detail_lines[i].len] = '\0';
+        font_print(FONT_META, DETAIL_X, base, g_dim, line);
+    }
+    gfx_unclip();
+    /* More above, more below: a small point at the band's edge, quiet
+       enough to be found only by an eye looking for it. */
+    unsigned more = faded(g_dim, 200);
+    if (g_detail_scroll >= 1.0f)
+        draw_more(SCR_W - 24, DETAIL_TOP + 4, 1, more);
+    if (g_detail_scroll + 1.0f <= g_detail_max)
+        draw_more(SCR_W - 24, DETAIL_BOTTOM - 8, 0, more);
 }
 
-void shell_details(const struct app_entry *entry) { g_details = entry; }
+/* How wide a line of the band's text is: the measure wrap_text asks, which
+   never hands over more than a line's bytes. */
+static float detail_width(void *ctx, const char *text, size_t len) {
+    char line[DETAIL_LINE_BYTES + 1];
+    (void)ctx;
+    memcpy(line, text, len);
+    line[len] = '\0';
+    return font_width(FONT_META, line);
+}
+
+void shell_details(const struct app_entry *entry) {
+    g_details = entry;
+    if (!entry)
+        return;
+    /* The summary, then the description a blank line below it, either one
+       alone when the other is missing; broken into lines here, once. */
+    const char *about = entry->description ? entry->description : "";
+    snprintf(g_detail_text, sizeof(g_detail_text), "%s%s%s", entry->summary,
+             entry->summary[0] && about[0] ? "\n\n" : "", about);
+    pspdx_utf8_mend(g_detail_text);
+    g_detail_count = wrap_text(g_detail_text, SCR_W - 2 * DETAIL_X, DETAIL_LINE_BYTES,
+                               detail_width, NULL, g_detail_lines, DETAIL_LINES);
+    g_detail_scroll = 0.0f;
+    /* Scrolled as far as the last line standing on the band's last baseline. */
+    int last = DETAIL_Y + DETAIL_TEXT_Y + (g_detail_count - 1) * DETAIL_STEP;
+    g_detail_max = g_detail_count && last > DETAIL_LAST ? (float)(last - DETAIL_LAST) : 0.0f;
+}
+
+void shell_details_scroll(float push) {
+    float away = push < 0.0f ? -push : push;
+    if (!g_details || away < DETAIL_DEAD)
+        return;
+    /* Past the dead zone the speed rises with the square of the push: a
+       little is a line at reading pace, all the way is a page a second. */
+    float t = (away - DETAIL_DEAD) / (1.0f - DETAIL_DEAD);
+    if (t > 1.0f)
+        t = 1.0f;
+    g_detail_scroll += (push < 0.0f ? -1.0f : 1.0f) * t * t * DETAIL_SPEED;
+    if (g_detail_scroll > g_detail_max)
+        g_detail_scroll = g_detail_max;
+    if (g_detail_scroll < 0.0f)
+        g_detail_scroll = 0.0f;
+}
 
 /* ---------------------------------------------------------------- footer */
 

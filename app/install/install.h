@@ -9,10 +9,6 @@
    bytes: what a version is kept in, the tag with its "v" taken off. */
 #define VERSION_SIZE (64 * 4 + 1)
 
-/* Where a .pspdx was read when a list served it in place of the
-   repository's own: a URL of a list's line, as long as one. */
-#define MANIFEST_URL_SIZE 256
-
 /* One release, as the console installs it: the fields that go into a
    download and an unpack, and the repository it came from, which goes
    into the record on the stick so the package can be found at its source
@@ -32,9 +28,6 @@ struct manifest {
        so whoever copies one hands the text over with manifest_forget on the
        other, or clears it, and never frees it twice. */
     char *raw;
-    /* The list's URL the .pspdx came from, when the repository has none of
-       its own; empty when it is the repository's. */
-    char manifest_url[MANIFEST_URL_SIZE];
     /* What the .pspdx said about the shape of the zip, straight from the
        file or from a cache entry's "install", and empty when it said
        nothing: root is the directory inside the zip that is the package,
@@ -62,10 +55,6 @@ struct installed {
     char version[VERSION_SIZE];
     unsigned rev;
     char repo[PSPDX_URL_SIZE];
-    /* The list's .pspdx the app was installed from, when its repository has
-       none; empty otherwise. An update check asks the repository first and
-       this second. */
-    char manifest_url[MANIFEST_URL_SIZE];
     /* The zip that was installed, by its SHA-256, which is what an update is
        told by; all zeros for a record written before hashes were kept. */
     unsigned char sha256[32];

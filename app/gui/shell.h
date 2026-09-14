@@ -79,6 +79,10 @@ void shell_rest(int resting);
 /* Square: the band that says everything the catalog knows about one package.
    NULL takes it down. */
 void shell_details(const struct app_entry *entry);
+/* The analog stick while the band is up, -1 pushed up to 1 pushed down, once
+   a frame: what the band has to say scrolls, faster the further it is
+   pushed, and a hand resting near the centre moves nothing. */
+void shell_details_scroll(float push);
 
 /* Install progress, drawn over the browser. The two middle ones match the
    callback types install() expects.

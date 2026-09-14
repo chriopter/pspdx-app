@@ -153,11 +153,6 @@ static void settle_state(struct app_entry *entry) {
         entry->local_has_sha = 0;
         for (int i = 0; i < 32; i++)
             entry->local_has_sha |= installed.sha256[i];
-        /* Installed from a list's .pspdx: an update of an entry whose file is
-           still to be read reads that one when the repository has none. */
-        if (!entry->release.raw && !entry->release.manifest_url[0])
-            snprintf(entry->release.manifest_url, sizeof(entry->release.manifest_url), "%s",
-                     installed.manifest_url);
     } else {
         entry->state = APP_NOT_INSTALLED;
     }
@@ -365,8 +360,8 @@ static int parse(struct catalog *catalog, const char *base) {
             continue;
         /* The id is what the source and the list make of it, and an entry
            that says another is not believed about the rest either. Away
-           from GitHub there is no release this version can check the
-           download against, so such an app is listed and not installed. */
+           from GitHub the entry is the app's whole word, and the install
+           holds the download to the hash the entry gives. */
         struct source_repo source;
         char expected[96];
         int github = sources_parse_repo(entry->repo, &source);
@@ -386,9 +381,7 @@ static int parse(struct catalog *catalog, const char *base) {
         if (strcmp(expected, entry->id) ||
             (github && !sources_release_url(entry->repo, entry->release.url)))
             continue;
-        entry->unsupported = !github || !homebrew;
-        if (!github)
-            logline("catalog: %s comes from outside GitHub; listed, not installable yet", entry->id);
+        entry->unsupported = !homebrew;
         if (has_id(catalog, entry->id))
             continue;
         struct installed local;
@@ -584,63 +577,14 @@ static char *keep_response(void) {
     return text;
 }
 
-/* A .pspdx a list serves for a repository that has none, held to v1 and to
-   what makes it a stand-in rather than a file anyone could put up: the list
-   that vouches for it, in listed_by, and a GitHub repository, whose releases
-   are the only ones this version can ask for. 0 with the file parsed, or -1
-   with the reason in the log. */
-static int standin_ok(const char *url, const char *text, size_t len, struct pspdx_file *file) {
-    char reason[64];
-    if (pspdx_parse(text, len, file, reason, sizeof(reason)) < 0) {
-        logline("origin: the list's .pspdx at %s refused: %s", url, reason);
-        return -1;
-    }
-    if (!file->listed_by[0]) {
-        logline("origin: the list's .pspdx at %s names no listed_by; refused", url);
-        return -1;
-    }
-    if (strncmp(file->source, "https://github.com/", 19)) {
-        logline("origin: the list's .pspdx at %s names a source outside GitHub, which only a "
-                "catalog can list; skipped", url);
-        return -1;
-    }
-    return 0;
-}
-
-/* A list's line that is a .pspdx rather than a repository: the file, read
-   to learn which repository it stands in for. Its text on the heap and the
-   repository, or NULL. */
-static char *read_standin(const char *url, struct source_repo *repo) {
-    if (fetch_text(url, NULL) < 0) {
-        logline("origin: the list's .pspdx at %s did not load", url);
-        return NULL;
-    }
-    struct pspdx_file file;
-    char *text = response_len <= PSPDX_FILE_MAX ? keep_response() : NULL;
-    if (!text)
-        logline("origin: the list's .pspdx at %s is over %u bytes", url, PSPDX_FILE_MAX);
-    else if (standin_ok(url, text, response_len, &file) < 0 ||
-             !sources_parse_repo(file.source, repo)) {
-        free(text);
-        text = NULL;
-    }
-    return text;
-}
-
 /* One repository asked at the origin and made into an entry: its .pspdx
    at raw.githubusercontent.com first, since that file is the consent and a
    repository without one is not an app; then api.github.com for the
    release. The pictures are four more URLs under the media directory, not
    fetched here -- the card and the row ask for them when the cursor
-   arrives, exactly as they do from a cache.
-
-   standin is a list's .pspdx for the repository, by its URL, or NULL, and
-   standin_text what was read there already, or NULL to read it here. The
-   repository's own file is asked for first and wins; the list's stands in
-   only when the repository answers that it has none. Returns 1 with the
-   entry filled, -1 refused, with why kept for the gear tab. */
-static int origin_entry(struct app_entry *entry, const struct source_repo *repo,
-                        const char *standin, const char *standin_text) {
+   arrives, exactly as they do from a cache. Returns 1 with the entry
+   filled, -1 refused, with why kept for the gear tab. */
+static int origin_entry(struct app_entry *entry, const struct source_repo *repo) {
     char url[SOURCE_URL], api[SOURCE_URL];
     sources_repo_url(repo, url, sizeof(url));
     for (int i = 0; i < attempted_count; i++)
@@ -653,47 +597,21 @@ static int origin_entry(struct app_entry *entry, const struct source_repo *repo,
 
     struct pspdx_file file;
     char reason[64];
-    struct https_result answer;
-    memset(&answer, 0, sizeof(answer));
     snprintf(api, sizeof(api), "https://raw.githubusercontent.com/%s/%s/%s/.pspdx", repo->owner,
              repo->name, repo->ref);
-    char *text = NULL;
-    int served = 0;
-    if (fetch_text(api, &answer) == 0) {
-        if (standin)
-            logline("origin: %s/%s has its own .pspdx; the list's at %s is not used", repo->owner,
-                    repo->name, standin);
-        text = response_len <= PSPDX_FILE_MAX ? keep_response() : NULL;
-    } else if (standin && answer.status == 404) {
-        served = 1;
-        if (standin_text) {
-            text = malloc(strlen(standin_text) + 1);
-            if (text)
-                strcpy(text, standin_text);
-        } else if (fetch_text(standin, NULL) == 0) {
-            text = response_len <= PSPDX_FILE_MAX ? keep_response() : NULL;
-        } else {
-            logline("origin: the list's .pspdx at %s did not load", standin);
-            refuse(url, REFUSED_PSPDX);
-            return -1;
-        }
-    } else {
+    if (fetch_text(api, NULL) < 0) {
         logline("origin: %s/%s has no .pspdx at %s, not listed", repo->owner, repo->name,
                 repo->ref);
         refuse(url, REFUSED_PSPDX);
         return -1;
     }
+    char *text = response_len <= PSPDX_FILE_MAX ? keep_response() : NULL;
     size_t len = text ? strlen(text) : 0;
     if (!text) {
         logline("origin: %s/%s .pspdx refused: too large", repo->owner, repo->name);
         goto refused;
     }
-    if (served) {
-        if (standin_ok(standin, text, len, &file) < 0)
-            goto refused;
-        logline("origin: %s/%s has no .pspdx of its own; the list's at %s stands in", repo->owner,
-                repo->name, standin);
-    } else if (pspdx_parse(text, len, &file, reason, sizeof(reason)) < 0) {
+    if (pspdx_parse(text, len, &file, reason, sizeof(reason)) < 0) {
         logline("origin: %s/%s .pspdx refused: %s", repo->owner, repo->name, reason);
         goto refused;
     }
@@ -796,12 +714,9 @@ static int origin_entry(struct app_entry *entry, const struct source_repo *repo,
     /* The shape of the zip, as the author stated it; install.c holds both
        to their rules, the same ones a cache entry's are held to. */
     snprintf(m->dir, sizeof(m->dir), "%.32s", file.installdir + 9);
-    /* The file goes with the entry, and with it where it was read when a
-       list served it, which the record keeps for the checks to come. */
+    /* The file goes with the entry. */
     m->raw = text;
     entry->description = pspdx_description(text, len);
-    if (served)
-        snprintf(m->manifest_url, sizeof(m->manifest_url), "%s", standin);
     snprintf(m->checked_from, sizeof(m->checked_from), "%s", url);
     snprintf(m->added_from, sizeof(m->added_from), "%s", url);
     m->checked_at = (unsigned)time(NULL);
@@ -818,8 +733,7 @@ refused:
 
 /* The same, into the catalog's next slot: 1 taken, 0 already there, -1
    refused or no room. */
-static int take_origin(struct catalog *catalog, const struct source_repo *repo,
-                       const char *standin, const char *standin_text) {
+static int take_origin(struct catalog *catalog, const struct source_repo *repo) {
     char id[96];
     sources_repo_id(repo, id, sizeof(id));
     if (catalog->count >= MAX_APPS)
@@ -830,26 +744,12 @@ static int take_origin(struct catalog *catalog, const struct source_repo *repo,
     if (db_read(id, &local) < 0 && catalog->count >= MAX_APPS - state_count())
         return -1;
     struct app_entry *entry = &catalog->apps[catalog->count];
-    if (origin_entry(entry, repo, standin, standin_text) < 0)
+    if (origin_entry(entry, repo) < 0)
         return -1;
     settle_state(entry);
     catalog->count++;
     catalog->total++;
     return 1;
-}
-
-/* A list's .pspdx line, read and its repository asked at the origin with it:
-   1 taken, 0 already there, -1 refused. */
-static int take_standin(struct catalog *catalog, const char *url) {
-    struct source_repo repo;
-    char *text = read_standin(url, &repo);
-    if (!text)
-        return -1;
-    char canonical[SOURCE_URL];
-    sources_repo_url(&repo, canonical, sizeof(canonical));
-    int rc = catalog_find_repo(catalog, canonical) >= 0 ? 0 : take_origin(catalog, &repo, url, text);
-    free(text);
-    return rc;
 }
 
 /* Every repository of a list that no entry so far came from -- the ones
@@ -864,27 +764,13 @@ static int walk_list(struct catalog *catalog, const struct source_list *list, in
     *asked = *refused = 0;
     for (int i = 0; i < list->count; i++) {
         char url[SOURCE_URL];
-        if (list->pspdx[i][0]) {
-            /* Named on the status line by its file, the way a repository is
-               by its name. */
-            const char *file = strrchr(list->pspdx[i], '/');
-            file = file ? file + 1 : list->pspdx[i];
-            snprintf(g_progress, sizeof(g_progress), T_STATUS_ORIGIN, file, i + 1, list->count);
-            (*asked)++;
-            int rc = take_standin(catalog, list->pspdx[i]);
-            if (rc > 0)
-                taken++;
-            else if (rc < 0)
-                (*refused)++;
-            continue;
-        }
         sources_repo_url(&list->repo[i], url, sizeof(url));
         if (catalog_find_repo(catalog, url) >= 0)
             continue;
         snprintf(g_progress, sizeof(g_progress), T_STATUS_ORIGIN, list->repo[i].name, i + 1,
                  list->count);
         (*asked)++;
-        int rc = take_origin(catalog, &list->repo[i], NULL, NULL);
+        int rc = take_origin(catalog, &list->repo[i]);
         if (rc > 0)
             taken++;
         else if (rc < 0)
@@ -901,6 +787,14 @@ static int fetch_source(struct catalog *catalog, int at, const char *url) {
        sync thread fetches sources. */
     static struct source_list list;
     int asked = 0, refused = 0, taken, cached = -1;
+
+    /* A .pspdx was once a source of its own, a list's file standing in for
+       a repository without one. A catalog vouches for such an app now, so a
+       line of the kind left in sources.txt is passed over, and said. */
+    if (sources_is_pspdx(url)) {
+        logline("source %d: %s is a .pspdx, which is no source any more; skipped", at, url);
+        return 0;
+    }
 
     switch (sources_kind(url)) {
     case SOURCE_CATALOG:
@@ -936,12 +830,6 @@ static int fetch_source(struct catalog *catalog, int at, const char *url) {
                 too_large ? "too large" : "unavailable", taken >= 0 ? "used" : "missing");
         return taken;
     }
-
-    case SOURCE_PSPDX:
-        /* A .pspdx as a source is a list of one such line. */
-        taken = take_standin(catalog, url);
-        logline("source %d: .pspdx, %d app%s", at, taken > 0, taken < 0 ? ", refused" : "");
-        return taken;
 
     case SOURCE_REPO:
         memset(&list, 0, sizeof(list));
@@ -998,7 +886,7 @@ int catalog_add_repo(struct catalog *catalog, const char *url) {
     int at = catalog_find_repo(catalog, canonical);
     if (at >= 0)
         return at;
-    if (take_origin(catalog, &repo, NULL, NULL) <= 0)
+    if (take_origin(catalog, &repo) <= 0)
         return -1;
     return catalog->count - 1;
 }
@@ -1040,18 +928,20 @@ static void restore_installed(struct catalog *catalog) {
         /* Self registration can precede its first manifest fetch. */
         const char *source = n >= 0 ? file.source : rec.repo;
         struct source_repo repo;
+        /* An app a catalog vouched for has no file at its repository to be
+           asked about, which its saved one says by naming the list: it is
+           updated through a catalog, as an app from outside GitHub is, and
+           passed over here without a word. */
+        int vouched = n >= 0 && file.listed_by[0];
         /* One entry to ask into, not a catalog: an app at a time. */
-        int ask = due && !g_offline && sources_parse_repo(source, &repo);
+        int ask = due && !g_offline && !vouched && sources_parse_repo(source, &repo);
         struct app_entry *one = ask ? calloc(1, sizeof(*one)) : NULL;
         /* The status line follows the apps being asked, the way it follows a
            list being walked; a full check is nearly all of this. */
         if (one)
             snprintf(g_progress, sizeof(g_progress), T_STATUS_ORIGIN, repo.name, i + 1,
                      state_count());
-        /* An app installed from a list's .pspdx asks its repository first all
-           the same, and the list's copy only while the repository has none. */
-        if (one && origin_entry(one, &repo, rec.manifest_url[0] ? rec.manifest_url : NULL,
-                                NULL) > 0) {
+        if (one && origin_entry(one, &repo) > 0) {
             fetched = 1;
             int known = at >= 0;
             if (at < 0 && catalog->count < MAX_APPS)
@@ -1143,79 +1033,99 @@ int catalog_fetch(struct catalog *catalog) {
     g_force = 0;
     return answered || catalog->count ? catalog->count : -1;
 }
-/* The .pspdx a list serves for an entry whose repository has none, read into
-   the entry with where it was read: the one its record remembers, or else
-   the one the text list beside its catalog names -- a site's catalog.txt, the
-   lines its catalog.json was built from. 0 when one stood in. */
-static int find_standin(struct app_entry *entry) {
-    struct pspdx_file file;
-    struct manifest *m = &entry->release;
-    if (m->manifest_url[0]) {
-        if (fetch_text(m->manifest_url, NULL) == 0 && response_len <= PSPDX_FILE_MAX &&
-            standin_ok(m->manifest_url, response, response_len, &file) == 0 &&
-            sources_same_repo(file.source, entry->repo))
-            return manifest_keep_raw(m, response, response_len);
-        logline("install: %s has no .pspdx, and the list's at %s did not stand in", entry->id,
-                m->manifest_url);
+/* A catalog entry a list vouches for, written as the .pspdx its app has
+   none of: the entry's own words, and listed_by to say whose they are. It
+   is what the install checks and saves beside the record, so the app is on
+   the stick the way one with a file of its own is, and the listed_by in it
+   is what later keeps an update check from asking a repository that has
+   nothing to say. Held to v1 where it is read, like any file. 0 with the
+   text kept in the release. */
+static int vouched_pspdx(struct app_entry *entry) {
+    cJSON *o = cJSON_CreateObject();
+    if (!o)
         return -1;
+    char folder[42];
+    snprintf(folder, sizeof(folder), "PSP/GAME/%.32s", entry->release.dir);
+    cJSON_AddStringToObject(o, "schema", PSPDX_SCHEMA);
+    cJSON_AddStringToObject(o, "source", entry->repo);
+    cJSON_AddStringToObject(o, "name", entry->name);
+    if (entry->tags[0]) {
+        cJSON *tags = cJSON_AddArrayToObject(o, "tags");
+        char word[PSPDX_TAGS_TEXT];
+        for (const char *p = entry->tags; tags && *p;) {
+            size_t n = strcspn(p, "\n");
+            snprintf(word, sizeof(word), "%.*s", (int)n, p);
+            cJSON_AddItemToArray(tags, cJSON_CreateString(word));
+            p += n + (p[n] == '\n');
+        }
     }
-    size_t n = strlen(m->added_from);
-    char txt[SOURCE_URL];
-    if (n < 12 || strcmp(m->added_from + n - 12, "catalog.json") ||
-        snprintf(txt, sizeof(txt), "%.*scatalog.txt", (int)(n - 12), m->added_from) >=
-            (int)sizeof(txt) ||
-        fetch_text(txt, NULL) < 0) {
-        logline("install: %s has no .pspdx, and no list's copy is known", entry->id);
-        return -1;
-    }
-    static struct source_list list;
-    sources_parse_list(response, &list);
-    for (int i = 0; i < list.count; i++) {
-        if (!list.pspdx[i][0] || fetch_text(list.pspdx[i], NULL) < 0 ||
-            response_len > PSPDX_FILE_MAX ||
-            standin_ok(list.pspdx[i], response, response_len, &file) < 0 ||
-            !sources_same_repo(file.source, entry->repo))
-            continue;
-        snprintf(m->manifest_url, sizeof(m->manifest_url), "%s", list.pspdx[i]);
-        return manifest_keep_raw(m, response, response_len);
-    }
-    logline("install: %s has no .pspdx, and %s serves none for it", entry->id, txt);
-    return -1;
+    cJSON_AddStringToObject(o, "installdir", folder);
+    const char *said[][2] = {{"author", entry->author}, {"summary", entry->summary},
+                             {"license", entry->license},
+                             {"description", entry->description ? entry->description : ""}};
+    for (unsigned i = 0; i < sizeof(said) / sizeof(*said); i++)
+        if (said[i][1][0])
+            cJSON_AddStringToObject(o, said[i][0], said[i][1]);
+    cJSON_AddStringToObject(o, "listed_by", entry->listed_by);
+    char *text = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    int rc = text && strlen(text) <= PSPDX_FILE_MAX &&
+                     manifest_keep_raw(&entry->release, text, strlen(text)) == 0
+                 ? 0
+                 : -1;
+    free(text);
+    return rc;
 }
 
 int catalog_prepare(struct app_entry *entry) {
     struct source_repo repo;
     struct pspdx_file file;
-    char why[80], url[512];
+    char why[80] = "", url[512];
     /* What is listed and not installable says so here, before anything is
        fetched for it. */
     if (entry->unsupported) {
         logline("install: %s cannot be installed yet (type %s)", entry->id, entry->type);
         return -1;
     }
-    if (!sources_parse_repo(entry->repo, &repo))
-        return -1;
+    int github = sources_parse_repo(entry->repo, &repo);
     if (!entry->release.raw) {
-        /* The repository's own file first, which always wins; a list's
-           copy only when the repository says it has none. */
-        struct https_result answer;
-        memset(&answer, 0, sizeof(answer));
-        snprintf(url, sizeof(url), "https://raw.githubusercontent.com/%s/%s/HEAD/.pspdx",
-                 repo.owner, repo.name);
-        if (fetch_text(url, &answer) == 0) {
-            if (response_len > PSPDX_FILE_MAX ||
-                manifest_keep_raw(&entry->release, response, response_len) < 0)
+        /* The repository's own file first, asked for once here, and it
+           always wins. Only when the repository answers that it has none
+           does a catalog's word stand in, and only where the entry names
+           the list that gives it. Outside GitHub there is no file to ask
+           for: the entry is all there is. */
+        int missing = !github;
+        if (github) {
+            struct https_result answer;
+            memset(&answer, 0, sizeof(answer));
+            snprintf(url, sizeof(url), "https://raw.githubusercontent.com/%s/%s/HEAD/.pspdx",
+                     repo.owner, repo.name);
+            if (fetch_text(url, &answer) == 0) {
+                if (response_len > PSPDX_FILE_MAX ||
+                    manifest_keep_raw(&entry->release, response, response_len) < 0)
+                    return -1;
+            } else if (answer.status == 404) {
+                missing = 1;
+            } else {
                 return -1;
-            entry->release.manifest_url[0] = '\0';
-        } else if (answer.status != 404 || find_standin(entry) < 0) {
-            return -1;
+            }
+        }
+        if (missing) {
+            if (!entry->listed_by[0]) {
+                logline("install: %s has no .pspdx, and no catalog vouches for it", entry->id);
+                return -1;
+            }
+            if (vouched_pspdx(entry) < 0)
+                return -1;
+            logline("install: %s has no .pspdx; %s vouches for it, installed from the entry",
+                    entry->id, entry->listed_by);
         }
     }
     if (pspdx_parse(entry->release.raw, strlen(entry->release.raw), &file, why, sizeof(why)) < 0 ||
         !sources_same_repo(file.source, entry->repo) ||
-        strcmp(file.installdir + 9, entry->release.dir) ||
-        (entry->release.manifest_url[0] && !file.listed_by[0])) {
-        logline("install: manifest and selected catalog entry disagree; refresh sources");
+        strcmp(file.installdir + 9, entry->release.dir)) {
+        logline("install: manifest and selected catalog entry disagree%s%s; refresh sources",
+                why[0] ? ": " : "", why);
         manifest_forget(&entry->release);
         return -1;
     }
@@ -1225,18 +1135,17 @@ int catalog_validate_source(const char *url, int repository) {
     int rc = -1;
     attempted_count = 0;
     enum source_kind kind = sources_kind(url);
-    /* A repository or a list's .pspdx is one app: asked into one entry. */
-    if (repository || kind == SOURCE_PSPDX) {
+    /* No source any more; see fetch_source. */
+    if (sources_is_pspdx(url))
+        return -1;
+    /* A repository is one app: asked into one entry. */
+    if (repository) {
         struct app_entry *one = calloc(1, sizeof(*one));
         struct source_repo repo;
-        char *text = NULL;
         if (!one)
             return -1;
-        if (repository && sources_parse_repo(url, &repo))
-            rc = origin_entry(one, &repo, NULL, NULL) > 0 ? 0 : -1;
-        else if (!repository && (text = read_standin(url, &repo)))
-            rc = origin_entry(one, &repo, url, text) > 0 ? 0 : -1;
-        free(text);
+        if (sources_parse_repo(url, &repo))
+            rc = origin_entry(one, &repo) > 0 ? 0 : -1;
         entry_clear(one);
         free(one);
         return rc;

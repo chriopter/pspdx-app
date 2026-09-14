@@ -5,8 +5,7 @@
 
 /* Where the console finds apps: PSP/PSPDX/sources.txt, one URL a line, the
    built-in catalog first. A line is a catalog base URL, a catalog.json, a
-   text list (with an optional "cache <url>" line), a GitHub repository, or
-   a .pspdx a list serves for a repository that has none.
+   text list (with an optional "cache <url>" line), or a GitHub repository.
    The file is read at every catalog fetch and written
    to by the gear tab; nothing else touches it.
 
@@ -42,14 +41,15 @@ int sources_release_url(const char *repo,const char *url);
 int sources_normalize(const char *text,char *url,size_t size);
 int sources_add(const char *text, char *url, size_t size);
 
-enum source_kind { SOURCE_LIST, SOURCE_REPO, SOURCE_CATALOG, SOURCE_CATALOG_BASE, SOURCE_PSPDX };
+enum source_kind { SOURCE_LIST, SOURCE_REPO, SOURCE_CATALOG, SOURCE_CATALOG_BASE };
 enum source_kind sources_kind(const char *url);
 
-/* One line of a list: https://github.com/<owner>/<repo>[@tag], or the
-   https:// URL of a .pspdx the list serves for a repository that has none
-   of its own. The category, the title, the summary and the rest used to be
-   words after the URL; they are the .pspdx now, so a list says only where
-   the apps are and every list shows the same app the same way. */
+/* One line of a list: https://github.com/<owner>/<repo>[@tag], and nothing
+   else. The category, the title, the summary and the rest used to be words
+   after the URL; they are the repository's own .pspdx now, so a list says
+   only where the apps are and every list shows the same app the same way.
+   An app without a .pspdx is a catalog's to list, by vouching for it in
+   listed_by. */
 struct source_repo {
     char owner[40];
     char name[100];
@@ -59,21 +59,18 @@ struct source_repo {
 #define LIST_REPOS 64
 struct source_list {
     char cache[SOURCE_URL];     /* the "cache" line, empty when there is none */
-    /* Line i names a repository in repo[i], or a list's .pspdx in pspdx[i],
-       which is empty for a repository's line; the repository of a .pspdx is
-       the file's source, known only once it has been read. */
     struct source_repo repo[LIST_REPOS];
-    char pspdx[LIST_REPOS][SOURCE_URL];
     int count;
 };
 
 /* Whether a line is the URL of a .pspdx: https://, one word, ".pspdx" at
-   its end. */
+   its end. Such a line once named a list's file standing in for a
+   repository without one; a catalog vouches for that app now, and a line
+   of the kind, in sources.txt or in a list, is passed over and said. */
 int sources_is_pspdx(const char *line);
 
 /* The list's text into its parts; lines that name nothing this understands
-   are passed over. Returns the number of lines taken, repositories and
-   .pspdx files together. */
+   are passed over. Returns the number of repositories. */
 int sources_parse_list(const char *text, struct source_list *out);
 
 /* A repository URL into its parts. Returns 0 when it is not one. */

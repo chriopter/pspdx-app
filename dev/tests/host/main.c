@@ -6,6 +6,7 @@
 #include "update/presets.h"
 #include "update/reach.h"
 #include "update/sources.h"
+#include "gui/wrap.h"
 #include "util/storage.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,15 @@
 void host_fault(long);
 unsigned host_operations(void);
 static struct catalog catalog;
+/* The host's font: every character one unit wide, so a width is a count of
+   characters and a test can say which line a word lands on. */
+static float characters(void *ctx, const char *text, size_t len) {
+    (void)ctx;
+    float n = 0;
+    for (size_t i = 0; i < len; i++)
+        n += ((unsigned char)text[i] & 0xC0) != 0x80;
+    return n;
+}
 int main(int argc, char **argv) {
     if (argc < 2)
         return 2;
@@ -33,6 +43,30 @@ int main(int argc, char **argv) {
         for (char *p = f.tags; *p; p++)
             if (*p == '\n') *p = ',';
         printf("%s|%s|%s|%s\n", f.installdir, f.type, f.id, f.tags);
+        return 0;
+    }
+    if (!strcmp(argv[1], "wrap")) {
+        /* wrap <width> <max bytes> <max lines> <file>: the lines, one JSON
+           string each, as the details band would draw them. */
+        char *text = NULL;
+        int n = storage_read(argv[5], &text, 65535);
+        if (n < 0)
+            return 2;
+        static struct wrap_line lines[4096];
+        int most = atoi(argv[4]) < 4096 ? atoi(argv[4]) : 4096;
+        int count = wrap_text(text, (float)atof(argv[2]), (size_t)atol(argv[3]), characters, NULL,
+                              lines, most);
+        for (int i = 0; i < count; i++) {
+            putchar('"');
+            for (int k = 0; k < lines[i].len; k++) {
+                char c = text[lines[i].start + k];
+                if (c == '"' || c == '\\')
+                    putchar('\\');
+                putchar(c);
+            }
+            puts("\"");
+        }
+        free(text);
         return 0;
     }
     if (!strcmp(argv[1], "recover")) {
@@ -169,6 +203,21 @@ int main(int argc, char **argv) {
         manifest_forget(&m);
         printf("%d %u\n", rc, host_operations());
         return rc < 0 ? 1 : 0;
+    }
+    if (!strcmp(argv[1], "get")) {
+        /* What X on a row does once it is answered: the entry with this id
+           prepared and installed, and the record it writes left behind. */
+        catalog_fetch(&catalog);
+        for (int i = 0; i < catalog.count; i++)
+            if (!strcmp(catalog.apps[i].id, argv[2])) {
+                struct install_report report;
+                int rc = catalog_prepare(&catalog.apps[i]);
+                if (rc == 0)
+                    rc = install_release(&catalog.apps[i].release, &report, NULL, NULL, NULL);
+                printf("%d\n", rc);
+                return rc < 0 ? 1 : 0;
+            }
+        return 2;
     }
     if (!strcmp(argv[1], "prepare")) {
         /* The step before every install, for the entry with this id. */

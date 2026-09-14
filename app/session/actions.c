@@ -109,8 +109,8 @@ int restart_take(char *version, size_t size) {
 
 int install_app(int index, int screenshot, int at, int of) {
     if (index < 0 || index >= g_catalog->count) return -1;
-    /* A plugin, an ISO or an app from outside GitHub is listed and not
-       installed, and that is said before anything is fetched. */
+    /* A plugin or an ISO is listed and not installed, and that is said
+       before anything is fetched. */
     if (g_catalog->apps[index].unsupported) {
         char message[96];
         snprintf(message, sizeof(message), T_INSTALL_UNSUPPORTED, g_catalog->apps[index].name);

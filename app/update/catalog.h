@@ -30,8 +30,9 @@ struct app_entry {
     /* The file's description, on the heap and owned by the entry, or NULL
        when it has none: kilobytes that only the details band reads. */
     char *description;
-    /* Listed and not installable by this version: a plugin or an ISO, or a
-       source outside GitHub, which has no releases this client can check. */
+    /* Listed and not installable by this version: a plugin or an ISO. An
+       app from outside GitHub installs from its catalog entry, which is all
+       there is of it, and is updated only through a catalog. */
     int unsupported;
     char type[12];              /* homebrew, plugin or iso */
     /* The release the entry installs from, as a cache derived it or as

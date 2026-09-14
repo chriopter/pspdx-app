@@ -87,6 +87,7 @@ abandoned installer being a hurdle. The `.pspdx` file should live on its own!
 #### What v1 needs
 
 - A root `.pspdx`, and a published release with exactly one ZIP holding one `EBOOT.PBP`
+- No `.pspdx` in the repo? A catalog can still list the app by setting `listed_by` on its entry: PSPDX installs from the entry, the repo's own file wins as soon as it has one, and until then updates come only through catalogs
 - Releases give versions and downloads; EBOOTs give media (`ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF`, `SND0.AT3`, all optional)
 - No manifest edit per release
 - `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed, not installed yet
@@ -104,12 +105,10 @@ abandoned installer being a hurdle. The `.pspdx` file should live on its own!
 cache https://chriopter.github.io/pspdx-catalog/catalog.json
 https://github.com/chriopter/pspdx-demo
 https://github.com/someone/project@v1.2
-https://example.com/lists/project.pspdx
 ```
 
 - One repository URL per line; `@tag` pins a release
 - `cache` names an aggregated catalog, read first; repos it doesn't cover are asked directly
-- A URL ending in `.pspdx` → a substitute for a GitHub repo without its own: needs `listed_by`, and the repo's own file wins as soon as it has one
 
 #### Checking a `.pspdx` in VS Code
 
@@ -130,15 +129,15 @@ https://example.com/lists/project.pspdx
 
 | Source | Added through | Result |
 |---|---|---|
-| Catalog site URL, `catalog.json`, text list or a list's `.pspdx` | **Add sources** | Browse all listed apps |
+| Catalog site URL, `catalog.json` or text list | **Add sources** | Browse all listed apps |
 | GitHub URL or `owner/repo` | **Direct install** | Add the repository as a source and install its app |
 | `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct install** | Validate and install the selected files |
 
 - Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://wijsman.de/psp-homebrew-database/`
 - Presets ship as `PSP/GAME/PSPDX/presets.txt`, same lines as `sources.txt`; the EBOOT carries a copy for a stick without one
 - Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
-- A source that does not load is marked *unreachable* in the list; the rest load as usual
-- A substitute `.pspdx` is used only while its repo has none; the install remembers where it came from (`manifest_url`), so updates find it again
+- A source that does not load is marked *unreachable* in the gear's list of catalogs; the rest load as usual
+- A line ending in `.pspdx`, left from an older version, is skipped with a line in the log
 - Sources are validated before they land in `PSP/PSPDX/sources.txt`
 - Adding a catalog installs nothing; Direct install and INBOX do
 - Removing a source keeps installed apps, their manifests and state
@@ -170,12 +169,13 @@ A site with only `catalog.txt` works without a builder.
 #### Install
 
 ```text
-x on app -> confirm -> verify .pspdx (repo's own, else the list's substitute): source + installdir
-         -> download release ZIP -> check size, SHA-256, ZIP, paths
+x on app -> confirm -> repo's own .pspdx (none: the catalog entry, if it names listed_by)
+         -> check source + installdir -> download release ZIP -> check size, SHA-256, ZIP, paths
          -> stage -> swap into PSP/GAME/<dir> -> write state
 ```
 
 - Only the folder holding the single `EBOOT.PBP` is installed
+- Installed from a catalog entry, the saved `.pspdx` is the entry's words with its `listed_by`; from outside GitHub the ZIP must match the entry's SHA-256
 - An unmanaged folder in the way is never adopted or overwritten; PSPDX offers to move it to `<dir>.bak`
 - A transaction journal covers files, manifest and state; an interrupted install recovers at the next start
 
@@ -194,13 +194,13 @@ kept falls back to a newer `published_at`.
 2. For each installed app:
      in a catalog that answered and is under 24 h old?
        yes, not forced   ->  take the catalog entry, no GitHub request
+       vouched by a catalog, or outside GitHub  ->  the catalog or the record, never GitHub
        otherwise         ->  step 3
 
 3. Direct check due?
      due if forced, never asked, last answer came from a catalog,
      or the last direct answer is older than 6 h
        due               ->  .pspdx          raw.githubusercontent.com   no limit
-                             (none there: the substitute at manifest_url)
                              latest release  api.github.com              1 of 60 an hour
        not due           ->  the last answer saved in the record
 
@@ -211,7 +211,7 @@ kept falls back to a newer `published_at`.
 
 - A check against a maintained catalog is one request and no API call
 - An app added by **Direct install** or from INBOX costs one API call, then none for six hours
-- Only GitHub sources are asked directly; an app from anywhere else updates through a catalog
+- Only GitHub apps with their own `.pspdx` are asked directly; an app from anywhere else, or one a catalog vouches for, updates through a catalog
 - Nothing is topped up from GitHub: a `.pspdx` without author is by the account in its URL, a missing summary or licence stays empty
 
 #### Apply
@@ -225,7 +225,7 @@ kept falls back to a newer `published_at`.
 
 **×** install, confirm · **△** options · **○** back · **□** basket · **START** run · **L/R** or **←/→** tabs
 
-**△** → **Information**: version, author, tags, size, id, then summary and description; **↑/↓** scroll, **L/R** a page
+**△** → **Information**: version, author, licence, tags, size, id, last check, then summary and description; the **analog stick** scrolls, **○** back
 
 </details>
 
@@ -243,7 +243,7 @@ download  ->  release ZIP, following GitHub asset redirects
 
 - First saved PSP network profile
 - Everything over HTTPS
-- Only a catalog asks for gzip, inflated as it arrives into a 512 KB buffer; `pspdx.log` says bytes on the wire and inflated. A ZIP is never asked for compressed
+- Only a catalog asks for gzip, inflated as it arrives into a 512 KB buffer; `pspdx.log` says `fetch: <n> bytes gzipped, <m> inflated`. A ZIP is never asked for compressed
 - TLS connections to the same host are briefly reused; a closed or expired one is reopened
 
 #### TLS
@@ -263,20 +263,20 @@ download  ->  release ZIP, following GitHub asset redirects
 </details>
 
 <details>
-<summary><b>Catalog</b> · updates, previews, cache</summary>
+<summary><b>Catalog</b> · updates, previews, cache, memory</summary>
 
 #### What the builder does
 
 ```text
 hourly:  repos.txt -> catalog.txt
-         new release?  -> read .pspdx (or the list's substitute)
-                       -> hash up to the 20 newest release ZIPs, each once -> extract EBOOT media
+         new release?  -> read .pspdx -> hash ZIP: the 20 newest release ZIPs, each hashed once
+                       -> extract EBOOT media from the newest
          unchanged?    -> reuse the entry
          -> publish catalog.json
 ```
 
-- `catalog.json` carries metadata, source, install path, up to the 20 newest releases (date, ZIP URL, size, hash) and media URLs; the console reads `releases[0]`
-- An entry built from a substitute carries `manifest_url`, so an install from the catalog still finds the file
+- `catalog.json` carries metadata, tags, description, source, install path, up to the 20 newest releases (date, ZIP URL, size, hash, changelog) and media URLs; the console reads `releases[0]`
+- The reference builder lists only repos with their own `.pspdx`; another catalog can list an app without one by setting `listed_by` on its entry
 - A push or manual run also picks up manifest-only edits; hourly runs wait for a release
 - A build with no valid apps leaves the live site in place
 
@@ -298,6 +298,12 @@ hourly:  repos.txt -> catalog.txt
 - Failed fetch: the last usable catalog stays for browsing; installed apps from GitHub ask their saved source, at most every six hours
 - Offline: saved records and media only
 - Both caches can be deleted without losing installation state
+
+#### Memory
+
+- Up to 64 apps in RAM; the catalog arrives in one 512 KB buffer
+- A `.pspdx` (up to 16 KB) and a description sit on the heap, only for an app that has them
+- **Information** breaks the description into lines once, when it opens, not every frame
 
 </details>
 
@@ -357,16 +363,16 @@ ms0:/
 
 #### App state
 
-`INSTALLED/<app-id>.pspdx` keeps the source independently of `sources.txt`.
+`INSTALLED/<app-id>.pspdx` keeps the source independently of `sources.txt`;
+for an app a catalog vouched for, it is the entry's words with `listed_by`.
 `<app-id>.state.json` next to it has no outer app-ID key:
 
 | Field | Contents |
 |---|---|
 | `source`, `added_from` | Original repository and import route |
-| `manifest_url` | The list's substitute `.pspdx`, only when the repo had none |
 | `installed` | Version, `published_at`, SHA-256, install directory |
 | `latest` | Version, `published_at`, download URL, size, SHA-256, last successful check time and source |
-| `update_check` | Written by older versions; read and ignored |
+| `update_check`, `manifest_url` | Written by older versions; read and ignored |
 
 ```text
 install or update       ->  writes installed

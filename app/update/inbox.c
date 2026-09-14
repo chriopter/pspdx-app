@@ -111,7 +111,6 @@ int inbox_scan(struct catalog *catalog) {
             logline("INBOX: no memory for %s", it->id);
             continue;
         }
-        entry->release.manifest_url[0] = '\0';
         free(entry->description);
         entry->description = pspdx_description(it->raw, strlen(it->raw));
         snprintf(entry->release.dir, sizeof(entry->release.dir), "%.32s", spec.installdir + 9);

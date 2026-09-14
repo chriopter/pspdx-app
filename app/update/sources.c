@@ -230,8 +230,6 @@ int sources_is_pspdx(const char *line) {
 }
 
 enum source_kind sources_kind(const char *url) {
-    if (sources_is_pspdx(url))
-        return SOURCE_PSPDX;
     size_t n = strlen(url);
     if (n > 8 && url[n - 1] == '/') {
         struct source_repo r;
@@ -317,7 +315,7 @@ int sources_parse_list(const char *text, struct source_list *out) {
                    of it now. */
                 line[strcspn(line, " \t")] = '\0';
                 if (sources_is_pspdx(line))
-                    memcpy(out->pspdx[out->count++], line, strlen(line) + 1);
+                    logline("list: %s is a .pspdx, which a list no longer names; skipped", line);
                 else if (sources_parse_repo(line, &out->repo[out->count]))
                     out->count++;
             }

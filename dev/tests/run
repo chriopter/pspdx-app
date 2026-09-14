@@ -9,6 +9,6 @@ cc -g -O1 -fsanitize=address,undefined -Wno-deprecated-declarations \
   "$HERE/host/io.c" "$HERE/host/main.c" \
   "$APP/util/storage.c" "$APP/install/state.c" "$APP/install/install.c" \
   "$APP/install/zipread.c" "$APP/update/sources.c" "$APP/update/presets.c" "$APP/update/reach.c" "$APP/update/pspdx.c" \
-  "$APP/update/catalog.c" "$APP/update/gunzip.c" "$APP/update/inbox.c" "$APP/session/view.c" \
+  "$APP/update/catalog.c" "$APP/update/gunzip.c" "$APP/update/inbox.c" "$APP/session/view.c" "$APP/gui/wrap.c" \
   -lcjson -lz -lcrypto -o "$TEST_WORK/client"
 PSPDX_TEST_BIN="$TEST_WORK/client" python3 "$HERE/test_client.py" -v
