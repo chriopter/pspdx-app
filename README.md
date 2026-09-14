@@ -201,23 +201,26 @@ An update is a newer `published_at` than the installed one. Version strings
 are not compared, except for PSPDX's own first-start record, which has no
 timestamp yet.
 
+**×** on **Check for updates** runs this; **□** runs it forced.
+
 ```text
-× on Check for updates              □ on Check for updates
-        |                                   |
-        v                                   v
-fetch every source in sources.txt   same, but forced
-        |
-for each installed app:
-  listed in a live catalog, generated less than 24 h ago?
-      yes, not forced -> use the catalog entry, no GitHub request
-  otherwise: is a direct check due?
-      due when forced, never asked, last answer came from a catalog,
-      or the last direct answer is older than 6 h
-      due     -> .pspdx from raw.githubusercontent.com   (no limit)
-                 latest release from api.github.com      (1 of 60 an hour)
-      not due -> the last answer saved in the record
-compare published_at -> "Update to x.y", or current
-catalog older than 24 h -> the status line names its host
+1. Fetch every source in sources.txt.
+
+2. For each installed app:
+     in a catalog that answered and is under 24 h old?
+       yes, not forced   ->  take the catalog entry, no GitHub request
+       otherwise         ->  step 3
+
+3. Direct check due?
+     due if forced, never asked, last answer came from a catalog,
+     or the last direct answer is older than 6 h
+       due               ->  .pspdx          raw.githubusercontent.com   no limit
+                             latest release  api.github.com              1 of 60 an hour
+       not due           ->  the last answer saved in the record
+
+4. published_at newer than installed   ->  "Update to x.y"
+
+5. Catalog older than 24 h             ->  the status line names its host
 ```
 
 - A check against a maintained catalog is one request and no API call
