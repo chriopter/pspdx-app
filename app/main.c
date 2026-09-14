@@ -642,9 +642,9 @@ static void sub_open(enum sub which) {
     } else if (which == SUB_FILES) {
         g_sub_item[g_sub_count++] = T_SUB_VIEW_RAW;
     } else {
+        g_sub_item[g_sub_count++] = T_SUB_RESET_ALL;
         g_sub_item[g_sub_count++] = T_SUB_DISCARD;
         g_sub_item[g_sub_count++] = T_SUB_SWEEP;
-        g_sub_item[g_sub_count++] = T_SUB_RESET_ALL;
     }
     for (int i = 0; i < g_sub_count; i++) { g_sub_on[i] = 1; g_sub_key[i] = -1; }
     /* The row is there for the one case recovery could not settle, and
@@ -1290,8 +1290,8 @@ int main(int argc, char *argv[]) {
                         refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
                     else if (chosen == 1 && synced) ask_inbox();
                 } else {
-                    if (chosen == 1) sweep_again();
-                    else if (chosen == 2) {
+                    if (chosen == 2) sweep_again();
+                    else if (chosen == 0) {
                         shell_ask(T_RESET_ASK, T_RESET_LINE);
                         g_question = ASK_RESET;
                         g_question_of = -1;
