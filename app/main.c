@@ -1172,7 +1172,7 @@ int main(int argc, char *argv[]) {
            changing under a band would change what the band is about. */
         int modal = g_question != ASK_NOTHING || g_menu_open || g_sub || details || g_files_open;
 
-        /* Ten seconds without a key and the picture of the package under
+        /* Twenty-five seconds without a key and the picture of the package under
            the cursor rises behind the interface, which stays where it is
            and goes on working; the next key takes it down again. The stick
            stirs the water and does not count as a key.

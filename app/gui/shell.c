@@ -60,11 +60,6 @@
 
 /* ------------------------------------------------------------------ colour */
 
-static const struct rgb NIGHT_TOP = { 2, 3, 9 };
-static const struct rgb NIGHT_BOTTOM = { 6, 8, 22 };
-
-static const struct rgb DEFAULT_TINT = { 80, 140, 255 };
-
 /* Every selection lights the room a colour drawn by lot: a hue at full
    saturation, always at least a third of the wheel from the last one, so
    the change is a change. The lot is a plain generator seeded by the clock
@@ -779,7 +774,7 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
 /* PIC1.PNG, 480 by 272, which is the size of the screen because that is what
    an EBOOT carries it for. It is not there while somebody is working the
    list: behind rows of lettering a busy picture only makes the reading
-   harder. Left alone for ten seconds it comes up behind everything, the way
+   harder. Left alone for twenty-five seconds it comes up behind everything, the way
    the XMB puts a game's picture behind its own menu, and the interface goes
    on standing over it with the film still playing on the card. A key takes
    it away again in a few frames. */

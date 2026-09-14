@@ -124,13 +124,6 @@ void shell_menu(const char *title, const char *const *items,
                 const unsigned char *takeable, const signed char *keys,
                 int count, int cursor);
 
-/* The info band over the dimmed browser: what this session is connected to
-   and what it is standing on, and at its foot the things that can be done
-   about either -- the catalog fetched again, a list or a repository added
-   to where it comes from, one repository fetched and offered, the entropy
-   swept again. action is which of them the cursor is on, in that order.
-   Drawn while open, and nothing more -- what moves that cursor and what
-   takes the row under it is read in the main loop. */
 /* The band of facts about the session, which the last row under the gear
    opens. It says and does nothing else; O closes it. */
 void shell_info(int open);

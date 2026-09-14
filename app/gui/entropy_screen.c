@@ -36,11 +36,6 @@
 #define REC_DIR storage_path("PSP/PSPDX/DEBUG/PSPDX_REC")
 #define REC_EVERY 4
 
-/* The room before there is a catalog to colour it: the shell's own default. */
-static const struct rgb NIGHT_TOP = { 2, 3, 9 };
-static const struct rgb NIGHT_BOTTOM = { 6, 8, 22 };
-static const struct rgb TINT = { 80, 140, 255 };
-
 struct trace_sample { unsigned char lx, ly; unsigned short buttons; };
 
 static struct trace_sample trace[TRACE_MAX];
@@ -130,13 +125,13 @@ static void record_frame(int frame) {
 /* What the user has to know, over the water: what this is for, how far it
    has got, and when it can stop. */
 static void draw_chrome(float t, int percent, int ready) {
-    unsigned text = rgb_pack(rgb_mix(RGB_WHITE, TINT, 0.05f), 255);
-    unsigned accent = rgb_pack(rgb_mix(TINT, RGB_WHITE, 0.45f), 255);
-    unsigned dim = rgb_pack(rgb_mix(TINT, RGB_WHITE, 0.35f), 200);
+    unsigned text = rgb_pack(rgb_mix(RGB_WHITE, DEFAULT_TINT, 0.05f), 255);
+    unsigned accent = rgb_pack(rgb_mix(DEFAULT_TINT, RGB_WHITE, 0.45f), 255);
+    unsigned dim = rgb_pack(rgb_mix(DEFAULT_TINT, RGB_WHITE, 0.35f), 200);
 
     /* The name as the browser sets its words: baked once, on a card in
        perspective, with the light going through it. */
-    title_draw(SCR_W / 2.0f, 58.0f, t, TINT);
+    title_draw(SCR_W / 2.0f, 58.0f, t, DEFAULT_TINT);
 
     /* Under the name, centred, what the hand is for. */
     /* The same line on a replay: that is a development aid, and the seed
@@ -149,7 +144,7 @@ static void draw_chrome(float t, int percent, int ready) {
     int bar_x = 16, bar_y = 238, bar_w = SCR_W - 32;
     gfx_rect(bar_x, bar_y, bar_w, 5, RGBA(255, 255, 255, 36));
     int filled = bar_w * percent / 100;
-    if (filled > 0) gfx_hgrad(bar_x, bar_y, filled, 5, rgb_pack(TINT, 255), accent);
+    if (filled > 0) gfx_hgrad(bar_x, bar_y, filled, 5, rgb_pack(DEFAULT_TINT, 255), accent);
 
     char right[48];
     if (ready) snprintf(right, sizeof(right), "%d bits   X to continue", entropy_bits());
@@ -208,12 +203,12 @@ int entropy_screen_run(void) {
         int percent = ready ? 100 : bits * 100 / ENTROPY_BITS;
 
         float t = gfx_frames() * (1.0f / 60.0f);
-        title_prepare("PSPDX", TINT);
+        title_prepare("PSPDX", DEFAULT_TINT);
         gfx_frame_begin(0xFF000000);
         gfx_vgrad(0, 0, SCR_W, SCR_H,
-                  rgb_pack(rgb_mix(NIGHT_TOP, TINT, 0.05f), 255),
-                  rgb_pack(rgb_mix(NIGHT_BOTTOM, TINT, 0.18f), 255));
-        lattice_draw(t, TINT);
+                  rgb_pack(rgb_mix(NIGHT_TOP, DEFAULT_TINT, 0.05f), 255),
+                  rgb_pack(rgb_mix(NIGHT_BOTTOM, DEFAULT_TINT, 0.18f), 255));
+        lattice_draw(t, DEFAULT_TINT);
         draw_chrome(t, percent, ready);
         gfx_frame_end();
 

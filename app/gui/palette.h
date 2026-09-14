@@ -25,4 +25,10 @@ static inline unsigned rgb_pack(struct rgb c, int alpha) {
 
 static const struct rgb RGB_WHITE = { 255, 255, 255 };
 
+/* The room: night from the top of the screen to the bottom, and the tint
+   the shell lights it before a catalog has chosen one. */
+static const struct rgb NIGHT_TOP = { 2, 3, 9 };
+static const struct rgb NIGHT_BOTTOM = { 6, 8, 22 };
+static const struct rgb DEFAULT_TINT = { 80, 140, 255 };
+
 #endif

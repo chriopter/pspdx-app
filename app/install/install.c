@@ -174,6 +174,9 @@ static int mkdir_p(const char *path) {
    "<dir>.old/", the longest form a package's path takes on the stick. */
 #define PATH_BUF 256
 
+/* Not storage_remove_tree: that one goes on past a file it cannot delete
+   and reports at the end, which is right for a reset. An install stops at
+   the first, so what it was clearing is left whole enough to put back. */
 static int rm_rf(const char *path) {
     SceUID d = sceIoDopen(path);
     if (d < 0)
