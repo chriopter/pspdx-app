@@ -488,7 +488,8 @@ static int recover_journal(cJSON *j) {
     }
     if (strcmp(op, "install") && strcmp(op, "remove"))
         return logline("recovery: unknown operation"), -1;
-    if (strcmp(phase, "prepared") && strcmp(phase, "ready") && strcmp(phase, "committed"))
+    if (strcmp(phase, "prepared") && strcmp(phase, "ready") && strcmp(phase, "placed") &&
+        strcmp(phase, "committed"))
         return logline("recovery: unknown phase"), -1;
     char dest[256], old[256], priorpath[256];
     snprintf(dest, sizeof(dest), "%s/%s", GAME_DIR, dir);
@@ -497,15 +498,20 @@ static int recover_journal(cJSON *j) {
     int committed = !strcmp(phase, "committed");
     if (!committed) {
         if (strcmp(phase, "prepared")) {
-            if (storage_exists(old)) {
-                if (strcmp(op, "remove") && remove_tree(dest) < 0)
-                    return logline("recovery: the target could not be cleared"), -1;
-                if (sceIoRename(old, *prior ? prior : dir) < 0)
-                    return logline("recovery: the backup could not be moved back"), -1;
-            } else if (!*prior && !storage_exists(STAGE) && !strcmp(op, "install")) {
-                if (remove_tree(dest) < 0)
-                    return logline("recovery: the half-written target could not be cleared"), -1;
-            }
+            /* PSP/GAME/<dir> is this install's only when the journal says
+               "placed" and the stage is gone: that word is written before
+               the rename out of the stage, so the stage can only have gone
+               by that rename. Anything under the name before the word, or
+               beside a stage still there, is somebody else's and stays --
+               and then a backup cannot go back, which is said and left.
+               An update's backup still under .old is part of the proof: a
+               recovery that already moved it back and was cut before the
+               journal went leaves the app under the name, not the stage. */
+            if (!strcmp(phase, "placed") && !storage_exists(STAGE) &&
+                (!*prior || storage_exists(old)) && remove_tree(dest) < 0)
+                return logline("recovery: the placed directory could not be cleared"), -1;
+            if (storage_exists(old) && sceIoRename(old, *prior ? prior : dir) < 0)
+                return logline("recovery: PSP/GAME/%s is in the way of its backup", dir), -1;
         }
         if (restore_manifest(j) < 0 ||
             state_restore_app(cJSON_GetObjectItemCaseSensitive(j, "old_state"), id) < 0)
@@ -715,7 +721,9 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
         phase(ctx, "commit");
     if (move_old(j) < 0)
         goto end;
-    if (sceIoRename(STAGE, dir) < 0)
+    /* Said before it is done: a directory under the name is the stage
+       renamed only from here on, which is what recovery goes by. */
+    if (journal_phase(j, "placed") < 0 || sceIoRename(STAGE, dir) < 0)
         goto end;
     char path[256];
     storage_app_path(m->id, path, sizeof(path));
