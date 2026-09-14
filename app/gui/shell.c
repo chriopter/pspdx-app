@@ -553,7 +553,7 @@ static const char *action_line(void) {
     char size[24];
     shell_action_plan(&plan);
     if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK)
-        snprintf(line, sizeof(line), "%d installed, all current", g_view_count);
+        snprintf(line, sizeof(line), "All up to date");
     else if (plan.apps <= 0)
         snprintf(line, sizeof(line), "nothing here has a release");
     else {
