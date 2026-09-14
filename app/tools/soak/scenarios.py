@@ -22,7 +22,7 @@ import random
 
 from model import (TAB_KEY, TAB_ALL, TAB_GEAR, TAB_STICK, TAB_BASKET,
                    ROW_ACTION, NOT_INSTALLED, CURRENT, UPDATE, PSPDX_SELF_ID,
-                   CHOICE_RUN, CHOICE_REINSTALL, CHOICE_DELETE, CHOICE_COUNT,
+                   CHOICE_RUN, CHOICE_GET, CHOICE_DELETE, CHOICE_COUNT,
                    INSTALL_MS, REMOVE_MS, REFRESH_MS, IDLE_MS,
                    Sim, load_world)
 
@@ -188,7 +188,7 @@ class Planner:
         if not self.sim.menu_open:
             raise ValueError("no menu open at %d" % self.t)
         for _ in range(CHOICE_COUNT):
-            if self.sim.menu_cursor == choice:
+            if self.sim.menu_choice() == choice:
                 return
             self.key("down")
         raise ValueError("menu row %d cannot be reached at %d" % (choice, self.t))
@@ -224,7 +224,7 @@ class Planner:
         if at < 0 or self.sim.apps[at].state == NOT_INSTALLED:
             return False
         self.key("cross", GAP_ACT)
-        self.menu_to(CHOICE_REINSTALL)
+        self.menu_to(CHOICE_GET)
         self.key("cross", GAP_ACT)
         self.wait(INSTALL_MS)
         return True

@@ -78,7 +78,9 @@ NOT_INSTALLED, CURRENT, UPDATE = "none", "current", "update"
 PSPDX_SELF_ID = "io.github.chriopter.pspdx"
 
 # main.c: enum choice, the five rows of the options menu in the order drawn.
-(CHOICE_RUN, CHOICE_REINSTALL, CHOICE_DELETE, CHOICE_BASKET,
+# main.c's enum choice: Run, the fetch row (Install, Update to, Reinstall),
+# Delete, the basket row, Information.
+(CHOICE_RUN, CHOICE_GET, CHOICE_DELETE, CHOICE_BASKET,
  CHOICE_DETAILS) = range(5)
 CHOICE_COUNT = 5
 
@@ -209,9 +211,10 @@ class Sim:
         self.question = None            # None / "install" / "remove" / "all"
         self.question_of = -1
         self.menu_open = False
-        self.menu_cursor = 0
+        self.menu_rows = []             # the choices shown, in order
+        self.menu_cursor = 0            # a row, not a choice: menu_choice()
         self.menu_of = -1
-        self.menu_on = [0] * CHOICE_COUNT
+        self.menu_on = []
         self.info = False               # the band, open while the gear tab is
         self.info_action = 0
         self.details = False            # the band about one package
@@ -455,23 +458,39 @@ class Sim:
             self.basket.add(index)
 
     def menu_open_for(self, index):
-        """main.c menu_open(): five rows, the same five for every package;
-        what a row cannot do it says by being grey. The cursor starts on Run
-        for anything installed and on the basket row otherwise."""
+        """main.c menu_open(): Run (Restart for PSPDX itself), then the
+        fetch row -- Install for a package not on the stick, Update to where
+        a newer one waits, Reinstall for one already current -- Delete, the
+        basket row and Information. What a row cannot do it says by being
+        grey. The basket row is only there for a package not installed, or
+        one already in the basket so it can come out again. The cursor
+        starts on the fetch row when there is something to fetch, else on
+        Run."""
         a = self.apps[index]
         installed = a.state != NOT_INSTALLED
-        self.menu_on = [1 if installed else 0,
-                        1 if installed else 0,
-                        1 if installed and a.id != PSPDX_SELF_ID else 0,
-                        1, 1]
-        self.menu_cursor = CHOICE_RUN if installed else CHOICE_BASKET
+        on = {CHOICE_RUN: installed,
+              CHOICE_GET: True,
+              CHOICE_DELETE: installed and a.id != PSPDX_SELF_ID,
+              CHOICE_BASKET: True,
+              CHOICE_DETAILS: True}
+        self.menu_rows = [c for c in range(CHOICE_COUNT)
+                          if c != CHOICE_BASKET or not installed
+                          or index in self.basket]
+        self.menu_on = [1 if on[c] else 0 for c in self.menu_rows]
+        want = CHOICE_GET if a.state in (NOT_INSTALLED, UPDATE) else CHOICE_RUN
+        self.menu_cursor = self.menu_rows.index(want)
         self.menu_of = index
         self.menu_open = True
 
+    def menu_choice(self):
+        """The choice under the menu's cursor."""
+        return self.menu_rows[self.menu_cursor]
+
     def menu_move(self, by):
         """A greyed row is stepped over rather than landed on."""
-        for _ in range(CHOICE_COUNT):
-            self.menu_cursor = (self.menu_cursor + by + CHOICE_COUNT) % CHOICE_COUNT
+        rows = len(self.menu_rows)
+        for _ in range(rows):
+            self.menu_cursor = (self.menu_cursor + by + rows) % rows
             if self.menu_on[self.menu_cursor]:
                 break
 
@@ -589,7 +608,8 @@ class Sim:
             # The keys the menu names work from inside it too: square does
             # its row's thing and takes the menu with it, START would too.
             index = self.menu_of
-            if key == "square":
+            if key == "square" and (self.apps[index].state == NOT_INSTALLED
+                                    or index in self.basket):
                 self.menu_open = False
                 self.basket_toggle(index)
                 self.view_settled()
@@ -605,10 +625,13 @@ class Sim:
             elif key == "circle":
                 self.menu_open = False
             elif key == "cross":
-                chosen = self.menu_cursor
+                chosen = self.menu_choice()
                 self.menu_open = False
                 if chosen == CHOICE_DELETE:
                     self.ask_remove(index)
+                elif chosen == CHOICE_GET and self.apps[index].state in (
+                        NOT_INSTALLED, UPDATE):
+                    self.ask_install(index)
                 elif chosen == CHOICE_RUN:
                     raise ValueError("X on Run at %d launches %s: a script "
                                      "must never" % (t, self.apps[index].id))
