@@ -65,14 +65,16 @@ is a complete example.
 
 **The magic**
 
-- The catalog can deliver cached app names and artwork extracted from the
-  EBOOT, which makes loading homebrew lists *very fast*.
-  [See the main catalog](https://github.com/chriopter/pspdx-catalog). It's
-  just a bunch of GitHub workflows that build a static GitHub page. Please
-  steal it for yours! But:
-- `.pspdx` is just a portable file, completely independent from it. If the
-  catalog goes down, your PSP still polls from the original source. You can
-  even install `.pspdx` files directly.
+The catalog is only a shortcut. The `.pspdx` is what counts.
+
+```text
+catalog up    ->  one request: names, releases, artwork from the EBOOT   fast
+catalog gone  ->  saved .pspdx  ->  the app's own repository             still works
+```
+
+The catalog is just a bunch of GitHub workflows that build a static page.
+[Please steal it](https://github.com/chriopter/pspdx-catalog) for yours! You
+can even install `.pspdx` files directly, without any catalog.
 
 I want this to work 10 years forward, without another mirror going down or an
 abandoned installer being a hurdle. The `.pspdx` file should live on its own!
