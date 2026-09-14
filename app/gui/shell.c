@@ -1542,9 +1542,37 @@ static void draw_files(float t) {
     int x = PANEL_X, w = SCR_W - PANEL_X - 12, y = LIST_Y + 12;
     draw_shade(x + w / 2, (y + FOOTER_Y) / 2, w, FOOTER_Y - y);
     font_print_clipped(FONT_H1, x, y, w, g_text, v->head);
-    font_print_clipped(FONT_META, x, y + 16, w, faded(g_dim, 170), v->path);
-    int lines = draw_wrapped(FONT_META, x, y + 32, w, 14, 2, g_dim, v->note);
-    y += 32 + 14 * lines + 8;
+    /* The path in full, broken at a slash when it is longer than the
+       column, since a path has no space to break at. */
+    int path_lines = 1;
+    {
+        const char *p = v->path;
+        char first[128];
+        snprintf(first, sizeof(first), "%s", p);
+        if (font_width(FONT_META, first) > w) {
+            int cut = -1;
+            for (int i = 0; first[i]; i++) {
+                if (first[i] != '/') continue;
+                char head[128];
+                snprintf(head, sizeof(head), "%.*s", i + 1, first);
+                if (font_width(FONT_META, head) <= w) cut = i + 1;
+            }
+            if (cut > 0) {
+                char head[128];
+                snprintf(head, sizeof(head), "%.*s", cut, first);
+                font_print(FONT_META, x, y + 16, faded(g_dim, 170), head);
+                font_print_clipped(FONT_META, x, y + 28, w, faded(g_dim, 170), first + cut);
+                path_lines = 2;
+            } else {
+                font_print_clipped(FONT_META, x, y + 16, w, faded(g_dim, 170), first);
+            }
+        } else {
+            font_print(FONT_META, x, y + 16, faded(g_dim, 170), first);
+        }
+    }
+    int note_y = y + 16 + 12 * path_lines + 4;
+    int lines = draw_wrapped(FONT_META, x, note_y, w, 14, 2, g_dim, v->note);
+    y = note_y + 14 * lines + 8;
     int room = (FOOTER_Y - 8 - y) / FILE_TEXT_STEP;
     /* A picture instead of lines: decoded once per file, kept until the
        cursor leaves it, fitted into what is left of the column. */
