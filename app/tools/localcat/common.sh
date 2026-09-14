@@ -47,7 +47,10 @@ localcat_certs() {
 # other catalog.
 localcat_rebuild() {
 	mkdir -p "$WORK"
-	if (cd "$APP" && rm -f network/https.o update/catalog.o && \
+	# Every object the flags below reach: the TLS stack for the CA, the
+	# catalog for the URL, and sources for the test fixtures. One left out
+	# keeps the build it was made for, and a mock build then shows no mock.
+	if (cd "$APP" && rm -f network/https.o update/catalog.o update/sources.o && \
 		docker run --rm -v "$PWD:/src" -w /src pspdev/pspdev:latest make "$@") \
 		>"$WORK/build.log" 2>&1
 	then
