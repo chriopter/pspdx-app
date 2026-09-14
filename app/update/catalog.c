@@ -491,9 +491,10 @@ static int take_origin(struct catalog *catalog, const struct source_repo *repo) 
 
     /* The repository itself is one more request, and sixty an hour are
        allowed from one address: it is asked only for what the file left
-       out. A file that names its author, its summary and its licence is
-       the whole answer, and the request is not made at all. */
-    if (!file.author[0] || !file.summary[0] || !file.license[0]) {
+       out and GitHub can say. The author is never among them: a file that
+       names none is by the account the repository is under, which the URL
+       already says. */
+    if (!file.summary[0] || !file.license[0]) {
         snprintf(api, sizeof(api), "https://api.github.com/repos/%s/%s", repo->owner, repo->name);
         cJSON *root = fetch_json(api);
         if (!root) {
@@ -514,12 +515,11 @@ static int take_origin(struct catalog *catalog, const struct source_repo *repo) 
             if (strcmp(entry->license, "NOASSERTION") == 0)
                 entry->license[0] = '\0';
             cJSON_Delete(root);
-            logline("origin: %s/%s: repository asked for%s%s%s", repo->owner, repo->name,
-                    file.author[0] ? "" : " author", file.summary[0] ? "" : " summary",
-                    file.license[0] ? "" : " licence");
+            logline("origin: %s/%s: repository asked for%s%s", repo->owner, repo->name,
+                    file.summary[0] ? "" : " summary", file.license[0] ? "" : " licence");
         }
     } else {
-        logline("origin: %s/%s: the file says all three, no repository request", repo->owner,
+        logline("origin: %s/%s: the file has summary and licence, no repository request", repo->owner,
                 repo->name);
     }
 
