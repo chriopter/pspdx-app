@@ -76,7 +76,7 @@ I want this to work 10 years forward, without another mirror going down or an
 abandoned installer being a hurdle. The `.pspdx` file should live on its own!
 
 <details>
-<summary>Format specification (fields, releases, catalogs)</summary>
+<summary><b>Format specification</b> · fields, releases, catalogs</summary>
 
 #### Version 1
 
@@ -150,7 +150,7 @@ https://github.com/someone/project@v1.2
 ## Under the hood
 
 <details>
-<summary>Sources (catalogs, repositories, INBOX)</summary>
+<summary><b>Sources</b> · catalogs, repositories, INBOX</summary>
 
 #### Where apps come from
 
@@ -180,7 +180,7 @@ A site with only `catalog.txt` works without a builder.
 </details>
 
 <details>
-<summary>Install and update (checks, recovery)</summary>
+<summary><b>Install and update</b> · checks, recovery</summary>
 
 #### Install
 
@@ -227,7 +227,7 @@ it. PSPDX says so once the catalog is a day old; press **□** then.
 </details>
 
 <details>
-<summary>Network (HTTPS, TLS 1.3, offline)</summary>
+<summary><b>Network</b> · HTTPS, TLS 1.3, offline</summary>
 
 #### Requests
 
@@ -259,7 +259,7 @@ download  ->  release ZIP, following GitHub asset redirects
 </details>
 
 <details>
-<summary>Catalog (updates, previews, cache)</summary>
+<summary><b>Catalog</b> · updates, previews, cache</summary>
 
 #### What the builder does
 
@@ -296,7 +296,7 @@ hourly:  repos.txt -> catalog.txt
 </details>
 
 <details>
-<summary>Memory Stick (manifests, state, cache)</summary>
+<summary><b>Memory Stick</b> · manifests, state, cache</summary>
 
 #### Layout
 
@@ -383,7 +383,7 @@ browse                  ->  writes nothing
 ## Development
 
 <details>
-<summary>Build and run (Docker, PPSSPP)</summary>
+<summary><b>Build and run</b> · Docker, PPSSPP</summary>
 
 #### Build
 
@@ -422,7 +422,7 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 </details>
 
 <details>
-<summary>Code layout</summary>
+<summary><b>Code layout</b> · app, dev, tools</summary>
 
 | Location | Responsibility |
 |---|---|
@@ -441,7 +441,7 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 </details>
 
 <details>
-<summary>Tests (host, emulator soak)</summary>
+<summary><b>Tests</b> · host, emulator soak</summary>
 
 #### Host tests
 
@@ -474,7 +474,7 @@ mock catalog -> fixture build with a local CA -> scripted input in PPSSPP -> com
 </details>
 
 <details>
-<summary>Icons and EBOOT media (assets)</summary>
+<summary><b>Icons and EBOOT media</b> · glyphs, ICON1, SND0</summary>
 
 From `app/`:
 
