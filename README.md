@@ -9,7 +9,7 @@ on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspd
 
 ## How to use
 
-Just install, start and install homebrew. Updates show up automatically.
+Just install, start and install homebrew! Updates are shown automatically.
 
 - You need a PSP running [ARK-5](https://github.com/PSP-Arkfive/ARK-5) with
   WPA2 support and a saved Wi-Fi connection.
@@ -18,36 +18,43 @@ Just install, start and install homebrew. Updates show up automatically.
 - Enable WLAN, launch PSPDX from **Game** and follow the first-launch prompt.
 - Pick an app and press **×** to install it. **START** runs it.
 
+The app is untested on real hardware so far.
+
 ## How it works
 
-- **The [`.pspdx` standard](#the-pspdx-standard).** A small file that points
-  to your homebrew.
-- **Catalogs.** Many `.pspdx` files make a catalog,
-  [like this one](https://github.com/chriopter/pspdx-catalog/blob/master/repos.txt).
-  It's just a phonebook.
-- **No mirror.** PSPDX saves the `.pspdx` on install, so it updates directly
-  from the source.
+- I propose the **[`.pspdx` standard](#the-pspdx-standard)**. A small file
+  that points to your homebrew.
+- Multiple `.pspdx` files can be added to a catalog,
+  [like here](https://github.com/chriopter/pspdx-catalog/blob/master/repos.txt).
+  It's just like a phonebook.
+- PSPDX saves the `.pspdx` file on install, so it can update directly from
+  the source. No mirror.
 
 **Add your app**
 
-- Add a `.pspdx` to your repo. Done!
+- To support the standard, just add a `.pspdx` file to your repo. Done!
   [Example](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx)
-- Open-source repos can be added to the
-  [main catalog](https://github.com/chriopter/pspdx-catalog).
-- Or start your own catalog:
-  [copy this](https://github.com/chriopter/pspdx-catalog) and share the link.
+- OSS repos can be added to the main catalog.
+  [Here](https://github.com/chriopter/pspdx-catalog).
+- Or start your own catalog.
+  [Just copy this](https://github.com/chriopter/pspdx-catalog) and share the
+  link!
 
 **The magic**
 
-- The catalog delivers cached app names and artwork extracted from the EBOOT,
-  so lists load *very fast*. It's just GitHub workflows building a static
-  page. [Steal it](https://github.com/chriopter/pspdx-catalog) for yours.
-- `.pspdx` is a portable file, independent of any catalog. If the catalog goes
-  down, your PSP still polls the original source. You can even install
-  `.pspdx` files directly.
+- The catalog can deliver cached app names and artwork extracted from the
+  EBOOT, which makes loading homebrew lists *very fast*.
+  [See the main catalog](https://github.com/chriopter/pspdx-catalog). It's
+  just a bunch of GitHub workflows that build a static GitHub page. Please
+  steal it for yours! But:
+- `.pspdx` is just a portable file, completely independent from it. If the
+  catalog goes down, your PSP still polls from the original source. You can
+  even install `.pspdx` files directly.
 
-This should still work ten years from now, without another mirror going down
-or an abandoned installer in the way. The `.pspdx` file lives on its own.
+I want this to work 10 years forward, without another mirror going down or an
+abandoned installer being a hurdle. The `.pspdx` file should live on its own!
+
+**Feedback is very welcome!**
 
 ## The PSPDX standard
 
