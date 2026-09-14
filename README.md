@@ -20,39 +20,29 @@ The app is untested on real hardware so far.
 
 ## How it works
 
+**The PSPDX app**
+
+- Browses catalogs, installs the release ZIP, checks for updates at start.
+- Saves the `.pspdx` file on install, so it can update directly from the
+  source. No mirror.
+
+**The standard**
+
 - I propose the **[`.pspdx` standard](#the-pspdx-standard)**. A small file
   that points to your homebrew.
-- Multiple `.pspdx` files can be added to a catalog,
+- To support it, just add a `.pspdx` file to your repo. Done!
+  [Example](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx)
+
+**The catalog**
+
+- Multiple `.pspdx` files make a catalog,
   [like here](https://github.com/chriopter/pspdx-catalog/blob/master/repos.txt).
   It's just like a phonebook.
-- PSPDX saves the `.pspdx` file on install, so it can update directly from
-  the source. No mirror.
-
-**Add your app**
-
-- To support the standard, just add a `.pspdx` file to your repo. Done!
-  [Example](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx)
 - OSS repos can be added to the main catalog.
   [Here](https://github.com/chriopter/pspdx-catalog).
 - Or start your own catalog.
   [Just copy this](https://github.com/chriopter/pspdx-catalog) and share the
   link!
-
-**The magic**
-
-- The catalog can deliver cached app names and artwork extracted from the
-  EBOOT, which makes loading homebrew lists *very fast*.
-  [See the main catalog](https://github.com/chriopter/pspdx-catalog). It's
-  just a bunch of GitHub workflows that build a static GitHub page. Please
-  steal it for yours! But:
-- `.pspdx` is just a portable file, completely independent from it. If the
-  catalog goes down, your PSP still polls from the original source. You can
-  even install `.pspdx` files directly.
-
-I want this to work 10 years forward, without another mirror going down or an
-abandoned installer being a hurdle. The `.pspdx` file should live on its own!
-
-**Feedback is very welcome!**
 
 ## The PSPDX standard
 
@@ -72,6 +62,22 @@ is a complete example.
   "installdir": "PSP/GAME/Cathedral"
 }
 ```
+
+**The magic**
+
+- The catalog can deliver cached app names and artwork extracted from the
+  EBOOT, which makes loading homebrew lists *very fast*.
+  [See the main catalog](https://github.com/chriopter/pspdx-catalog). It's
+  just a bunch of GitHub workflows that build a static GitHub page. Please
+  steal it for yours! But:
+- `.pspdx` is just a portable file, completely independent from it. If the
+  catalog goes down, your PSP still polls from the original source. You can
+  even install `.pspdx` files directly.
+
+I want this to work 10 years forward, without another mirror going down or an
+abandoned installer being a hurdle. The `.pspdx` file should live on its own!
+
+**Feedback is very welcome!**
 
 <details>
 <summary>Format specification (fields, releases, catalogs)</summary>
