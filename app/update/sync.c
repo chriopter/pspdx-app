@@ -26,7 +26,8 @@ static int run(SceSize args, void *argp) {
     g_state = SYNC_FETCHING;
     int count = catalog_fetch(g_catalog);
     if (count < 0) {
-        snprintf(g_message, sizeof(g_message), "catalog unreachable");
+        snprintf(g_message, sizeof(g_message),
+                 catalog_too_large() ? "catalog too large" : "catalog unreachable");
         g_catalog->count = 0;
         g_state = SYNC_FAILED;
         return 0;

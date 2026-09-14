@@ -24,6 +24,9 @@
 static char response[200 * 1024];
 static size_t response_len;
 static int g_offline, g_force, parsing_cached;
+/* What the last answer was, for the line that says why nothing came:
+   one too big for the buffer above, and one that named no apps at all. */
+static int g_too_large, g_parsed_empty;
 static char attempted[MAX_APPS + LIST_REPOS][SOURCE_URL];
 static int attempted_count;
 void catalog_offline(int value) { g_offline = value; }
@@ -256,20 +259,34 @@ static int parse(struct catalog *catalog, const char *base) {
         struct installed local;
         if (db_read(entry->id, &local) < 0 && catalog->count >= MAX_APPS - state_count())
             continue;
+        /* One directory is one app's: a second entry that wants the same
+           name would only be refused at install time, so the first keeps it. */
+        int held;
+        for (held = 0; held < catalog->count; held++)
+            if (!strcasecmp(catalog->apps[held].release.dir, entry->release.dir))
+                break;
+        if (held < catalog->count) {
+            logline("catalog: %s wants PSP/GAME/%s, which %s has; dropped", entry->id,
+                    entry->release.dir, catalog->apps[held].id);
+            continue;
+        }
 
         settle_state(entry);
         catalog->count++;
         taken++;
     }
     int empty = cJSON_GetArraySize(apps) == 0;
+    g_parsed_empty = empty;
     cJSON_Delete(root);
     return taken || empty || before > 0 ? taken : -1;
 }
 
 static int response_sink(void *ctx, const void *data, size_t len) {
     (void)ctx;
-    if (response_len + len >= sizeof(response))
+    if (response_len + len >= sizeof(response)) {
+        g_too_large = 1;
         return -1;
+    }
     memcpy(response + response_len, data, len);
     response_len += len;
     return 0;
@@ -281,11 +298,16 @@ static int fetch_text(const char *url, struct https_result *out) {
     if (g_offline)
         return -1;
     response_len = 0;
+    g_too_large = 0;
     int rc = https_get(url, response_sink, NULL, NULL, NULL, &r);
     if (out)
         *out = r;
     if (rc != 0 || r.status != 200) {
-        logline("fetch: rc=%d status=%ld %s", rc, r.status, url);
+        if (g_too_large)
+            logline("fetch: %s is larger than the %u KB there is room for", url,
+                    (unsigned)(sizeof(response) / 1024));
+        else
+            logline("fetch: rc=%d status=%ld %s", rc, r.status, url);
         return -1;
     }
     response[response_len] = '\0';
@@ -308,7 +330,11 @@ static int take_cache(struct catalog *catalog, const char *url, enum cache_mode 
     if (mode != CACHE_SAVED_ONLY && fetch_text(url, &r) == 0) {
         taken = parse(catalog, url);
         if (taken >= 0) {
-            if (storage_write(path, response, response_len) == 0)
+            /* A list that names nothing today is not what the stick should
+               remember over what it had. */
+            if (g_parsed_empty && storage_exists(path))
+                logline("catalog: %s names no apps, the saved one is kept", url);
+            else if (storage_write(path, response, response_len) == 0)
                 storage_trim_cache(storage_path("PSP/PSPDX/CACHE/catalogs"), 4u * 1024u * 1024u,
                                    path);
             catalog->fetch = r;
@@ -603,7 +629,7 @@ static int fetch_source(struct catalog *catalog, int at, const char *url) {
     case SOURCE_CATALOG:
         taken = take_cache(catalog, url, CACHE_LIVE_OR_SAVED);
         if (taken < 0)
-            logline("source %d: catalog unreachable", at);
+            logline("source %d: catalog %s", at, g_too_large ? "too large" : "unreachable");
         else
             logline("source %d: catalog, %d apps", at, taken);
         return taken;
@@ -626,9 +652,11 @@ static int fetch_source(struct catalog *catalog, int at, const char *url) {
                 }
             }
         }
+        int too_large = g_too_large;
         taken = take_cache(catalog, json, CACHE_SAVED_ONLY);
-        logline("source %d: live catalog unavailable, saved snapshot %s", at,
-                taken >= 0 ? "used" : "missing");
+        g_too_large = too_large;
+        logline("source %d: live catalog %s, saved snapshot %s", at,
+                too_large ? "too large" : "unavailable", taken >= 0 ? "used" : "missing");
         return taken;
     }
 
@@ -761,10 +789,12 @@ static void restore_installed(struct catalog *catalog) {
         free(raw);
     }
 }
+int catalog_too_large(void) { return g_too_large; }
 int catalog_fetch(struct catalog *catalog) {
     struct sources sources;
     memset(catalog, 0, sizeof(*catalog));
     attempted_count = 0;
+    g_too_large = 0;
     g_progress[0] = 0;
     g_refused_url[0] = 0;
     sources_load(&sources);

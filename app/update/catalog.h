@@ -60,6 +60,9 @@ struct catalog {
    or -1 when no source answered at all. */
 int catalog_fetch(struct catalog *catalog);
 void catalog_offline(int value);
+/* Whether the last catalog that did not come was one too big for the
+   buffer, which is a different sentence from one that did not answer. */
+int catalog_too_large(void);
 void catalog_force_sources(void);
 int catalog_prepare(struct app_entry *entry);
 int catalog_validate_source(const char *url,int repository);
