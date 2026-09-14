@@ -46,9 +46,7 @@ The app is untested on real hardware so far.
 
 ## The PSPDX standard
 
-Add a `.pspdx` to your repository to make your homebrew installable and
-updatable through PSPDX; the [demo app](https://github.com/chriopter/pspdx-demo)
-is a complete example.
+A complete example is the [demo app](https://github.com/chriopter/pspdx-demo):
 
 ```json
 {
@@ -73,7 +71,7 @@ catalog up    ->  PSP reads the catalog       ->  every app, release and artwork
 catalog gone  ->  PSP reads its saved .pspdx  ->  asks each app's own repository
 ```
 
-The catalog is just a bunch of GitHub workflows that build a static page.
+It's just a bunch of GitHub workflows that build a static page.
 [Please steal it](https://github.com/chriopter/pspdx-catalog) for yours! You
 can even install `.pspdx` files directly, without any catalog.
 
