@@ -1,0 +1,60 @@
+# The two schemas, served as files: GitHub's page for a file in the
+# repository is HTML, and an editor or a validator asked to fetch a schema
+# from there gets a web page instead of JSON. Pages serves .json as
+# application/json. Only schema/ is published, whenever it changes.
+name: Schemas
+
+on:
+  push:
+    branches: [master]
+    paths: ["schema/**", ".github/workflows/schema.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # A schema that is not valid JSON Schema is not published.
+      - name: Check the schemas
+        run: |
+          pip install --quiet jsonschema
+          python3 - <<'PY'
+          import json, pathlib, jsonschema
+          for path in sorted(pathlib.Path("schema").glob("*.json")):
+              jsonschema.Draft202012Validator.check_schema(json.loads(path.read_text()))
+              print("ok", path)
+          PY
+
+      - name: Assemble the site
+        run: |
+          mkdir -p site/schema
+          cp schema/*.json site/schema/
+          {
+            echo '<!doctype html><meta charset="utf-8"><title>PSPDX schemas</title>'
+            echo '<h1>PSPDX schemas</h1><ul>'
+            for f in schema/*.json; do
+              echo "<li><a href=\"$f\">$f</a></li>"
+            done
+            echo '</ul><p><a href="https://github.com/chriopter/pspdx">github.com/chriopter/pspdx</a></p>'
+          } > site/index.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
+        id: deployment

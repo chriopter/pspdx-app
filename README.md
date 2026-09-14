@@ -87,7 +87,7 @@ abandoned installer being a hurdle. The `.pspdx` file should live on its own!
 - Installs only under `PSP/GAME/`; plugins needing `seplugins` and `plugins.txt` need another contract
 - An incompatible future format gets a new schema URL
 
-[Manifest schema](schema/v1.pspdx) · [Catalog schema](schema/catalog-v1.json)
+[Manifest schema](schema/pspdx-v1.json) · [Catalog schema](schema/catalog-v1.json)
 
 #### Fields
 
