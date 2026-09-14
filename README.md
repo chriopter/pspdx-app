@@ -72,67 +72,27 @@ A complete example is the [demo app](https://github.com/chriopter/pspdx-demo):
 }
 ```
 
-Schemas:
-[`pspdx-v1.json`](https://chriopter.github.io/pspdx/schema/pspdx-v1.json)
-for the file,
-[`catalog-v1.json`](https://chriopter.github.io/pspdx/schema/catalog-v1.json)
-for catalogs.
+All fields and rules: [PSPDX standard](https://chriopter.github.io/pspdx/)
 
 I want this to work 10 years forward, without another mirror going down or an
 abandoned installer being a hurdle. The `.pspdx` file should live on its own!
 
 <details>
-<summary><b>Format specification</b> · fields, releases, catalogs</summary>
+<summary><b>Format specification</b> · releases, derived values, lists</summary>
 
-#### Version 1
+#### What v1 needs
 
-- A root `.pspdx` in the project's repository
-- A repository without one can still be listed: a list serves a `.pspdx` for it and sets `listed_by`; the repository's own file always wins
-- A published release with exactly one ZIP holding one `EBOOT.PBP`
-- Releases supply versions and downloads; EBOOTs supply media
+- A root `.pspdx`, and a published release with exactly one ZIP holding one `EBOOT.PBP`
+- Releases give versions and downloads; EBOOTs give media (`ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF`, `SND0.AT3`, all optional)
 - No manifest edit per release
-- `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed but not installed yet
+- `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed, not installed yet
 
-To check a `.pspdx` while you write it, add this to your VS Code settings:
+#### Derived, never written
 
-```json
-"files.associations": { "*.pspdx": "json" },
-"json.schemas": [{ "fileMatch": ["*.pspdx"],
-  "url": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json" }]
-```
-
-#### Fields
-
-The `schema` value identifies the version; unknown fields are rejected. No
-text holds a control character, except a newline in `description`.
-
-| Field | Rule | Default if omitted |
-|---|---|---|
-| `schema` | Required; the exact v1 schema URL | — |
-| `source` | Required; an HTTPS URL, on GitHub a repository URL | — |
-| `name` | Required; 1–40 characters | — |
-| `type` | `homebrew`, `plugin` or `iso` | `homebrew` |
-| `tags` | Up to 8 different words, each 1–24 characters; `game`, `emulator`, `app` and `demo` get a tab | Only in All |
-| `installdir` | `homebrew` only; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.`, `..` or `.pspdx-stage` | `PSP/GAME/<repository name>` on GitHub, `PSP/GAME/<name>` elsewhere, reduced to those characters |
-| `summary` | Up to 60 characters | GitHub repository description |
-| `author` | Up to 60 characters | GitHub repository owner |
-| `license` | Free text, up to 60 characters; an SPDX identifier where there is one | GitHub license metadata |
-| `description` | Plain text, up to 2500 characters, newlines allowed | — |
-| `listed_by` | HTTPS home page of the list that vouches for the app; required when `source` is not GitHub | — |
-
-#### Derived from the release
-
-| Value | Source |
-|---|---|
-| `id` | GitHub: `io.github.<owner>.<repo>`. Elsewhere: the host of `listed_by` reversed, without `www.`, then the name. Every part lowercased and stripped to `[a-z0-9]`; a later entry with a colliding identity is dropped |
-| `version` | Release tag with its leading `v` removed |
-| `rev` | Release `published_at`, in Unix seconds; it orders releases, the SHA-256 decides whether one is an update |
-| Download URL and size | The release's single ZIP asset |
-| SHA-256 | The downloaded ZIP, hashed by the catalog builder |
-| Package contents | The directory containing the ZIP's single `EBOOT.PBP`, with its files and subdirectories |
-| Media | `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3` inside the EBOOT; all optional |
-
-The default lookup takes GitHub's latest published, non-prerelease release.
+- `id` → GitHub: `io.github.<owner>.<repo>`; elsewhere the host of `listed_by` reversed, without `www.`, then the name; every part lowercased to `[a-z0-9]`
+- `installdir` left out → `PSP/GAME/<repository name>` on GitHub, `PSP/GAME/<name>` elsewhere, cut to 32 allowed characters
+- Update → the SHA-256 of `releases[0]` differs from the installed ZIP's; dates and version strings are not compared
+- Readers ignore fields they don't know; the schema still names only the real ones, so your editor flags a typo
 
 #### Text list
 
@@ -140,28 +100,20 @@ The default lookup takes GitHub's latest published, non-prerelease release.
 cache https://chriopter.github.io/pspdx-catalog/catalog.json
 https://github.com/chriopter/pspdx-demo
 https://github.com/someone/project@v1.2
+https://example.com/lists/project.pspdx
 ```
 
-- One repository URL per line
-- `@tag` pins a repository to a release
-- The optional `cache` line names an aggregated catalog
+- One repository URL per line; `@tag` pins a release
+- `cache` names an aggregated catalog, read first; repos it doesn't cover are asked directly
+- A URL ending in `.pspdx` → a substitute for a GitHub repo without its own: needs `listed_by`, and the repo's own file wins as soon as it has one
 
-#### catalog.json
+#### Checking a `.pspdx` in VS Code
 
-| Key | Contents |
-|---|---|
-| `schema` | `https://chriopter.github.io/pspdx/schema/catalog-v1.json` |
-| `generated_at` | Snapshot time in UTC, even if some apps failed to build |
-| `apps[]` | Required `id`, `source`, `name`, `releases`; optional `type`, `tags`, `installdir`, `summary`, `author`, `license`, `description`, `listed_by`, `website`, all by the rules above |
-| `apps[].releases[]` | Up to the 20 newest, newest first: `tag`, `published_at` (`2024-12-20T14:03:00Z`, or `2024-12-20` where no time is known), `url`, `size`, `sha256`; optional `eboot_md5` and `changelog` (up to 2500 characters) |
-| `apps[].media` | Optional `icon`, `screenshots[]`, `video`, `sound` URLs; relative ones resolve against the catalog URL |
-
-- The console reads `releases[0]` only, and finds an update by its `sha256`, not by its date
-- Fields the schema does not name are allowed; a list can carry its own, the console ignores them
-- The client tolerates entries without `author`, `summary` or `license`
-- The reference builder runs hourly, reuses unchanged entries and publishes a fresh snapshot
-- Manifest-only edits need a new release or a forced rebuild
-- Anyone can reuse the builder or publish another catalog; installed apps stay either way
+```json
+"files.associations": { "*.pspdx": "json" },
+"json.schemas": [{ "fileMatch": ["*.pspdx"],
+  "url": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json" }]
+```
 
 </details>
 
@@ -174,7 +126,7 @@ https://github.com/someone/project@v1.2
 
 | Source | Added through | Result |
 |---|---|---|
-| Catalog site URL, `catalog.json` or text repository list | **Add sources** | Browse all listed apps |
+| Catalog site URL, `catalog.json`, text list or a list's `.pspdx` | **Add sources** | Browse all listed apps |
 | GitHub URL or `owner/repo` | **Direct install** | Add the repository as a source and install its app |
 | `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct install** | Validate and install the selected files |
 
@@ -182,6 +134,7 @@ https://github.com/someone/project@v1.2
 - Presets ship as `PSP/GAME/PSPDX/presets.txt`, same lines as `sources.txt`; the EBOOT carries a copy for a stick without one
 - Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
 - A source that does not load is marked *unreachable* in the list; the rest load as usual
+- A substitute `.pspdx` is used only while its repo has none; the install remembers where it came from (`manifest_url`), so updates find it again
 - Sources are validated before they land in `PSP/PSPDX/sources.txt`
 - Adding a catalog installs nothing; Direct install and INBOX do
 - Removing a source keeps installed apps, their manifests and state
@@ -213,7 +166,7 @@ A site with only `catalog.txt` works without a builder.
 #### Install
 
 ```text
-x on app -> confirm -> verify .pspdx source + installdir (or its default)
+x on app -> confirm -> verify .pspdx (repo's own, else the list's substitute): source + installdir
          -> download release ZIP -> check size, SHA-256, ZIP, paths
          -> stage -> swap into PSP/GAME/<dir> -> write state
 ```
@@ -243,6 +196,7 @@ kept falls back to a newer `published_at`.
      due if forced, never asked, last answer came from a catalog,
      or the last direct answer is older than 6 h
        due               ->  .pspdx          raw.githubusercontent.com   no limit
+                             (none there: the substitute at manifest_url)
                              latest release  api.github.com              1 of 60 an hour
        not due           ->  the last answer saved in the record
 
@@ -267,6 +221,8 @@ kept falls back to a newer `published_at`.
 
 **×** install, confirm · **△** options · **○** back · **□** basket · **START** run · **L/R** or **←/→** tabs
 
+**△** → **Information**: version, author, tags, size, id, then summary and description; **↑/↓** scroll, **L/R** a page
+
 </details>
 
 <details>
@@ -275,15 +231,15 @@ kept falls back to a newer `published_at`.
 #### Requests
 
 ```text
-catalog   ->  one request, release data for every app
-direct    ->  raw.githubusercontent.com   .pspdx
+catalog   ->  one request, gzip asked for, release data for every app
+direct    ->  raw.githubusercontent.com   .pspdx, up to 16 KB
           ->  api.github.com              latest release
-                                          + repository metadata when author, summary or license are missing
 download  ->  release ZIP, following GitHub asset redirects
 ```
 
 - First saved PSP network profile
 - Everything over HTTPS
+- Only a catalog asks for gzip, inflated as it arrives into a 512 KB buffer; `pspdx.log` says bytes on the wire and inflated. A ZIP is never asked for compressed
 - TLS connections to the same host are briefly reused; a closed or expired one is reopened
 
 #### TLS
@@ -309,12 +265,14 @@ download  ->  release ZIP, following GitHub asset redirects
 
 ```text
 hourly:  repos.txt -> catalog.txt
-         new release?  -> read .pspdx -> hash ZIP -> extract EBOOT media
+         new release?  -> read .pspdx (or the list's substitute)
+                       -> hash up to the 20 newest release ZIPs, each once -> extract EBOOT media
          unchanged?    -> reuse the entry
          -> publish catalog.json
 ```
 
-- `catalog.json` carries metadata, source, install path, up to the 20 newest releases (date, ZIP URL, size, hash) and media URLs
+- `catalog.json` carries metadata, source, install path, up to the 20 newest releases (date, ZIP URL, size, hash) and media URLs; the console reads `releases[0]`
+- An entry built from a substitute carries `manifest_url`, so an install from the catalog still finds the file
 - A push or manual run also picks up manifest-only edits; hourly runs wait for a release
 - A build with no valid apps leaves the live site in place
 
@@ -401,6 +359,7 @@ ms0:/
 | Field | Contents |
 |---|---|
 | `source`, `added_from` | Original repository and import route |
+| `manifest_url` | The list's substitute `.pspdx`, only when the repo had none |
 | `installed` | Version, `published_at`, SHA-256, install directory |
 | `latest` | Version, `published_at`, download URL, size, SHA-256, last successful check time and source |
 | `update_check` | Written by older versions; read and ignored |
