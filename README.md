@@ -440,7 +440,8 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 
 | Location | Responsibility |
 |---|---|
-| `app/main.c` | Input, app actions and confirmation flow |
+| `app/main.c` | The loop: keys, the questions, the options menu and the popups under the gear, launching, and the rig's hooks (scripted keys, screenshots, the cipher benchmark) |
+| `app/text.h` | Every word the screen shows, in one place |
 | `app/gui/` | Browser, rendering, icons, previews and firmware keyboard |
 | `app/update/` | Manifests, sources, catalogs, INBOX, media cache and synchronization |
 | `app/install/` | ZIP reader, installation transactions and persistent app state |
@@ -448,8 +449,12 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 | `app/logic/` | Entropy pool |
 | `app/audio/`, `app/video/` | Audio and video playback |
 | `app/util/` | Storage paths, PBP access and runtime helpers |
+| `app/util/files.c` | What Manage Data reads off the stick: sources, installs, INBOX, the client's own files |
 | `app/ca-extra/` | Extra root certificates folded into the CA bundle |
 | `app/testdata/` | Input traces for the entropy screen |
+| `app/tests/` | Host tests: the parsers, the records and the installer, with power cuts |
+| `app/run-ppsspp.sh` | The rig: one emulator run with scripted keys, leaving the log and screenshots |
+| `app/tools/soak` | Soak campaigns in the emulator, checked against a model of the client |
 | `dev/`, `app/tools/` | Local builds, emulator fixtures and asset generators |
 
 </details>
