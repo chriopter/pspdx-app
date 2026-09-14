@@ -179,6 +179,11 @@ static int mkdir_p(const char *path) {
     return 0;
 }
 
+/* One size for every path built under PSP/GAME here: what unpack writes
+   under the stage and what rm_rf has to name again later under
+   "<dir>.old/", the longest form a package's path takes on the stick. */
+#define PATH_BUF 256
+
 static int rm_rf(const char *path) {
     SceUID d = sceIoDopen(path);
     if (d < 0)
@@ -188,7 +193,7 @@ static int rm_rf(const char *path) {
     while (sceIoDread(d, &e) > 0) {
         if (strcmp(e.d_name, ".") == 0 || strcmp(e.d_name, "..") == 0)
             continue;
-        char sub[256];
+        char sub[PATH_BUF];
         if (snprintf(sub, sizeof(sub), "%s/%s", path, e.d_name) >= (int)sizeof(sub)) {
             sceIoDclose(d);
             return -1;
@@ -346,6 +351,11 @@ static int unpack(struct zipread *z, const char *root, struct install_report *re
     struct zipentry e;
     int rc, files = 0;
     size_t total = 0, done = 0;
+    /* A package that goes in has to come out again: the same file is later
+       named under PSP/GAME/<dir>.old/ by the removal, with the directory at
+       its full 32 characters, and an entry that would not fit that name
+       into rm_rf's buffer is refused here rather than left behind there. */
+    size_t room = PATH_BUF - 1 - strlen(GAME_DIR) - 1 - 32 - strlen(".old") - 1;
 
     for (rc = zip_first(z, &e); rc > 0; rc = zip_next(z, &e)) {
         slashes(e.name);
@@ -372,8 +382,9 @@ static int unpack(struct zipread *z, const char *root, struct install_report *re
             return -1;
         }
 
-        char path[256];
-        if (snprintf(path, sizeof(path), "%s/%s", STAGE, rel) >= (int)sizeof(path)) {
+        char path[PATH_BUF];
+        if (strlen(rel) > room ||
+            snprintf(path, sizeof(path), "%s/%s", STAGE, rel) >= (int)sizeof(path)) {
             logline("unpack: path too long: %s", rel);
             return -1;
         }
