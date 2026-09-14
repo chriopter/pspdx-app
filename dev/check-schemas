@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Holds what this repository writes to the schemas it publishes, read from
+this checkout rather than from Pages, so that a schema and the files it
+describes are changed in one commit and checked together.
+
+    schema/*.json               valid Draft 2020-12 schemas
+    .pspdx                      against schema/pspdx-v1.json
+    app/util/self_manifest.h    the copy the EBOOT carries, the same
+    dev/mock-catalog            its catalog against schema/catalog-v1.json,
+                                the manifest of every entry against pspdx-v1
+
+    python3 -m venv venv && venv/bin/pip install -r dev/requirements.txt
+    venv/bin/python dev/check-schemas
+
+Nothing goes to the network: the mock is handed stand-in assets, and what it
+plants lands in a temporary directory, not on any emulator's stick.
+"""
+import contextlib, importlib.machinery, importlib.util, io, json, pathlib, re, sys, tempfile
+
+import jsonschema
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+DRAFT = "https://json-schema.org/draft/2020-12/schema"
+
+# jsonschema passes a format it has no checker for without a word, and the
+# checkers for these come from separate packages; a check that silently
+# stops checking dates and links is worse than none.
+FORMATS = ("date-time", "uri", "uri-reference")
+
+# The one key the mock adds that no published catalog carries: the manifest
+# a build with PSPDX_TEST_FIXTURES (dev/start --mock) records for an install,
+# since the mock's repositories have no .pspdx to fetch. It is taken out of
+# the entry and checked as the .pspdx it stands for.
+FIXTURE = "_test_manifest"
+
+
+def validator(name):
+    path = ROOT / "schema" / name
+    schema = json.loads(path.read_text())
+    if schema.get("$schema") != DRAFT:
+        sys.exit(f"{path}: $schema is not {DRAFT}")
+    cls = jsonschema.Draft202012Validator
+    cls.check_schema(schema)
+    missing = [f for f in FORMATS if f not in cls.FORMAT_CHECKER.checkers]
+    if missing:
+        sys.exit(f"no checker for format {', '.join(missing)}; install dev/requirements.txt")
+    print(f"ok  {path.relative_to(ROOT)} is a Draft 2020-12 schema")
+    return cls(schema, format_checker=cls.FORMAT_CHECKER)
+
+
+def check(v, instance, what):
+    errors = sorted(v.iter_errors(instance), key=lambda e: e.json_path)
+    for error in errors:
+        print(f"bad {what}: {error.json_path}: {error.message}")
+    if not errors:
+        print(f"ok  {what}")
+    return len(errors)
+
+
+def mock_catalog(work):
+    path = ROOT / "dev" / "mock-catalog"
+    loader = importlib.machinery.SourceFileLoader("mock_catalog", str(path))
+    mock = importlib.util.module_from_spec(importlib.util.spec_from_loader("mock_catalog", loader))
+    loader.exec_module(mock)
+    stand_in = {}
+    for kind, name in (("icon", "icon.png"), ("screenshot", "shot.png"),
+                       ("video", "film.pmf"), ("eboot", "EBOOT.PBP")):
+        stand_in[kind] = work / name
+        stand_in[kind].write_bytes(name.encode())
+    mock.assets = lambda _: ({kind: [str(stand_in[kind])]
+                              for kind in ("icon", "screenshot", "video")},
+                             str(stand_in["eboot"]))
+    with contextlib.redirect_stdout(io.StringIO()):
+        mock.make(str(work / "work"), str(work / "ms"), "https://127.0.0.1:8443/")
+    return json.loads((work / "work" / "mock-site" / "catalog.json").read_text())
+
+
+def main():
+    pspdx, catalog = validator("pspdx-v1.json"), validator("catalog-v1.json")
+    bad = check(pspdx, json.loads((ROOT / ".pspdx").read_text()), ".pspdx")
+    header = (ROOT / "app" / "util" / "self_manifest.h").read_text()
+    literal = re.search(r"#define PSPDX_SELF_MANIFEST (\".*\")", header).group(1)
+    bad += check(pspdx, json.loads(json.loads(literal)), "app/util/self_manifest.h")
+    with tempfile.TemporaryDirectory(prefix="check-schemas-") as work:
+        mock = mock_catalog(pathlib.Path(work))
+    manifests = [app.pop(FIXTURE) for app in mock["apps"] if FIXTURE in app]
+    bad += check(catalog, mock, f"dev/mock-catalog, {len(mock['apps'])} apps")
+    for i, manifest in enumerate(manifests):
+        bad += check(pspdx, manifest, f"dev/mock-catalog apps[{i}].{FIXTURE}")
+    if bad:
+        print(f"{bad} schema errors")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

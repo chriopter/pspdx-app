@@ -15,6 +15,14 @@ jobs:
           submodules: recursive
       - run: sudo apt-get update && sudo apt-get install -y libcjson-dev zlib1g-dev libssl-dev
       - run: sh dev/tests/run
+      # The same pinned validator pspdx-catalog checks with, against the
+      # schemas in this checkout: a schema and what it describes change in
+      # one commit and are checked together.
+      - name: Check against the schemas
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet -r dev/requirements.txt
+          "$RUNNER_TEMP/venv/bin/python" dev/check-schemas
 
   eboot:
     runs-on: ubuntu-latest

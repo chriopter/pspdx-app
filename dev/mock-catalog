@@ -75,18 +75,19 @@ ROWS = [
 AUTHORS = ["chriopter", "Homebrew Collective", "anon"]
 
 # Summaries of every length: nothing at all, a few words, a line that fills
-# the row, and one past the sixty characters the client keeps.
+# the row, and one of sixty characters, the most the format allows. None is
+# longer: schema/catalog-v1.json caps a summary there, the catalog builder
+# cuts one there, and dev/check-schemas holds this list to the schema.
 SUMMARIES = [
     "",
     "Small.",
     "Downhill racing with a penguin.",
     "Thirteen Graphics Engine tricks, one scene each.",
     "Real-time ray tracing on a 333 MHz MIPS CPU.",
-    "A tidy little thing that does one job and gets out of the way again.",
+    "A tidy thing that does one job and gets out of the way.",
     "Reads the stick.",
     "Plays music.",
-    "An unusually long summary, written to run past the sixty characters the "
-    "client keeps for one, so the end of it has to go somewhere.",
+    "The longest summary the format allows, sixty characters long",
     "Fast.",
 ]
 
