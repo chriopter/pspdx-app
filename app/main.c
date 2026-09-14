@@ -770,6 +770,25 @@ static unsigned repeat(unsigned held) {
     return held;
 }
 
+/* The rig's film of the browser: with PSPDX.RECORD on the stick, every
+   fourth frame from the moment the catalog is up goes to PSPDX_REC as a
+   BMP, the way the sweep films itself. Fifteen a second, which is what a
+   WebP of it is played at; nothing for a console, only for the desk. */
+static int g_record;
+static void record_start(void) {
+    if (!storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.RECORD"))) return;
+    sceIoMkdir(storage_path("PSP/PSPDX/DEBUG/PSPDX_REC"), 0777);
+    g_record = 1;
+    logline("record: every fourth frame to PSPDX_REC");
+}
+static void record_frame(void) {
+    static unsigned frame;
+    if (!g_record || frame++ % 4) return;
+    char path[96];
+    snprintf(path, sizeof(path), "%s/M%05u.BMP", storage_path("PSP/PSPDX/DEBUG/PSPDX_REC"), frame / 4);
+    gfx_screenshot(path);
+}
+
 static unsigned keys_pressed(void) {
     unsigned pressed = 0;
     while (g_key_next < g_key_count && now_ms() - g_keys_since >= g_keys[g_key_next].at)
@@ -1157,6 +1176,7 @@ int main(int argc, char *argv[]) {
                 }
                 keys_load();
                 g_keys_since = now_ms();
+                record_start();
                 int bench = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.BENCH"), PSP_O_RDONLY, 0777);
                 if (bench >= 0) {
                     sceIoClose(bench);
@@ -1470,6 +1490,7 @@ int main(int argc, char *argv[]) {
         unsigned tick = now_us() - tick0;
         if (tick > g_worst_tick) g_worst_tick = tick;
         shell_draw(shown(), cursor);
+        record_frame();
     }
     return 0;
 }
