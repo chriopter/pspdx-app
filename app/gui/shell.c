@@ -730,12 +730,12 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
     font_print(FONT_H1, PANEL_X, y, g_text, action_title());
     if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK) {
         int lines = draw_wrapped(FONT_META, PANEL_X, y + 20, SHOT_W, 16, 2, g_dim,
-                                 "Compares what is installed with what is published.");
+                                 "Finds newer versions of your apps.");
         /* The row has two keys, and the panel names them the way the footer
            does, with the key's own mark rather than a word for it. */
         float base = y + 20 + 16 * lines + 14;
-        draw_hint(PANEL_X, base, MARK_CROSS, "From the catalogs", g_dim);
-        draw_hint(PANEL_X, base + 18, MARK_SQUARE, "From every app's own .pspdx, slower", g_dim);
+        draw_hint(PANEL_X, base, MARK_CROSS, "Quick check", g_dim);
+        draw_hint(PANEL_X, base + 18, MARK_SQUARE, "Full check", g_dim);
         return;
     }
     if (plan.apps > 0) {
