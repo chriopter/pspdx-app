@@ -76,8 +76,8 @@
         },
         "installdir": {
           "type": "string",
-          "pattern": "^PSP/GAME/(?![.]{1,2}$)[A-Za-z0-9_.-]{1,32}(?![\\s\\S])",
-          "description": "where the package goes on the Memory Stick: the directory in the zip that holds the EBOOT.PBP, with everything beside and below it, is copied here. In version 1 it is PSP/GAME/<folder>, and the folder is the name the XMB shows; a later version may allow other places on the stick."
+          "pattern": "^PSP/GAME/(?!(?:[.]{1,2}|[.][Pp][Ss][Pp][Dd][Xx]-[Ss][Tt][Aa][Gg][Ee])(?![\\s\\S]))[A-Za-z0-9_.-]{1,32}(?![\\s\\S])",
+          "description": "where the package goes on the Memory Stick: the directory in the zip that holds the EBOOT.PBP, with everything beside and below it, is copied here. In version 1 it is PSP/GAME/<folder>, and the folder is the name the XMB shows; it is not ., .. or .pspdx-stage in any case, where the client stages an install; a later version may allow other places on the stick."
         },
         "id": {
           "type": "string",
