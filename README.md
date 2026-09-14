@@ -67,7 +67,7 @@ is a complete example.
 ```
 
 <details>
-<summary>Format specification — fields, releases and catalogs</summary>
+<summary>Format specification (fields, releases, catalogs)</summary>
 
 Version 1: a GitHub repository with a root `.pspdx` and a published release
 containing exactly one ZIP with one `EBOOT.PBP`. Releases supply versions
@@ -135,7 +135,7 @@ a different catalog; the client retains installed apps independently.
 ## In detail
 
 <details>
-<summary>Sources — catalogs, repositories and INBOX</summary>
+<summary>Sources (catalogs, repositories, INBOX)</summary>
 
 The default source is `https://chriopter.github.io/pspdx-catalog/`. PSPDX
 reads `catalog.json` for fast browsing. If it fails, PSPDX reads `catalog.txt`
@@ -156,7 +156,7 @@ do. Installed apps keep their own manifests and state if a source is removed.
 </details>
 
 <details>
-<summary>Installation and updates — checks, sources and recovery</summary>
+<summary>Install and update (checks, recovery)</summary>
 
 **Install:** select an app with **×** and confirm. PSPDX verifies that its
 `.pspdx` source and `installdir` match the selected entry, then downloads the
@@ -195,7 +195,7 @@ restart PSPDX afterward.
 </details>
 
 <details>
-<summary>Network — HTTPS, TLS 1.3 and offline use</summary>
+<summary>Network (HTTPS, TLS 1.3, offline)</summary>
 
 PSPDX uses the first saved PSP network profile. Catalogs, GitHub checks and
 ZIP downloads use HTTPS. A catalog returns release data for many apps in one
@@ -218,7 +218,7 @@ checks and downloads require a connection.
 </details>
 
 <details>
-<summary>Catalog data — update indicators, previews and cache</summary>
+<summary>Catalog (updates, previews, cache)</summary>
 
 The reference catalog's hourly workflow reads its `repos.txt` and publishes
 it as `catalog.txt`. For a new release it reads `.pspdx`, hashes the ZIP and
@@ -247,7 +247,7 @@ caches can be deleted without losing installation state.
 </details>
 
 <details>
-<summary>Files on the Memory Stick — manifests, state and cache</summary>
+<summary>Memory Stick (manifests, state, cache)</summary>
 
 Example on the startup device (`ms0:` or `ef0:`); app IDs are illustrative.
 Temporary and debug files appear only when used.
