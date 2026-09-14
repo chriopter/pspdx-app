@@ -75,10 +75,22 @@
    ocean swell is slow. The damping is what stops a ring from ringing for
    ever. A ring runs at sqrt(C) cells a frame; the cells are half the width
    they were, so C is what keeps a ring crossing the same water in the same
-   time -- and 0.35 is still comfortably under the half. */
-#define WAVE_C 0.35f
+   time -- and 0.35 was comfortably under the half. It is 0.22 now, a ring
+   at a little under half a cell a frame: the sea is meant to read as
+   thirty metres across, and on that scale everything moves as if through
+   treacle. */
+#define WAVE_C 0.22f
 #define WAVE_DAMP 0.995f
 #define WAVE_MAX 2.5f
+/* Water has viscosity and a cloth has none: on the bare wave equation the
+   shortest waves the cells can hold -- one cell up, the next down -- ring
+   as long as the swell does, and a surface full of them shivers like a
+   sheet in a draught. A little diffusion of the height takes those out
+   in a few frames (they lose half their height in about three) and
+   leaves a swell twenty cells long all but untouched, since diffusion
+   works on the curvature and theirs is a hundredth of the shiver's. It
+   has to stay well under a quarter, or it is the diffusion that explodes. */
+#define WAVE_VISC 0.06f
 
 /* What the source covers in cells, and how many frames of standing over a
    cell it takes to fill it. Sized so a sweep of the field at stick speed
@@ -90,12 +102,12 @@
 #define POUR_DENT 0.16f
 
 /* The colour front. It runs in the same cells the ring does and at the same
-   speed -- sqrt(WAVE_C), three fifths of a cell a frame -- so the edge of
+   speed -- sqrt(WAVE_C), a little under half a cell a frame -- so the edge of
    the colour sits on the ring that carried it out, and the corners of what
    is on screen have turned in about a second and a half. Its edge is soft
    over a tenth of the field's width, which is seven of the inner
    columns. */
-#define FRONT_C 0.59f
+#define FRONT_C 0.47f
 #define FRONT_W 7.0f
 
 /* What water is where no light reaches it. */
@@ -372,8 +384,8 @@ void lattice_init(void) {
            in the log of the depth, so they keep their wavelength in the
            world whatever the rows do. */
         float turns = logf(z / Z_REF);
-        g_row[i].a1 = 0.55f * 21.0f / logf(Z_FAR / Z_REF) * turns;
-        g_row[i].a2 = 0.95f * 21.0f / logf(Z_FAR / Z_REF) * turns;
+        g_row[i].a1 = 0.38f * 21.0f / logf(Z_FAR / Z_REF) * turns;
+        g_row[i].a2 = 0.66f * 21.0f / logf(Z_FAR / Z_REF) * turns;
         /* The tile goes into the distance by the log of the depth, not the
            depth: laid down by depth alone, a far row a few pixels tall
            would cross hundreds of texel rows, and one bright texel row is
@@ -634,7 +646,8 @@ static unsigned tinted(unsigned rgb, int alpha) {
    its own; the row ahead has not been written yet.
 
    The swell is two long waves crossing at an angle, each one a sine of the
-   row and the column. A sine of a sum is two products of the ends, so the
+   row and the column -- long and slow and tall, the swell of a sea some
+   thirty metres across rather than a pond's. A sine of a sum is two products of the ends, so the
    whole surface costs four sines a row and four a column rather than two a
    cell. It lands on the height the simulation just wrote, while both are
    still in registers: a second pass over five thousand cells is a second
@@ -643,12 +656,12 @@ static void step_water(float t) {
     float sa1[NZ], ca1[NZ], sa2[NZ], ca2[NZ];
     float sb1[NX], cb1[NX], sb2[NX], cb2[NX];
     for (int i = 0; i < NZ; i++) {
-        float a1 = g_row[i].a1 - t * 0.80f, a2 = g_row[i].a2 + t * 0.55f;
+        float a1 = g_row[i].a1 - t * 0.42f, a2 = g_row[i].a2 + t * 0.30f;
         sa1[i] = fsin(a1); ca1[i] = fcos(a1);
         sa2[i] = fsin(a2); ca2[i] = fcos(a2);
     }
     for (int j = 0; j < NX; j++) {
-        float b1 = g_u[j] * 1.2f, b2 = g_u[j] * -2.4f;
+        float b1 = g_u[j] * 0.85f, b2 = g_u[j] * -1.7f;
         sb1[j] = fsin(b1); cb1[j] = fcos(b1);
         sb2[j] = fsin(b2); cb2[j] = fcos(b2);
     }
@@ -667,7 +680,7 @@ static void step_water(float t) {
             float lap = up + down[j] + left + right - 4.0f * old;
             float w = wet[j];
             float vv = (v[j] + lap * WAVE_C) * WAVE_DAMP;
-            float nh = old + vv;
+            float nh = old + vv + lap * WAVE_VISC;
             if (w < 1.0f) { nh *= w; vv *= w; }
             if (nh > WAVE_MAX) nh = WAVE_MAX;
             else if (nh < -WAVE_MAX) nh = -WAVE_MAX;
@@ -678,7 +691,7 @@ static void step_water(float t) {
 
             float s1 = a1 * cb1[j] + b1 * sb1[j];
             float s2 = a2 * cb2[j] + b2 * sb2[j];
-            float s = 0.58f * s1 + 0.30f * s2 + nh;
+            float s = 0.82f * s1 + 0.44f * s2 + nh;
             /* Water is not a sine: crests stand up and troughs lie flat. */
             hh[j] = (s + 0.20f * s * (s < 0 ? -s : s)) * w;
         }
@@ -1019,16 +1032,17 @@ void lattice_draw(float t, struct rgb tint) {
                     rgb_pack(rgb_mix(rgb_mix(g_ref, RGB_WHITE, 0.9f), DEEP, 0.62f), 0));
     place_all(sway);
     gfx_water_ready();
-    /* Seven steps a second through the ripple's baked frames, each one
-       crossfaded into the next so nothing jumps. */
-    float phase = t * 7.0f;
+    /* Two and a half steps a second through the ripple's baked frames,
+       each one crossfaded into the next so nothing jumps: the four of them
+       are a cycle, and at seven a second the cycle was a shiver. */
+    float phase = t * 2.5f;
     int step = (int)phase;
     float f = phase - step;
     /* The tile is anchored to the world and creeps toward the viewer, which
        is the movement between the crossings that the swell is too coarse to
        carry; the sway of the room goes with it, since the surface is drawn
        where the sway put it. */
-    gfx_water_begin(sway * TILES + t * 0.05f, -t * 0.33f);
+    gfx_water_begin(sway * TILES + t * 0.05f, -t * 0.22f);
     gfx_water_step(0, step, 1.0f - f);
     draw_surface();
     gfx_water_step(1, step + 1, f);

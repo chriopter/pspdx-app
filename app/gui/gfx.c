@@ -172,8 +172,9 @@ static void ripple_height(float *h, int frame) {
     }
 }
 
-/* How far the steepest of those slopes is allowed to lean. */
-#define RIPPLE_BUMP 1.1f
+/* How far the steepest of those slopes is allowed to lean. Less than it
+   was: on a sea thirty metres across the ripple is texture, not weather. */
+#define RIPPLE_BUMP 0.8f
 
 static void ripple_mip(const unsigned char *src, int n, unsigned char *dst) {
     for (int y = 0; y < n / 2; y++) {
