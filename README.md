@@ -64,9 +64,9 @@ A complete example is the [demo app](https://github.com/chriopter/pspdx-demo):
   "schema":     "https://chriopter.github.io/pspdx/schema/pspdx-v1.json",
   "source":     "https://github.com/chriopter/pspdx-demo",
   "name":       "PSPDX Demo",
+  "tags":       ["demo"],
   "author":     "chriopter",
   "summary":    "Hello, PSP. A demo listing for PSPDX.",
-  "category":   "demo",
   "license":    "MIT",
   "installdir": "PSP/GAME/PSPDXDemo"
 }
@@ -86,12 +86,12 @@ abandoned installer being a hurdle. The `.pspdx` file should live on its own!
 
 #### Version 1
 
-- A GitHub repository with a root `.pspdx`
+- A root `.pspdx` in the project's repository
+- A repository without one can still be listed: a list serves a `.pspdx` for it and sets `listed_by`; the repository's own file always wins
 - A published release with exactly one ZIP holding one `EBOOT.PBP`
 - Releases supply versions and downloads; EBOOTs supply media
 - No manifest edit per release
-- Installs only under `PSP/GAME/`; plugins needing `seplugins` and `plugins.txt` need another contract
-- An incompatible future format gets a new schema URL
+- `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed but not installed yet
 
 To check a `.pspdx` while you write it, add this to your VS Code settings:
 
@@ -103,24 +103,28 @@ To check a `.pspdx` while you write it, add this to your VS Code settings:
 
 #### Fields
 
-The `schema` value identifies the version; unknown fields are rejected.
+The `schema` value identifies the version; unknown fields are rejected. No
+text holds a control character, except a newline in `description`.
 
 | Field | Rule | Default if omitted |
 |---|---|---|
 | `schema` | Required; the exact v1 schema URL | — |
-| `source` | Required; an HTTPS GitHub repository URL | — |
+| `source` | Required; an HTTPS URL, on GitHub a repository URL | — |
 | `name` | Required; 1–39 characters | — |
-| `category` | Required; `game`, `emulator`, `app`, `plugin` or `demo` | — |
-| `installdir` | Required; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.`, `..` or `.pspdx-stage` | — |
-| `author` | Up to 39 characters | Repository owner |
+| `type` | `homebrew`, `plugin` or `iso` | `homebrew` |
+| `tags` | Up to 8 different words, each 1–24 characters; `game`, `emulator`, `app`, `plugin` and `demo` get a tab | Only in All |
+| `installdir` | `homebrew` only; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.`, `..` or `.pspdx-stage`. Required when `source` is not GitHub | `PSP/GAME/<repository name>` |
 | `summary` | Up to 60 characters | Repository description |
-| `license` | SPDX identifier, up to 64 characters | Repository license metadata |
+| `author` | Up to 60 characters | Repository owner |
+| `license` | Free text, up to 60 characters; an SPDX identifier where there is one | Repository license metadata |
+| `description` | Plain text, up to 2500 characters, newlines allowed | — |
+| `listed_by` | HTTPS home page of the list that vouches for the app; required when `source` is not GitHub | — |
 
 #### Derived from the release
 
 | Value | Source |
 |---|---|
-| `id` | `io.github.<owner>.<repo>`; owner and repository lowercased and stripped to `[a-z0-9]`. A later entry with a colliding identity is dropped |
+| `id` | GitHub: `io.github.<owner>.<repo>`. Elsewhere: the host of `listed_by` reversed, without `www.`, then the name. Every part lowercased and stripped to `[a-z0-9]`; a later entry with a colliding identity is dropped |
 | `version` | Release tag with its leading `v` removed |
 | `rev` | Release `published_at`, in Unix seconds; a higher value signals an update |
 | Download URL and size | The release's single ZIP asset |
@@ -147,12 +151,14 @@ https://github.com/someone/project@v1.2
 | Key | Contents |
 |---|---|
 | `schema` | `https://chriopter.github.io/pspdx/schema/catalog-v1.json` |
-| `generated_at` | Snapshot time, even if some apps failed to build |
-| `apps[]` | `id`, `source`, `name`, `author`, `summary`, `category`, `license`, `installdir` |
-| `apps[].release` | `tag`, `published_at`, `download` with `url`, `size`, `sha256` |
-| `apps[].media` | Optional `icon`, `screenshot`, `video`, `sound` URLs; relative ones resolve against the catalog URL |
+| `generated_at` | Snapshot time in UTC, even if some apps failed to build |
+| `apps[]` | Required `id`, `source`, `name`, `releases`, and `installdir` for `homebrew`; optional `type`, `tags`, `summary`, `author`, `license`, `description`, `listed_by`, `website`, all by the rules above |
+| `apps[].releases[]` | Up to the 20 newest, newest first: `tag`, `published_at` (ISO 8601, UTC), `url`, `size`, `sha256`; optional `eboot_md5` and `changelog` (up to 2500 characters) |
+| `apps[].media` | Optional `icon`, `screenshots[]`, `video`, `sound` URLs; relative ones resolve against the catalog URL |
 
-- The client tolerates entries without `author`, `summary`, `license` or `sha256`
+- The console reads `releases[0]` only
+- Fields the schema does not name are allowed; a list can carry its own, the console ignores them
+- The client tolerates entries without `author`, `summary` or `license`
 - The reference builder runs hourly, reuses unchanged entries and publishes a fresh snapshot
 - Manifest-only edits need a new release or a forced rebuild
 - Anyone can reuse the builder or publish another catalog; installed apps stay either way

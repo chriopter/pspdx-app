@@ -2,60 +2,112 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json",
   "title": ".pspdx",
-  "description": "What a PSP homebrew repository says about itself to PSPDX. The version, the date, the package and its size come from the latest release; the id from the repository; the icon, the picture, the film and the sound out of the EBOOT.",
+  "description": "What a PSP homebrew repository says about itself to PSPDX. The version, the date, the package and its size come from the latest release; the id from the repository; the icon, the picture, the film and the sound out of the EBOOT. A list may serve a .pspdx for a repository that has none; it sets listed_by. No string holds a control character, except a newline in description.",
   "type": "object",
   "required": [
     "schema",
     "source",
-    "name",
-    "category",
-    "installdir"
+    "name"
   ],
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {"required": ["type"], "properties": {"type": {"enum": ["plugin", "iso"]}}},
+      "then": {"not": {"required": ["installdir"]}}
+    },
+    {
+      "if": {
+        "required": ["source"],
+        "properties": {
+          "source": {"type": "string", "not": {"pattern": "^https://github\\.com/"}},
+          "type": {"const": "homebrew"}
+        }
+      },
+      "then": {"required": ["installdir"]}
+    },
+    {
+      "if": {
+        "required": ["source"],
+        "properties": {"source": {"type": "string", "not": {"pattern": "^https://github\\.com/"}}}
+      },
+      "then": {"required": ["listed_by"], "properties": {"name": {"pattern": "[A-Za-z0-9]"}}}
+    }
+  ],
   "properties": {
     "schema": {
-      "const": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json"
+      "const": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json",
+      "description": "required; names this format and its version"
     },
     "source": {
       "type": "string",
-      "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?(?![\\s\\S])",
-      "description": "The project source URL. Version 1 supports HTTPS GitHub repository URLs."
+      "maxLength": 255,
+      "pattern": "^https://[^\\u0000-\\u001f]+(?![\\s\\S])",
+      "if": {"pattern": "^https://github\\.com/"},
+      "then": {"pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?(?![\\s\\S])"},
+      "description": "required; where the project lives: an https:// URL, and on github.com a repository URL. Only a GitHub repository gives a default installdir and releases to check in version 1; any other source needs listed_by, whose host and the name make its id."
     },
     "name": {
       "type": "string",
       "minLength": 1,
       "maxLength": 39,
-      "description": "what the list shows"
+      "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+      "description": "required; what the list shows"
     },
-    "summary": {
-      "type": "string",
-      "maxLength": 60,
-      "description": "one line; the repository's description otherwise"
-    },
-    "category": {
+    "type": {
       "enum": [
-        "game",
-        "emulator",
-        "app",
+        "homebrew",
         "plugin",
-        "demo"
+        "iso"
       ],
-      "description": "what this one app is; the list shows the plural"
+      "default": "homebrew",
+      "description": "optional; homebrew when missing: an EBOOT under PSP/GAME. plugin and iso are listed but not installed yet."
     },
-    "license": {
-      "type": "string",
-      "maxLength": 64,
-      "description": "an SPDX identifier; what GitHub reports otherwise"
-    },
-    "author": {
-      "type": "string",
-      "maxLength": 39,
-      "description": "a name; the repository's owner otherwise"
+    "tags": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 24,
+        "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])"
+      },
+      "description": "optional; up to 8 different words for what the app is, each 1 to 24 characters. game, emulator, app, plugin and demo are the ones the console has a tab for."
     },
     "installdir": {
       "type": "string",
       "pattern": "^PSP/GAME/(?!(?:[.]{1,2}|[.][Pp][Ss][Pp][Dd][Xx]-[Ss][Tt][Aa][Gg][Ee])(?![\\s\\S]))[A-Za-z0-9_.-]{1,32}(?![\\s\\S])",
-      "description": "where the package goes on the Memory Stick: the directory in the zip that holds the EBOOT.PBP, with everything beside and below it, is copied here. In version 1 it is PSP/GAME/<folder>, and the folder is the name the XMB shows; it is not ., .. or .pspdx-stage in any case, where the client stages an install; a later version may allow other places on the stick."
+      "description": "optional; PSP/GAME/<repository name> when missing; only for type homebrew. Where the package goes on the Memory Stick: the directory in the zip that holds the EBOOT.PBP, with everything beside and below it, is copied here. The folder is 1 to 32 of [A-Za-z0-9_.-], the name the XMB shows, and not ., .. or .pspdx-stage in any case, where the client stages an install."
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 60,
+      "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+      "description": "optional; one line; the repository's description otherwise"
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 60,
+      "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+      "description": "optional; a name; the repository's owner otherwise"
+    },
+    "license": {
+      "type": "string",
+      "maxLength": 60,
+      "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+      "description": "optional; free text, an SPDX identifier where there is one; what GitHub reports otherwise"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2500,
+      "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f]*(?![\\s\\S])",
+      "description": "optional; plain text, newlines allowed"
+    },
+    "listed_by": {
+      "type": "string",
+      "maxLength": 255,
+      "pattern": "^https://[^\\u0000-\\u001f]+(?![\\s\\S])",
+      "description": "optional; the https:// home page of the list that vouches for the app, set when a list serves this file for a repository that has none"
     }
   },
   "$defs": {}

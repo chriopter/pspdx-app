@@ -2,9 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chriopter.github.io/pspdx/schema/catalog-v1.json",
   "title": "PSPDX catalog v1",
-  "description": "Aggregated homebrew metadata, release packages and optional EBOOT media. Individual source manifests use schema/pspdx-v1.json.",
+  "description": "Aggregated homebrew metadata, releases and optional media. Individual manifests use schema/pspdx-v1.json; every field an app shares with it follows the same rule. Fields this schema does not name are allowed and ignored by the console, so a list can carry its own.",
   "type": "object",
-  "additionalProperties": false,
   "required": [
     "schema",
     "generated_at",
@@ -17,8 +16,8 @@
     "generated_at": {
       "type": "string",
       "format": "date-time",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
-      "description": "Time this catalog snapshot was published. Some apps may have been omitted if their source failed."
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z(?![\\s\\S])",
+      "description": "required; when this snapshot was published, UTC. Some apps may be missing if their source failed."
     },
     "apps": {
       "type": "array",
@@ -30,108 +29,228 @@
   "$defs": {
     "app": {
       "type": "object",
-      "additionalProperties": false,
       "required": [
         "id",
-        "name",
-        "author",
-        "summary",
-        "category",
-        "license",
         "source",
-        "installdir",
-        "release"
+        "name",
+        "releases"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "not": {
+                  "required": [
+                    "type"
+                  ]
+                }
+              },
+              {
+                "properties": {
+                  "type": {
+                    "const": "homebrew"
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "installdir"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "installdir"
+              ]
+            }
+          }
+        }
       ],
       "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)+(?![\\s\\S])",
+          "description": "Identity. A GitHub source is io.github.<owner>.<repository>; any other source is the host of listed_by with its labels reversed and a leading www. dropped, then the name. Every part is lowercased and stripped to [a-z0-9], and empty labels are dropped."
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 255,
+          "pattern": "^https://[^\\u0000-\\u001f]+(?![\\s\\S])",
+          "if": {
+            "pattern": "^https://github\\.com/"
+          },
+          "then": {
+            "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?(?![\\s\\S])"
+          },
+          "description": "required; where the project lives: an https:// URL, and on github.com a repository URL. Only a GitHub repository gives a default installdir and releases to check in version 1; any other source needs listed_by, whose host and the name make its id."
+        },
         "name": {
           "type": "string",
           "minLength": 1,
           "maxLength": 39,
-          "description": "what the list shows"
+          "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+          "description": "required; what the list shows"
         },
-        "author": {
-          "type": "string",
-          "maxLength": 39,
-          "description": "a name; the repository's owner otherwise"
-        },
-        "summary": {
-          "type": "string",
-          "maxLength": 60,
-          "description": "one line; the repository's description otherwise"
-        },
-        "category": {
+        "type": {
           "enum": [
-            "game",
-            "emulator",
-            "app",
+            "homebrew",
             "plugin",
-            "demo"
+            "iso"
           ],
-          "description": "what this one app is; the list shows the plural"
+          "default": "homebrew",
+          "description": "optional; homebrew when missing: an EBOOT under PSP/GAME. plugin and iso are listed but not installed yet."
         },
-        "license": {
-          "type": "string",
-          "maxLength": 64,
-          "description": "an SPDX identifier; what GitHub reports otherwise"
+        "tags": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 24,
+            "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])"
+          },
+          "description": "optional; up to 8 different words for what the app is, each 1 to 24 characters. game, emulator, app, plugin and demo are the ones the console has a tab for."
         },
         "installdir": {
           "type": "string",
           "pattern": "^PSP/GAME/(?!(?:[.]{1,2}|[.][Pp][Ss][Pp][Dd][Xx]-[Ss][Tt][Aa][Gg][Ee])(?![\\s\\S]))[A-Za-z0-9_.-]{1,32}(?![\\s\\S])",
-          "description": "where the package goes on the Memory Stick: the directory in the zip that holds the EBOOT.PBP, with everything beside and below it, is copied here. In version 1 it is PSP/GAME/<folder>, and the folder is the name the XMB shows; it is not ., .. or .pspdx-stage in any case, where the client stages an install; a later version may allow other places on the stick."
+          "description": "required for type homebrew, absent otherwise: the builder writes the .pspdx's installdir, or PSP/GAME/<repository name> for a GitHub source that has none. The directory in the zip that holds the EBOOT.PBP, with everything beside and below it, is copied here. The folder is 1 to 32 of [A-Za-z0-9_.-], not ., .. or .pspdx-stage in any case."
         },
-        "id": {
+        "summary": {
           "type": "string",
-          "pattern": "^io\\.github\\.[a-z0-9]+\\.[a-z0-9]+(?![\\s\\S])",
-          "description": "Repository identity: lowercase owner and repository with non-alphanumeric characters removed."
+          "maxLength": 60,
+          "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+          "description": "optional; one line; the repository's description otherwise"
         },
-        "source": {
+        "author": {
           "type": "string",
-          "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?(?![\\s\\S])",
-          "description": "The project source URL. Version 1 supports HTTPS GitHub repository URLs."
+          "maxLength": 60,
+          "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+          "description": "optional; a name; the repository's owner otherwise"
         },
-        "release": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "tag",
-            "published_at",
-            "download"
-          ],
-          "properties": {
-            "tag": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 31,
-              "description": "The original GitHub release tag."
-            },
-            "published_at": {
-              "type": "string",
-              "format": "date-time",
-              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
-              "description": "GitHub release publication time in UTC. Clients compare this to the installed release to find updates."
-            },
-            "download": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["url", "size", "sha256"],
-              "properties": {
-                "url": {"type": "string", "format": "uri", "pattern": "^https://", "description": "Author's GitHub release ZIP URL."},
-                "size": {"type": "integer", "minimum": 1, "description": "ZIP size in bytes."},
-                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}(?![\\s\\S])", "description": "SHA-256 of the ZIP bytes."}
-              }
-            }
-          }
+        "license": {
+          "type": "string",
+          "maxLength": 60,
+          "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+          "description": "optional; free text, an SPDX identifier where there is one; what GitHub reports otherwise"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2500,
+          "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f]*(?![\\s\\S])",
+          "description": "optional; plain text, newlines allowed"
+        },
+        "listed_by": {
+          "type": "string",
+          "maxLength": 255,
+          "pattern": "^https://[^\\u0000-\\u001f]+(?![\\s\\S])",
+          "description": "optional; the https:// home page of the list that vouches for the app, set when a list serves this file for a repository that has none"
+        },
+        "website": {
+          "type": "string",
+          "maxLength": 255,
+          "pattern": "^https://[^\\u0000-\\u001f]+(?![\\s\\S])",
+          "description": "optional; the project's own web page"
         },
         "media": {
           "type": "object",
-          "additionalProperties": false,
-          "description": "Optional EBOOT media URLs, absolute or relative to the catalog URL.",
+          "description": "optional; EBOOT media and pictures, URLs absolute or relative to the catalog URL",
           "properties": {
-            "icon": {"type": "string", "minLength": 1, "format": "uri-reference"},
-            "screenshot": {"type": "string", "minLength": 1, "format": "uri-reference"},
-            "video": {"type": "string", "minLength": 1, "format": "uri-reference"},
-            "sound": {"type": "string", "minLength": 1, "format": "uri-reference"}
+            "icon": {
+              "type": "string",
+              "minLength": 1,
+              "format": "uri-reference",
+              "description": "ICON0.PNG, 144x80"
+            },
+            "screenshots": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "format": "uri-reference"
+              },
+              "description": "PIC1.PNG or pictures of the app, 480x272; the console shows the first"
+            },
+            "video": {
+              "type": "string",
+              "minLength": 1,
+              "format": "uri-reference",
+              "description": "ICON1.PMF"
+            },
+            "sound": {
+              "type": "string",
+              "minLength": 1,
+              "format": "uri-reference",
+              "description": "SND0.AT3"
+            }
           }
+        },
+        "releases": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/release"
+          },
+          "description": "required; up to the 20 newest releases, newest first. The console installs and compares releases[0] only."
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "required": [
+        "tag",
+        "published_at",
+        "url",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+          "description": "required; the release's own tag, as the host names it"
+        },
+        "published_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z(?![\\s\\S])",
+          "description": "required; publication time in UTC, ISO 8601 with seconds. Clients compare it to the installed release to find updates."
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 512,
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "required; the release ZIP"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "required; ZIP size in bytes"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+          "description": "required; SHA-256 of the ZIP bytes"
+        },
+        "eboot_md5": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}(?![\\s\\S])",
+          "description": "optional; MD5 of the EBOOT.PBP inside, to recognise a version already on a stick"
+        },
+        "changelog": {
+          "type": "string",
+          "maxLength": 2500,
+          "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f]*(?![\\s\\S])",
+          "description": "optional; plain text, newlines allowed"
         }
       }
     }
