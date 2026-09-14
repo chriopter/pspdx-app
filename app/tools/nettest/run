@@ -3,9 +3,19 @@
 # same five megabytes, runs the test in PPSSPP, and prints what it logged.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$HERE/../.."
-TLS=/tmp/claude-1000/-home-christopher-git-pspdx/6c044938-f163-44cd-bbdd-f4ff8b5fccfb/scratchpad/tls
+APP="$(cd "$HERE/../.." && pwd)"
 MS="$HOME/.var/app/org.ppsspp.PPSSPP/config/ppsspp"
+LOG="$MS/PSP/PSPDX/LOGS/pspdx.log"
+
+# The CA, the loopback certificate and the header that makes the test trust
+# that CA alone are tools/localcat's; the header is copied here because the
+# Makefile forces it in by name. The five megabytes are served from the same
+# work directory, made once out of noise so nothing along the way can
+# compress them.
+. "$APP/tools/localcat/common.sh"
+localcat_certs
+cp "$WORK/testca.h" "$HERE/testca.h"
+[ -f "$WORK/5MB.bin" ] || head -c 5242880 /dev/urandom >"$WORK/5MB.bin"
 
 (cd "$APP" && docker run --rm -v "$PWD:/src" -w /src/tools/nettest pspdev/pspdev:latest \
 	sh -c 'rm -f *.o ../../network/https.o ../../util/runtime.o ../../logic/entropy.o; make' 2>&1 | grep -E 'error|EBOOT' || true)
@@ -14,7 +24,7 @@ MS="$HOME/.var/app/org.ppsspp.PPSSPP/config/ppsspp"
 # them with the real one next time.
 rm -f "$APP/network/https.o" "$APP/util/runtime.o" "$APP/logic/entropy.o"
 
-cd "$TLS"
+cd "$WORK"
 python3 -m http.server 8080 --bind 127.0.0.1 >/dev/null 2>&1 &
 RAW=$!
 python3 - <<'PY' &
@@ -31,15 +41,16 @@ sleep 1
 
 mkdir -p "$MS/PSP/GAME/nettest"
 cp "$HERE/EBOOT.PBP" "$MS/PSP/GAME/nettest/"
-rm -f "$MS/PSPDX.LOG"
+mkdir -p "$MS/PSP/PSPDX/LOGS"
+rm -f "$LOG"
 SDL_VIDEODRIVER=wayland setsid flatpak run --socket=wayland --share=network \
   --filesystem="$MS" org.ppsspp.PPSSPP --fullscreen=0 \
   "$MS/PSP/GAME/nettest/EBOOT.PBP" >"$HERE/ppsspp.out" 2>&1 &
 PID=$!
 for i in $(seq 1 90); do
 	sleep 1
-	grep -q '^done' "$MS/PSPDX.LOG" 2>/dev/null && break
+	grep -q '^done' "$LOG" 2>/dev/null && break
 done
 kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
 kill $RAW $TLSPID 2>/dev/null || true
-cat "$MS/PSPDX.LOG" 2>/dev/null || echo "no log"
+cat "$LOG" 2>/dev/null || echo "no log"
