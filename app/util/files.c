@@ -389,11 +389,40 @@ static void describe_source(struct file_view *v) {
     v->raw = 1;
 }
 
+/* A cached file is named by its app and its kind -- <id>-icon-<hash>.png --
+   and the row says it that way round: Icon of Lux Aeterna. The app's name
+   comes from its record where it is installed; otherwise the id has to do. */
+static void name_cached(struct file_row *r, const char *file) {
+    const char *kinds[] = { "-icon-", "-picture-", "-film-", "-sound-" };
+    const char *words[] = { T_CACHE_ICON, T_CACHE_PICTURE, T_CACHE_FILM, T_CACHE_SOUND };
+    for (int k = 0; k < 4; k++) {
+        const char *at = strstr(file, kinds[k]);
+        if (!at) continue;
+        char id[96], app[64];
+        snprintf(id, sizeof(id), "%.*s", (int)(at - file), file);
+        struct pspdx_file f;
+        char *raw = NULL;
+        if (state_read_manifest(id, &raw, &f) >= 0) snprintf(app, sizeof(app), "%s", f.name);
+        else {
+            const char *dot = strrchr(id, '.');
+            snprintf(app, sizeof(app), "%s", dot ? dot + 1 : id);
+        }
+        free(raw);
+        snprintf(r->name, sizeof(r->name), words[k], app);
+        return;
+    }
+    size_t len = strlen(file);
+    if (len > 5 && !strcasecmp(file + len - 5, ".json"))
+        snprintf(r->name, sizeof(r->name), "%s", T_CACHE_CATALOG);
+}
+
 static void fill_files(struct file_view *v, int area) {
     v->count = 0;
     if (area == A_CACHE) {
-        list_dir(v, "CACHE/catalogs", "catalogs/");
-        list_dir(v, "CACHE/media", "media/");
+        int from = v->count;
+        list_dir(v, "CACHE/catalogs", "");
+        list_dir(v, "CACHE/media", "");
+        for (int i = from; i < v->count; i++) name_cached(&v->row[i], v->row[i].name);
     } else {
         list_dir(v, AREA[area].dir + 10, "");
     }
@@ -426,7 +455,7 @@ static int listing_areas(const struct file_view *v) {
 }
 
 static void describe(struct file_view *v) {
-    v->deeper = v->count > 0 && (listing_areas(v) || (v->level == 1 && v->area == A_INSTALLED));
+    v->deeper = v->count > 0 && (listing_areas(v) || v->row[v->cursor].name[strlen(v->row[v->cursor].name) - 1] != '/');
     if (v->count == 0) {
         snprintf(v->head, sizeof(v->head), "%s", AREA[v->area].name);
         snprintf(v->note, sizeof(v->note), "%s", AREA[v->area].note);
@@ -454,7 +483,7 @@ void files_open(struct file_view *v) {
 }
 
 void files_move(struct file_view *v, int by) {
-    if (v->count == 0 || v->level == 3 || (v->level == 2 && !v->group)) return;
+    if (v->count == 0 || v->band || (v->level == 2 && !v->group)) return;
     v->cursor = (v->cursor + by + v->count) % v->count;
     settle(v);
 }
@@ -489,11 +518,9 @@ int files_enter(struct file_view *v) {
         return 1;
     }
     if (v->level == 1 && v->area == A_INSTALLED) {
-        /* The two files themselves, one after the other. */
+        /* The two files themselves, laid out, in the band. */
         const char *id = g_id[v->cursor];
         char rel[128];
-        v->level = 2;
-        snprintf(v->note, sizeof(v->note), "%s", T_APP_FILES_NOTE);
         clear_text(v);
         snprintf(rel, sizeof(rel), "INSTALLED/%s.*", id);
         at_path(v, rel);
@@ -505,8 +532,11 @@ int files_enter(struct file_view *v) {
         put(v, "%s.state.json", id);
         read_text(v, rel, 0, 1);
         v->raw = 1;
+        v->band = 1;
         return 1;
     }
+    /* Anything else that has bytes: those, as they are. */
+    return files_raw(v);
     return 0;
 }
 
@@ -529,7 +559,7 @@ int files_raw(struct file_view *v) {
         clear_text(v);
         at_path(v, "sources.txt");
         read_text(v, "sources.txt", 0, 0);
-    } else if (v->level == 2 && !v->group) {
+    } else if (listing_areas(v)) {
         return 0;
     } else {
         const struct file_row *r = &v->row[v->cursor];
@@ -540,15 +570,14 @@ int files_raw(struct file_view *v) {
         else read_text(v, g_path[v->cursor], 0, 0);
     }
     v->raw = 1;
-    v->level = v->group ? 3 : 2;
-    v->deeper = 0;
+    v->band = 1;
     return 1;
 }
 
 int files_back(struct file_view *v) {
-    if (v->level == 3) {
-        /* Out of the raw bytes, onto the row they belong to. */
-        v->level = 2;
+    if (v->band) {
+        /* The band down, the columns as they were. */
+        v->band = 0;
         settle(v);
         return 1;
     }

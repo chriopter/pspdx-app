@@ -198,9 +198,8 @@
 #define T_FILES_NONE         "none"
 #define T_HINT_OPEN          "Open"
 #define T_HINT_SCROLL        "Scroll"
-#define T_SUB_FILES          "File"
-#define T_SUB_VIEW_RAW       "View raw file"
-#define T_HINT_OPTIONS       "Options"
+#define T_HINT_OPEN_RAW      "Open"
+#define T_HINT_STICK_SCROLL  "Scroll"
 
 /* The areas, in the order a person asks about them. */
 #define T_AREA_SYSTEM        "System"
@@ -222,6 +221,11 @@
 #define T_AREA_SEED_NOTE     "The random seed for secure connections. Never shown."
 #define T_AREA_DEBUG_NOTE    "Screenshots and test files for development."
 #define T_KIND_CATALOG       "Catalog"
+#define T_CACHE_ICON         "Icon of %s"                         /* app */
+#define T_CACHE_PICTURE      "Picture of %s"                      /* app */
+#define T_CACHE_FILM         "Video of %s"                        /* app */
+#define T_CACHE_SOUND        "Sound of %s"                        /* app */
+#define T_CACHE_CATALOG      "Catalog"
 #define T_KIND_LIST          "Repository list"
 #define T_KIND_REPO          "Repository"
 #define T_APP_INSTALLED      "Installed: %s"                      /* version */

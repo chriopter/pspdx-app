@@ -154,6 +154,7 @@ struct file_view {
     int area;
     int group;                          /* the system areas are one row on top, opened as a list */
     int deeper;                         /* X opens the row under the cursor */
+    int band;                           /* the raw bytes are up, in a band over the columns */
     char head[40];                      /* over the right column */
     char path[128];                     /* where on the stick, in full, under it */
     char image[160];                    /* a PNG to show instead of lines, or "" */

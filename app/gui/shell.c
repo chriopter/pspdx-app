@@ -593,7 +593,7 @@ static void draw_action_row(int y, int selected, float t) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[SHELL_SETTINGS] = {
-        MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_UPDATE, MARK_INFO,
+        MARK_DOWNLOAD, MARK_BASKET, MARK_UPDATE, MARK_STICK, MARK_INFO,
     };
     float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     enum mark m = (enum mark)SIGN[n];
@@ -1249,8 +1249,8 @@ static void read_storage(void) {
 static const char *const SETTING[SHELL_SETTINGS] = {
     T_SET_SOURCES,
     T_SET_DIRECT,
-    T_SET_FILES,
     T_SET_RESET,
+    T_SET_FILES,
     T_SET_INFO,
 };
 
@@ -1259,8 +1259,8 @@ static const char *const SETTING[SHELL_SETTINGS] = {
 static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
     T_NOTE_SOURCES,
     T_NOTE_DIRECT,
-    T_NOTE_FILES,
     T_NOTE_RESET,
+    T_NOTE_FILES,
     T_NOTE_INFO,
 };
 
@@ -1500,6 +1500,7 @@ void shell_files(const struct file_view *view) { g_files = view; }
    are laid out at a fixed width, since a record is one long line of JSON
    with nothing to break at; everything else is a line a row. */
 #define FILE_ROW_H 26
+static void draw_raw_band(void);
 #define FILE_TEXT_COLS 40
 #define FILE_TEXT_STEP 13
 
@@ -1634,10 +1635,48 @@ static void draw_files(float t) {
        the lines when there are more than fit. */
     float hx = LIST_X;
     if (v->deeper) hx = draw_hint(hx, FOOTER_BASE, MARK_CROSS, T_HINT_OPEN, g_dim);
+    if (v->band) { draw_raw_band(); return; }
     hx = draw_hint(hx, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
-    if (v->level > 0 && v->level < 3 && !(v->level == 1 && v->group))
-        hx = draw_hint(hx, FOOTER_BASE, MARK_TRIANGLE, T_HINT_OPTIONS, g_dim);
     if (v->text_lines > room) draw_hint(hx, FOOTER_BASE, MARK_L, T_HINT_SCROLL, g_dim);
+}
+
+/* The raw bytes of a file, in a band over the dimmed columns like the
+   Information band: as many fixed-width lines as fit, from the one the
+   stick has scrolled to. */
+#define RAW_COLS 66
+#define RAW_STEP 12
+
+static void draw_raw_band(void) {
+    const struct file_view *v = g_files;
+    draw_band(INFO_Y, INFO_H);
+    int x = 40, w = SCR_W - 80, y = INFO_Y + 14;
+    font_print_clipped(FONT_BODY, x, y + 12, w, g_text, v->head);
+    font_print_clipped(FONT_META, x, y + 26, w, faded(g_dim, 170), v->path);
+    band_rule(y + 34, 200, 120);
+    y += 44;
+    int room = (INFO_Y + INFO_H - 22 - y) / RAW_STEP;
+    const char *p = v->text;
+    int line = 0;
+    while (*p && line < v->text_first + room) {
+        const char *end = strchr(p, '\n');
+        int len = end ? (int)(end - p) : (int)strlen(p);
+        do {
+            int take = len > RAW_COLS ? RAW_COLS : len;
+            if (line >= v->text_first) {
+                char chunk[RAW_COLS + 1];
+                memcpy(chunk, p, (size_t)take);
+                chunk[take] = '\0';
+                font_print(FONT_META, x, y + (line - v->text_first) * RAW_STEP, g_text, chunk);
+            }
+            p += take;
+            len -= take;
+            line++;
+        } while (len > 0 && line < v->text_first + room);
+        if (end && *p == '\n') p++;
+        else if (!end) break;
+    }
+    float hw = hint_width(MARK_CIRCLE, T_HINT_BACK);
+    draw_hint(SCR_W / 2 - hw / 2, INFO_Y + INFO_H - 8, MARK_CIRCLE, T_HINT_BACK, g_dim);
 }
 
 void shell_draw(const struct catalog *catalog, int cursor) {
