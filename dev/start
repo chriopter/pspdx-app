@@ -87,8 +87,15 @@ fi
 # PPSSPP opens through the difference but does not delete through it, so a
 # journal left in the old tmp survived its own recovery. The old name goes.
 [ -d "$MS/PSP/PSPDX/tmp" ] && [ ! -d "$MS/PSP/PSPDX/TMP" ] && mv "$MS/PSP/PSPDX/tmp" "$MS/PSP/PSPDX/TMP"
-mkdir -p "$MS/PSP/PSPDX/CRYPTO" "$MS/PSP/PSPDX/LOGS" "$MS/PSP/PSPDX/DEBUG" "$MS/PSP/GAME/pspdx" "$MS/PSP/PSPDX/DEBUG/font" "$MS/PSP/PSPDX/CACHE/media"
-cp "$APP/EBOOT.PBP" "$MS/PSP/GAME/pspdx/"
+# The client lives where its release puts it, PSP/GAME/PSPDX. PPSSPP over a
+# case-sensitive host opens pspdx and PSPDX as one folder but renames them as
+# two, which once left a self-update unable to put the new client in place;
+# a folder under the old lower-case name moves over once.
+if [ -d "$MS/PSP/GAME/pspdx" ] && [ ! -d "$MS/PSP/GAME/PSPDX" ]; then
+	mv "$MS/PSP/GAME/pspdx" "$MS/PSP/GAME/PSPDX"
+fi
+mkdir -p "$MS/PSP/PSPDX/CRYPTO" "$MS/PSP/PSPDX/LOGS" "$MS/PSP/PSPDX/DEBUG" "$MS/PSP/GAME/PSPDX" "$MS/PSP/PSPDX/DEBUG/font" "$MS/PSP/PSPDX/CACHE/media"
+cp "$APP/EBOOT.PBP" "$MS/PSP/GAME/PSPDX/"
 
 FONTS="$(flatpak info --show-location org.ppsspp.PPSSPP 2>/dev/null)/files/share/ppsspp/assets/flash0/font"
 [ -f "$FONTS/ltn8.pgf" ] && cp "$FONTS/ltn8.pgf" "$MS/PSP/PSPDX/DEBUG/font/ltn8.pgf"
@@ -164,7 +171,7 @@ cp "$HERE/dev/ppsspp/controls.ini" "$MS/PSP/SYSTEM/controls.ini"
 systemd-run --user --collect --quiet --unit="$UNIT" \
   --setenv=SDL_VIDEODRIVER=wayland --setenv=WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}" \
   flatpak run --socket=wayland --share=network $AUDIO --env=PSPDX_OWNER="$OWNER" --filesystem="$MS" \
-  org.ppsspp.PPSSPP --fullscreen=0 "$MS/PSP/GAME/pspdx/EBOOT.PBP"
+  org.ppsspp.PPSSPP --fullscreen=0 "$MS/PSP/GAME/PSPDX/EBOOT.PBP"
 sleep 3
 # Said only when it is true: the unit is running and the emulator is a
 # process. A start that was refused, or an instance that died in its first

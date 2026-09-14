@@ -48,11 +48,18 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
-mkdir -p "$MS/PSP/GAME/pspdx"
+# The client lives where its release puts it, PSP/GAME/PSPDX. PPSSPP over a
+# case-sensitive host opens pspdx and PSPDX as one folder but renames them as
+# two, which once left a self-update unable to put the new client in place;
+# a folder under the old lower-case name moves over once.
+if [ -d "$MS/PSP/GAME/pspdx" ] && [ ! -d "$MS/PSP/GAME/PSPDX" ]; then
+	mv "$MS/PSP/GAME/pspdx" "$MS/PSP/GAME/PSPDX"
+fi
+mkdir -p "$MS/PSP/GAME/PSPDX"
 # EBOOT names another build to run instead of the one beside this script:
 # a campaign copies its own aside, so a rebuild in app/ meanwhile -- by a
 # hand, by another agent -- cannot swap the client under it.
-cp "${EBOOT:-$HERE/EBOOT.PBP}" "$MS/PSP/GAME/pspdx/EBOOT.PBP"
+cp "${EBOOT:-$HERE/EBOOT.PBP}" "$MS/PSP/GAME/PSPDX/EBOOT.PBP"
 
 # PPSSPP ships the PSP system fonts but does not mount flash0 for the guest,
 # so put one where the client's fallback looks. Test rig only: on hardware the
@@ -123,7 +130,7 @@ RIG="rig-$$"
 SDL_VIDEODRIVER=wayland setsid flatpak run --socket=wayland --share=network \
   --nosocket=pulseaudio --env=PSPDX_RIG="$RIG" \
   --filesystem="$MS" org.ppsspp.PPSSPP --fullscreen=0 \
-  "$MS/PSP/GAME/pspdx/EBOOT.PBP" >"$HERE/ppsspp.out" 2>&1 &
+  "$MS/PSP/GAME/PSPDX/EBOOT.PBP" >"$HERE/ppsspp.out" 2>&1 &
 PID=$!
 sleep "$SECS"
 for p in $(pgrep -x PPSSPPSDL); do
