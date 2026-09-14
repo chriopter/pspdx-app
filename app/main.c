@@ -817,7 +817,7 @@ static void discard_unfinished(void) {
 static int type_source(int install) {
     char text[SOURCE_URL], url[SOURCE_URL];
     int rc = osk_read(install ? "Install from GitHub: owner/repo"
-                              : "Add catalog: HTTPS catalog.json URL", "", text, sizeof(text));
+                              : "Add source: catalog.json, list or repository URL", "", text, sizeof(text));
     if (rc <= 0 || !text[0]) return 0;
     rc = sources_normalize(text,url,sizeof(url));
     struct source_repo parsed;
