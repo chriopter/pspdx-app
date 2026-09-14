@@ -137,117 +137,153 @@ a different catalog; the client retains installed apps independently.
 <details>
 <summary>Sources (catalogs, repositories, INBOX)</summary>
 
-The default source is `https://chriopter.github.io/pspdx-catalog/`. PSPDX
-reads `catalog.json` for fast browsing. If it fails, PSPDX reads `catalog.txt`
-from the same site and checks its listed repositories directly. If both fail,
-it uses a saved catalog when available. A site with only `catalog.txt` also
-works without a builder. Settings accepts additional sources:
+#### Where apps come from
 
-| Input | Result |
-|---|---|
-| HTTPS catalog site URL, `catalog.json` or text repository list | Browse all listed apps. |
-| GitHub URL or `owner/repo` under **Direct install** | Add the repository as a source and install its app. |
-| `.pspdx` files in `PSP/PSPDX/INBOX/` | Validate and install selected files. |
+| Source | Added through | Result |
+|---|---|---|
+| Catalog site URL, `catalog.json` or text repository list | **Add sources** | Browse all listed apps |
+| GitHub URL or `owner/repo` | **Direct install** | Add the repository as a source and install its app |
+| `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct install** | Validate and install the selected files |
 
-Catalogs and repositories are validated before being added to `sources.txt`.
-Adding a catalog does not install its apps; Direct install and INBOX import
-do. Installed apps keep their own manifests and state if a source is removed.
+- Default source: `https://chriopter.github.io/pspdx-catalog/`
+- Sources are validated before they land in `PSP/PSPDX/sources.txt`
+- Adding a catalog installs nothing; Direct install and INBOX do
+- Removing a source keeps installed apps, their manifests and state
+
+#### Reading a catalog site
+
+```text
+catalog.json  ->  ok: browse
+   | fail
+catalog.txt   ->  ok: check each listed repository directly
+   | fail
+saved copy    ->  ok: browse the last snapshot
+```
+
+A site with only `catalog.txt` works without a builder.
 
 </details>
 
 <details>
 <summary>Install and update (checks, recovery)</summary>
 
-**Install:** select an app with **×** and confirm. PSPDX verifies that its
-`.pspdx` source and `installdir` match the selected entry, then downloads the
-author's release ZIP. It checks size, available SHA-256, ZIP integrity and
-paths before installing the folder containing the single `EBOOT.PBP`.
-An unmanaged folder in the way is never adopted or overwritten; PSPDX offers
-to move it to `<dir>.bak` first.
+#### Install
 
-**Check:** at startup, or through **Check for updates** in settings, PSPDX
-compares each installed release's `published_at` with the available release.
-Version strings are not used for update detection, except for PSPDX's own
-first-start record, which has no timestamp yet.
+```text
+x on app -> confirm -> verify .pspdx source + installdir
+         -> download release ZIP -> check size, SHA-256, ZIP, paths
+         -> stage -> swap into PSP/GAME/<dir> -> write state
+```
 
-| Case | Release lookup |
+- Only the folder holding the single `EBOOT.PBP` is installed
+- An unmanaged folder in the way is never adopted or overwritten; PSPDX offers to move it to `<dir>.bak`
+- A transaction journal covers files, manifest and state; an interrupted install recovers at the next start
+
+#### Check
+
+Runs at startup and on **Check for updates**. An update is a newer
+`published_at` than the installed one. Version strings are not compared,
+except for PSPDX's own first-start record, which has no timestamp yet.
+
+```text
+catalog entry usable?  -> yes: use it, skip GitHub
+                       -> no:  ask the app's saved GitHub source
+GitHub unavailable too -> keep the last known release, record no check
+```
+
+| Override | Effect |
 |---|---|
-| A configured catalog has a usable entry | Use it; skip the GitHub release lookup. |
-| No usable entry, including an unreachable or invalid catalog | Check the app's saved GitHub source; cached catalog data can still be browsed. |
-| App added through INBOX or a repository | Check its saved GitHub source unless a configured catalog now covers it. |
-| **□** on **Check for updates** | Query GitHub for installed apps, bypassing catalog release data. |
-| **△ → Updates: original source** on one app | Always check that app's GitHub repository directly; **Updates: catalog first** restores the default. PSPDX itself starts in direct mode. |
-| GitHub also unavailable | Keep the last known release; do not record a successful check. |
+| **□** on **Check for updates** | Ask GitHub for every installed app, bypassing catalog data |
+| **△ → Updates: original source** on one app | Always ask that app's repository; **Updates: catalog first** restores the default. PSPDX itself starts in direct mode |
 
-A reachable catalog is treated as current even if its publisher stopped
-updating it. PSPDX says so when the catalog is a day old; press **□** on
-**Check for updates** then. An old cached entry is not evidence of a current
-release.
+A reachable catalog counts as current even if its publisher stopped updating
+it. PSPDX says so once the catalog is a day old; press **□** then.
 
-**Apply:** checking never installs an update. Confirm one with **×**. A
-transaction journal covers the installed files, manifest and state so an
-interrupted install can recover. INBOX batches skip conflicts; only successful
-imports leave INBOX. Hold **○** to stop between packages. Self-updates run last;
-restart PSPDX afterward.
+#### Apply
 
-**△** options · **○** back · **□** basket · **START** run · **L/R** or **←/→** tabs.
+- Checking never installs; confirm an update with **×**
+- Batches: hold **○** to stop between packages; INBOX skips conflicts, only successful imports leave INBOX
+- Self-updates run last; restart PSPDX afterward
+
+#### Keys
+
+**×** install, confirm · **△** options · **○** back · **□** basket · **START** run · **L/R** or **←/→** tabs
 
 </details>
 
 <details>
 <summary>Network (HTTPS, TLS 1.3, offline)</summary>
 
-PSPDX uses the first saved PSP network profile. Catalogs, GitHub checks and
-ZIP downloads use HTTPS. A catalog returns release data for many apps in one
-request; direct checks read `.pspdx` from `raw.githubusercontent.com` and
-releases from `api.github.com`. Missing author, summary or license fields may
-require a repository metadata request. ZIPs follow GitHub asset redirects.
-PSPDX briefly reuses TLS connections to the same host, including GitHub's
-Raw and API hosts; a closed or expired connection is reopened automatically.
+#### Requests
 
-wolfSSL uses TLS 1.3, bundled CAs, certificate-chain and hostname checks,
-with X25519 preferred. Analog-stick entropy and `CRYPTO/seed.bin` feed its
-random generator. Certificate dates are not checked, because the PSP clock
-cannot be trusted; the other checks remain. Packages are not signed. A
-catalog SHA-256 checks ZIP integrity, not author identity.
+```text
+catalog   ->  one request, release data for every app
+direct    ->  raw.githubusercontent.com   .pspdx
+          ->  api.github.com              latest release
+                                          + repository metadata when author, summary or license are missing
+download  ->  release ZIP, following GitHub asset redirects
+```
 
-Refresh runs in the background. Installation pauses network previews because
-they share the network stack. Cached browsing works offline; fresh release
-checks and downloads require a connection.
+- First saved PSP network profile
+- Everything over HTTPS
+- TLS connections to the same host are briefly reused; a closed or expired one is reopened
+
+#### TLS
+
+- wolfSSL, TLS 1.3 only, X25519 preferred
+- Bundled CAs, certificate-chain and hostname checks
+- Certificate dates are not checked: the PSP clock cannot be trusted
+- Entropy: analog-stick sweeps and `CRYPTO/seed.bin`
+- Packages are not signed; a catalog SHA-256 checks ZIP integrity, not author identity
+
+#### Offline
+
+- Refresh runs in the background; installing pauses network previews, they share the network stack
+- Cached browsing works offline; release checks and downloads need a connection
 
 </details>
 
 <details>
 <summary>Catalog (updates, previews, cache)</summary>
 
-The reference catalog's hourly workflow reads its `repos.txt` and publishes
-it as `catalog.txt`. For a new release it reads `.pspdx`, hashes the ZIP and
-extracts valid EBOOT media; unchanged releases reuse their entries. It
-publishes `catalog.json` with app
-metadata, source, install path, release timestamp, ZIP URL, size, hash and
-media URLs. A push or manual run also picks up manifest-only edits; ordinary
-hourly runs wait for a new release. A build with no valid apps leaves the live
-site in place.
+#### What the builder does
 
-PSPDX compares each catalog release timestamp with the local app's
-`installed.published_at` to mark updates. The catalog does not know what is
-installed on your PSP. New updates appear after the catalog publishes and the
-PSP refreshes; ZIPs still download from the author's release.
+```text
+hourly:  repos.txt -> catalog.txt
+         new release?  -> read .pspdx -> hash ZIP -> extract EBOOT media
+         unchanged?    -> reuse the entry
+         -> publish catalog.json
+```
 
-The catalog hosts optional `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3`
-separately, avoiding a ZIP download for previews. Installed EBOOT media takes
-priority, then cached/catalog media. Direct GitHub lookups use installed media,
-existing cache or placeholders; they do not fetch new previews.
+- `catalog.json` carries metadata, source, install path, release timestamp, ZIP URL, size, hash and media URLs
+- A push or manual run also picks up manifest-only edits; hourly runs wait for a release
+- A build with no valid apps leaves the live site in place
 
-Responses live in `PSP/PSPDX/CACHE/catalogs/`, media in `CACHE/media/`. A failed
-fetch keeps the last usable catalog for browsing; installed apps check their
-saved GitHub source. Offline, only saved records and media are available. Both
-caches can be deleted without losing installation state.
+#### How an update shows
+
+- PSPDX compares the catalog's release timestamp with `installed.published_at`
+- The catalog does not know what is on your PSP
+- The update appears after the catalog publishes and the PSP refreshes; the ZIP still comes from the author's release
+
+#### Previews
+
+- The catalog hosts `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3` separately: no ZIP download for a preview
+- Priority: installed EBOOT media -> cached or catalog media -> placeholder
+- Direct GitHub lookups fetch no new previews
+
+#### Cache
+
+- Catalogs in `PSP/PSPDX/CACHE/catalogs/`, media in `CACHE/media/`
+- Failed fetch: the last usable catalog stays for browsing; installed apps ask their saved GitHub source
+- Offline: saved records and media only
+- Both caches can be deleted without losing installation state
 
 </details>
 
 <details>
 <summary>Memory Stick (manifests, state, cache)</summary>
+
+#### Layout
 
 Example on the startup device (`ms0:` or `ef0:`); app IDs are illustrative.
 Temporary and debug files appear only when used.
@@ -297,36 +333,44 @@ ms0:/
         └── CRYPTO/seed.bin
 ```
 
-`INSTALLED/<app-id>.pspdx` preserves the source independently of
-`sources.txt`. Its adjacent `<app-id>.state.json` has no outer app-ID key:
+#### App state
+
+`INSTALLED/<app-id>.pspdx` keeps the source independently of `sources.txt`.
+`<app-id>.state.json` next to it has no outer app-ID key:
 
 | Field | Contents |
 |---|---|
-| `source`, `added_from` | Original repository and import route. |
-| `installed` | Version, `published_at`, install directory. |
-| `latest` | Version, `published_at`, download URL, size, optional SHA-256, last successful check time and source. |
-| `update_check` | Per-app lookup choice: `auto` (catalog first) or `source` (GitHub first). PSPDX defaults to `source`. |
+| `source`, `added_from` | Original repository and import route |
+| `installed` | Version, `published_at`, install directory |
+| `latest` | Version, `published_at`, download URL, size, optional SHA-256, last successful check time and source |
+| `update_check` | `auto` (catalog first) or `source` (GitHub first); PSPDX itself defaults to `source` |
 
-Install creates the state file. Successful install/update writes `installed`;
-a successful catalog/GitHub check writes `latest` without changing
-`installed`. Thus `installed.version = 1.0` and `latest.version = 1.1` means
-1.0 is still installed. Browsing creates no installation record. PSPDX
-registers its own running version at startup and copies its bundled `.pspdx`
-without an internet request. `added_from` does not determine
-future update checks; each operation writes only the affected app's state.
+```text
+install or update       ->  writes installed
+catalog or GitHub check ->  writes latest, leaves installed alone
+browse                  ->  writes nothing
+```
 
-Recoverable writes may leave `.new` or `.bak` files. Staging and backup stay
-under `GAME/` because PSP directory renames require the same parent. Keep
-`INSTALLED/` for updates; `CACHE/` is disposable. Do not delete a pending
-transaction's files. Only per-app state files are loaded; older combined
-state files are ignored. Corrupt app records are preserved and block writes.
+- `installed 1.0` with `latest 1.1` means 1.0 is still installed
+- PSPDX registers its own version at startup and copies its bundled `.pspdx`, no request needed
+- `added_from` does not steer future checks; each operation writes only its app's state
+
+#### Recovery and housekeeping
+
+- Recoverable writes may leave `.new` or `.bak` files
+- Staging and backup stay under `GAME/`: PSP renames need the same parent
+- Keep `INSTALLED/`; `CACHE/` is disposable; never delete a pending transaction's files
+- Only per-app state files load; older combined state files are ignored
+- Corrupt records are preserved and block writes
 
 </details>
 
 ## Development
 
 <details>
-<summary>Build, code layout and tests</summary>
+<summary>Build and run (Docker, PPSSPP)</summary>
+
+#### Build
 
 Inside the `pspdev/pspdev:latest` container, or with `$PSPDEV`, cmake and
 wget on the host:
@@ -336,19 +380,34 @@ sh app/wolfssl-psp/build.sh
 make -C app
 ```
 
-The build produces `app/EBOOT.PBP`. It uses wolfSSL, cJSON, intraFont, libpng,
-zlib and PSP SDK libraries; CI builds inside `pspdev/pspdev:latest`.
-`dev/start` builds and launches the client in the configured PPSSPP setup;
-`dev/start --no-build` launches an existing build unless that build was made
-against the mock catalog, which is rebuilt regardless. `dev/start --mock`
-runs against the local mock catalog. These scripts assume Linux with Docker,
-the PPSSPP Flatpak, Python, a systemd user session and Wayland.
-`dev/release <version> [notes]` builds and publishes a GitHub release with
-`gh` from a clean `master` checkout.
+- Output: `app/EBOOT.PBP`
+- Libraries: wolfSSL, cJSON, intraFont, libpng, zlib, PSP SDK
+- CI builds inside `pspdev/pspdev:latest`
 
-`dev/start` installs `dev/ppsspp/controls.ini`: × S, ○ D, □ A, △ W,
-START Enter, SELECT Space, L Q, R E; arrow keys for the d-pad, I/J/K/L
-for the analog stick.
+#### Run in the emulator
+
+```text
+dev/start             ->  build in Docker -> install on the PPSSPP stick -> launch
+dev/start --no-build  ->  launch the existing build (a mock-catalog build is rebuilt anyway)
+dev/start --mock      ->  the same against the local mock catalog
+dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh release
+```
+
+- Needs Linux, Docker, the PPSSPP Flatpak, Python, a systemd user session and Wayland; `dev/release` also `gh`
+- `dev/start` installs `dev/ppsspp/controls.ini`
+
+| PSP | Key |
+|---|---|
+| × ○ □ △ | S D A W |
+| START, SELECT | Enter, Space |
+| L, R | Q, E |
+| d-pad | arrow keys |
+| analog stick | I J K L |
+
+</details>
+
+<details>
+<summary>Code layout</summary>
 
 | Location | Responsibility |
 |---|---|
@@ -364,49 +423,68 @@ for the analog stick.
 | `app/testdata/` | Input traces for the entropy screen |
 | `dev/`, `app/tools/` | Local builds, emulator fixtures and asset generators |
 
+</details>
+
+<details>
+<summary>Tests (host, emulator soak)</summary>
+
+#### Host tests
+
 ```sh
 sh app/tests/run
+```
+
+- Needs a C compiler, Python, cJSON, zlib and OpenSSL development files
+- Runs the client code with address and undefined-behavior sanitizers
+- A filesystem adapter simulates power cuts
+
+#### Emulator soak
+
+```sh
 python3 app/tools/soak/run.py --runs 100 --seed 1
 python3 app/tools/soak/run.py --perf 20
 python3 app/tools/soak/run.py --edge 30
+python3 app/tools/soak/scenarios.py --seed 1 --run 7   # print one input sequence
 ```
 
-The host tests need a C compiler, Python, cJSON, zlib and OpenSSL development
-files. They run the client code with address/undefined-behavior sanitizers
-and a filesystem adapter that supports simulated power cuts.
+```text
+mock catalog -> fixture build with a local CA -> scripted input in PPSSPP -> compare the stick with the model
+```
 
-The emulator soak tools use the local mock catalog, Docker, PPSSPP Flatpak
-and user systemd services. They build a fixture-enabled client with a local
-CA, run scripted inputs and compare the resulting installations with a
-model. Failure artifacts are written under `app/tools/soak/results/`.
-`scenarios.py --seed 1 --run 7` prints a reproducible input sequence.
-Fixture builds are for local testing only. Host and emulator tests do not
-replace real PSP storage, WLAN and power-loss testing.
+- Needs Docker, the PPSSPP Flatpak and user systemd services
+- Failures land under `app/tools/soak/results/`
+- Fixture builds are for local testing only
+- Neither replaces real PSP storage, WLAN and power-loss testing
 
 </details>
 
 <details>
-<summary>Regenerating icons and EBOOT media</summary>
+<summary>Icons and EBOOT media (assets)</summary>
 
 From `app/`:
 
 ```sh
-sh tools/marks/render.sh
-python3 tools/marks/embed.py
+sh tools/marks/render.sh                                   # SVG -> PNG
+python3 tools/marks/embed.py                               # PNG -> gui/marks_data.h
 sh tools/eboot-media/make-icon1.sh demo.mp4 assets/icon1.pmf
 sh tools/eboot-media/make-snd0.sh theme.wav assets/snd0.at3
 ```
 
-The GUI glyph sources are in `app/assets/marks/src/`. Rendering needs
-`rsvg-convert` and ImageMagick; packing the PNGs into `gui/marks_data.h`
-needs only Python. SVGs, generated PNGs and the atlas header are committed,
-so normal builds need no graphics-generation tools. A new glyph also needs
-matching entries in the generator's `ORDER` and `enum mark`.
+#### GUI glyphs
 
-EBOOT media generation needs ffmpeg. Video also needs a C compiler; audio
-also needs Python and `atracdenc`. Both scripts accept a start offset as
-their third argument; `DURATION` controls length. Video defaults to six
-seconds at 144×80, `FPS` adjustable; audio defaults to eighteen seconds of
-ATRAC3 at 132 kbps, `BITRATE` 132 or 66.
+- Sources in `app/assets/marks/src/`
+- Rendering needs `rsvg-convert` and ImageMagick; packing needs only Python
+- SVGs, PNGs and the atlas header are committed, so normal builds need no graphics tools
+- A new glyph needs matching entries in the generator's `ORDER` and `enum mark`
+
+#### EBOOT media
+
+| | Video (`ICON1.PMF`) | Audio (`SND0.AT3`) |
+|---|---|---|
+| Needs | ffmpeg, C compiler | ffmpeg, Python, `atracdenc` |
+| Default | 6 s at 144×80 | 18 s ATRAC3 at 132 kbps |
+| Knobs | `DURATION`, `FPS` | `DURATION`, `BITRATE` 132 or 66 |
+
+Both scripts take a start offset as their third argument.
 
 </details>
