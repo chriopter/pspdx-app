@@ -460,11 +460,13 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 | `app/util/` | Storage paths, PBP access and runtime helpers |
 | `app/util/files.c` | What Manage Data reads off the stick: sources, installs, INBOX, the client's own files, filled into the view `gui/files_view.c` draws |
 | `app/ca-extra/` | Extra root certificates folded into the CA bundle |
-| `app/testdata/` | Input traces for the entropy screen |
-| `app/tests/` | Host tests: the parsers, the records and the installer, with power cuts |
-| `app/run-ppsspp.sh` | The rig: one emulator run with scripted keys, leaving the log and screenshots |
-| `app/tools/soak` | Soak campaigns in the emulator, checked against a model of the client |
-| `dev/`, `app/tools/` | Local builds, emulator fixtures and asset generators |
+| `tests/` | Host tests: the parsers, the records and the installer, with power cuts |
+| `dev/` | Developing PSPDX: `start`, `release`, the mock catalog, the emulator settings, and the generators (`marks/`, `make-ca-bundle.py`, `render-music.c`, `sweep-trace.py`) |
+| `dev/rig` | The rig: one emulator run with scripted keys, leaving the log and screenshots |
+| `dev/soak/` | Soak campaigns in the emulator, checked against a model of the client |
+| `dev/localcat/`, `dev/nettest/` | The loopback catalog with its throwaway CA, and the network test |
+| `dev/testdata/` | Input traces for the entropy screen |
+| `tools/` | For app authors, not for PSPDX: the EBOOT media scripts and the PSMF wrapper |
 
 </details>
 
@@ -474,7 +476,7 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 #### Host tests
 
 ```sh
-sh app/tests/run
+sh tests/run
 ```
 
 - Needs a C compiler, Python, cJSON, zlib and OpenSSL development files
@@ -484,10 +486,10 @@ sh app/tests/run
 #### Emulator soak
 
 ```sh
-python3 app/tools/soak/run.py --runs 100 --seed 1
-python3 app/tools/soak/run.py --perf 20
-python3 app/tools/soak/run.py --edge 30
-python3 app/tools/soak/scenarios.py --seed 1 --run 7   # print one input sequence
+python3 dev/soak/run.py --runs 100 --seed 1
+python3 dev/soak/run.py --perf 20
+python3 dev/soak/run.py --edge 30
+python3 dev/soak/scenarios.py --seed 1 --run 7   # print one input sequence
 ```
 
 ```text
@@ -495,7 +497,7 @@ mock catalog -> fixture build with a local CA -> scripted input in PPSSPP -> com
 ```
 
 - Needs Docker, the PPSSPP Flatpak and user systemd services
-- Failures land under `app/tools/soak/results/`
+- Failures land under `dev/soak/results/`
 - Fixture builds are for local testing only
 - Neither replaces real PSP storage, WLAN and power-loss testing
 
@@ -504,14 +506,16 @@ mock catalog -> fixture build with a local CA -> scripted input in PPSSPP -> com
 <details>
 <summary><b>Icons and EBOOT media</b> · glyphs, ICON1, SND0</summary>
 
-From `app/`:
+From the repository root:
 
 ```sh
-sh tools/marks/render.sh                                   # SVG -> PNG
-python3 tools/marks/embed.py                               # PNG -> gui/marks_data.h
-sh tools/eboot-media/make-icon1.sh demo.mp4 assets/icon1.pmf
-sh tools/eboot-media/make-snd0.sh theme.wav assets/snd0.at3
+sh dev/marks/render.sh                                     # SVG -> PNG
+python3 dev/marks/embed.py                                 # PNG -> app/gui/marks_data.h
+sh tools/eboot-media/make-icon1.sh demo.mp4 app/assets/icon1.pmf
+sh tools/eboot-media/make-snd0.sh theme.wav app/assets/snd0.at3
 ```
+
+`tools/` is for anyone packaging a PSP app, PSPDX included: the two scripts make the ICON1 and SND0 a PBP carries, and `tools/mp4-to-psmf.c` wraps an MP4 the way the client does.
 
 #### GUI glyphs
 
