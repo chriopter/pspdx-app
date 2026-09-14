@@ -527,7 +527,7 @@ static int recover_journal(cJSON *j) {
         return logline("recovery: the journal could not be removed"), -1;
     return 0;
 }
-void install_recover(void) {
+static void recover_pending(void) {
     char *raw = NULL;
     int n = storage_read(JOURNAL, &raw, 512 * 1024);
     if (n < 0) {
@@ -542,6 +542,15 @@ void install_recover(void) {
     else
         logline("recovery: an unfinished transaction was put back");
     cJSON_Delete(j);
+}
+void install_recover(void) {
+    recover_pending();
+    /* A cut in the middle of a write leaves its .new, or the .bak of the
+       step before, beside the file; nothing reads them once the file is
+       there, and a transaction has just settled, so this is where they go. */
+    storage_sweep(storage_path("PSP/PSPDX/INSTALLED"));
+    storage_sweep(storage_path("PSP/PSPDX/TMP"));
+    storage_sweep(storage_path("PSP/PSPDX"));
 }
 /* The way out when recovery cannot finish what it found: the journal, the
    archive and the staging directory go. What the transaction may have put

@@ -1,4 +1,5 @@
 #include "util/storage.h"
+#include "util/runtime.h"
 #include "storage_paths.inc"
 #include <pspiofilemgr.h>
 #include <stdio.h>
@@ -120,6 +121,34 @@ int storage_remove(const char *path) {
     if (unlink_checked(bak) < 0)
         return -1;
     return unlink_checked(path);
+}
+/* What a write cut short leaves beside the file: a .new that never got
+   its rename, or a .bak the last step never removed. Neither is read once
+   the file itself is there, so both go; a .bak with no file beside it is
+   the file, and stays for recover() to move back. */
+void storage_sweep(const char *directory) {
+    SceUID d = sceIoDopen(directory);
+    if (d < 0)
+        return;
+    SceIoDirent e;
+    memset(&e, 0, sizeof(e));
+    while (sceIoDread(d, &e) > 0) {
+        size_t n = strlen(e.d_name);
+        int stale = n > 4 && !strcmp(e.d_name + n - 4, ".new");
+        if (n > 4 && !strcmp(e.d_name + n - 4, ".bak")) {
+            char file[512];
+            snprintf(file, sizeof(file), "%s/%.*s", directory, (int)n - 4, e.d_name);
+            stale = storage_exists(file);
+        }
+        if (stale && !FIO_S_ISDIR(e.d_stat.st_mode)) {
+            char path[512];
+            snprintf(path, sizeof(path), "%s/%s", directory, e.d_name);
+            if (sceIoRemove(path) < 0)
+                logline("sweep: %s would not go", e.d_name);
+        }
+        memset(&e, 0, sizeof(e));
+    }
+    sceIoDclose(d);
 }
 void storage_app_path(const char *id, char *out, size_t size) {
     snprintf(out, size, "%s/%s.pspdx", storage_path("PSP/PSPDX/INSTALLED"), id);

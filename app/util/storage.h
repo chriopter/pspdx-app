@@ -12,5 +12,8 @@ int storage_write(const char *path, const void *data, size_t len);
 int storage_remove(const char *path);
 /* A directory and everything under it. Returns 0 when nothing is left. */
 int storage_remove_tree(const char *path);
+/* Takes the .new and the shadowed .bak files a cut write left in a
+   directory. A .bak with no file beside it stays: it is the file. */
+void storage_sweep(const char *directory);
 void storage_app_path(const char *id, char *out, size_t size);
 #endif
