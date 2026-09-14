@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json",
   "title": ".pspdx",
-  "description": "What a PSP homebrew repository says about itself to PSPDX. The version, the date, the package and its size come from the latest release; the id from the repository; the icon, the picture, the film and the sound out of the EBOOT. A list may serve a .pspdx for a repository that has none; it sets listed_by. No string holds a control character, except a newline in description.",
+  "description": "What a PSP homebrew project says about itself to PSPDX. The id comes from the source: io.github.<owner>.<repository> on GitHub, the host of listed_by and the name elsewhere. Version, date, package and size come from the project's releases, the icon, picture, film and sound out of the EBOOT. A list may serve a .pspdx for a project that has none; it sets listed_by. No string holds a control character, except a newline in description.",
   "type": "object",
   "required": [
     "schema",
@@ -90,7 +90,7 @@
         "iso"
       ],
       "default": "homebrew",
-      "description": "optional; homebrew when missing: an EBOOT under PSP/GAME. plugin and iso are listed but not installed yet."
+      "description": "optional; homebrew when missing. homebrew is an EBOOT installed under PSP/GAME, plugin a .prx for custom firmware, iso a disc image."
     },
     "tags": {
       "type": "array",
@@ -102,7 +102,7 @@
         "maxLength": 24,
         "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])"
       },
-      "description": "optional; up to 8 different words for what the app is, each 1 to 24 characters. game, emulator, app, plugin and demo are the ones the console has a tab for."
+      "description": "optional; up to 8 different words for what the app is, each 1 to 24 characters. game, emulator, app and demo are the ones the console has a tab for."
     },
     "installdir": {
       "type": "string",

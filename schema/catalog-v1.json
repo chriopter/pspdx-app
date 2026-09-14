@@ -91,7 +91,7 @@
             "iso"
           ],
           "default": "homebrew",
-          "description": "optional; homebrew when missing: an EBOOT under PSP/GAME. plugin and iso are listed but not installed yet."
+          "description": "optional; homebrew when missing. homebrew is an EBOOT installed under PSP/GAME, plugin a .prx for custom firmware, iso a disc image."
         },
         "tags": {
           "type": "array",
@@ -103,7 +103,7 @@
             "maxLength": 24,
             "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])"
           },
-          "description": "optional; up to 8 different words for what the app is, each 1 to 24 characters. game, emulator, app, plugin and demo are the ones the console has a tab for."
+          "description": "optional; up to 8 different words for what the app is, each 1 to 24 characters. game, emulator, app and demo are the ones the console has a tab for."
         },
         "installdir": {
           "type": "string",
