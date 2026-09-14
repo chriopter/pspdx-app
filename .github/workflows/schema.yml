@@ -39,18 +39,13 @@ jobs:
               print("ok", path)
           PY
 
+      # The page explains what the files are for and links back to the repo;
+      # it lives beside them in schema/ so a change to either publishes both.
       - name: Assemble the site
         run: |
           mkdir -p site/schema
           cp schema/*.json site/schema/
-          {
-            echo '<!doctype html><meta charset="utf-8"><title>PSPDX schemas</title>'
-            echo '<h1>PSPDX schemas</h1><ul>'
-            for f in schema/*.json; do
-              echo "<li><a href=\"$f\">$f</a></li>"
-            done
-            echo '</ul><p><a href="https://github.com/chriopter/pspdx">github.com/chriopter/pspdx</a></p>'
-          } > site/index.html
+          cp schema/index.html site/index.html
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

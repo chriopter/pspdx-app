@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PSPDX standard · schemas</title>
+<meta name="description" content="JSON Schemas for .pspdx files and PSPDX catalogs: how PSP homebrew says where it lives.">
+<style>
+  :root { --bg: #fbfcfb; --fg: #1b221d; --dim: #5c6b61; --rule: #d9e1db; --code: #eef3ef; --link: #1f7a45; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1511; --fg: #e1e9e3; --dim: #93a598; --rule: #26352b; --code: #16211a; --link: #6fd296; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 46rem; margin: 0 auto; padding: 3rem 1rem 4rem; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 2.5rem 0 .5rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+  p, li { max-width: 65ch; }
+  .lede { color: var(--dim); margin-top: 0; }
+  a { color: var(--link); }
+  code, pre { font: .9em ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
+  code { background: var(--code); padding: .1em .3em; border-radius: 3px; }
+  pre { background: var(--code); padding: .9rem 1rem; border-radius: 6px; overflow-x: auto; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  .table { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+  th, td { text-align: left; vertical-align: top; padding: .45rem .6rem; border-bottom: 1px solid var(--rule); }
+  th { color: var(--dim); font-weight: 600; }
+  ul.links { padding-left: 1.2rem; }
+  footer { margin-top: 3rem; color: var(--dim); font-size: .9rem; }
+</style>
+<main>
+
+<h1>PSPDX standard</h1>
+<p class="lede">A small JSON file that says where a PSP homebrew lives. Put a <code>.pspdx</code> in the root of your repository, publish a release with the EBOOT, and <a href="https://github.com/chriopter/pspdx">PSPDX</a> can list, install and update it on the PSP.</p>
+
+<h2>Schemas</h2>
+<div class="table">
+<table>
+  <tr><th>Schema</th><th>For</th></tr>
+  <tr><td><a href="schema/pspdx-v1.json"><code>pspdx-v1.json</code></a></td><td>The <code>.pspdx</code> file an author keeps in the repository, or a list serves for a project that has none</td></tr>
+  <tr><td><a href="schema/catalog-v1.json"><code>catalog-v1.json</code></a></td><td>The <code>catalog.json</code> a list publishes: every app with up to its 20 newest releases</td></tr>
+</table>
+</div>
+<p>Both are JSON Schema 2020-12. Any validator can check a file against them.</p>
+
+<h2>A .pspdx</h2>
+<p>Only <code>schema</code>, <code>source</code> and <code>name</code> are required:</p>
+<pre><code>{
+  "schema": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json",
+  "source": "https://github.com/chriopter/pspdx-demo",
+  "name":   "PSPDX Demo",
+  "tags":   ["demo"]
+}</code></pre>
+
+<div class="table">
+<table>
+  <tr><th>Field</th><th>Rule</th></tr>
+  <tr><td><code>schema</code></td><td>Required; this schema's URL</td></tr>
+  <tr><td><code>source</code></td><td>Required; an https URL, on GitHub the repository</td></tr>
+  <tr><td><code>name</code></td><td>Required; 1–40 characters</td></tr>
+  <tr><td><code>type</code></td><td><code>homebrew</code> (default), <code>plugin</code> or <code>iso</code></td></tr>
+  <tr><td><code>tags</code></td><td>Up to 8 words, each up to 24 characters; <code>game</code>, <code>emulator</code>, <code>app</code> and <code>demo</code> get a tab</td></tr>
+  <tr><td><code>installdir</code></td><td><code>PSP/GAME/&lt;folder&gt;</code>; defaults to the repository name</td></tr>
+  <tr><td><code>summary</code>, <code>author</code>, <code>license</code></td><td>Up to 60 characters each</td></tr>
+  <tr><td><code>description</code></td><td>Plain text, up to 2500 characters, newlines allowed</td></tr>
+  <tr><td><code>listed_by</code></td><td>The home page of a list that serves this file for a project without one</td></tr>
+</table>
+</div>
+<p>The full rules, what comes from the release and what a catalog adds: <a href="https://github.com/chriopter/pspdx#the-pspdx-standard">the PSPDX standard</a>.</p>
+
+<h2>Check it while you write</h2>
+<p>In VS Code, add this to your settings:</p>
+<pre><code>"files.associations": { "*.pspdx": "json" },
+"json.schemas": [{ "fileMatch": ["*.pspdx"],
+  "url": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json" }]</code></pre>
+
+<h2>Links</h2>
+<ul class="links">
+  <li><a href="https://github.com/chriopter/pspdx">PSPDX</a> · the PSP app and this standard</li>
+  <li><a href="https://github.com/chriopter/pspdx-demo">pspdx-demo</a> · a complete example app to copy</li>
+  <li><a href="https://chriopter.github.io/pspdx-catalog/">pspdx-catalog</a> · the reference catalog, and a builder to reuse</li>
+  <li><a href="https://github.com/chriopter/pspdx/tree/master/schema">Schema sources</a> · changes and history</li>
+</ul>
+
+<footer>PSPDX · <a href="https://github.com/chriopter/pspdx">github.com/chriopter/pspdx</a></footer>
+</main>
+</html>
