@@ -1497,6 +1497,37 @@ int shell_files_page(void) {
     return (FOOTER_Y - 8 - y) / FILE_TEXT_STEP;
 }
 
+/* A picture out of a file, decoded once and kept until another is asked
+   for, fitted into the space given. */
+static struct gfx_texture g_picture;
+static char g_picture_of[160];
+
+static void picture_drop(void) {
+    if (g_picture_of[0]) {
+        gfx_texture_free(&g_picture);
+        g_picture_of[0] = '\0';
+    }
+}
+
+static void draw_picture_file(const char *file, int x, int y, int maxw, int maxh) {
+    if (strcmp(g_picture_of, file)) {
+        picture_drop();
+        char *png = NULL;
+        int n = storage_read(file, &png, 512 * 1024);
+        if (n > 0 && image_decode_png(png, (size_t)n, &g_picture) == 0)
+            snprintf(g_picture_of, sizeof(g_picture_of), "%s", file);
+        free(png);
+    }
+    if (g_picture_of[0] && g_picture.w > 0 && g_picture.h > 0) {
+        int pw = g_picture.w, ph = g_picture.h;
+        if (pw > maxw) { ph = ph * maxw / pw; pw = maxw; }
+        if (ph > maxh) { pw = pw * maxh / ph; ph = maxh; }
+        gfx_texture_draw(&g_picture, x, y, pw, ph, RGB(255, 255, 255));
+    } else {
+        font_print(FONT_META, x, y, g_dim, T_FILES_BINARY);
+    }
+}
+
 static void draw_files(float t) {
     const struct file_view *v = g_files;
     int top = LIST_Y + 4;
@@ -1563,33 +1594,8 @@ static void draw_files(float t) {
     int lines = draw_wrapped(FONT_META, x, note_y, w, 14, 2, g_dim, v->note);
     y = note_y + 14 * lines + 8;
     int room = (FOOTER_Y - 8 - y) / FILE_TEXT_STEP;
-    /* A picture instead of lines: decoded once per file, kept until the
-       cursor leaves it, fitted into what is left of the column. */
-    static struct gfx_texture picture;
-    static char shown[160];
-    if (v->image[0]) {
-        if (strcmp(shown, v->image)) {
-            gfx_texture_free(&picture);
-            shown[0] = '\0';
-            char *png = NULL;
-            int n = storage_read(v->image, &png, 512 * 1024);
-            if (n > 0 && image_decode_png(png, (size_t)n, &picture) == 0)
-                snprintf(shown, sizeof(shown), "%s", v->image);
-            free(png);
-        }
-        if (shown[0] && picture.w > 0 && picture.h > 0) {
-            int maxw = w, maxh = FOOTER_Y - 8 - y;
-            int pw = picture.w, ph = picture.h;
-            if (pw > maxw) { ph = ph * maxw / pw; pw = maxw; }
-            if (ph > maxh) { pw = pw * maxh / ph; ph = maxh; }
-            gfx_texture_draw(&picture, x, y, pw, ph, RGB(255, 255, 255));
-        } else {
-            font_print(FONT_META, x, y, g_dim, T_FILES_BINARY);
-        }
-    } else if (shown[0]) {
-        gfx_texture_free(&picture);
-        shown[0] = '\0';
-    }
+    if (v->image[0]) { draw_picture_file(v->image, x, y, w, FOOTER_Y - 8 - y); }
+    else picture_drop();
     /* The lines, from the one the scrolling is at; a raw file is cut at a
        fixed width so a long line becomes several. */
     const char *p = v->text;
@@ -1643,6 +1649,12 @@ static void draw_raw_band(void) {
     band_rule(y + 34, 200, 120);
     y += 44;
     int room = (INFO_Y + INFO_H - 22 - y) / RAW_STEP;
+    if (v->image[0]) {
+        draw_picture_file(v->image, x, y, w, INFO_Y + INFO_H - 22 - y);
+        float bw = hint_width(MARK_CIRCLE, T_HINT_BACK);
+        draw_hint(SCR_W / 2 - bw / 2, INFO_Y + INFO_H - 8, MARK_CIRCLE, T_HINT_BACK, g_dim);
+        return;
+    }
     const char *p = v->text;
     int line = 0;
     while (*p && line < v->text_first + room) {

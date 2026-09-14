@@ -12,6 +12,10 @@
 
    The view is filled here, out of the stick, and drawn by the shell. */
 
+/* Where a name for an app id can be had beyond the stick's own records: the
+   catalog in memory, which main.c holds. NULL or "" from it means no name. */
+void files_names(const char *(*name_of)(const char *id));
+
 void files_open(struct file_view *v);
 void files_move(struct file_view *v, int by);
 void files_scroll(struct file_view *v, int lines);

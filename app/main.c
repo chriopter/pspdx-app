@@ -727,6 +727,13 @@ static unsigned button_named(const char *name) {
 static struct file_view g_files;
 static int g_files_open;
 
+/* The catalog knows the names of apps the stick has no record of. */
+static const char *files_name_of(const char *id) {
+    for (int i = 0; i < catalog.count; i++)
+        if (strcmp(catalog.apps[i].id, id) == 0) return catalog.apps[i].name;
+    return NULL;
+}
+
 static void keys_load(void) {
     static char text[4096];
     int fd = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.KEYS"), PSP_O_RDONLY, 0777);
@@ -1384,7 +1391,7 @@ int main(int argc, char *argv[]) {
                 int which = SHELL_ROW_SETTING - at;
                 if (which == 0 && synced) sub_open(SUB_CATALOGS);
                 else if (which == 1 && synced) sub_open(SUB_ADD);
-                else if (which == 2) { files_open(&g_files); g_files_open = 1; shell_files(&g_files); }
+                else if (which == 2) { files_names(files_name_of); files_open(&g_files); g_files_open = 1; shell_files(&g_files); }
                 else if (which == 3) sub_open(SUB_RESET);
                 else if (which == 4) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {

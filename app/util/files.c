@@ -36,6 +36,9 @@ static const struct { const char *name, *note, *dir; } AREA[A_COUNT] = {
 static char g_path[FILES_MAX][64];      /* relative to PSP/PSPDX */
 static char g_id[FILES_MAX][96];        /* the app, in the installed area */
 static struct sources g_sources;
+static const char *(*g_name_of)(const char *id);
+
+void files_names(const char *(*name_of)(const char *id)) { g_name_of = name_of; }
 static int g_area_of[FILES_MAX];        /* which area a row on the top stands for, -1 the group */
 
 /* ---------------------------------------------------------------- helpers */
@@ -402,7 +405,9 @@ static void name_cached(struct file_row *r, const char *file) {
         snprintf(id, sizeof(id), "%.*s", (int)(at - file), file);
         struct pspdx_file f;
         char *raw = NULL;
+        const char *known = g_name_of ? g_name_of(id) : NULL;
         if (state_read_manifest(id, &raw, &f) >= 0) snprintf(app, sizeof(app), "%s", f.name);
+        else if (known && known[0]) snprintf(app, sizeof(app), "%s", known);
         else {
             const char *dot = strrchr(id, '.');
             snprintf(app, sizeof(app), "%s", dot ? dot + 1 : id);
@@ -440,8 +445,9 @@ static void describe_file(struct file_view *v) {
     if (v->area == A_SEED) { put(v, "%s", T_AREA_SEED_NOTE); return; }
     /* A picture is shown as one: the icons and stills the cache holds, the
        screenshots the developer's folder does. */
-    size_t len = strlen(r->name);
-    if (len > 4 && !strcasecmp(r->name + len - 4, ".png")) {
+    const char *file = g_path[v->cursor];
+    size_t len = strlen(file);
+    if (len > 4 && !strcasecmp(file + len - 4, ".png")) {
         snprintf(v->image, sizeof(v->image), "%s", v->path);
         return;
     }
@@ -566,7 +572,11 @@ int files_raw(struct file_view *v) {
         if (r->name[strlen(r->name) - 1] == '/') return 0;
         clear_text(v);
         at_path(v, g_path[v->cursor]);
+        const char *file = g_path[v->cursor];
+        size_t len = strlen(file);
         if (v->area == A_SEED) put(v, "%s", T_AREA_SEED_NOTE);
+        else if (len > 4 && !strcasecmp(file + len - 4, ".png"))
+            snprintf(v->image, sizeof(v->image), "%s", v->path);
         else read_text(v, g_path[v->cursor], 0, 0);
     }
     v->raw = 1;
