@@ -525,7 +525,7 @@ static char g_choice_text[CHOICE_COUNT][32];
 static const char *g_choice[CHOICE_COUNT];
 static unsigned char g_choice_on[CHOICE_COUNT];
 static char g_menu_title[48];
-static int g_menu_open, g_menu_cursor, g_menu_of;
+static int g_menu_open, g_menu_cursor, g_menu_of, g_details_from_menu;
 
 /* The keys that do a row's thing without the menu, named at the row: the
    menu is where they are learned. */
@@ -1281,6 +1281,7 @@ int main(int argc, char *argv[]) {
                 } else if (chosen == CHOICE_DETAILS) {
                     shell_details(&catalog.apps[index]);
                     details = 1;
+                    g_details_from_menu = 1;
                 } else {
                     install_app(index, 0, 0, 0);
                     dump_diagnostics();
@@ -1296,6 +1297,14 @@ int main(int argc, char *argv[]) {
             if (pressed & PSP_CTRL_CIRCLE) {
                 shell_details(0);
                 details = 0;
+                /* Information was read out of the options, so closing it
+                   goes back there, on the row it was opened from. */
+                if (g_details_from_menu) {
+                    g_details_from_menu = 0;
+                    menu_open(g_menu_of);
+                    g_menu_cursor = CHOICE_DETAILS;
+                    menu_push();
+                }
             }
         } else if (count > 0) {
             int at = shell_view_index(cursor);
