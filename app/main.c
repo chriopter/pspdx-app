@@ -185,6 +185,11 @@ static void install_progress(void *ctx, size_t done, size_t total) {
     shell_install_progress(ctx, done, total);
 }
 
+/* Set when PSPDX has replaced itself: the loop asks to restart once the
+   install that did it, or the batch it was the last of, is over. */
+static int g_restart_of = -1;
+static char g_restart_version[32];
+
 static int install_app(int index, int screenshot, int at, int of) {
     if (index < 0 || index >= catalog.count) return -1;
     int row = shell_view_row(index);
@@ -224,10 +229,11 @@ static int install_app(int index, int screenshot, int at, int of) {
            aside and replaced underneath it. Nothing on screen is the new
            version until the console loads it, so the band says which button
            does that rather than reporting a file count nobody needs. */
-        if (strcmp(entry->id, PSPDX_SELF_ID) == 0)
-            snprintf(message, sizeof(message),
-                     "Updated PSPDX to %s: press START to restart", report.version);
-        else
+        if (strcmp(entry->id, PSPDX_SELF_ID) == 0) {
+            snprintf(message, sizeof(message), "Updated PSPDX to %s", report.version);
+            snprintf(g_restart_version, sizeof(g_restart_version), "%s", report.version);
+            g_restart_of = index;
+        } else
             snprintf(message, sizeof(message), "Installed %s %s: %d files, %luK, %us",
                      entry->name, report.version, report.files,
                      (unsigned long)(report.bytes / 1024), seconds);
@@ -326,7 +332,7 @@ static void launch_app(int index) {
    draws the question and the footer that answers it; the answer arrives
    through the pad, which is read down in the loop, so the two halves meet
    in these two variables and nowhere else. */
-enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN };
+enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART };
 static enum question g_question;
 static int g_question_of;
 
@@ -557,7 +563,8 @@ static void menu_open(int index) {
        fetches the package, and says which fetch it would be: Install for
        one not on the stick, Update to the newer version where one waits,
        Reinstall for the one already current. */
-    snprintf(g_choice_text[CHOICE_RUN], sizeof(g_choice_text[0]), "Run");
+    snprintf(g_choice_text[CHOICE_RUN], sizeof(g_choice_text[0]), "%s",
+             strcmp(entry->id, PSPDX_SELF_ID) == 0 ? "Restart" : "Run");
     if (entry->state == APP_UPDATE)
         snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), "Update to %.20s",
                  entry->remote_version);
@@ -1201,6 +1208,18 @@ int main(int argc, char *argv[]) {
             logline("shot: PSPDX1.BMP at cursor %d", cursor);
         }
 
+        /* PSPDX has just replaced itself. The copy running is the old one
+           until the console loads the new, so that is offered as soon as
+           nothing else is being asked. */
+        if (g_question == ASK_NOTHING && g_restart_of >= 0) {
+            char title[64];
+            snprintf(title, sizeof(title), "Restart PSPDX to apply %.20s?", g_restart_version);
+            shell_ask(title, "The running copy stays the old one until then");
+            g_question = ASK_RESTART;
+            g_question_of = g_restart_of;
+            g_restart_of = -1;
+        }
+
         if (g_question != ASK_NOTHING) {
             /* The answer, and only then the thing that was asked about. */
             if (pressed & PSP_CTRL_CROSS) {
@@ -1213,7 +1232,7 @@ int main(int argc, char *argv[]) {
                 else if (asked == ASK_INBOX) install_inbox();
                 else if (asked == ASK_RESET) reset_completely();
                 else if (asked == ASK_DISCARD) discard_unfinished();
-                else if (asked == ASK_RUN) launch_app(index);
+                else if (asked == ASK_RUN || asked == ASK_RESTART) launch_app(index);
                 else if (asked == ASK_CATALOG) {
                     if (index >= 0 && index < g_sources.count &&
                         sources_remove(g_sources.url[index]) > 0)
@@ -1225,8 +1244,9 @@ int main(int argc, char *argv[]) {
                 view_settled(&cursor);
                 count = shell_view_count();
             } else if (pressed & PSP_CTRL_CIRCLE) {
+                int later = g_question == ASK_RESTART;
                 ask_forget();
-                shell_status("");
+                shell_status(later ? "Restart PSPDX to apply the update" : "");
             }
         } else if (g_sub) {
             if (pressed & PSP_CTRL_DOWN) { g_sub_cursor = (g_sub_cursor + 1) % g_sub_count; sub_push(); cues_post(CUE_MOVE, 0); }
