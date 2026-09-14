@@ -200,6 +200,23 @@ class ClientTests(unittest.TestCase):
   header=(root/'app/util/self_manifest.h').read_text()
   literal=re.search(r'#define PSPDX_SELF_MANIFEST (.*)',header).group(1)
   self.assertEqual(json.loads(json.loads(literal)),json.loads((root/'.pspdx').read_text()))
+ def test_mock_catalog_is_what_the_client_reads(self):
+  # dev/mock-catalog writes the desk's catalog and records; the same parser that reads a published one reads them here, so the two cannot drift apart.
+  import importlib.machinery,importlib.util
+  path=pathlib.Path(__file__).resolve().parents[2]/'dev/mock-catalog'
+  loader=importlib.machinery.SourceFileLoader('mock_catalog',str(path));spec=importlib.util.spec_from_loader('mock_catalog',loader);mock=importlib.util.module_from_spec(spec);loader.exec_module(mock)
+  for name in ('icon.png','shot.png','film.pmf'):(self.root/name).write_bytes(name.encode())
+  mock.assets=lambda work:({'icon':[str(self.root/'icon.png')],'screenshot':[str(self.root/'shot.png')],'video':[str(self.root/'film.pmf')]},str(self.root/'new.zip'))
+  work=self.root/'work';mock.make(str(work),str(self.root/'ms0:'),'https://example.com/')
+  catalog=json.loads((work/'mock-site/catalog.json').read_text())
+  # The host build has no loophole for a loopback package URL; the address is the one thing rewritten before the parser sees it.
+  for app in catalog['apps']:app['release']['download']['url']='%s/releases/download/%s/download.zip'%(app['source'],app['release']['tag'])
+  self.write('catalog.json',catalog);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
+  r=self.run_client('fetch',VERBOSE=1);rows=[line.split() for line in r.stdout.splitlines()]
+  self.assertEqual(len(rows),mock.COUNT,r.stderr);self.assertTrue(all(row[0].startswith(mock.ID_PREFIX) and row[2]=='1' for row in rows))
+  states=[int(row[3]) for row in rows];third=mock.COUNT//3
+  self.assertEqual((states.count(1),states.count(2),states.count(3)),(mock.COUNT-2*third,third,third),r.stdout)
+  self.assertTrue(any(app.get('media',{}).get('video','').endswith('.pmf') for app in catalog['apps']))
  def fixtures(self):
   self.run_client('install',VERSION=1)
   size=(self.root/'new.zip').stat().st_size
