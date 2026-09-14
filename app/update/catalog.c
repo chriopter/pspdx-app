@@ -36,7 +36,7 @@ void catalog_force_sources(void) { g_force = 1; }
 /* The cache last taken: the info band names its host, and the bench fetches
    it. Before any source has answered it is the built-in one. */
 static char g_catalog_url[SOURCE_URL] = CATALOG_URL;
-static char g_progress[48];
+static char g_progress[64];
 static char g_refused_url[SOURCE_URL];
 static int g_refused_rc;
 
@@ -567,7 +567,8 @@ static int walk_list(struct catalog *catalog, const struct source_list *list, in
         sources_repo_url(&list->repo[i], url, sizeof(url));
         if (catalog_find_repo(catalog, url) >= 0)
             continue;
-        snprintf(g_progress, sizeof(g_progress), T_STATUS_ORIGIN, i + 1, list->count);
+        snprintf(g_progress, sizeof(g_progress), T_STATUS_ORIGIN, list->repo[i].name, i + 1,
+                 list->count);
         (*asked)++;
         int rc = take_origin(catalog, &list->repo[i]);
         if (rc > 0)
@@ -720,8 +721,9 @@ static void restore_installed(struct catalog *catalog) {
         struct catalog *one = calloc(1, sizeof(*one));
         /* The status line follows the apps being asked, the way it follows a
            list being walked; a full check is nearly all of this. */
-        if (one && due && !g_offline)
-            snprintf(g_progress, sizeof(g_progress), T_STATUS_ORIGIN, i + 1, state_count());
+        if (one && due && !g_offline && sources_parse_repo(source, &repo))
+            snprintf(g_progress, sizeof(g_progress), T_STATUS_ORIGIN, repo.name, i + 1,
+                     state_count());
         if (one && due && !g_offline && sources_parse_repo(source, &repo) &&
             take_origin(one, &repo) > 0) {
             fetched = 1;

@@ -30,7 +30,7 @@
 #define T_STATUS_CONNECTING  "Connecting..."
 #define T_STATUS_LOADING     "Loading catalog..."
 #define T_STATUS_CHECKING    "Checking for updates..."
-#define T_STATUS_ORIGIN      "Checking app %d of %d..."           /* at, of */
+#define T_STATUS_ORIGIN      "Checking %.28s (%d of %d)..."       /* repository, at, of */
 #define T_STALE              "%s has not been updated for %u day%s." /* host, days, "s" */
 #define T_CATALOG_EMPTY      "No apps are available."
 
