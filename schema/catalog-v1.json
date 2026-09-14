@@ -57,6 +57,31 @@
               ]
             }
           }
+        },
+        {
+          "if": {
+            "required": [
+              "source"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "not": {
+                  "pattern": "^https://github\\.com/"
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "listed_by"
+            ],
+            "properties": {
+              "name": {
+                "pattern": "[A-Za-z0-9]"
+              }
+            }
+          }
         }
       ],
       "properties": {
