@@ -16,7 +16,8 @@ connection. Extract
 [`pspdx.zip`](https://github.com/chriopter/pspdx/releases/latest) to the root
 of your Memory Stick.
 
-The app is untested on real hardware so far.
+Tested in PPSSPP so far. Running it on a real PSP?
+[Tell us how it went](https://github.com/chriopter/pspdx/issues).
 
 ## How it works
 
@@ -44,23 +45,6 @@ The app is untested on real hardware so far.
   [Just copy this](https://github.com/chriopter/pspdx-catalog) and share the
   link!
 
-## The PSPDX standard
-
-A complete example is the [demo app](https://github.com/chriopter/pspdx-demo):
-
-```json
-{
-  "schema":     "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
-  "source":     "https://github.com/chriopter/psp-cathedral",
-  "name":       "Lux Aeterna",
-  "author":     "chriopter",
-  "summary":    "Ten churches, and the sun through their glass.",
-  "category":   "demo",
-  "license":    "BSD-3-Clause",
-  "installdir": "PSP/GAME/Cathedral"
-}
-```
-
 **The magic**
 
 The catalog is only a shortcut. The `.pspdx` is what counts: a portable file,
@@ -71,9 +55,26 @@ catalog up    ->  PSP reads the catalog       ->  every app, release and artwork
 catalog gone  ->  PSP reads its saved .pspdx  ->  asks each app's own repository
 ```
 
-It's just a bunch of GitHub workflows that build a static page.
+The main catalog is just a bunch of GitHub workflows that build a static page.
 [Please steal it](https://github.com/chriopter/pspdx-catalog) for yours! You
 can even install `.pspdx` files directly, without any catalog.
+
+## The PSPDX standard
+
+A complete example is the [demo app](https://github.com/chriopter/pspdx-demo):
+
+```json
+{
+  "schema":     "https://github.com/chriopter/pspdx/blob/master/schema/v1.pspdx",
+  "source":     "https://github.com/chriopter/pspdx-demo",
+  "name":       "PSPDX Demo",
+  "author":     "chriopter",
+  "summary":    "Hello, PSP. A demo listing for PSPDX.",
+  "category":   "demo",
+  "license":    "MIT",
+  "installdir": "PSP/GAME/PSPDXDemo"
+}
+```
 
 I want this to work 10 years forward, without another mirror going down or an
 abandoned installer being a hurdle. The `.pspdx` file should live on its own!
