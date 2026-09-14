@@ -72,6 +72,12 @@ A complete example is the [demo app](https://github.com/chriopter/pspdx-demo):
 }
 ```
 
+Schemas:
+[`pspdx-v1.json`](https://chriopter.github.io/pspdx/schema/pspdx-v1.json)
+for the file,
+[`catalog-v1.json`](https://chriopter.github.io/pspdx/schema/catalog-v1.json)
+for catalogs.
+
 I want this to work 10 years forward, without another mirror going down or an
 abandoned installer being a hurdle. The `.pspdx` file should live on its own!
 
@@ -87,7 +93,13 @@ abandoned installer being a hurdle. The `.pspdx` file should live on its own!
 - Installs only under `PSP/GAME/`; plugins needing `seplugins` and `plugins.txt` need another contract
 - An incompatible future format gets a new schema URL
 
-[Manifest schema](schema/pspdx-v1.json) · [Catalog schema](schema/catalog-v1.json)
+To check a `.pspdx` while you write it, add this to your VS Code settings:
+
+```json
+"files.associations": { "*.pspdx": "json" },
+"json.schemas": [{ "fileMatch": ["*.pspdx"],
+  "url": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json" }]
+```
 
 #### Fields
 
