@@ -3,10 +3,6 @@
 **PSP Download Index** — browse, install and update homebrew directly
 on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspdx/releases/latest)**
 
-<img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="images/pspdx-app.webp" />
-
-[The same as a video](images/pspdx-app.mp4) (480×272, 34 s).
-
 ## How to use
 
 Just install, start and install homebrew! Updates are shown automatically.
@@ -17,6 +13,10 @@ connection. Extract
 of your Memory Stick.
 
 The app is untested on real hardware so far.
+
+<img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="images/pspdx-app.webp" />
+
+[The same as a video](images/pspdx-app.mp4) (480×272, 34 s).
 
 ## How it works
 
@@ -76,8 +76,6 @@ is a complete example.
 
 I want this to work 10 years forward, without another mirror going down or an
 abandoned installer being a hurdle. The `.pspdx` file should live on its own!
-
-**Feedback is very welcome!**
 
 <details>
 <summary>Format specification (fields, releases, catalogs)</summary>
@@ -513,3 +511,5 @@ Both scripts take a start offset as their third argument.
 - [PSPDX Catalog](https://github.com/chriopter/pspdx-catalog) — the main catalog and its builder; [browse it](https://chriopter.github.io/pspdx-catalog/)
 - [Demo app](https://github.com/chriopter/pspdx-demo) — a complete homebrew with a `.pspdx`
 - [Releases](https://github.com/chriopter/pspdx/releases/latest) — `pspdx.zip`
+
+**Feedback is very welcome!**
