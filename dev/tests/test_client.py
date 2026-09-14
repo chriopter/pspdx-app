@@ -1,7 +1,7 @@
 """Run actual client parsers, persistence and installer against a PSP I/O adapter.
 The adapter preserves same-directory rename semantics and supports power cuts.
 """
-import hashlib, json, os, pathlib, shutil, subprocess, tempfile, time, unittest, zipfile
+import gzip, hashlib, json, os, pathlib, shutil, subprocess, tempfile, time, unittest, zipfile
 BIN=os.environ.get('PSPDX_TEST_BIN','/tmp/pspdx-host-test')
 SCHEMA='https://chriopter.github.io/pspdx/schema/pspdx-v1.json'
 ID='io.github.test.demo'
@@ -430,4 +430,32 @@ class ClientTests(unittest.TestCase):
     if kind:a['type']=kind;a.pop('installdir')
     self.write('catalog.json',dict(catalog,apps=[a]))
     self.assertEqual(self.run_client('view').stdout.splitlines()[0],'tabs %d: %s'%(len(tabs.split()),tabs))
+ def gzip_catalog(self,data=None,cut=0,flip=False):
+  raw=(self.root/'catalog.json').read_bytes() if data is None else json.dumps(data).encode()
+  packed=bytearray(gzip.compress(raw))
+  if flip:packed[len(packed)//2]^=0xff
+  (self.root/'catalog.json.gz').write_bytes(bytes(packed[:len(packed)-cut]))
+ def saved_catalog(self):return next((self.root/'ms0:/PSP/PSPDX/CACHE/catalogs').glob('*.json'))
+ def test_catalog_arrives_gzipped_and_reads_as_plain(self):
+  # Pages sends the catalog gzipped to a client that asks, and only the catalog asks: the fake ends the run on a ZIP asked for gzipped.
+  self.fixtures();plain=self.run_client('fetch').stdout;self.saved_catalog().unlink()
+  self.gzip_catalog();r=self.run_client('fetch',VERBOSE=1)
+  self.assertEqual(r.stdout,plain);self.assertIn('bytes gzipped',r.stderr)
+  self.assertEqual(self.saved_catalog().read_bytes(),(self.root/'catalog.json').read_bytes())
+  self.assertEqual(set((self.root/'gzip.log').read_text().splitlines()),{'https://example.com/catalog.json'})
+  self.write('ms0:/PSP/PSPDX/INBOX/one.pspdx',SPEC);self.run_client('inboxinstall');self.assertIn(ID,self.state())
+  self.assertIn('download.zip',(self.root/'requests.log').read_text())
+  self.assertEqual(set((self.root/'gzip.log').read_text().splitlines()),{'https://example.com/catalog.json'})
+ def test_gzip_that_does_not_inflate_is_a_failed_fetch(self):
+  self.fixtures();self.run_client('fetch');saved=self.saved_catalog().read_bytes()
+  for why,env,kw in [('corrupt gzip',{},dict(flip=True)),('gzip cut short',{},dict(cut=5)),('no header announced',dict(GZIP_UNNAMED=1),{})]:
+   self.gzip_catalog(**kw);r=self.run_client('fetch',VERBOSE=1,**env)
+   self.assertIn(why,r.stderr);self.assertIn(ID,r.stdout);self.assertEqual(self.saved_catalog().read_bytes(),saved)
+  catalog=json.loads((self.root/'catalog.json').read_text());self.gzip_catalog(dict(catalog,pad='x'*530000))
+  r=self.run_client('fetch',VERBOSE=1);self.assertIn('larger than',r.stderr);self.assertNotIn('unreachable',r.stderr);self.assertEqual(self.saved_catalog().read_bytes(),saved)
+  # The room is counted in inflated text, to the byte: all of the buffer but its terminator fits, one more does not.
+  room=512*1024-1;base=len(json.dumps(dict(catalog,pad='')))
+  for extra,fits in [(0,True),(1,False)]:
+   self.gzip_catalog(dict(catalog,pad='x'*(room-base+extra)));r=self.run_client('fetch',VERBOSE=1)
+   self.assertEqual('larger than' not in r.stderr,fits,r.stderr[-300:]);self.assertEqual('bytes gzipped' in r.stderr,fits)
 if __name__=='__main__':unittest.main()

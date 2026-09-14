@@ -119,6 +119,8 @@ void logline(const char *fmt, ...) {
 }
 int https_net_connect(void) { return getenv("OFFLINE") ? -1 : 0; }
 void https_abort(void) {}
+static int accept_gzip;
+void https_set_accept_gzip(int on) { accept_gzip = on != 0; }
 enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_progress cb, void *pc,
               struct https_result *r) {
     (void)cb;
@@ -129,6 +131,16 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
     FILE *requests = fopen("requests.log", "a");
     fprintf(requests, "%s\n", url);
     fclose(requests);
+    /* What asked for gzip, apart from requests.log, whose lines tests hold
+       to exactly. A ZIP asked for compressed would be a bug, so it ends the
+       run whatever the test was about. */
+    if (accept_gzip) {
+        FILE *asked = fopen("gzip.log", "a");
+        fprintf(asked, "%s\n", url);
+        fclose(asked);
+        if (strstr(url, ".zip"))
+            _exit(3);
+    }
     const char *path = NULL;
     if (getenv("OFFLINE"))
         return -1;
@@ -141,7 +153,15 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
     if (strstr(url, "download.zip"))
         path = getenv("ZIP_FILE");
     else if (strstr(url, "catalog.json")) {
-        if (!getenv("CATALOG_DOWN"))
+        /* Like GitHub Pages: gzip only to a client that asks, and named in
+           the header unless the test wants a server that forgets to. */
+        if (getenv("CATALOG_DOWN"))
+            ;
+        else if (accept_gzip && access("catalog.json.gz", F_OK) == 0) {
+            path = "catalog.json.gz";
+            if (!getenv("GZIP_UNNAMED"))
+                strcpy(r->content_encoding, "gzip");
+        } else
             path = "catalog.json";
     } else if (strstr(url, "catalog.txt")) {
         if (!getenv("LIST_DOWN"))

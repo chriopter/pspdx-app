@@ -14,6 +14,7 @@
 
 #include "install/install.h"
 #include "update/catalog.h"
+#include "update/gunzip.h"
 #include "update/pspdx.h"
 #include "update/reach.h"
 #include "update/sources.h"
@@ -420,15 +421,16 @@ static int parse(struct catalog *catalog, const char *base) {
     return taken || empty || before > 0 ? taken : -1;
 }
 
+/* A gzipped body is inflated as it arrives, and the room is counted in
+   text: what has to fit is the catalog, not what it weighed on the wire.
+   One byte stays free for the terminator. */
+static struct gunzip g_gunzip;
 static int response_sink(void *ctx, const void *data, size_t len) {
     (void)ctx;
-    if (response_len + len >= sizeof(response)) {
+    int rc = gunzip_feed(&g_gunzip, data, len, response, sizeof(response) - 1, &response_len);
+    if (rc == GUNZIP_FULL)
         g_too_large = 1;
-        return -1;
-    }
-    memcpy(response + response_len, data, len);
-    response_len += len;
-    return 0;
+    return rc;
 }
 
 /* One text file into the response buffer. Returns 0 when it arrived. */
@@ -438,17 +440,30 @@ static int fetch_text(const char *url, struct https_result *out) {
         return -1;
     response_len = 0;
     g_too_large = 0;
+    /* A catalog is JSON that GitHub Pages sends at a quarter of its size
+       when asked, over a radio where every kilobyte is felt. Only a catalog
+       asks: the switch goes off again after it, so a release ZIP, which
+       nothing makes smaller, is never offered compressed. */
+    https_set_accept_gzip(sources_kind(url) == SOURCE_CATALOG);
+    gunzip_begin(&g_gunzip);
     int rc = https_get(url, response_sink, NULL, NULL, NULL, &r);
+    https_set_accept_gzip(0);
+    const char *bad = gunzip_end(&g_gunzip, r.content_encoding);
     if (out)
         *out = r;
-    if (rc != 0 || r.status != 200) {
+    if (rc != 0 || r.status != 200 || bad) {
         if (g_too_large)
             logline("fetch: %s is larger than the %u KB there is room for", url,
                     (unsigned)(sizeof(response) / 1024));
+        else if (bad && r.status == 200 && (rc == 0 || g_gunzip.refused))
+            logline("fetch: %s, %s", bad, url);
         else
             logline("fetch: rc=%d status=%ld %s", rc, r.status, url);
         return -1;
     }
+    if (gunzip_packed(&g_gunzip))
+        logline("fetch: %lu bytes gzipped, %lu inflated, %s", (unsigned long)g_gunzip.wire,
+                (unsigned long)response_len, url);
     response[response_len] = '\0';
     return 0;
 }
