@@ -151,10 +151,12 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
         for (unsigned i = 0; i < sizeof(fields) / sizeof(*fields); i++)
             if (!strcmp(v->string, fields[i].key))
                 found = 1;
-        if (!found) {
-            snprintf(reason, cap, "unknown field: %s", v->string);
-            goto bad;
-        }
+        /* A field this version does not know is passed over, not refused: a
+           file written for a later version, or with a note of its own, still
+           says everything this one needs, and the schema is what holds an
+           author to the fields there are. */
+        if (!found)
+            continue;
         for (cJSON *w = v->next; w; w = w->next)
             if (!strcmp(v->string, w->string)) {
                 snprintf(reason, cap, "duplicate field: %s", v->string);

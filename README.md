@@ -57,7 +57,11 @@ Tested in PPSSPP so far. Running it on a real PSP?
 
 ## The PSPDX standard
 
-A complete example is the [demo app](https://github.com/chriopter/pspdx-demo):
+I propose a small file, `.pspdx`, in the root of your homebrew's repository.
+It says what the app is and where it lives; PSPDX, and any catalog, read the
+rest from your releases. Only `schema`, `source` and `name` are required.
+
+A complete example, from the [demo app](https://github.com/chriopter/pspdx-demo):
 
 ```json
 {
