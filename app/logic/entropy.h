@@ -58,12 +58,14 @@ int entropy_load(void);
 void entropy_save(int replaying);
 void entropy_forget(void);
 
-/* A sweep the browser asked for, which has a pool behind it already: the old
-   one is set aside and the field starts dry, and either the new sweep
-   finishes and replaces it or it is abandoned and entropy_restore puts the
-   session back as it was. entropy_stashed is what the sweep screen asks to
-   know whether there is anything to go back to -- the first sweep of a run
-   has nothing, and stays until it is done. */
+/* A sweep the browser asked for, which has a pool behind it already: the
+   count is set aside and the field starts dry, while the pool keeps what it
+   holds and takes the new sweep on top -- the network threads run on through
+   it, and a handshake in the middle must not draw from an empty pool. Either
+   the new sweep finishes and the count is its own, or it is abandoned and
+   entropy_restore puts the old count back. entropy_stashed is what the sweep
+   screen asks to know whether there is anything to go back to -- the first
+   sweep of a run has nothing, and stays until it is done. */
 void entropy_stash(void);
 int entropy_stashed(void);
 void entropy_restore(void);

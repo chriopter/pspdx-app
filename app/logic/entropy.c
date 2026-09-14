@@ -140,27 +140,40 @@ void entropy_save(int replaying) {
    a full pool already, and the screen it opens cannot be finished in under
    half a minute of stick work. Somebody who opens it by accident -- it is one
    row of the info band -- has to be able to leave, and leaving may not hand
-   the session a pool of nothing to make its keys from. So the old field is
-   set aside rather than destroyed, and put back if the sweep is abandoned.
-   The seed on the stick still goes at once, as it always did: somebody asking
-   for this wants that file gone, and whichever pool the session ends with
-   writes a new one on the way out. */
-static unsigned char stash[POOL_BYTES];
+   the session a pool of nothing to make its keys from.
+
+   The pool itself is never emptied for this. The sync and media threads keep
+   running through the sweep and either may open a connection in the middle
+   of it, and a handshake seeded from a pool that holds nothing but the last
+   few seconds of stick work is a handshake an observer of the stick could
+   replay. What was in the pool stays in it and the sweep is stirred in on
+   top, so the seed a handshake draws during the sweep is at least as good
+   as the one it would have drawn before. What starts over is the count and
+   the field, which is what the bar shows; the old count is kept, and put
+   back if the sweep is abandoned. The seed on the stick still goes at once,
+   as it always did: somebody asking for this wants that file gone, and
+   whichever count the session ends with, the pool writes a new one on the
+   way out. entropy_forget, which does empty the pool, is for the reset that
+   removes everything. */
 static int stash_bits = -1;
 
 void entropy_stash(void) {
     pool_lock();
-    memcpy(stash, pool, POOL_BYTES);
+    /* Inside the lock, like the removal in entropy_forget: a save landing
+       between the removal and the count going to zero would put the file
+       straight back. */
+    storage_remove(SEED_FILE);
     stash_bits = pool_bits;
+    pool_bits = 0;
+    last_heading = ~0u;
+    memset(field_seen, 0, sizeof(field_seen));
     pool_unlock();
-    entropy_forget();
 }
 
 int entropy_stashed(void) { return stash_bits >= 0; }
 
 void entropy_restore(void) {
     pool_lock();
-    memcpy(pool, stash, POOL_BYTES);
     pool_bits = stash_bits;
     pool_unlock();
     stash_bits = -1;
