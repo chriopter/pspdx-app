@@ -47,17 +47,13 @@ Tested in PPSSPP so far. Running it on a real PSP?
 
 **The magic**
 
-The catalog is only a shortcut. The `.pspdx` is what counts: a portable file,
-completely independent from any catalog.
-
-```text
-catalog up    ->  PSP reads the catalog       ->  every app, release and artwork in one request
-catalog gone  ->  PSP reads its saved .pspdx  ->  asks each app's own repository
-```
-
-The main catalog is just a bunch of GitHub workflows that build a static page.
-[Please steal it](https://github.com/chriopter/pspdx-catalog) for yours! You
-can even install `.pspdx` files directly, without any catalog.
+- The catalog is only a shortcut: every app, release and artwork in one
+  request, so lists load *very fast*.
+- The `.pspdx` is what counts: a portable file, independent from any catalog.
+- Catalog gone? Your PSP asks each app's own repository through its saved
+  `.pspdx`. You can even install `.pspdx` files directly.
+- The main catalog is just a bunch of GitHub workflows that build a static
+  page. [Please steal it](https://github.com/chriopter/pspdx-catalog) for yours!
 
 ## The PSPDX standard
 
