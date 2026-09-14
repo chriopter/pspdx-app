@@ -260,14 +260,11 @@ download  ->  release ZIP, following GitHub asset redirects
 #### TLS
 
 - Not a perfect TLS 1.3, on purpose: a PSP has no trustworthy clock, no root store, no way to update either, and may have sat in a drawer for years. The goal is that it still connects, not maximum security
-- wolfSSL, TLS 1.3 only, X25519 preferred
-- Bundled CAs, certificate-chain and hostname checks
-- Certificate dates are mostly ignored, because the PSP clock is usually wrong
-- An expired certificate, or one from an unknown issuer, asks "connect anyway?" instead of failing
-- What always fails: a bad signature, the wrong hostname
+- Done by [pspkit-https](https://github.com/chriopter/pspkit-https): TLS 1.3 only, ChaCha20-Poly1305 first, all of Mozilla's roots, certificate dates held only against the day it was built. Its README says how and why
+- An expired certificate, or one from an unknown issuer, asks "connect anyway?" instead of failing; a bad signature or the wrong hostname always fails
 - The real guarantee: the ZIP you install is the one the catalog names (SHA-256), not that this connection is as safe as your browser's
-- Entropy: analog-stick sweeps and `CRYPTO/seed.bin`
 - Packages are not signed; a catalog SHA-256 checks ZIP integrity, not author identity
+- Seed: a sweep of the analog stick or smashed buttons when there is none yet, `CRYPTO/seed.bin` afterwards, renewed with Renew TLS Seed
 
 #### Offline
 
@@ -353,8 +350,7 @@ ms0:/
         │   └── transaction.json
         ├── LOGS/
         │   ├── pspdx.log
-        │   ├── http.txt
-        │   └── wolf.log
+        │   └── http.txt
         ├── DEBUG/
         │   ├── PSPDX.BMP
         │   ├── PSPDX.KEYS
@@ -409,12 +405,13 @@ Inside the `pspdev/pspdev:latest` container, or with `$PSPDEV`, cmake and
 wget on the host:
 
 ```sh
-sh app/wolfssl-psp/build.sh
+git submodule update --init --recursive
+sh app/lib/pspkit-https/tools/build-wolfssl
 make -C app
 ```
 
 - Output: `app/EBOOT.PBP`
-- Libraries: wolfSSL, cJSON, intraFont, libpng, zlib, PSP SDK
+- Libraries: pspkit-https (wolfSSL), cJSON, intraFont, libpng, zlib, PSP SDK
 - CI builds inside `pspdev/pspdev:latest`
 
 #### Run in the emulator
@@ -454,17 +451,16 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 | `app/session/options.c` | The one menu the shell draws: the package's options on triangle and the popups under the gear, their rows built and walked here |
 | `app/update/` | Manifests, sources, catalogs, INBOX, media cache and synchronization |
 | `app/install/` | ZIP reader, installation transactions and persistent app state |
-| `app/network/` | HTTPS and network diagnostics |
-| `app/logic/` | Entropy pool |
+| `app/network/` | The cipher benchmark the rig asks for |
+| [`app/lib/pspkit-https/`](https://github.com/chriopter/pspkit-https) | HTTPS, the entropy pool and the sweep's stick step, as a submodule |
 | `app/audio/`, `app/video/` | Audio and video playback |
 | `app/util/` | Storage paths, PBP access and runtime helpers |
 | `app/util/files.c` | What Manage Data reads off the stick: sources, installs, INBOX, the client's own files, filled into the view `gui/files_view.c` draws |
-| `app/ca-extra/` | Extra root certificates folded into the CA bundle |
 | `dev/tests/` | Host tests: the parsers, the records and the installer, with power cuts |
-| `dev/` | Developing PSPDX: `start`, `release`, the mock catalog, the emulator settings, and the generators (`marks/`, `make-ca-bundle.py`, `render-music.c`, `sweep-trace.py`) |
+| `dev/` | Developing PSPDX: `start`, `release`, the mock catalog, the emulator settings, and the generators (`marks/`, `render-music.c`, `sweep-trace.py`) |
 | `dev/rig` | The rig: one emulator run with scripted keys, leaving the log and screenshots |
 | `dev/soak/` | Soak campaigns in the emulator, checked against a model of the client |
-| `dev/localcat/`, `dev/nettest/` | The loopback catalog with its throwaway CA, and the network test |
+| `dev/localcat/` | The loopback catalog with its throwaway CA |
 | `dev/testdata/` | Input traces for the entropy screen |
 | `dev/tools/` | The EBOOT media scripts and the PSMF wrapper, for any PSP app's ICON1 and SND0 |
 

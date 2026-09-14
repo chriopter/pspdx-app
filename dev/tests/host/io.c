@@ -1,4 +1,4 @@
-#include "network/https.h"
+#include "pspkit-https/https.h"
 #include "pspiofilemgr.h"
 #include <dirent.h>
 #include <errno.h>
@@ -117,12 +117,14 @@ void logline(const char *fmt, ...) {
     fputc('\n', stderr);
     va_end(ap);
 }
-int net_up(void) { return getenv("OFFLINE") ? -1 : 0; }
+int https_net_connect(void) { return getenv("OFFLINE") ? -1 : 0; }
 void https_abort(void) {}
-int https_get(const char *url, https_sink sink, void *ctx, https_progress cb, void *pc,
+enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_progress cb, void *pc,
               struct https_result *r) {
     (void)cb;
     (void)pc;
+    struct https_result ignored;
+    if (!r) r = &ignored;
     memset(r, 0, sizeof(*r));
     FILE *requests = fopen("requests.log", "a");
     fprintf(requests, "%s\n", url);
@@ -156,13 +158,17 @@ int https_get(const char *url, https_sink sink, void *ctx, https_progress cb, vo
     r->status = 200;
     char b[4096];
     size_t n;
-    int rc = 0;
+    enum https_outcome rc = HTTPS_COMPLETE;
     while ((n = fread(b, 1, sizeof(b), f))) {
-        if (sink(ctx, b, n) < 0) {
-            rc = -1;
+        if (sink && sink(ctx, b, n) != 0) {
+            rc = HTTPS_TRUNCATED;
             break;
         }
+        r->body_len += n;
+        if (cb) cb(pc, r->body_len, 0);
     }
+    if (ferror(f)) rc = HTTPS_TRUNCATED;
+    r->truncated = rc == HTTPS_TRUNCATED;
     fclose(f);
     return rc;
 }

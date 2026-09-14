@@ -111,7 +111,8 @@ rm -f "$MS/PSP/PSPDX/DEBUG/PSPDX.REPLAY" "$MS/PSP/PSPDX/DEBUG/PSPDX.KEYS" "$MS/P
 if [ "$RESET" = 1 ]; then
 	rm -f "$MS/PSP/PSPDX/CRYPTO/seed.bin"
 else
-	[ -f "$MS/PSP/PSPDX/CRYPTO/seed.bin" ] || printf 'PSPDX-TEST-SEED-0000' >"$MS/PSP/PSPDX/CRYPTO/seed.bin"
+	# This obviously non-secret test seed has the 32 bytes the client requires.
+	[ -f "$MS/PSP/PSPDX/CRYPTO/seed.bin" ] || printf 'PSPDX-TEST-SEED-NOT-SECRET-0000!' >"$MS/PSP/PSPDX/CRYPTO/seed.bin"
 fi
 
 if [ "$MOCK" = 1 ]; then

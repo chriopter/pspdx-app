@@ -121,6 +121,26 @@ static float frand(void) {
 }
 
 static struct { float x, y, vx, vy, size, phase; } g_stars[STARS];
+
+/* Stars that fall when the sweep's hand smashes a button: a few at a time,
+   each streaking down the sky and burning out before the horizon. Only a
+   picture -- what a press is worth is the entropy pool's to decide. */
+#define SHOWER 48
+static struct { float x, y, vx, vy, life; } g_shower[SHOWER];
+
+void lattice_shower(int count) {
+    for (int k = 0; k < count; k++) {
+        int slot = 0;
+        for (int i = 1; i < SHOWER; i++)
+            if (g_shower[i].life < g_shower[slot].life) slot = i;
+        float slant = frand() < 0.5f ? -1.0f : 1.0f;
+        g_shower[slot].x = 20 + frand() * (SCR_W - 40);
+        g_shower[slot].y = 2 + frand() * 24;
+        g_shower[slot].vx = slant * (0.8f + frand() * 1.6f);
+        g_shower[slot].vy = 2.0f + frand() * 2.2f;
+        g_shower[slot].life = 1.0f;
+    }
+}
 static struct { float x, y, vy, size, phase; } g_specks[SPECKS];
 
 /* A sine costs a few hundred cycles out of libm and the surface wants
@@ -1000,6 +1020,23 @@ void lattice_draw(float t, struct rgb tint) {
         float tw = 0.5f + 0.5f * fsin(t * 1.3f + g_stars[i].phase);
         gfx_glow(g_stars[i].x, g_stars[i].y, g_stars[i].size, g_stars[i].size,
                  tinted(white, (int)(30 + 70 * tw)));
+    }
+    /* Falling stars: a bright head and a fading tail behind it along the way
+       it came. */
+    for (int i = 0; i < SHOWER; i++) {
+        if (g_shower[i].life <= 0) continue;
+        g_shower[i].x += g_shower[i].vx;
+        g_shower[i].y += g_shower[i].vy;
+        g_shower[i].life -= 0.025f;
+        if (g_shower[i].y > GFX_HORIZON - 10) g_shower[i].life = 0;
+        if (g_shower[i].life <= 0) continue;
+        int alpha = (int)(170 * g_shower[i].life);
+        for (int k = 0; k < 4; k++) {
+            float back = k * 2.5f;
+            float size = 6.0f - k;
+            gfx_glow(g_shower[i].x - g_shower[i].vx * back, g_shower[i].y - g_shower[i].vy * back,
+                     size, size, tinted(white, alpha >> k));
+        }
     }
     /* The light is out past the far row, so the room sliding under it barely
        moves it. */

@@ -21,20 +21,24 @@ LOCALCAT_MARK="$WORK/built-local"
 # client trust that CA alone. Once; the files last thirty days.
 localcat_certs() {
 	mkdir -p "$WORK"
-	[ -f "$WORK/ca.crt" ] && return 0
-	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
-		-keyout "$WORK/ca.key" -out "$WORK/ca.crt" -days 30 -subj "/CN=localcat CA" >/dev/null 2>&1
-	openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
-		-keyout "$WORK/srv.key" -out "$WORK/srv.csr" -subj "/CN=127.0.0.1" >/dev/null 2>&1
-	printf 'subjectAltName=IP:127.0.0.1\n' > "$WORK/san.cnf"
-	openssl x509 -req -in "$WORK/srv.csr" -CA "$WORK/ca.crt" -CAkey "$WORK/ca.key" \
-		-CAcreateserial -out "$WORK/srv.crt" -days 30 -extfile "$WORK/san.cnf" >/dev/null 2>&1
+	[ -f "$WORK/ca.crt" ] || {
+		openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+			-keyout "$WORK/ca.key" -out "$WORK/ca.crt" -days 30 -subj "/CN=localcat CA" >/dev/null 2>&1
+		openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+			-keyout "$WORK/srv.key" -out "$WORK/srv.csr" -subj "/CN=127.0.0.1" >/dev/null 2>&1
+		printf 'subjectAltName=IP:127.0.0.1\n' > "$WORK/san.cnf"
+		openssl x509 -req -in "$WORK/srv.csr" -CA "$WORK/ca.crt" -CAkey "$WORK/ca.key" \
+			-CAcreateserial -out "$WORK/srv.crt" -days 30 -extfile "$WORK/san.cnf" >/dev/null 2>&1
+	}
+	# Written every time, not only with a new CA: the header's names follow
+	# the library, and one left from an older build would trust nothing.
 	{
-		echo '/* Throwaway CA for dev/localcat; defines ca_certs.h'"'"'s guard so'
-		echo '   the client trusts this and nothing else. Generated. */'
-		echo '#ifndef PSPDX_CA_CERTS_H'
-		echo '#define PSPDX_CA_CERTS_H'
-		echo 'static const char PSPDX_CA_PEM[] ='
+		echo '/* Throwaway CA for dev/localcat; replaces the library bundle so the'
+		echo '   client trusts this and nothing else. Generated. */'
+		echo '#ifndef PSPKIT_HTTPS_CA_BUNDLE_H'
+		echo '#define PSPKIT_HTTPS_CA_BUNDLE_H'
+		echo '#define PSPKIT_HTTPS_TEST_CA'
+		echo 'static const char PSPKIT_HTTPS_CA_PEM[] ='
 		sed 's/.*/"&\\n"/' "$WORK/ca.crt"
 		echo ';'
 		echo '#endif'
@@ -55,7 +59,7 @@ localcat_rebuild() {
 	# Every object the flags below reach: the TLS stack for the CA, the
 	# catalog for the URL, and sources for the test fixtures. One left out
 	# keeps the build it was made for, and a mock build then shows no mock.
-	if (cd "$APP" && rm -f network/https.o update/catalog.o update/sources.o && \
+	if (cd "$APP" && rm -f lib/pspkit-https/src/https.o update/catalog.o update/sources.o && \
 		docker run --rm -v "$REPO:/src" -w /src/app pspdev/pspdev:latest make "$@") \
 		>"$WORK/build.log" 2>&1
 	then

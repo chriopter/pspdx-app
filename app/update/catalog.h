@@ -1,7 +1,7 @@
 #ifndef PSPDX_CATALOG_H
 #define PSPDX_CATALOG_H
 
-#include "network/https.h"
+#include "pspkit-https/https.h"
 #include "install/install.h"
 
 #define MAX_APPS 64

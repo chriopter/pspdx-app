@@ -2,8 +2,9 @@
 /*
  * The entropy sweep. The field the browser stands on starts dry; the stick
  * carries a source of water over it, and where the source goes water is
- * born and spreads. When the field is water and the pool is full the key
- * can be made, and the surface that was just built stays as the backdrop.
+ * born and spreads. When enough unguessed turns have held their heading and
+ * crossed new ground, the pool is full and the key can be made; the surface
+ * that was just built stays as the backdrop.
  */
 
 #include <math.h>
@@ -18,17 +19,9 @@
 #include "gui/lattice.h"
 #include "gui/palette.h"
 #include "gui/title.h"
-#include "logic/entropy.h"
+#include "pspkit-https/entropy.h"
+#include "pspkit-https/sweep.h"
 #include "util/runtime.h"
-
-/* The stick moves the source across the field at the speed it moved the old
-   text cursor across its 60 by 28 cells, so a sweep takes as long as it
-   ever did. The pool is still fed the position it landed on. */
-#define FIELD_W 60.0f
-#define FIELD_H 28.0f
-#define STEP_X (0.0065f / FIELD_W)
-#define STEP_Z (0.0040f / FIELD_H)
-
 
 #define TRACE_MAX 5000
 #define TRACE_FILE  storage_path("PSP/PSPDX/DEBUG/PSPDX.TRACE")
@@ -44,17 +37,7 @@ static int trace_pos;
 static int replaying;
 static int recording;
 
-static float g_fx = 0.5f, g_fz = 0.5f;
-
-/* The stick's direction as one of eight, 45 degrees each, centred on the
-   axes and the diagonals; 5/12 stands in for tan 22.5. */
-static unsigned heading_of(int dx, int dy) {
-    int ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy;
-    if (ay * 12 < ax * 5) return dx > 0 ? 0 : 4;
-    if (ax * 12 < ay * 5) return dy > 0 ? 2 : 6;
-    if (dx > 0) return dy > 0 ? 1 : 7;
-    return dy > 0 ? 3 : 5;
-}
+static struct sweep g_sweep = SWEEP_START;
 
 static void trace_load(void) {
     int fd = sceIoOpen(REPLAY_FILE, PSP_O_RDONLY, 0777);
@@ -101,7 +84,7 @@ static int next_sample(SceCtrlData *pad) {
 
 void entropy_screen_reset_cache(void) {
     lattice_dry();
-    g_fx = g_fz = 0.5f;
+    g_sweep = (struct sweep)SWEEP_START;
 }
 
 void entropy_screen_prepare(void) {
@@ -136,7 +119,7 @@ static void draw_chrome(float t, int percent, int ready) {
     /* Under the name, centred, what the hand is for. */
     /* The same line on a replay: that is a development aid, and the seed
        it would leave is refused anyway. */
-    const char *head = "Move the analog stick to collect entropy for TLS 1.3";
+    const char *head = "Collect water with the stick or smash buttons";
     float hw = font_width(FONT_BODY, head);
     font_print(FONT_BODY, (SCR_W - hw) / 2, 104, text, head);
 
@@ -147,19 +130,24 @@ static void draw_chrome(float t, int percent, int ready) {
     if (filled > 0) gfx_hgrad(bar_x, bar_y, filled, 5, rgb_pack(DEFAULT_TINT, 255), accent);
 
     char right[48];
-    if (ready) snprintf(right, sizeof(right), "%d bits   X to continue", entropy_bits());
-    else if (entropy_stashed())
+    if (ready) snprintf(right, sizeof(right), "%d bits   START to continue", entropy_get_bits());
+    else if (entropy_get_stashed())
         /* The way out of a sweep the browser asked for, said where the way
            on is said: an escape nobody is told about is not one. */
-        snprintf(right, sizeof(right), "%d%%   %d bits   O to leave",
-                 percent, entropy_bits());
-    else snprintf(right, sizeof(right), "%d%%   %d bits", percent, entropy_bits());
+        snprintf(right, sizeof(right), "%d%%   %d bits   SELECT to leave",
+                 percent, entropy_get_bits());
+    else snprintf(right, sizeof(right), "%d%%   %d bits", percent, entropy_get_bits());
     float w = font_width(FONT_META, right);
     font_print(FONT_META, SCR_W - 16 - w, 232, ready ? accent : dim, right);
 }
 
 int entropy_screen_run(void) {
     entropy_screen_reset_cache();
+    /* Every sweep starts its trace afresh: a replay from the first sample,
+       a recording from an empty buffer, so a second sweep in the same run
+       neither plays the rest of the last one nor appends to it. */
+    trace_pos = 0;
+    if (!replaying) trace_len = 0;
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
 
@@ -173,34 +161,17 @@ int entropy_screen_run(void) {
             frame_us = now;
             if (frame && took > worst_us) worst_us = took;
         }
-        int dx = (int)pad.Lx - 128;
-        int dy = (int)pad.Ly - 128;
-        int moving = dx * dx + dy * dy > 14 * 14;
-
-        if (moving) {
-            g_fx += dx * STEP_X;
-            /* Stick down runs the source at the viewer, not at the horizon. */
-            g_fz -= dy * STEP_Z;
-            if (g_fx < 0) g_fx = 0;
-            if (g_fx > 1) g_fx = 1;
-            if (g_fz < 0) g_fz = 0;
-            if (g_fz > 1) g_fz = 1;
-            /* The source pays for a turn onto new ground: a field of the
-               invisible 250x250 grid, entered for the first time, under a
-               heading other than the last one paid for. A stick against its
-               stop earns nothing, and neither does a long straight stroke. */
-            int fx = (int)(g_fx * (ENTROPY_FIELD_SIDE - 1) + 0.5f);
-            int fz = (int)(g_fz * (ENTROPY_FIELD_SIDE - 1) + 0.5f);
-            entropy_absorb_field((unsigned)fz * ENTROPY_FIELD_SIDE + (unsigned)fx,
-                                 heading_of(dx, dy));
-        }
+        /* The stick and every button but START and SELECT feed the sweep. A
+           press rains a few stars, and one that paid rains more: the hand
+           sees which of its presses counted. */
+        int happened = sweep_step(&g_sweep, pad.Lx, pad.Ly, pad.Buttons);
+        if (happened & SWEEP_PRESSED) lattice_shower(happened & SWEEP_PRESS_PAID ? 6 : 2);
 
         /* The water is the picture of the sweep, not its measure: the bar
            tracks the bits alone, and past the mark it stays full. */
-        lattice_pour(g_fx, g_fz, moving);
-        int bits = entropy_bits();
-        int ready = bits >= ENTROPY_BITS;
-        int percent = ready ? 100 : bits * 100 / ENTROPY_BITS;
+        lattice_pour(g_sweep.x, g_sweep.z, g_sweep.moving);
+        int percent = sweep_get_percent();
+        int ready = percent == 100;
 
         float t = gfx_frames() * (1.0f / 60.0f);
         title_prepare("PSPDX", DEFAULT_TINT);
@@ -214,13 +185,13 @@ int entropy_screen_run(void) {
 
         frame++;
         record_frame(frame);
-        if (ready && (pad.Buttons & PSP_CTRL_CROSS)) break;
+        if (ready && (pad.Buttons & PSP_CTRL_START)) break;
         /* O leaves a sweep that has a pool behind it. Without this the only
            way out of this loop is a full sweep: the bar cannot fill without
            a hand on the stick, and a screen reached by two presses from the
            browser would hold the console until the battery did. The first
            sweep of a run has nothing to go back to and is not offered it. */
-        if (!ready && entropy_stashed() && (pad.Buttons & PSP_CTRL_CIRCLE)) {
+        if (!ready && entropy_get_stashed() && (pad.Buttons & PSP_CTRL_SELECT)) {
             left = 1;
             break;
         }
@@ -230,5 +201,5 @@ int entropy_screen_run(void) {
     trace_save();
     logline("sweep: %d frames, worst %u ms%s", frame, worst_us / 1000,
             left ? ", left with O" : "");
-    return left ? 0 : entropy_bits();
+    return left ? 0 : entropy_get_bits();
 }

@@ -1,6 +1,8 @@
 #ifndef PSPDX_RUNTIME_H
 #define PSPDX_RUNTIME_H
 
+#include <stddef.h>
+
 /* Which build this is, as a string: git describe, handed down by the Makefile.
    Everything that prints a version or writes one down takes it from here, so
    the band, the log and the record on the stick cannot disagree. A build from
@@ -19,7 +21,8 @@ void log_dump(void);
    not wait for the stick. */
 void log_dump_later(void);
 int log_count(void);
-const char *log_at(int index);
+/* Copies a terminated line so concurrent logging cannot overwrite it. */
+void log_at(int index, char *out, size_t size);
 
 unsigned now_ms(void);
 unsigned now_us(void);

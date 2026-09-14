@@ -13,7 +13,7 @@
 #include "gui/preview.h"
 #include "gui/shell.h"
 #include "install/state.h"
-#include "network/https.h"
+#include "pspkit-https/https.h"
 #include "session/actions.h"
 #include "session/questions.h"
 #include "session/view.h"
@@ -163,7 +163,7 @@ static void ask_forget(void) {
 }
 
 void ask_inbox(void){
-    preview_quiesce();catalog_offline(net_up()<0);
+    preview_quiesce();catalog_offline(https_net_connect()<0);
     shell_word(T_WORD_INBOX);
     int n=inbox_scan(actions_catalog());preview_resume();view_rebuild(actions_catalog());
     if(n<=0){shell_status(T_INBOX_EMPTY);return;}
@@ -230,7 +230,7 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         else if (asked == ASK_DISCARD) clear_cache();
         else if (asked == ASK_RUN || asked == ASK_RESTART) launch_app(index);
         else if (asked == ASK_TRUST) {
-            https_trust_anyway();
+            https_doubt_accept();
             refetch_now(*cursor, keep, keep_size, synced, refreshing);
         }
         else if (asked == ASK_CATALOG) {

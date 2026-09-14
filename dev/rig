@@ -20,10 +20,13 @@
 #
 # --sweep replays dev/testdata/sweep.trace through the entropy screen
 # instead, for working on that screen. That trace is a hand drawn from
-# /dev/urandom by dev/sweep-trace.py: headings by lot until the screen has
-# its 128 bits, then X, so the screen is over in about six seconds.
-# sweep-full.trace is a human at the stick and what the rate in
-# app/logic/entropy.h was measured on.
+# /dev/urandom by dev/sweep-trace.py: unpredictable headings are held long
+# enough to become turns and cross new fields until the bar fills, then START.
+# The bar fills after about eighteen seconds, and the generated trace ends
+# after about twenty-two seconds at 60 frames per second.
+# sweep-full.trace was recorded with a keyboard in PPSSPP, so its stick
+# values are only 0, 128 and 255; it is the recorded run that pspkit-https's
+# entropy accounting was measured on.
 # A replayed sweep never writes a seed -- the client refuses, since replayed
 # input is not entropy either -- so the next
 # default run seeds itself again.
@@ -85,10 +88,11 @@ if [ "$SWEEP" = 1 ]; then
 	rm -f "$SEED"
 else
 	rm -f "$DBG/PSPDX.REPLAY"
-	# 20 bytes, the pool size. Only written when missing: the client ratchets
-	# the file forward on every run, and a rig that kept resetting it would
-	# hide a bug in that.
-	[ -f "$SEED" ] || printf 'PSPDX-TEST-SEED-0000' >"$SEED"
+	# This obviously non-secret test seed is exactly the 32 bytes the pool
+	# requires. It is only written when missing because the client ratchets the
+	# file forward on every run, and a rig that kept resetting it would hide a
+	# bug in that.
+	[ -f "$SEED" ] || printf 'PSPDX-TEST-SEED-NOT-SECRET-0000!' >"$SEED"
 fi
 rm -f "$LOGS/pspdx.log" "$DBG/PSPDX.BMP" "$DBG/PSPDX0.BMP" "$DBG/PSPDX1.BMP" \
       "$DBG/PSPDX2.BMP" "$DBG/PSPDX.BENCH" "$DBG/PSPDX.KEYS" "$DBG/PSPDX.SLOW"

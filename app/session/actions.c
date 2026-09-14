@@ -23,8 +23,8 @@
 #include "gui/shell.h"
 #include "install/install.h"
 #include "install/state.h"
-#include "logic/entropy.h"
-#include "network/https.h"
+#include "pspkit-https/entropy.h"
+#include "pspkit-https/https.h"
 #include "session/actions.h"
 #include "session/view.h"
 #include "update/inbox.h"
@@ -127,7 +127,7 @@ int install_app(int index, int screenshot, int at, int of) {
     SceUID self = sceKernelGetThreadId();
     sceKernelChangeThreadPriority(self, 0x22);
     unsigned start = now_ms();
-    catalog_offline(net_up()<0);
+    catalog_offline(https_net_connect()<0);
     int rc = entry->has_release ? catalog_prepare(entry) : -1;
     if(rc==0)rc=install_release(&entry->release, &report, shell_install_phase,
                              install_progress, NULL);
@@ -416,7 +416,7 @@ int type_source(int install) {
     rc = sources_normalize(text,url,sizeof(url));
     struct source_repo parsed;
     if(rc<0 || (install && !sources_parse_repo(url,&parsed))) {shell_status(T_BAD_ADDRESS);return 0;}
-    preview_quiesce();catalog_offline(net_up()<0);
+    preview_quiesce();catalog_offline(https_net_connect()<0);
     rc=catalog_validate_source(url,install);
     preview_resume();
     if(rc<0){shell_status(T_SOURCE_UNAVAILABLE);return 0;}

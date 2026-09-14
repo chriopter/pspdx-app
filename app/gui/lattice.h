@@ -56,5 +56,7 @@ void lattice_tint(struct rgb target);
 void lattice_dry(void);
 float lattice_pour(float fx, float fz, int pouring);
 void lattice_settle(void);
+/* A burst of falling stars over the sweep, count at a time. */
+void lattice_shower(int count);
 
 #endif

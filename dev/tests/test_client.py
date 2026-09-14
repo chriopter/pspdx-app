@@ -192,7 +192,7 @@ class ClientTests(unittest.TestCase):
   app=pathlib.Path(__file__).resolve().parents[2]/'app'
   registered=set(re.findall(r'\{"([^"\n]*)",', (app/'util/storage_paths.inc').read_text()))
   for path in app.rglob('*.c'):
-   if 'wolfssl-psp' in path.parts:continue
+   if 'lib' in path.relative_to(app).parts:continue
    for name in re.findall(r'storage_path\("([^"\n]*)"\)',path.read_text()):self.assertIn(name,registered,str(path))
  def test_embedded_manifest_matches_root(self):
   import re

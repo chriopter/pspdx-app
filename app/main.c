@@ -29,7 +29,8 @@
 #include "gui/osk.h"
 #include "gui/shell.h"
 #include "install/install.h"
-#include "logic/entropy.h"
+#include "pspkit-https/entropy.h"
+#include "pspkit-https/https.h"
 #include "network/bench.h"
 #include "session/view.h"
 #include "session/actions.h"
@@ -48,11 +49,13 @@ PSP_HEAP_SIZE_KB(12 * 1024);
 static struct catalog catalog;
 static unsigned g_worst_tick;       /* worst preview tick (fetch, decode) in us */
 
+static void https_log(const char *text) { logline("%s", text); }
+
 static int exit_callback(int a, int b, void *c) {
     (void)a; (void)b; (void)c;
     /* The one orderly moment in a run. Everything the session stirred into the
        pool has been sitting in RAM until here, so this is where it reaches the
-       stick -- twenty bytes, once, instead of the same sector every few
+       stick -- 32 bytes, once, instead of the same sector every few
        seconds. */
     entropy_save(entropy_screen_is_replay());
     sceKernelExitGame();
@@ -334,6 +337,26 @@ int main(int argc, char *argv[]) {
         else
             storage_write(self_manifest_path, PSPDX_SELF_MANIFEST, strlen(PSPDX_SELF_MANIFEST));
         free(bundled);
+    }
+    https_set_log(https_log);
+    https_set_user_agent("pspdx/0.0");
+    entropy_set_seed_file(storage_path("PSP/PSPDX/CRYPTO/seed.bin"));
+
+    /* The test rig only. An emulator borrows the host's network, which is an
+       order of magnitude past what a PSP-1004's 802.11b radio and its own TCP
+       stack ever managed -- a download that takes half a minute on the hardware
+       is over before the progress bar has moved. PSPDX.SLOW holds a rate in
+       kilobytes a second, or nothing for the measured rate of a 1004. A PSP
+       nobody has put that file on is paced by its radio, as it should be. The
+       library clamps arriving bytes, so every fetch is shaped alike. */
+    if (storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.SLOW"))) {
+        char *text = NULL;
+        int n = storage_read(storage_path("PSP/PSPDX/DEBUG/PSPDX.SLOW"), &text, 15);
+        unsigned rate = n > 0 ? (unsigned)atoi(text) : 0;
+        free(text);
+        rate = rate ? rate : 180;
+        https_set_rate_limit(rate);
+        logline("network paced to %u KB/s, as a PSP-1004", rate);
     }
     entropy_init();
     entropy_screen_prepare();

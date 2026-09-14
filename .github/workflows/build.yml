@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - run: sudo apt-get update && sudo apt-get install -y libcjson-dev zlib1g-dev libssl-dev
       - run: sh dev/tests/run
 
@@ -19,18 +21,23 @@ jobs:
     container: pspdev/pspdev:latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      # wolfSSL is built from a hash-pinned tarball with our seed flags.
-      # Cached on the build script and the pinned hash inside it.
+      - name: Read wolfSSL revision
+        id: wolfssl-revision
+        run: echo "commit=$(git -C app/lib/pspkit-https rev-parse HEAD:wolfssl)" >> "$GITHUB_OUTPUT"
+
+      # wolfSSL is cached on everything that controls its source and build.
       - uses: actions/cache@v4
         id: wolfssl
         with:
-          path: app/wolfssl-psp/prefix
-          key: wolfssl-${{ hashFiles('app/wolfssl-psp/build.sh', 'app/wolfssl-psp/psprandom_decl.h') }}
+          path: app/lib/pspkit-https/build/wolfssl
+          key: wolfssl-${{ steps.wolfssl-revision.outputs.commit }}-${{ hashFiles('app/lib/pspkit-https/tools/build-wolfssl', 'app/lib/pspkit-https/src/wolfssl_seed.h') }}
 
       - name: Build wolfSSL
         if: steps.wolfssl.outputs.cache-hit != 'true'
-        run: sh app/wolfssl-psp/build.sh
+        run: sh app/lib/pspkit-https/tools/build-wolfssl
 
       - name: Build
         run: make -C app

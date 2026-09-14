@@ -18,8 +18,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "logic/entropy.h"
-#include "network/https.h"
+#include "pspkit-https/entropy.h"
+#include "pspkit-https/https.h"
 #include "gui/shell.h"
 #include "gui/shell_internal.h"
 #include "gui/files_view.h"
@@ -1019,7 +1019,12 @@ static void tidy_cipher(const char *name, char *out, size_t size) {
     if (strncmp(cut, "TLS13", 5) == 0) cut += 5;
     else if (strncmp(cut, "TLS", 3) == 0) cut += 3;
     if (*cut == '-' || *cut == '_') cut++;
-    snprintf(out, size, "%s", *cut ? cut : name);
+    if (!size) return;
+    const char *value = *cut ? cut : name;
+    size_t len = strlen(value);
+    if (len >= size) len = size - 1;
+    memcpy(out, value, len);
+    out[len] = '\0';
     for (char *p = out; *p; p++) if (*p == '_') *p = '-';
     size_t n = strlen(out);
     if (n > 7 && strncmp(out + n - 7, "-SHA", 4) == 0) out[n - 7] = '\0';
@@ -1086,7 +1091,8 @@ static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
 static void draw_info(void) {
     draw_band(INFO_Y, INFO_H);
 
-    const struct https_info *tls = https_last();
+    struct https_info tls;
+    https_get_last_info(&tls);
     char value[96];
 
     /* Which build this is, above the rest: the one fact the band states about
@@ -1098,20 +1104,20 @@ static void draw_info(void) {
     fact(INFO_Y + 36, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
          T_INFO_CATALOG, value);
 
-    if (tls->cipher[0]) {
+    if (tls.cipher[0]) {
         char cipher[48];
-        tidy_cipher(tls->cipher, cipher, sizeof(cipher));
-        snprintf(value, sizeof(value), T_INFO_TLS, cipher, tls->group);
+        tidy_cipher(tls.cipher, cipher, sizeof(cipher));
+        snprintf(value, sizeof(value), T_INFO_TLS, cipher, tls.group);
     } else {
         snprintf(value, sizeof(value), T_INFO_NOT_CONNECTED);
     }
     fact(INFO_Y + 54, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
          T_INFO_CONNECTION, value);
 
-    snprintf(value, sizeof(value), "%u ms", tls->handshake_ms);
+    snprintf(value, sizeof(value), "%u ms", tls.handshake_ms);
     fact(INFO_Y + 76, FACT_LABEL, FACT_VALUE, 140, T_INFO_HANDSHAKE, value);
 
-    snprintf(value, sizeof(value), "%d bits", entropy_bits());
+    snprintf(value, sizeof(value), "%d bits", entropy_get_bits());
     fact(INFO_Y + 96, FACT_LABEL, FACT_VALUE, 140, T_INFO_ENTROPY, value);
 
     /* Not a scheduler's number -- the PSP has none to ask. The share of each

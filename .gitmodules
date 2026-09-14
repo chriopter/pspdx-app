@@ -1,0 +1,3 @@
+[submodule "app/lib/pspkit-https"]
+	path = app/lib/pspkit-https
+	url = https://github.com/chriopter/pspkit-https

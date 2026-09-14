@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 #include "update/sync.h"
-#include "network/https.h"
+#include "pspkit-https/https.h"
 #include "util/runtime.h"
 
 /* Below the main thread's priority: the browser keeps its frame rate and
@@ -21,7 +21,7 @@ static SceUID g_thread = -1;
 static int run(SceSize args, void *argp) {
     (void)args; (void)argp;
     g_state = SYNC_CONNECTING;
-    int online=net_up()>=0;
+    int online=https_net_connect()>=0;
     catalog_offline(!online);
     if(!online)logline("offline: using saved catalogs and installed apps");
     g_state = SYNC_FETCHING;

@@ -11,7 +11,7 @@
 #include <wolfssl/wolfcrypt/chacha20_poly1305.h>
 
 #include "network/bench.h"
-#include "network/https.h"
+#include "pspkit-https/https.h"
 #include "util/runtime.h"
 
 #define CHUNK (256 * 1024)
@@ -56,7 +56,7 @@ static void bench_handshake(const char *url, const char *suites, const char *lab
     struct https_result r;
     unsigned best = 0;
     for (int i = 0; i < 3; i++) {
-        https_prefer(suites); /* Measure new handshakes, not a reused connection. */
+        https_set_cipher_suites(suites); /* Measure new handshakes, not a reused connection. */
         if (https_get(url, drop, 0, 0, 0, &r) != 0) { logline("bench: %s failed", label); return; }
         if (!best || r.handshake_ms < best) best = r.handshake_ms;
     }
@@ -140,7 +140,7 @@ static int count(void *ctx, const void *data, size_t len) {
 }
 
 static void bench_tls(const char *suites, const char *label) {
-    https_prefer(suites);
+    https_set_cipher_suites(suites);
     struct https_result r;
     g_got = 0;
     unsigned t0 = now_us();
@@ -159,5 +159,5 @@ void bench_run(const char *url) {
     bench_raw(); log_dump();
     bench_tls("TLS13-AES128-GCM-SHA256", "https aes-128-gcm"); log_dump();
     bench_tls("TLS13-CHACHA20-POLY1305-SHA256", "https chacha20-poly1305"); log_dump();
-    https_prefer(0);
+    https_set_cipher_suites(0);
 }

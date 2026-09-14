@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "update/assets.h"
-#include "network/https.h"
+#include "pspkit-https/https.h"
 #include "util/runtime.h"
 
 #define CACHE_DIR storage_path("PSP/PSPDX/CACHE/media")

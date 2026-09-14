@@ -2,7 +2,7 @@
 #define PSPDX_INSTALL_H
 
 #include <stddef.h>
-#include "network/https.h"
+#include "pspkit-https/https.h"
 
 /* One release, as the console installs it: the fields that go into a
    download and an unpack, and the repository it came from, which goes
