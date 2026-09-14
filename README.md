@@ -132,7 +132,7 @@ a different catalog; the client retains installed apps independently.
 
 </details>
 
-## In detail
+## Under the hood
 
 <details>
 <summary>Sources (catalogs, repositories, INBOX)</summary>
