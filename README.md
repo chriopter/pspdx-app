@@ -41,9 +41,9 @@ Tested in PPSSPP so far. Running it on a real PSP?
   It's just like a phonebook.
 - OSS repos can be added to the main catalog.
   [Here](https://github.com/chriopter/pspdx-catalog).
-- Or start your own catalog.
-  [Just copy this](https://github.com/chriopter/pspdx-catalog) and share the
-  link!
+- Or start your own catalog. It's just a bunch of GitHub workflows that
+  build a static page. [Please steal it](https://github.com/chriopter/pspdx-catalog)
+  and share the link!
 
 **The magic**
 
@@ -54,8 +54,6 @@ Tested in PPSSPP so far. Running it on a real PSP?
   - **Catalog gone** → PSP reads its saved `.pspdx` → asks each app's own
     repository.
   - **No catalog at all** → install `.pspdx` files directly.
-- The main catalog is just a bunch of GitHub workflows that build a static
-  page. [Please steal it](https://github.com/chriopter/pspdx-catalog) for yours!
 
 ## The PSPDX standard
 
