@@ -47,12 +47,7 @@ publish a release. Open-source apps can be added to the
 [main catalog](https://github.com/chriopter/pspdx-catalog); or start your
 own catalog and share the link.
 
-### In detail
-
-How PSPDX finds apps, checks releases and stores installations.
-
-<details>
-<summary>Sources — catalogs, repositories and INBOX</summary>
+### Sources — catalogs, repositories and INBOX
 
 The default source is `https://chriopter.github.io/pspdx-catalog/`. PSPDX
 reads `catalog.json` for fast browsing. If it fails, PSPDX reads `catalog.txt`
@@ -70,10 +65,7 @@ Catalogs and repositories are validated before being added to `sources.txt`.
 Adding a catalog does not install its apps; Direct install and INBOX import
 do. Installed apps keep their own manifests and state if a source is removed.
 
-</details>
-
-<details>
-<summary>Installation and updates — checks, sources and recovery</summary>
+### Installation and updates — checks, sources and recovery
 
 **Install:** select an app with **×** and confirm. PSPDX verifies that its
 `.pspdx` source and `installdir` match the selected entry, then downloads the
@@ -109,10 +101,7 @@ restart PSPDX afterward.
 
 **△** options · **○** back · **□** basket · **START** run · **L/R** or **←/→** tabs.
 
-</details>
-
-<details>
-<summary>Network — HTTPS, TLS 1.3 and offline use</summary>
+### Network — HTTPS, TLS 1.3 and offline use
 
 PSPDX uses the first saved PSP network profile. Catalogs, GitHub checks and
 ZIP downloads use HTTPS. A catalog returns release data for many apps in one
@@ -132,10 +121,7 @@ Refresh runs in the background. Installation pauses network previews because
 they share the network stack. Cached browsing works offline; fresh release
 checks and downloads require a connection.
 
-</details>
-
-<details>
-<summary>Catalog data — update indicators, previews and cache</summary>
+### Catalog data — update indicators, previews and cache
 
 The reference catalog's hourly workflow reads its `repos.txt` and publishes
 it as `catalog.txt`. For a new release it reads `.pspdx`, hashes the ZIP and
@@ -161,10 +147,7 @@ fetch keeps the last usable catalog for browsing; installed apps check their
 saved GitHub source. Offline, only saved records and media are available. Both
 caches can be deleted without losing installation state.
 
-</details>
-
-<details>
-<summary>Files on the Memory Stick — manifests, state and cache</summary>
+### Files on the Memory Stick — manifests, state and cache
 
 Example on the startup device (`ms0:` or `ef0:`); app IDs are illustrative.
 Temporary and debug files appear only when used.
@@ -238,8 +221,6 @@ under `GAME/` because PSP directory renames require the same parent. Keep
 transaction's files. Only per-app state files are loaded; older combined
 state files are ignored. Corrupt app records are preserved and block writes.
 
-</details>
-
 ## The PSPDX standard
 
 Add a `.pspdx` to your repository to make your homebrew installable and
@@ -259,10 +240,7 @@ is a complete example.
 }
 ```
 
-<a id="format-specification"></a>
-
-<details>
-<summary>Format specification — fields, releases and catalogs</summary>
+### Format specification — fields, releases and catalogs
 
 Version 1: a GitHub repository with a root `.pspdx` and a published release
 containing exactly one ZIP with one `EBOOT.PBP`. Releases supply versions
@@ -325,13 +303,9 @@ publishes a fresh snapshot each hour. Manifest-only edits require a new
 release or a forced catalog rebuild. Anyone can reuse the builder or publish
 a different catalog; the client retains installed apps independently.
 
-</details>
-
 ## Development
 
-<details>
-<summary>Build, code layout and tests</summary>
-
+### Build, code layout and tests
 
 Inside the `pspdev/pspdev:latest` container, or with `$PSPDEV`, cmake and
 wget on the host:
@@ -350,7 +324,6 @@ runs against the local mock catalog. These scripts assume Linux with Docker,
 the PPSSPP Flatpak, Python, a systemd user session and Wayland.
 `dev/release <version> [notes]` builds and publishes a GitHub release with
 `gh` from a clean `master` checkout.
-
 
 `dev/start` installs `dev/ppsspp/controls.ini`: × S, ○ D, □ A, △ W,
 START Enter, SELECT Space, L Q, R E; arrow keys for the d-pad, I/J/K/L
@@ -389,10 +362,7 @@ model. Failure artifacts are written under `app/tools/soak/results/`.
 Fixture builds are for local testing only. Host and emulator tests do not
 replace real PSP storage, WLAN and power-loss testing.
 
-</details>
-
-<details>
-<summary>Regenerating icons and EBOOT media</summary>
+### Regenerating icons and EBOOT media
 
 From `app/`:
 
@@ -415,4 +385,3 @@ their third argument; `DURATION` controls length. Video defaults to six
 seconds at 144×80, `FPS` adjustable; audio defaults to eighteen seconds of
 ATRAC3 at 132 kbps, `BITRATE` 132 or 66.
 
-</details>
