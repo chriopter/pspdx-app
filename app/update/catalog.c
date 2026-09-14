@@ -392,18 +392,6 @@ static int ends_with_zip(const char *name) {
     return n > 4 && strcasecmp(name + n - 4, ".zip") == 0;
 }
 
-/* A description into the summary: the first 59 bytes, backed off so that
-   a UTF-8 sequence is not cut in the middle. */
-static void cut_summary(char *dst, size_t size, const char *text) {
-    size_t n = strlen(text);
-    if (n >= size) {
-        n = size - 1;
-        while (n && ((unsigned char)text[n] & 0xC0) == 0x80)
-            n--;
-    }
-    memcpy(dst, text, n);
-    dst[n] = '\0';
-}
 
 /* One text file from GitHub's API into the response buffer, parsed.
    Returns the JSON, or NULL when it did not arrive or was not JSON. */
@@ -489,39 +477,10 @@ static int take_origin(struct catalog *catalog, const struct source_repo *repo) 
     snprintf(entry->summary, sizeof(entry->summary), "%s", file.summary);
     snprintf(entry->license, sizeof(entry->license), "%s", file.license);
 
-    /* The repository itself is one more request, and sixty an hour are
-       allowed from one address: it is asked only for what the file left
-       out and GitHub can say. The author is never among them: a file that
-       names none is by the account the repository is under, which the URL
-       already says. */
-    if (!file.summary[0] || !file.license[0]) {
-        snprintf(api, sizeof(api), "https://api.github.com/repos/%s/%s", repo->owner, repo->name);
-        cJSON *root = fetch_json(api);
-        if (!root) {
-            /* The file said the repository is an app, and it is. GitHub
-               being unreachable or out of requests costs the summary and
-               the licence, not the entry. */
-            logline("origin: %s/%s: no repository answer, the file stands alone", repo->owner,
-                    repo->name);
-        } else {
-            cJSON *description = cJSON_GetObjectItemCaseSensitive(root, "description");
-            if (!entry->summary[0] && cJSON_IsString(description))
-                cut_summary(entry->summary, sizeof(entry->summary), description->valuestring);
-            cJSON *license = cJSON_GetObjectItemCaseSensitive(root, "license");
-            if (!entry->license[0] && cJSON_IsObject(license))
-                copy_str(entry->license, sizeof(entry->license),
-                         cJSON_GetObjectItemCaseSensitive(license, "spdx_id"));
-            /* What GitHub says when it saw a licence file it could not name. */
-            if (strcmp(entry->license, "NOASSERTION") == 0)
-                entry->license[0] = '\0';
-            cJSON_Delete(root);
-            logline("origin: %s/%s: repository asked for%s%s", repo->owner, repo->name,
-                    file.summary[0] ? "" : " summary", file.license[0] ? "" : " licence");
-        }
-    } else {
-        logline("origin: %s/%s: the file has summary and licence, no repository request", repo->owner,
-                repo->name);
-    }
+    /* What the file says is all there is. A summary or a licence it leaves
+       out stays empty rather than costing one of the sixty requests an
+       hour GitHub allows an address, and the author it leaves out is the
+       account in the URL. */
 
     /* Which release: the list's @tag pins hardest, then the file's own
        release, and with neither it is whatever GitHub calls latest. */
@@ -720,7 +679,13 @@ int catalog_add_repo(struct catalog *catalog, const char *url) {
     return catalog->count - 1;
 }
 
+/* How long an answer from an app's own repository stands before it is
+   asked again, unless the check is forced. */
+#define DIRECT_EVERY_S (6u * 3600u)
+
 static void restore_installed(struct catalog *catalog) {
+    unsigned now = (unsigned)time(NULL);
+    int stale = catalog->generated && catalog->generated + 24u * 3600u < now;
     for (int i = 0; i < state_count(); i++) {
         char id[96];
         snprintf(id, sizeof(id), "%s", state_id(i));
@@ -728,10 +693,23 @@ static void restore_installed(struct catalog *catalog) {
         if (db_read(id, &rec) < 0)
             continue;
         int at = catalog_find_repo(catalog, rec.repo);
-        if (at >= 0 && catalog->apps[at].fresh && !g_force && !state_check_direct(id)) {
+        /* A live catalog that is not a day behind answers for what it
+           lists. Past that -- an app no catalog lists, a list served from
+           the cache, a stamp a day old -- the app is asked at its own
+           repository, but not more often than every six hours, since GitHub
+           allows an address sixty requests an hour; what the record last
+           heard from that repository stands in between. An answer a catalog
+           gave does not count as one, and a forced check asks regardless. */
+        int covered = at >= 0 && catalog->apps[at].fresh && !stale;
+        if (covered && !g_force) {
             state_note_latest(&catalog->apps[at].release);
             continue;
         }
+        struct manifest seen;
+        int due = g_force || state_latest(id, &seen) < 0 || !seen.checked_at ||
+                  !sources_same_repo(seen.checked_from, seen.repo) ||
+                  seen.checked_at + DIRECT_EVERY_S < now;
+        int fetched = 0;
         struct pspdx_file file;
         char *raw = NULL;
         int n = state_read_manifest(id, &raw, &file);
@@ -739,7 +717,9 @@ static void restore_installed(struct catalog *catalog) {
         const char *source = n >= 0 ? file.source : rec.repo;
         struct source_repo repo;
         struct catalog *one = calloc(1, sizeof(*one));
-        if (one && !g_offline && sources_parse_repo(source, &repo) && take_origin(one, &repo) > 0) {
+        if (one && due && !g_offline && sources_parse_repo(source, &repo) &&
+            take_origin(one, &repo) > 0) {
+            fetched = 1;
             if (at < 0 && catalog->count < MAX_APPS)
                 at = catalog->count++;
             if (at >= 0) {
@@ -774,7 +754,7 @@ static void restore_installed(struct catalog *catalog) {
             memcpy(e->release.raw, raw, n + 1);
             settle_state(e);
         }
-        if (at >= 0 && !catalog->apps[at].fresh) {
+        if (at >= 0 && !fetched && (!catalog->apps[at].fresh || stale)) {
             struct manifest latest;
             if (state_latest(id, &latest) == 0 && latest.rev >= catalog->apps[at].release.rev) {
                 snprintf(latest.dir, sizeof(latest.dir), "%.32s",

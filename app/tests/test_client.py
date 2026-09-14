@@ -248,29 +248,12 @@ class ClientTests(unittest.TestCase):
   self.assertIn(ID+' 3 1',self.run_client('fetch').stdout)
  def test_force_and_missing_catalog(self):
   self.fixtures();r=self.run_client('fetch',FORCE=1);self.assertIn(ID+' 3 1',r.stdout)
-  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('');r=self.run_client('fetch');self.assertIn(ID+' 3 1',r.stdout)
- def test_per_app_update_source_survives_install(self):
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('');r=self.run_client('fetch');self.assertIn(ID+' 3 0',r.stdout)
+ def test_old_update_check_field_is_read_and_ignored(self):
   self.fixtures()
-  self.assertEqual(self.run_client('check-source',ID).stdout.strip(),'0')
-  self.assertEqual(self.run_client('check-source','io.github.chriopter.pspdx').stdout.strip(),'0')
-  self.run_client('check-source',ID,1)
-  self.assertEqual(self.state()[ID]['update_check'],'source')
-  self.assertIn(ID+' 3 1',self.run_client('fetch').stdout)
-  self.assertEqual(self.state()[ID]['latest']['checked_from'],SPEC['source'])
-  self.run_client('install',VERSION=3)
-  self.assertEqual(self.state()[ID]['update_check'],'source')
-  self.run_client('check-source',ID,0)
+  state=self.state()[ID];state['update_check']='source'
+  self.write('ms0:/PSP/PSPDX/INSTALLED/'+ID+'.state.json',state)
   self.assertIn(ID+' 2 1',self.run_client('fetch').stdout)
-  self.assertEqual(self.state()[ID]['update_check'],'auto')
- def test_self_defaults_to_direct_when_record_exists(self):
-  self.fixtures()
-  state=self.state()[ID]
-  state['source']='https://github.com/chriopter/pspdx'
-  state['installed']['installdir']='PSP/GAME/PSPDX'
-  self.write('ms0:/PSP/PSPDX/INSTALLED/io.github.chriopter.pspdx.state.json',state)
-  self.assertEqual(self.run_client('check-source','io.github.chriopter.pspdx').stdout.strip(),'1')
-  self.run_client('check-source','io.github.chriopter.pspdx',0)
-  self.assertEqual(self.run_client('check-source','io.github.chriopter.pspdx').stdout.strip(),'0')
  def test_sources_added_only_when_valid(self):
   self.fixtures()
   base='https://example.com/other/'
