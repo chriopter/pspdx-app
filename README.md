@@ -65,7 +65,8 @@ is a complete example.
 
 **The magic**
 
-The catalog is only a shortcut. The `.pspdx` is what counts.
+The catalog is only a shortcut. The `.pspdx` is what counts: a portable file,
+completely independent from any catalog.
 
 ```text
 catalog up    ->  PSP reads the catalog       ->  every app, release and artwork in one request
