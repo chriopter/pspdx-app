@@ -341,7 +341,7 @@ static void ask_install(int index) {
     const struct app_entry *entry = &catalog.apps[index];
     const char *version = entry->remote_version[0] ? entry->remote_version
                                                    : entry->release.version;
-    char title[64], line[96];
+    char title[64], line[200];
     if (entry->state == APP_UPDATE)
         snprintf(title, sizeof(title), T_UPDATE_ASK, entry->name);
     else
@@ -388,8 +388,14 @@ static void ask_install(int index) {
             return;
         }
     }
-    if(recorded && strcmp(previous.dir,entry->release.dir))
-        snprintf(line,sizeof(line),T_INSTALL_MOVES,entry->release.dir);
+    /* A release that names another directory than the one installed is
+       said so, after the version: the app is going to live elsewhere. A
+       name that differs only in case is the same directory to the stick
+       (and to PPSSPP, which once wrote pspdx where PSPDX was meant). */
+    if (recorded && strcasecmp(previous.dir, entry->release.dir)) {
+        size_t at = strlen(line);
+        snprintf(line + at, sizeof(line) - at, T_INSTALL_MOVES, previous.dir, entry->release.dir);
+    }
     shell_ask(title, line);
     g_question = ASK_INSTALL;
     g_question_of = index;

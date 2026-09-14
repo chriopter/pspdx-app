@@ -90,7 +90,7 @@
 #define T_UPDATE_ASK         "Do you want to update %s?"          /* name */
 #define T_INSTALL_LINE       "Version %s, %lu.%lu MB"             /* version, MB, tenths */
 #define T_INSTALL_LINE_NOSIZE "Version %s"                        /* version */
-#define T_INSTALL_MOVES      "It moves to the folder %.32s."      /* folder */
+#define T_INSTALL_MOVES      " Its folder changes from %.32s to %.32s."   /* old, new; after the version line */
 #define T_DIR_OTHER_APP      "Another app uses the folder %.32s." /* folder */
 #define T_DIR_BAK_EXISTS     "Could not install. %.32s.bak already exists." /* folder */
 #define T_DIR_EXISTS_ASK     "The folder %.32s already exists."   /* folder */
