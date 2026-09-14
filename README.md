@@ -444,11 +444,12 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 
 | Location | Responsibility |
 |---|---|
-| `app/main.c` | The loop: keys, the questions, the options menu and the popups under the gear, launching, and the rig's hooks (scripted keys, screenshots, the cipher benchmark) |
+| `app/main.c` | The loop: keys, the questions, the options menu and the popups under the gear, and the rig's hooks (scripted keys, screenshots, the cipher benchmark) |
 | `app/text.h` | Every word the screen shows, in one place |
 | `app/gui/` | Browser, rendering, icons, previews and firmware keyboard |
 | `app/gui/files_view.c` | Manage Data on screen: the two columns, the raw band, its keys, and the film or sound handed to the media thread |
 | `app/session/view.c` | The browser's model, with nothing of the drawing in it: the tabs, the catalog filtered to the open one, the basket, what the action row would fetch, the gear's rows |
+| `app/session/actions.c` | What the session does: installs, one or a run of them, removing, launching, fetching the catalog again, the sweep, the cache and the reset |
 | `app/update/` | Manifests, sources, catalogs, INBOX, media cache and synchronization |
 | `app/install/` | ZIP reader, installation transactions and persistent app state |
 | `app/network/` | HTTPS and network diagnostics |

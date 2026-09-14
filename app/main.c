@@ -35,6 +35,7 @@
 #include "logic/entropy.h"
 #include "network/bench.h"
 #include "session/view.h"
+#include "session/actions.h"
 #include "update/catalog.h"
 #include "update/sources.h"
 #include "update/sync.h"
@@ -73,19 +74,6 @@ static int setup_callbacks(void) {
                                        0x11, 0xFA0, THREAD_ATTR_USER, 0);
     if (thread < 0) return thread;
     return sceKernelStartThread(thread, 0, 0);
-}
-
-/* The log every time; the catalog's raw response once, after it arrived
-   -- it is 200 KB and does not change, and writing it every ten seconds
-   was a visible hitch. */
-static int g_http_dumped;
-
-static void dump_diagnostics(void) {
-    log_dump();
-    if (!g_http_dumped && sync_done()) {
-        catalog_dump_http();
-        g_http_dumped = 1;
-    }
 }
 
 /* ------------------------------------------------------------------- self */
@@ -151,182 +139,6 @@ static void record_self(const char *path) {
         return;
     }
     logline("self: recorded PSPDX %s in PSP/GAME/%s", self.version, self.dir);
-}
-
-/* Until the catalog is here the browser has nothing to browse; it is on
-   screen anyway, saying what it waits for. */
-static struct catalog empty;
-
-static const struct catalog *shown(void) {
-    return sync_done() ? &catalog : &empty;
-}
-
-/* Let the transitions finish before photographing the screen, but not
-   forever: six seconds covers a film being fetched and started. */
-static void screenshot_settled(int cursor, const char *path) {
-    /* At least one frame, so the shell has seen the catalog it is about
-       to be judged on. */
-    for (int i = 0; i < 360; i++) {
-        shell_shot_sync(shown(), cursor);
-        shell_draw(shown(), cursor);
-        if (shell_settled()) break;
-    }
-    gfx_screenshot(path);
-}
-
-/* index is a catalog index; the row of the shell's view it sits on -- the
-   catalog filtered to the active tab -- is what the frames drawn around
-   the install show, and the entry is on the active tab, since that is
-   where it was chosen.
-
-   at and of place this install in a run of them, for the band to say; both
-   zero for an install that is only itself. */
-/* The install's progress, and the one place a single install can be left:
-   circle, read between the pieces the network and the unpack hand over. */
-static void install_progress(void *ctx, size_t done, size_t total) {
-    SceCtrlData pad;
-    sceCtrlPeekBufferPositive(&pad, 1);
-    if (pad.Buttons & PSP_CTRL_CIRCLE) install_abort();
-    shell_install_progress(ctx, done, total);
-}
-
-/* Set when PSPDX has replaced itself: the loop asks to restart once the
-   install that did it, or the batch it was the last of, is over. */
-static int g_restart_of = -1;
-static char g_restart_version[32];
-
-static int install_app(int index, int screenshot, int at, int of) {
-    if (index < 0 || index >= catalog.count) return -1;
-    int row = shell_view_row(index);
-    if (row < 0) row = 0;
-    struct app_entry *entry = &catalog.apps[index];
-    struct install_report report;
-
-    shell_install_begin(entry->name, at, of);
-    cues_post(CUE_OPEN, 0);
-    /* The installer and the media thread share one HTTPS stack and one
-       asset buffer; only one of them talks to the network at a time. */
-    preview_quiesce();
-    /* The handshake and the checksum run flat out on this thread, and the
-       audio thread sits one step under it by design -- see audio.c -- so
-       for the length of the install this thread steps under the audio
-       thread instead. The tune keeps playing; the progress bar, drawn from
-       the installer's callbacks, gets what is left, which is nearly all. */
-    SceUID self = sceKernelGetThreadId();
-    sceKernelChangeThreadPriority(self, 0x22);
-    unsigned start = now_ms();
-    catalog_offline(net_up()<0);
-    int rc = entry->has_release ? catalog_prepare(entry) : -1;
-    if(rc==0)rc=install_release(&entry->release, &report, shell_install_phase,
-                             install_progress, NULL);
-    unsigned seconds = (now_ms() - start) / 1000;
-    sceKernelChangeThreadPriority(self, 0x20);
-    preview_resume();
-
-    char message[96];
-    if (rc == 0) {
-        entry->state = APP_CURRENT;
-        entry->local_rev = report.rev;
-        snprintf(entry->local_version, sizeof(entry->local_version), "%s", report.version);
-        entry->local_version[sizeof(entry->local_version) - 1] = '\0';
-        /* The client can fetch itself, and just has: the EBOOT that is running
-           is the one in RAM, and the file it was loaded from has been renamed
-           aside and replaced underneath it. Nothing on screen is the new
-           version until the console loads it, so the band says which button
-           does that rather than reporting a file count nobody needs. */
-        if (strcmp(entry->id, PSPDX_SELF_ID) == 0) {
-            snprintf(message, sizeof(message), T_UPDATED_SELF, report.version);
-            snprintf(g_restart_version, sizeof(g_restart_version), "%s", report.version);
-            g_restart_of = index;
-        } else
-            snprintf(message, sizeof(message), T_INSTALLED, entry->name, report.version);
-            logline("installed %s %s: %d files, %luK, %us", entry->name, report.version,
-                    report.files, (unsigned long)(report.bytes / 1024), seconds);
-    } else if (rc == INSTALL_CANCELLED) {
-        snprintf(message, sizeof(message), T_CANCELLED, entry->name);
-    } else {
-        snprintf(message, sizeof(message), T_INSTALL_FAILED, entry->name, rc);
-    }
-    shell_install_end(message);
-    cues_post(rc == 0 ? CUE_DONE : CUE_FAIL, 0);
-    shell_draw(&catalog, row);
-    if (screenshot) screenshot_settled(row, storage_path("PSP/PSPDX/DEBUG/PSPDX2.BMP"));
-    return rc;
-}
-
-static void uninstall_app(int index) {
-    struct app_entry *entry = &catalog.apps[index];
-    char message[96];
-
-    cues_post(CUE_OPEN, 0);
-    int rc = uninstall(entry->id);
-    if (rc == 0) {
-        /* The catalog entry is what the browser reads; the record it was
-           built from has just stopped existing. */
-        entry->state = APP_NOT_INSTALLED;
-        entry->local_rev = 0;
-        entry->local_version[0] = '\0';
-        snprintf(message, sizeof(message), T_REMOVED, entry->name);
-    } else {
-        snprintf(message, sizeof(message), T_REMOVE_FAILED, entry->name, rc);
-    }
-    logline("%s", message);
-    shell_status(message);
-    cues_post(rc == 0 ? CUE_DONE : CUE_FAIL, 0);
-}
-
-/* After anything that changes what is in the tabs rather than what is in the
-   catalog -- an install that was the last update waiting, a basket filled or
-   emptied. The cursor stays on the package it was on for as long as that
-   package is still shown; a tab that has gone out from under it puts it back
-   on All at the top, which is the only row that is certainly there. */
-static void view_settled(int *cursor) {
-    int at = shell_view_index(*cursor);
-    if (!shell_tabs_refresh()) { *cursor = 0; return; }
-    int row = at >= 0 ? shell_view_row(at) : -1;
-    int count = shell_view_count();
-    if (row >= 0) *cursor = row;
-    else if (*cursor >= count) *cursor = count > 0 ? count - 1 : 0;
-}
-
-/* Hands the PSP over to the package the cursor is on. Nothing comes back from
-   this call, so everything the session was holding has to be on the stick
-   before it: the pool above all, which otherwise only reaches the seed file
-   when the user quits through HOME. */
-static void launch_app(int index) {
-    const struct app_entry *entry = &catalog.apps[index];
-    struct installed record;
-    char path[160];
-
-    if (db_read(entry->id, &record) < 0 || !record.dir[0]) {
-        shell_status(T_NO_RECORD);
-        return;
-    }
-    snprintf(path, sizeof(path), storage_path("PSP/GAME/%s/EBOOT.PBP"), record.dir);
-    int fd = sceIoOpen(path, PSP_O_RDONLY, 0777);
-    if (fd < 0) {
-        shell_status(T_NO_EBOOT);
-        logline("launch: %s is not there", path);
-        return;
-    }
-    sceIoClose(fd);
-
-    cues_post(CUE_OPEN, 0);
-    logline("launching %s", path);
-    entropy_save(entropy_screen_is_replay());
-    audio_stop();
-    log_dump();
-
-    struct SceKernelLoadExecParam param;
-    memset(&param, 0, sizeof(param));
-    param.size = sizeof(param);
-    param.args = strlen(path) + 1;
-    param.argp = path;
-    param.key = "game";
-    int rc = sceKernelLoadExec(path, &param);
-    /* Only reached when the firmware refused it. */
-    logline("launch: refused %08x", rc);
-    shell_status(T_START_REFUSED);
 }
 
 /* --------------------------------------------------------------- questions */
@@ -403,25 +215,6 @@ static void ask_install(int index) {
     g_question_of = index;
 }
 
-/* The answer to ASK_ASIDE: one rename, then the install it was asked for.
-   The new name is a bare name because that is what sceIoRename takes for
-   its second argument, the same way the installer moves its own directories. */
-static int set_aside(int index) {
-    const char *dir = catalog.apps[index].release.dir;
-    char dest[160], name[80], line[96];
-    snprintf(dest, sizeof(dest), storage_path("PSP/GAME/%s"), dir);
-    snprintf(name, sizeof(name), "%s.bak", dir);
-    if (sceIoRename(dest, name) < 0) {
-        snprintf(line, sizeof(line), T_RENAME_FAILED, dir);
-        logline("%s", line);
-        shell_status(line);
-        cues_post(CUE_FAIL, 0);
-        return -1;
-    }
-    logline("install: moved PSP/GAME/%s to %s.bak", dir, dir);
-    return 0;
-}
-
 static void ask_remove(int index) {
     const struct app_entry *entry = &catalog.apps[index];
     struct installed record;
@@ -482,44 +275,6 @@ static void ask_all(void) {
 static void ask_forget(void) {
     g_question = ASK_NOTHING;
     shell_ask(NULL, NULL);
-}
-
-/* The action row taken: everything the tab holds, one after another, in the
-   order it is listed. The rows are read into a list before the first fetch --
-   an install moves the entry's state, and on the updates tab that takes the
-   row out from under a loop still walking the view. A failure is said and the
-   rest still go: one package the server has lost is not a reason to leave the
-   others unfetched. The basket keeps what did not arrive and lets go of what
-   did. */
-static void install_all(void) {
-    int list[MAX_APPS], n = 0;
-    for (int row = 0; row < shell_view_count() && n < MAX_APPS; row++) {
-        int at = shell_view_index(row);
-        if (at < 0) continue;
-        const struct app_entry *entry = &catalog.apps[at];
-        if (!entry->has_release || !entry->release.size) continue;
-        /* On the stick the job is the updates alone. */
-        if (shell_tab_kind() == SHELL_TAB_STICK && entry->state != APP_UPDATE) continue;
-        list[n] = at;
-        n++;
-    }
-    for(int i=0;i<n-1;i++)if(!strcmp(catalog.apps[list[i]].id,PSPDX_SELF_ID)){int self=list[i];memmove(list+i,list+i+1,(n-i-1)*sizeof(int));list[n-1]=self;break;}
-    int done = 0;
-    for (int i = 0; i < n; i++) {
-        SceCtrlData pad;sceCtrlPeekBufferPositive(&pad,1);if(pad.Buttons&PSP_CTRL_CIRCLE)break;
-        if (install_app(list[i], 0, i + 1, n) == 0) {
-            shell_basket_forget(list[i]);
-            done++;
-        }
-        dump_diagnostics();
-    }
-    char message[96];
-    snprintf(message, sizeof(message), T_ALL_DONE, done, n);
-    logline("%s", message);
-    shell_status(message);
-    /* One note for the run being over. Each install that failed sounded its
-       own at the time it did, so this is not saying they all worked. */
-    cues_post(CUE_DONE, 0);
 }
 
 /* ------------------------------------------------------------------- menu */
@@ -668,31 +423,6 @@ static void menu_move(int by) {
     menu_push();
 }
 
-/* The unattended install for the rig: PSPDX.INSTALL on the stick names
-   a repository, as a URL or as owner/repo, and it is asked at the origin
-   like one typed on the gear tab. Returns its index in the catalog. */
-static int auto_install_index(void) {
-    char text[SOURCE_URL], url[SOURCE_URL];
-    int fd = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.INSTALL"), PSP_O_RDONLY, 0777);
-    if (fd < 0) return -1;
-    int n = sceIoRead(fd, text, sizeof(text) - 1);
-    sceIoClose(fd);
-    if (n <= 0) return -1;
-    text[n] = '\0';
-    char *newline = strpbrk(text, "\r\n");
-    if (newline) *newline = '\0';
-    if (strncmp(text, "https://", 8) == 0) snprintf(url, sizeof(url), "%s", text);
-    else snprintf(url, sizeof(url), "https://github.com/%.200s", text);
-    /* The media thread shares the network stack; it is parked for the
-       two requests as it is for the install that follows. */
-    preview_quiesce();
-    int index = catalog_add_repo(&catalog, url);
-    preview_resume();
-    if (index < 0) logline("PSPDX.INSTALL: nothing to install at %s", url);
-    else shell_view_rebuild(&catalog);
-    return index;
-}
-
 /* Scripted input for the test rig: PSPDX.KEYS on the stick holds lines
    of "<ms> <button>", pressed at that many milliseconds after the catalog
    arrived. How the browser gets driven hard without a hand on it. */
@@ -811,130 +541,22 @@ static void osk_draw(void *ctx) {
     }
 }
 
-/* What the gear tab's two typing rows lead to: a source added and the
-   catalog fetched again, and for "Install from GitHub" the one repository
-   typed, found in the new catalog by its URL and put under the cursor
-   with the install question already asked. */
-static char g_wanted_url[SOURCE_URL];     /* that repository, while one is waited for */
-static char g_wanted_name[64];            /* owner/repo, for the status line */
-
-/* The catalog fetched again: the list gives way to the word and the
-   status line and comes back with what is now published, the cursor on the
-   package it was on if that package is still there. The sync thread and
-   the media thread share the one HTTPS stack and the one asset buffer, so
-   the media thread steps aside for the length of it. */
-static void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
-                        int *refreshing) {
-    int was = shell_view_index(cursor);
-    snprintf(keep, keep_size, "%s", was >= 0 ? catalog.apps[was].id : "");
-    preview_quiesce();
-    shell_word(T_WORD_CHECKING);
-    if (sync_start(&catalog) == 0) {
-        *synced = 0;
-        *refreshing = 1;
-    } else {
-        keep[0] = '\0';
-        g_wanted_url[0] = '\0';
-        preview_resume();
-    }
-}
-
-/* The field drains and is swept again, in the room the browser was already
-   standing in. The pool is not emptied for it, only the count: the sync
-   and media threads keep running and a handshake in the middle of the
-   sweep still has to draw from a full pool. A sweep takes half a minute
-   of stick work and this one is two presses from the list, so it has to
-   be possible to leave, and leaving puts the old count back. */
-static void sweep_again(void) {
-    /* No connection outlives the seed it was made under: the kept ones
-       are closed and the media thread parked, so nothing handshakes while
-       the field is being swept. */
-    preview_quiesce();
-    https_close_idle();
-    entropy_stash();
-    entropy_init();
-    if (entropy_screen_run() == 0) entropy_restore();
-    entropy_save(entropy_screen_is_replay());
-    preview_resume();
-}
-
-/* The cache goes and its folders come back empty: catalogs and pictures
-   are fetched again the next time they are wanted. An install that never
-   finished is cache too -- a download nobody will resume -- and goes with
-   it, which is also what unblocks installs after a recovery that could not
-   settle. Nothing else moves. The media thread is parked meanwhile, so no
-   fetch lands in a folder that is being emptied. */
-static void clear_cache(void) {
-    preview_quiesce();
-    int bad = storage_remove_tree(storage_path("PSP/PSPDX/CACHE/catalogs")) < 0;
-    bad |= storage_remove_tree(storage_path("PSP/PSPDX/CACHE/media")) < 0;
-    sceIoMkdir(storage_path("PSP/PSPDX/CACHE"), 0777);
-    sceIoMkdir(storage_path("PSP/PSPDX/CACHE/catalogs"), 0777);
-    sceIoMkdir(storage_path("PSP/PSPDX/CACHE/media"), 0777);
-    char line[128];
-    if (storage_exists(storage_path("PSP/PSPDX/TMP/transaction.json")) &&
-        install_discard(line, sizeof(line)) < 0)
-        bad = 1;
-    preview_resume();
-    shell_status(bad ? T_CACHE_CLEAR_FAILED : T_CACHE_CLEARED);
-}
-
-/* Back to the first start: everything this client keeps on the stick goes,
-   and the client with it, so that what comes up next is a first start --
-   the sweep, the built-in list, nothing installed as far as it knows. The
-   apps under PSP/GAME are not its to remove. */
-static void reset_completely(void) {
-    log_dump();
-    if (storage_remove_tree(storage_path("PSP/PSPDX")) < 0)
-        logline("reset: some of PSP/PSPDX would not go");
-    sceKernelExitGame();
-}
-
-/* Reads a source from the keyboard and adds it. Returns 1 when the catalog
-   should be fetched again, 0 when there is nothing new. */
-static int type_source(int install) {
-    char text[SOURCE_URL], url[SOURCE_URL];
-    int rc = osk_read(install ? T_OSK_GITHUB : T_OSK_SOURCE, "", text, sizeof(text));
-    if (rc <= 0 || !text[0]) return 0;
-    rc = sources_normalize(text,url,sizeof(url));
-    struct source_repo parsed;
-    if(rc<0 || (install && !sources_parse_repo(url,&parsed))) {shell_status(T_BAD_ADDRESS);return 0;}
-    preview_quiesce();catalog_offline(net_up()<0);
-    rc=catalog_validate_source(url,install);
-    preview_resume();
-    if(rc<0){shell_status(T_SOURCE_UNAVAILABLE);return 0;}
-    rc=sources_add(url,url,sizeof(url));
-    if(rc<0){shell_status(T_SOURCE_SAVE_FAILED);return 0;}
-    if (!install) {
-        if (rc == 0) { shell_status(T_SOURCE_EXISTS); return 0; }
-        return 1;
-    }
-    struct source_repo repo;
-    if (!sources_parse_repo(url, &repo)) {
-        shell_status(T_GITHUB_FORMAT);
-        return 0;
-    }
-    sources_repo_url(&repo, g_wanted_url, sizeof(g_wanted_url));
-    snprintf(g_wanted_name, sizeof(g_wanted_name), "%.24s/%.36s", repo.owner, repo.name);
-    return 1;
-}
-
 /* The catalog is back: the repository typed is either in it, and the
    question is asked, or it is not, and the status line says why. */
 static int wanted_settled(int *cursor) {
     char message[96];
-    int found = catalog_find_repo(&catalog, g_wanted_url);
+    int found = catalog_find_repo(&catalog, wanted_url());
     if (found < 0) {
-        int why = catalog_refused(g_wanted_url);
+        int why = catalog_refused(wanted_url());
         if (why == REFUSED_PSPDX)
-            snprintf(message, sizeof(message), T_WANT_NO_PSPDX, g_wanted_name);
+            snprintf(message, sizeof(message), T_WANT_NO_PSPDX, wanted_name());
         else if (why == REFUSED_REPO)
-            snprintf(message, sizeof(message), T_WANT_NO_REPO, g_wanted_name);
+            snprintf(message, sizeof(message), T_WANT_NO_REPO, wanted_name());
         else if (why == REFUSED_RELEASE)
-            snprintf(message, sizeof(message), T_WANT_NO_RELEASE, g_wanted_name);
+            snprintf(message, sizeof(message), T_WANT_NO_RELEASE, wanted_name());
         else
             snprintf(message, sizeof(message), T_WANT_FAILED,
-                     g_wanted_name);
+                     wanted_name());
         shell_status(message);
         return -1;
     }
@@ -962,16 +584,6 @@ static void ask_inbox(void){
     char title[64],line[96];snprintf(title,sizeof(title),T_INBOX_ASK,n);
     snprintf(line,sizeof(line),"%s",inbox_summary());shell_ask(title,line);g_question=ASK_INBOX;
 }
-static void install_inbox(void){
-    int count=inbox_count(),done=0;
-    for(int i=0;i<count;i++){
-        SceCtrlData pad;sceCtrlPeekBufferPositive(&pad,1);if(pad.Buttons&PSP_CTRL_CIRCLE)break;
-        int at=inbox_index(i);
-        if(install_app(at,0,i+1,count)==0){inbox_installed(i);done++;}
-    }
-    char message[96];snprintf(message,sizeof(message),T_INBOX_DONE,done,count);shell_status(message);
-}
-
 /* argv[0] is the path the firmware loaded this from -- the main thread's argp,
    which the loader fills with the EBOOT's own name. It is the only thing that
    says which directory under PSP/GAME the client is sitting in. */
@@ -1044,6 +656,7 @@ int main(int argc, char *argv[]) {
     /* The tune starts with the shell and keeps going through installs and
        sweeps; it lives on its own thread and never waits for a frame. */
     audio_start();
+    actions_init(&catalog);
     sync_start(&catalog);
 
     /* Connect, fetch and check in the background while the first frames
@@ -1146,11 +759,11 @@ int main(int argc, char *argv[]) {
                     preview_resume();
                 }
                 if (sync_state() == SYNC_DONE) shell_status("");
-                if (g_wanted_url[0]) {
+                if (wanted_url()[0]) {
                     /* A fetch that failed altogether says so below; the
                        repository waited for is let go of either way. */
                     if (sync_state() == SYNC_DONE) wanted_settled(&cursor);
-                    g_wanted_url[0] = '\0';
+                    wanted_forget();
                 }
                 if (sync_state() != SYNC_DONE) {
                     /* Nothing came: say so, and offer the one thing that
@@ -1255,13 +868,16 @@ int main(int argc, char *argv[]) {
         /* PSPDX has just replaced itself. The copy running is the old one
            until the console loads the new, so that is offered as soon as
            nothing else is being asked. */
-        if (g_question == ASK_NOTHING && g_restart_of >= 0) {
-            char line[64];
-            snprintf(line, sizeof(line), T_RESTART_LINE, g_restart_version);
-            shell_ask(T_RESTART_ASK, line);
-            g_question = ASK_RESTART;
-            g_question_of = g_restart_of;
-            g_restart_of = -1;
+        if (g_question == ASK_NOTHING) {
+            char version[32];
+            int of = restart_take(version, sizeof(version));
+            if (of >= 0) {
+                char line[64];
+                snprintf(line, sizeof(line), T_RESTART_LINE, version);
+                shell_ask(T_RESTART_ASK, line);
+                g_question = ASK_RESTART;
+                g_question_of = of;
+            }
         }
 
         /* A handshake turned down on a doubt -- a run-out certificate, an
