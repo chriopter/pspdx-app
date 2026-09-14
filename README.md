@@ -47,6 +47,8 @@ publish a release. Open-source apps can be added to the
 [main catalog](https://github.com/chriopter/pspdx-catalog); or start your
 own catalog and share the link.
 
+### In detail
+
 <details>
 <summary>Sources — catalogs, repositories and INBOX</summary>
 
