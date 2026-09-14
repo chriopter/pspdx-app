@@ -96,6 +96,15 @@ void install_recover(void);
    PSP/GAME stays and is named in line. Returns 0 when the journal is gone. */
 int install_discard(char *line, size_t size);
 
+/* What install_release returns when it was called off. */
+#define INSTALL_CANCELLED (-9)
+
+/* Calls the install in progress off, from its own progress callback: the
+   download or the unpack stops at its next piece and the stick is put back
+   the way it was. Past the unpack the rename is moments away and cannot be
+   left half done, so it goes through. */
+void install_abort(void);
+
 /* Download, verify, unpack, rename into place. Returns 0 on success;
    negative on the phase that failed. Nothing is left half-written. */
 int install_release(const struct manifest *release, struct install_report *rep,

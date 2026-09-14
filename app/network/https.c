@@ -57,6 +57,8 @@ static int g_wolf_ready;
    the thread doing the work and read by whoever draws. */
 static const char *volatile g_phase = "";
 static void phase(const char *p) { g_phase = p; }
+static volatile int g_abort;
+void https_abort(void) { g_abort = 1; }
 const char *https_phase(void) { return g_phase; }
 
 void https_prefer(const char *suites) {
@@ -754,6 +756,7 @@ request:
                 }
                 res->body_len += len;
                 if (progress) progress(progress_ctx, res->body_len, want);
+                if (g_abort) { logline("http: aborted"); goto out; }
                 if (have_length && res->body_len >= want) { ret = 0; goto out; }
             }
             continue;
@@ -797,6 +800,7 @@ int https_get(const char *url, https_sink sink, void *sink_ctx,
     memset(&res, 0, sizeof(res));
     if (out) *out = res;                      /* callers log it either way */
     if (url_parse(url, &u) < 0) return -1;
+    g_abort = 0;
 
     for (res.redirects = 0; ; res.redirects++) {
         int stale = 0;

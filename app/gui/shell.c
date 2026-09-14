@@ -589,7 +589,7 @@ static void draw_action_row(int y, int selected, float t) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[SHELL_SETTINGS] = {
-        MARK_UPDATE, MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_INFO,
+        MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_INFO,
     };
     float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     enum mark m = (enum mark)SIGN[n];
@@ -713,6 +713,10 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
    what X is going to fetch. What the space is worth instead is the bill --
    every package that would come down, what each weighs, the total, and how
    long that is over a PSP's own radio. */
+static float draw_hint(float x, float base, enum mark m, const char *text, unsigned color);
+static int draw_wrapped(enum font_style style, float x, float y, float width,
+                        float step, int lines, unsigned color, const char *text);
+
 static void draw_action_panel(const struct catalog *catalog, float t) {
     struct shell_plan plan;
     char value[48], size[24];
@@ -725,9 +729,13 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
 
     font_print(FONT_H1, PANEL_X, y, g_text, action_title());
     if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK) {
-        font_print(FONT_META, PANEL_X, y + 20, g_dim,
-                   "Asks every installed app's repository");
-        font_print(FONT_META, PANEL_X, y + 34, g_dim, "for a newer release.");
+        int lines = draw_wrapped(FONT_META, PANEL_X, y + 20, SHOT_W, 16, 2, g_dim,
+                                 "Compares what is installed with what is published.");
+        /* The row has two keys, and the panel names them the way the footer
+           does, with the key's own mark rather than a word for it. */
+        float base = y + 20 + 16 * lines + 14;
+        draw_hint(PANEL_X, base, MARK_CROSS, "From the catalogs", g_dim);
+        draw_hint(PANEL_X, base + 18, MARK_SQUARE, "From every app's own .pspdx, slower", g_dim);
         return;
     }
     if (plan.apps > 0) {
@@ -1135,6 +1143,13 @@ static void draw_install(void) {
         int w = 40 > bar_w - slide ? bar_w - slide : 40;
         gfx_hgrad(bar_x + slide, bar_y, w, 3, g_accent, rgb_pack(g_tint, 0));
     }
+    /* Circle calls it off while there is still something to call off: the
+       rename at the end is not left half done, so the key is not offered
+       there. */
+    if (strcmp(g_install_phase, "commit") != 0) {
+        float hw = hint_width(MARK_CIRCLE, "Cancel");
+        draw_hint(SCR_W / 2 - hw / 2, BAND_Y + BAND_H - 18, MARK_CIRCLE, "Cancel", g_dim);
+    }
 }
 
 /* -------------------------------------------------------------- info band */
@@ -1216,7 +1231,6 @@ static void read_storage(void) {
    the band that says what it is. A row here is read and taken the way a
    package's row is, because at this depth nothing is deeper. */
 static const char *const SETTING[SHELL_SETTINGS] = {
-    "Check for updates",
     "Add sources",
     "Direct install",
     "Reset",
@@ -1226,7 +1240,6 @@ static const char *const SETTING[SHELL_SETTINGS] = {
 /* What each row does, said on the right while the cursor is on it: the
    list names the thing, the panel says what it comes to. */
 static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
-    "Compares what is installed with what is published, and says what is newer.",
     "The lists this console reads apps from: a catalog, a list of repositories, or one repository. Add one by its URL, or take one out.",
     "One app straight from its GitHub repository, or the .pspdx files put in PSP/PSPDX/INBOX.",
     "Sweep the stick again for fresh TLS entropy, or put PSPDX back to its first start: everything under PSP/PSPDX goes, the apps in PSP/GAME stay.",
@@ -1458,14 +1471,7 @@ static void draw_setting_panel(int n) {
     int y = SHOT_Y + 14;
     draw_shade(PANEL_X + SHOT_W / 2, y + 30, SHOT_W, 90);
     font_print(FONT_H1, PANEL_X, y, g_text, shell_setting(n));
-    int lines = draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 3, g_dim, SETTING_NOTE[n]);
-    /* The first row has two keys, and the panel names them the way the
-       footer does, with the key's own mark rather than a word for it. */
-    if (n == 0) {
-        float base = y + 24 + 16 * lines + 14;
-        draw_hint(PANEL_X, base, MARK_CROSS, "From the catalogs", g_dim);
-        draw_hint(PANEL_X, base + 18, MARK_SQUARE, "From every app's own .pspdx, slower", g_dim);
-    }
+    draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 3, g_dim, SETTING_NOTE[n]);
 }
 
 void shell_draw(const struct catalog *catalog, int cursor) {

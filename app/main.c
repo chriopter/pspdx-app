@@ -176,6 +176,15 @@ static void screenshot_settled(int cursor, const char *path) {
 
    at and of place this install in a run of them, for the band to say; both
    zero for an install that is only itself. */
+/* The install's progress, and the one place a single install can be left:
+   circle, read between the pieces the network and the unpack hand over. */
+static void install_progress(void *ctx, size_t done, size_t total) {
+    SceCtrlData pad;
+    sceCtrlPeekBufferPositive(&pad, 1);
+    if (pad.Buttons & PSP_CTRL_CIRCLE) install_abort();
+    shell_install_progress(ctx, done, total);
+}
+
 static int install_app(int index, int screenshot, int at, int of) {
     if (index < 0 || index >= catalog.count) return -1;
     int row = shell_view_row(index);
@@ -199,7 +208,7 @@ static int install_app(int index, int screenshot, int at, int of) {
     catalog_offline(net_up()<0);
     int rc = entry->has_release ? catalog_prepare(entry) : -1;
     if(rc==0)rc=install_release(&entry->release, &report, shell_install_phase,
-                             shell_install_progress, NULL);
+                             install_progress, NULL);
     unsigned seconds = (now_ms() - start) / 1000;
     sceKernelChangeThreadPriority(self, 0x20);
     preview_resume();
@@ -222,6 +231,8 @@ static int install_app(int index, int screenshot, int at, int of) {
             snprintf(message, sizeof(message), "Installed %s %s: %d files, %luK, %us",
                      entry->name, report.version, report.files,
                      (unsigned long)(report.bytes / 1024), seconds);
+    } else if (rc == INSTALL_CANCELLED) {
+        snprintf(message, sizeof(message), "Cancelled %s; nothing changed", entry->name);
     } else {
         snprintf(message, sizeof(message), "Install failed (%d): %s",
                  rc, log_at(log_count() - 1));
@@ -1297,18 +1308,11 @@ int main(int argc, char *argv[]) {
                    media thread share the one HTTPS stack and the one asset
                    buffer, so the media thread steps aside for the length of
                    it, as it does for an install. */
-                int which = SHELL_ROW_SETTING - at, refetch = 0;
-                /* The catalogs again on X; square on the same row is the
-                   slow, thorough one, every app asked at its own
-                   repository, and the panel says so. */
-                if (which == 0 && synced) refetch = 1;
-                else if (which == 1 && synced) sub_open(SUB_CATALOGS);
-                else if (which == 2 && synced) sub_open(SUB_ADD);
-                else if (which == 3) sub_open(SUB_RESET);
-                else if (which == 4) {
-                    shell_info(info = 1);
-                }
-                if (refetch) refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
+                int which = SHELL_ROW_SETTING - at;
+                if (which == 0 && synced) sub_open(SUB_CATALOGS);
+                else if (which == 1 && synced) sub_open(SUB_ADD);
+                else if (which == 2) sub_open(SUB_RESET);
+                else if (which == 3) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X is the one thing there is to do to the package: have
                    it, have the newer one, or start it -- each asked about
@@ -1318,10 +1322,8 @@ int main(int argc, char *argv[]) {
                     struct shell_plan plan;
                     shell_action_plan(&plan);
                     if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK) {
-                        if (synced) {
-                            catalog_force_sources();
+                        if (synced)
                             refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
-                        }
                     } else ask_all();
                 }
                 else if (at >= 0 && (catalog.apps[at].state == APP_NOT_INSTALLED ||
@@ -1341,7 +1343,11 @@ int main(int argc, char *argv[]) {
                cursor is on is one that was set aside. The basket appearing
                or emptying is a tab appearing or going, so the tabs are
                worked out again before the next frame draws them. */
-            if ((pressed & PSP_CTRL_SQUARE) && at == SHELL_ROW_SETTING && synced) {
+            /* Square on the stick's own row: the same check, but every app is
+               asked at its own repository now, whatever the catalogs said and
+               however recently it was asked. */
+            if ((pressed & PSP_CTRL_SQUARE) && at == SHELL_ROW_ACTION &&
+                shell_tab_kind() == SHELL_TAB_STICK && synced) {
                 catalog_force_sources();
                 refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
             }

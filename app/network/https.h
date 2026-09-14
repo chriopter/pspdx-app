@@ -38,6 +38,10 @@ void https_prefer(const char *suites);
    "download" -- for a status line. */
 const char *https_phase(void);
 
+/* Ends the request in progress at its next piece of body; meant for the
+   progress callback. The connection is closed rather than kept. */
+void https_abort(void);
+
 int https_get(const char *url, https_sink sink, void *sink_ctx,
               https_progress progress, void *progress_ctx,
               struct https_result *out);

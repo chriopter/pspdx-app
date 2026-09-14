@@ -118,6 +118,7 @@ void logline(const char *fmt, ...) {
     va_end(ap);
 }
 int net_up(void) { return getenv("OFFLINE") ? -1 : 0; }
+void https_abort(void) {}
 int https_get(const char *url, https_sink sink, void *ctx, https_progress cb, void *pc,
               struct https_result *r) {
     (void)cb;

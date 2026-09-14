@@ -345,6 +345,13 @@ static int out_sink(void *ctx, const void *data, size_t len) {
 /* Everything under the package root goes into the staging directory;
    what the archive holds beside the package -- a readme at the top, a
    source tree -- stays in the archive. */
+static volatile int g_abort;
+
+void install_abort(void) {
+    g_abort = 1;
+    https_abort();
+}
+
 static int unpack(struct zipread *z, const char *root, struct install_report *rep,
                   https_progress progress, void *pctx) {
     size_t plen = strlen(root);
@@ -423,6 +430,10 @@ static int unpack(struct zipread *z, const char *root, struct install_report *re
         files++;
         if (progress)
             progress(pctx, done, total);
+        if (g_abort) {
+            logline("unpack: cancelled after %d files", files);
+            return -1;
+        }
     }
     if (rc < 0)
         return -1;
@@ -709,11 +720,15 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
     cJSON *j = begin(m->id, m->dir, "install");
     if (!j)
         return -1;
+    g_abort = 0;
     int rc = -2;
     if (phase)
         phase(ctx, "download");
-    if (download(m, progress, ctx) < 0)
+    if (download(m, progress, ctx) < 0) {
+        if (g_abort)
+            rc = INSTALL_CANCELLED;
         goto end;
+    }
     struct zipread z;
     if (zip_open(&z, ARCHIVE) < 0)
         goto end;
@@ -729,8 +744,11 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
         }
     }
     zip_close(&z);
-    if (rc < 0)
+    if (rc < 0 || g_abort) {
+        if (g_abort)
+            rc = INSTALL_CANCELLED;
         goto end;
+    }
     rc = -3;
     if (sceIoSync(storage_device(), 0) < 0 || journal_phase(j, "ready") < 0)
         goto end;
