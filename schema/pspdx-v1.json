@@ -12,25 +12,51 @@
   "additionalProperties": false,
   "allOf": [
     {
-      "if": {"required": ["type"], "properties": {"type": {"enum": ["plugin", "iso"]}}},
-      "then": {"not": {"required": ["installdir"]}}
-    },
-    {
       "if": {
-        "required": ["source"],
+        "required": [
+          "type"
+        ],
         "properties": {
-          "source": {"type": "string", "not": {"pattern": "^https://github\\.com/"}},
-          "type": {"const": "homebrew"}
+          "type": {
+            "enum": [
+              "plugin",
+              "iso"
+            ]
+          }
         }
       },
-      "then": {"required": ["installdir"]}
+      "then": {
+        "not": {
+          "required": [
+            "installdir"
+          ]
+        }
+      }
     },
     {
       "if": {
-        "required": ["source"],
-        "properties": {"source": {"type": "string", "not": {"pattern": "^https://github\\.com/"}}}
+        "required": [
+          "source"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "not": {
+              "pattern": "^https://github\\.com/"
+            }
+          }
+        }
       },
-      "then": {"required": ["listed_by"], "properties": {"name": {"pattern": "[A-Za-z0-9]"}}}
+      "then": {
+        "required": [
+          "listed_by"
+        ],
+        "properties": {
+          "name": {
+            "pattern": "[A-Za-z0-9]"
+          }
+        }
+      }
     }
   ],
   "properties": {
@@ -42,9 +68,13 @@
       "type": "string",
       "maxLength": 255,
       "pattern": "^https://[^\\u0000-\\u001f]+(?![\\s\\S])",
-      "if": {"pattern": "^https://github\\.com/"},
-      "then": {"pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?(?![\\s\\S])"},
-      "description": "required; where the project lives: an https:// URL, and on github.com a repository URL. Only a GitHub repository gives a default installdir and releases to check in version 1; any other source needs listed_by, whose host and the name make its id."
+      "if": {
+        "pattern": "^https://github\\.com/"
+      },
+      "then": {
+        "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?(?![\\s\\S])"
+      },
+      "description": "required; where the project lives: an https:// URL, and on github.com a repository URL. Only a GitHub repository has releases the console can ask for in version 1; any other source needs listed_by, whose host and the name make its id."
     },
     "name": {
       "type": "string",
@@ -77,7 +107,7 @@
     "installdir": {
       "type": "string",
       "pattern": "^PSP/GAME/(?!(?:[.]{1,2}|[.][Pp][Ss][Pp][Dd][Xx]-[Ss][Tt][Aa][Gg][Ee])(?![\\s\\S]))[A-Za-z0-9_.-]{1,32}(?![\\s\\S])",
-      "description": "optional; PSP/GAME/<repository name> when missing; only for type homebrew. Where the package goes on the Memory Stick: the directory in the zip that holds the EBOOT.PBP, with everything beside and below it, is copied here. The folder is 1 to 32 of [A-Za-z0-9_.-], the name the XMB shows, and not ., .. or .pspdx-stage in any case, where the client stages an install."
+      "description": "optional; only for type homebrew. When missing: PSP/GAME/<repository name> for a GitHub source, PSP/GAME/<name> otherwise, the name reduced to [A-Za-z0-9_.-] and cut at 32. Where the package goes on the Memory Stick: the directory in the zip that holds the EBOOT.PBP, with everything beside and below it, is copied here. The folder is 1 to 32 of [A-Za-z0-9_.-], the name the XMB shows, and not ., .. or .pspdx-stage in any case, where the client stages an install."
     },
     "summary": {
       "type": "string",

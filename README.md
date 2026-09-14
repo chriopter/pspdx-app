@@ -113,7 +113,7 @@ text holds a control character, except a newline in `description`.
 | `name` | Required; 1–39 characters | — |
 | `type` | `homebrew`, `plugin` or `iso` | `homebrew` |
 | `tags` | Up to 8 different words, each 1–24 characters; `game`, `emulator`, `app`, `plugin` and `demo` get a tab | Only in All |
-| `installdir` | `homebrew` only; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.`, `..` or `.pspdx-stage`. Required when `source` is not GitHub | `PSP/GAME/<repository name>` |
+| `installdir` | `homebrew` only; `PSP/GAME/` followed by 1–32 letters, digits, dots, underscores or hyphens; not `.`, `..` or `.pspdx-stage` | `PSP/GAME/<repository name>` on GitHub, `PSP/GAME/<name>` elsewhere, reduced to those characters |
 | `summary` | Up to 60 characters | Repository description |
 | `author` | Up to 60 characters | Repository owner |
 | `license` | Free text, up to 60 characters; an SPDX identifier where there is one | Repository license metadata |
@@ -152,11 +152,11 @@ https://github.com/someone/project@v1.2
 |---|---|
 | `schema` | `https://chriopter.github.io/pspdx/schema/catalog-v1.json` |
 | `generated_at` | Snapshot time in UTC, even if some apps failed to build |
-| `apps[]` | Required `id`, `source`, `name`, `releases`, and `installdir` for `homebrew`; optional `type`, `tags`, `summary`, `author`, `license`, `description`, `listed_by`, `website`, all by the rules above |
-| `apps[].releases[]` | Up to the 20 newest, newest first: `tag`, `published_at` (ISO 8601, UTC), `url`, `size`, `sha256`; optional `eboot_md5` and `changelog` (up to 2500 characters) |
+| `apps[]` | Required `id`, `source`, `name`, `releases`; optional `type`, `tags`, `installdir`, `summary`, `author`, `license`, `description`, `listed_by`, `website`, all by the rules above |
+| `apps[].releases[]` | Up to the 20 newest, newest first: `tag`, `published_at` (`2024-12-20T14:03:00Z`, or `2024-12-20` where no time is known), `url`, `size`, `sha256`; optional `eboot_md5` and `changelog` (up to 2500 characters) |
 | `apps[].media` | Optional `icon`, `screenshots[]`, `video`, `sound` URLs; relative ones resolve against the catalog URL |
 
-- The console reads `releases[0]` only
+- The console reads `releases[0]` only, and finds an update by its `sha256`, not by its date
 - Fields the schema does not name are allowed; a list can carry its own, the console ignores them
 - The client tolerates entries without `author`, `summary` or `license`
 - The reference builder runs hourly, reuses unchanged entries and publishes a fresh snapshot
