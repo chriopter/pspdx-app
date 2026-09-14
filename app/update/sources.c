@@ -12,13 +12,19 @@
 #define SOURCES_DIR storage_path("PSP/PSPDX")
 #define SOURCES_PATH storage_path("PSP/PSPDX/sources.txt")
 
-static char g_text[8 * 1024];
+static char g_text[16 * 1024];
 
 static int read_file(void) {
     char *raw = NULL;
     int n = storage_read(SOURCES_PATH, &raw, sizeof(g_text) - 1);
-    if (n < 0)
+    if (n < 0) {
+        /* Missing is one thing and is written below; a file that is there
+           and will not read is another, and is said. */
+        if (storage_exists(SOURCES_PATH))
+            logline("sources: the file is over %u bytes or unreadable, the built-in list stands",
+                    (unsigned)sizeof(g_text) - 1);
         return -1;
+    }
     memcpy(g_text, raw, n + 1);
     free(raw);
     return n;
@@ -89,6 +95,9 @@ int sources_load(struct sources *s) {
         logline("sources: wrote the built-in list");
     }
     char *line = g_text;
+    /* The mark an editor on a PC puts first, which is not part of the line. */
+    if (!strncmp(line, "\xEF\xBB\xBF", 3))
+        line += 3;
     while (line && *line && s->count < SOURCES_MAX) {
         char *end = strpbrk(line, "\r\n");
         if (end)
@@ -98,7 +107,10 @@ int sources_load(struct sources *s) {
             for (int i = 0; i < s->count; i++)
                 dup = dup || sources_same_url(s->url[i], line);
             /* A line longer than a URL slot is not a URL anyone typed. */
-            if (!dup && strlen(line) < SOURCE_URL) {
+            if (strlen(line) >= SOURCE_URL)
+                logline("sources: a line of %u characters is too long, ignored: %.40s...",
+                        (unsigned)strlen(line), line);
+            else if (!dup) {
                 memcpy(s->url[s->count], line, strlen(line) + 1);
                 s->count++;
             }
@@ -149,11 +161,21 @@ int sources_add(const char *text, char *url, size_t size) {
         logline("sources: the file is full");
         return -1;
     }
-
-    char all[SOURCES_MAX * (SOURCE_URL + 1) + 1];
-    size_t at = 0;
-    for (int i = 0; i < have.count; i++)
-        at += snprintf(all + at, sizeof(all) - at, "%s\n", have.url[i]);
+    /* Appended to the file as it is, comments and all, not written back
+       out of the list: the file is the user's. Loading cut it into lines,
+       so it is read once more. */
+    int n = read_file();
+    if (n < 0)
+        return -1;
+    static char all[sizeof(g_text) + SOURCE_URL + 2];
+    size_t at = (size_t)n;
+    memcpy(all, g_text, at);
+    if (at && all[at - 1] != '\n')
+        all[at++] = '\n';
+    if (at + strlen(url) + 1 >= sizeof(g_text)) {
+        logline("sources: the file is full");
+        return -1;
+    }
     at += snprintf(all + at, sizeof(all) - at, "%s\n", url);
     if (storage_write(SOURCES_PATH, all, at) < 0)
         return -1;
@@ -162,14 +184,26 @@ int sources_add(const char *text, char *url, size_t size) {
 }
 
 int sources_remove(const char *url) {
-    struct sources have;
-    sources_load(&have);
-    char all[SOURCES_MAX * (SOURCE_URL + 1) + 1];
+    /* The file with the lines that name the source taken out, and every
+       other line as it was. */
+    int n = read_file();
+    if (n < 0)
+        return -1;
+    static char all[sizeof(g_text)];
     size_t at = 0;
     int found = 0;
-    for (int i = 0; i < have.count; i++) {
-        if (sources_same_url(have.url[i], url)) { found = 1; continue; }
-        at += snprintf(all + at, sizeof(all) - at, "%s\n", have.url[i]);
+    for (char *line = g_text; *line;) {
+        size_t len = strcspn(line, "\r\n"), whole = len + strspn(line + len, "\r\n");
+        char copy[SOURCE_URL];
+        snprintf(copy, sizeof(copy), "%.*s", (int)(len < sizeof(copy) ? len : sizeof(copy) - 1), line);
+        if (len < SOURCE_URL && trim(copy) > 0 && !strncmp(copy, "https://", 8) &&
+            sources_same_url(copy, url))
+            found = 1;
+        else {
+            memcpy(all + at, line, whole);
+            at += whole;
+        }
+        line += whole;
     }
     if (!found)
         return 0;
