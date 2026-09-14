@@ -1,3 +1,4 @@
+#include "text.h"
 #include "util/storage.h"
 #include "install/state.h"
 #include "update/pspdx.h"
@@ -230,18 +231,17 @@ static int install_app(int index, int screenshot, int at, int of) {
            version until the console loads it, so the band says which button
            does that rather than reporting a file count nobody needs. */
         if (strcmp(entry->id, PSPDX_SELF_ID) == 0) {
-            snprintf(message, sizeof(message), "Updated PSPDX to %s", report.version);
+            snprintf(message, sizeof(message), T_UPDATED_SELF, report.version);
             snprintf(g_restart_version, sizeof(g_restart_version), "%s", report.version);
             g_restart_of = index;
         } else
-            snprintf(message, sizeof(message), "Installed %s %s: %d files, %luK, %us",
-                     entry->name, report.version, report.files,
-                     (unsigned long)(report.bytes / 1024), seconds);
+            snprintf(message, sizeof(message), T_INSTALLED, entry->name, report.version);
+            logline("installed %s %s: %d files, %luK, %us", entry->name, report.version,
+                    report.files, (unsigned long)(report.bytes / 1024), seconds);
     } else if (rc == INSTALL_CANCELLED) {
-        snprintf(message, sizeof(message), "Cancelled %s; nothing changed", entry->name);
+        snprintf(message, sizeof(message), T_CANCELLED, entry->name);
     } else {
-        snprintf(message, sizeof(message), "Install failed (%d): %s",
-                 rc, log_at(log_count() - 1));
+        snprintf(message, sizeof(message), T_INSTALL_FAILED, entry->name, rc);
     }
     shell_install_end(message);
     cues_post(rc == 0 ? CUE_DONE : CUE_FAIL, 0);
@@ -262,10 +262,9 @@ static void uninstall_app(int index) {
         entry->state = APP_NOT_INSTALLED;
         entry->local_rev = 0;
         entry->local_version[0] = '\0';
-        snprintf(message, sizeof(message), "Removed %s", entry->name);
+        snprintf(message, sizeof(message), T_REMOVED, entry->name);
     } else {
-        snprintf(message, sizeof(message), "Remove failed (%d): %s",
-                 rc, log_at(log_count() - 1));
+        snprintf(message, sizeof(message), T_REMOVE_FAILED, entry->name, rc);
     }
     logline("%s", message);
     shell_status(message);
@@ -296,13 +295,13 @@ static void launch_app(int index) {
     char path[160];
 
     if (db_read(entry->id, &record) < 0 || !record.dir[0]) {
-        shell_status("no record of where that was installed");
+        shell_status(T_NO_RECORD);
         return;
     }
     snprintf(path, sizeof(path), storage_path("PSP/GAME/%s/EBOOT.PBP"), record.dir);
     int fd = sceIoOpen(path, PSP_O_RDONLY, 0777);
     if (fd < 0) {
-        shell_status("that package has no EBOOT to start");
+        shell_status(T_NO_EBOOT);
         logline("launch: %s is not there", path);
         return;
     }
@@ -323,7 +322,7 @@ static void launch_app(int index) {
     int rc = sceKernelLoadExec(path, &param);
     /* Only reached when the firmware refused it. */
     logline("launch: refused %08x", rc);
-    shell_status("the system would not start that package");
+    shell_status(T_START_REFUSED);
 }
 
 /* --------------------------------------------------------------- questions */
@@ -342,17 +341,17 @@ static void ask_install(int index) {
                                                    : entry->release.version;
     char title[64], line[96];
     if (entry->state == APP_UPDATE)
-        snprintf(title, sizeof(title), "Update %s to %s?", entry->name, version);
+        snprintf(title, sizeof(title), T_UPDATE_ASK, entry->name);
     else
-        snprintf(title, sizeof(title), "Install %s %s?", entry->name, version);
+        snprintf(title, sizeof(title), T_INSTALL_ASK, entry->name);
     if (entry->has_release && entry->release.size) {
         /* Tenths: whole megabytes call everything under one of them nothing,
            and a count of bytes is not a size anybody reads. */
         unsigned long long size = entry->release.size;
-        snprintf(line, sizeof(line), "%lu.%lu MB to download",
+        snprintf(line, sizeof(line), T_INSTALL_LINE, version,
                  (unsigned long)(size >> 20), (unsigned long)((size * 10 >> 20) % 10));
     } else {
-        snprintf(line, sizeof(line), "size unknown");
+        snprintf(line, sizeof(line), T_INSTALL_LINE_NOSIZE, version);
     }
     struct installed previous;
     int recorded = db_read(entry->id, &previous) == 0;
@@ -369,18 +368,18 @@ static void ask_install(int index) {
         snprintf(dest, sizeof(dest), storage_path("PSP/GAME/%s"), dir);
         snprintf(bak, sizeof(bak), storage_path("PSP/GAME/%s.bak"), dir);
         if (state_target_owner(dir, entry->id) == 1) {
-            snprintf(line, sizeof(line), "PSP/GAME/%.32s is another app's, remove that app first", dir);
+            snprintf(line, sizeof(line), T_DIR_OTHER_APP, dir);
             shell_status(line);
             return;
         }
         if (storage_exists(dest)) {
             if (storage_exists(bak)) {
-                snprintf(line, sizeof(line), "PSP/GAME/%.32s.bak is in the way, delete or rename it", dir);
+                snprintf(line, sizeof(line), T_DIR_BAK_EXISTS, dir);
                 shell_status(line);
                 return;
             }
-            snprintf(title, sizeof(title), "PSP/GAME/%.32s already exists", dir);
-            snprintf(line, sizeof(line), "Move it to %.32s.bak, then install %s?", dir, entry->name);
+            snprintf(title, sizeof(title), T_DIR_EXISTS_ASK, dir);
+            snprintf(line, sizeof(line), T_DIR_EXISTS_LINE, dir);
             shell_ask(title, line);
             g_question = ASK_ASIDE;
             g_question_of = index;
@@ -388,8 +387,7 @@ static void ask_install(int index) {
         }
     }
     if(recorded && strcmp(previous.dir,entry->release.dir))
-        snprintf(line,sizeof(line),"Move PSP/GAME/%.32s to %.32s",previous.dir,entry->release.dir);
-    else snprintf(line,sizeof(line),"%lu KB into PSP/GAME/%.32s",(unsigned long)(entry->release.size/1024),entry->release.dir);
+        snprintf(line,sizeof(line),T_INSTALL_MOVES,entry->release.dir);
     shell_ask(title, line);
     g_question = ASK_INSTALL;
     g_question_of = index;
@@ -404,7 +402,7 @@ static int set_aside(int index) {
     snprintf(dest, sizeof(dest), storage_path("PSP/GAME/%s"), dir);
     snprintf(name, sizeof(name), "%s.bak", dir);
     if (sceIoRename(dest, name) < 0) {
-        snprintf(line, sizeof(line), "PSP/GAME/%.32s could not be moved aside", dir);
+        snprintf(line, sizeof(line), T_RENAME_FAILED, dir);
         logline("%s", line);
         shell_status(line);
         cues_post(CUE_FAIL, 0);
@@ -423,18 +421,18 @@ static void ask_remove(int index) {
        the update that is the point of listing PSPDX at all would have
        nowhere to land. */
     if (strcmp(entry->id, PSPDX_SELF_ID) == 0) {
-        shell_status("PSPDX cannot remove itself");
+        shell_status(T_SELF_DELETE);
         return;
     }
     if (db_read(entry->id, &record) < 0 || !record.dir[0]) {
         /* Without a record there is no directory to name, and nothing here
            guesses at one. */
-        shell_status("no record of where that was installed");
+        shell_status(T_NO_RECORD);
         return;
     }
     char title[64], line[96];
-    snprintf(title, sizeof(title), "Remove %s?", entry->name);
-    snprintf(line, sizeof(line), "This deletes PSP/GAME/%s", record.dir);
+    snprintf(title, sizeof(title), T_REMOVE_ASK, entry->name);
+    snprintf(line, sizeof(line), "%s", T_REMOVE_LINE);
     shell_ask(title, line);
     g_question = ASK_REMOVE;
     g_question_of = index;
@@ -448,24 +446,23 @@ static void ask_all(void) {
     struct shell_plan plan;
     shell_action_plan(&plan);
     if (plan.apps <= 0) {
-        shell_status("nothing here has a release to fetch");
+        shell_status(T_NOTHING_TO_DOWNLOAD);
         return;
     }
     char title[64], line[96], size[24];
     unsigned long long bytes = plan.bytes;
     snprintf(size, sizeof(size), "%lu.%lu MB",
              (unsigned long)(bytes >> 20), (unsigned long)((bytes * 10 >> 20) % 10));
-    snprintf(title, sizeof(title), "%s %d app%s?",
-             plan.updates ? "Update" : "Install", plan.apps,
-             plan.apps == 1 ? "" : "s");
-    int n = snprintf(line, sizeof(line), "%s to download", size);
+    snprintf(title, sizeof(title), plan.updates ? T_ALL_ASK_UPDATE : T_ALL_ASK_INSTALL,
+             plan.apps, plan.apps == 1 ? "" : "s");
+    int n = snprintf(line, sizeof(line), T_ALL_SIZE, size);
     /* A package already on the stick and already current can be put in the
        basket, and fetching it again is a reinstall rather than nothing: that
        is worth one clause here rather than a surprise afterwards. */
     if (plan.again > 0 && n < (int)sizeof(line))
-        n += snprintf(line + n, sizeof(line) - n, ", %d a reinstall", plan.again);
+        n += snprintf(line + n, sizeof(line) - n, T_ALL_AGAIN, plan.again);
     if (plan.skipped > 0 && n < (int)sizeof(line))
-        snprintf(line + n, sizeof(line) - n, ", %d without a release skipped",
+        snprintf(line + n, sizeof(line) - n, T_ALL_SKIPPED,
                  plan.skipped);
     shell_ask(title, line);
     g_question = ASK_ALL;
@@ -507,7 +504,7 @@ static void install_all(void) {
         dump_diagnostics();
     }
     char message[96];
-    snprintf(message, sizeof(message), "%d of %d installed", done, n);
+    snprintf(message, sizeof(message), T_ALL_DONE, done, n);
     logline("%s", message);
     shell_status(message);
     /* One note for the run being over. Each install that failed sounded its
@@ -564,21 +561,21 @@ static void menu_open(int index) {
        one not on the stick, Update to the newer version where one waits,
        Reinstall for the one already current. */
     snprintf(g_choice_text[CHOICE_RUN], sizeof(g_choice_text[0]), "%s",
-             strcmp(entry->id, PSPDX_SELF_ID) == 0 ? "Restart" : "Run");
+             strcmp(entry->id, PSPDX_SELF_ID) == 0 ? T_MENU_RESTART : T_MENU_RUN);
     if (entry->state == APP_UPDATE)
-        snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), "Update to %.20s",
+        snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), T_MENU_UPDATE,
                  entry->remote_version);
     else
         snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]),
-                 installed ? "Reinstall" : "Install");
-    snprintf(g_choice_text[CHOICE_DELETE], sizeof(g_choice_text[0]), "Delete");
+                 installed ? T_MENU_REINSTALL : T_MENU_INSTALL);
+    snprintf(g_choice_text[CHOICE_DELETE], sizeof(g_choice_text[0]), T_MENU_DELETE);
     /* The basket is for what is not on the stick yet, so only such a package
        has the row; one already in the basket keeps it, to come out again.
        The basket is named by its mark, which the shell draws after the
        words. */
     snprintf(g_choice_text[CHOICE_BASKET], sizeof(g_choice_text[0]), "%s\x01%c",
-             shell_basket_has(index) ? "Remove from" : "Add to", (char)(MARK_BASKET + 1));
-    snprintf(g_choice_text[CHOICE_DETAILS], sizeof(g_choice_text[0]), "Information");
+             shell_basket_has(index) ? T_MENU_BASKET_OUT : T_MENU_BASKET_IN, (char)(MARK_BASKET + 1));
+    snprintf(g_choice_text[CHOICE_DETAILS], sizeof(g_choice_text[0]), T_MENU_INFO);
     g_choice_on[CHOICE_RUN] = installed;
     g_choice_on[CHOICE_GET] = 1;
     g_choice_on[CHOICE_DELETE] = installed && strcmp(entry->id, PSPDX_SELF_ID) != 0;
@@ -620,7 +617,7 @@ static unsigned char g_sub_on[SOURCES_MAX + 1];
 static signed char g_sub_key[SOURCES_MAX + 1];
 
 static void sub_push(void) {
-    shell_menu(g_sub == SUB_CATALOGS ? "Sources" : g_sub == SUB_ADD ? "Direct install" : "Reset",
+    shell_menu(g_sub == SUB_CATALOGS ? T_SUB_SOURCES : g_sub == SUB_ADD ? T_SUB_DIRECT : T_SUB_RESET,
                g_sub_item, g_sub_on, g_sub_key, g_sub_count, g_sub_cursor);
 }
 
@@ -636,14 +633,14 @@ static void sub_open(enum sub which) {
             snprintf(g_sub_short[i], sizeof(g_sub_short[i]), "%s", u);
             g_sub_item[g_sub_count++] = g_sub_short[i];
         }
-        g_sub_item[g_sub_count++] = "Add source...";
+        g_sub_item[g_sub_count++] = T_SUB_ADD_SOURCE;
     } else if (which == SUB_ADD) {
-        g_sub_item[g_sub_count++] = "From a GitHub repository";
-        g_sub_item[g_sub_count++] = "From the INBOX";
+        g_sub_item[g_sub_count++] = T_SUB_FROM_GITHUB;
+        g_sub_item[g_sub_count++] = T_SUB_FROM_INBOX;
     } else {
-        g_sub_item[g_sub_count++] = "Sweep TLS entropy again";
-        g_sub_item[g_sub_count++] = "Reset PSPDX completely";
-        g_sub_item[g_sub_count++] = "Discard unfinished install";
+        g_sub_item[g_sub_count++] = T_SUB_SWEEP;
+        g_sub_item[g_sub_count++] = T_SUB_RESET_ALL;
+        g_sub_item[g_sub_count++] = T_SUB_DISCARD;
     }
     for (int i = 0; i < g_sub_count; i++) { g_sub_on[i] = 1; g_sub_key[i] = -1; }
     /* The row is there for the one case recovery could not settle, and
@@ -801,7 +798,7 @@ static void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
     int was = shell_view_index(cursor);
     snprintf(keep, keep_size, "%s", was >= 0 ? catalog.apps[was].id : "");
     preview_quiesce();
-    shell_word("Refreshing");
+    shell_word(T_WORD_CHECKING);
     if (sync_start(&catalog) == 0) {
         *synced = 0;
         *refreshing = 1;
@@ -841,7 +838,7 @@ static void reset_completely(void) {
 static void discard_unfinished(void) {
     char line[128];
     if (install_discard(line, sizeof(line)) < 0)
-        shell_status("The unfinished install would not go; see the log");
+        shell_status(T_DISCARD_FAILED);
     else
         shell_status(line);
 }
@@ -850,25 +847,24 @@ static void discard_unfinished(void) {
    should be fetched again, 0 when there is nothing new. */
 static int type_source(int install) {
     char text[SOURCE_URL], url[SOURCE_URL];
-    int rc = osk_read(install ? "Install from GitHub: owner/repo"
-                              : "Add source: catalog.json, list or repository URL", "", text, sizeof(text));
+    int rc = osk_read(install ? T_OSK_GITHUB : T_OSK_SOURCE, "", text, sizeof(text));
     if (rc <= 0 || !text[0]) return 0;
     rc = sources_normalize(text,url,sizeof(url));
     struct source_repo parsed;
-    if(rc<0 || (install && !sources_parse_repo(url,&parsed))) {shell_status("Enter a valid HTTPS URL or owner/repo");return 0;}
+    if(rc<0 || (install && !sources_parse_repo(url,&parsed))) {shell_status(T_BAD_ADDRESS);return 0;}
     preview_quiesce();catalog_offline(net_up()<0);
     rc=catalog_validate_source(url,install);
     preview_resume();
-    if(rc<0){shell_status("Source unavailable or invalid; not added");return 0;}
+    if(rc<0){shell_status(T_SOURCE_UNAVAILABLE);return 0;}
     rc=sources_add(url,url,sizeof(url));
-    if(rc<0){shell_status("Could not save source");return 0;}
+    if(rc<0){shell_status(T_SOURCE_SAVE_FAILED);return 0;}
     if (!install) {
-        if (rc == 0) { shell_status("Already in sources.txt"); return 0; }
+        if (rc == 0) { shell_status(T_SOURCE_EXISTS); return 0; }
         return 1;
     }
     struct source_repo repo;
     if (!sources_parse_repo(url, &repo)) {
-        shell_status("Install from GitHub wants owner/repo");
+        shell_status(T_GITHUB_FORMAT);
         return 0;
     }
     sources_repo_url(&repo, g_wanted_url, sizeof(g_wanted_url));
@@ -884,13 +880,13 @@ static int wanted_settled(int *cursor) {
     if (found < 0) {
         int why = catalog_refused(g_wanted_url);
         if (why == REFUSED_PSPDX)
-            snprintf(message, sizeof(message), "no .pspdx at %.62s", g_wanted_name);
+            snprintf(message, sizeof(message), T_WANT_NO_PSPDX, g_wanted_name);
         else if (why == REFUSED_REPO)
-            snprintf(message, sizeof(message), "GitHub has no repository %.62s", g_wanted_name);
+            snprintf(message, sizeof(message), T_WANT_NO_REPO, g_wanted_name);
         else if (why == REFUSED_RELEASE)
-            snprintf(message, sizeof(message), "no release with a zip at %.62s", g_wanted_name);
+            snprintf(message, sizeof(message), T_WANT_NO_RELEASE, g_wanted_name);
         else
-            snprintf(message, sizeof(message), "%.60s did not make it into the catalog",
+            snprintf(message, sizeof(message), T_WANT_FAILED,
                      g_wanted_name);
         shell_status(message);
         return -1;
@@ -905,7 +901,7 @@ static int wanted_settled(int *cursor) {
     if (entry->state == APP_NOT_INSTALLED || entry->state == APP_UPDATE) {
         ask_install(found);
     } else {
-        snprintf(message, sizeof(message), "%s is installed and current", entry->name);
+        snprintf(message, sizeof(message), T_WANT_CURRENT, entry->name);
         shell_status(message);
     }
     return found;
@@ -913,10 +909,10 @@ static int wanted_settled(int *cursor) {
 
 static void ask_inbox(void){
     preview_quiesce();catalog_offline(net_up()<0);
-    shell_word("Reading INBOX");
+    shell_word(T_WORD_INBOX);
     int n=inbox_scan(&catalog);preview_resume();shell_view_rebuild(&catalog);
-    if(n<=0){shell_status("No installable INBOX entries; see log for errors");return;}
-    char title[64],line[96];snprintf(title,sizeof(title),"Install %d apps from INBOX?",n);
+    if(n<=0){shell_status(T_INBOX_EMPTY);return;}
+    char title[64],line[96];snprintf(title,sizeof(title),T_INBOX_ASK,n);
     snprintf(line,sizeof(line),"%s",inbox_summary());shell_ask(title,line);g_question=ASK_INBOX;
 }
 static void install_inbox(void){
@@ -926,7 +922,7 @@ static void install_inbox(void){
         int at=inbox_index(i);
         if(install_app(at,0,i+1,count)==0){inbox_installed(i);done++;}
     }
-    char message[96];snprintf(message,sizeof(message),"INBOX: %d of %d installed; remaining files kept",done,count);shell_status(message);
+    char message[96];snprintf(message,sizeof(message),T_INBOX_DONE,done,count);shell_status(message);
 }
 
 /* argv[0] is the path the firmware loaded this from -- the main thread's argp,
@@ -1076,7 +1072,7 @@ int main(int argc, char *argv[]) {
                     unsigned days = ((unsigned)time(NULL) - catalog.generated) / 86400u;
                     char stale[96];
                     snprintf(stale, sizeof(stale),
-                             "%s is %u day%s old; apps are checked at their own repositories",
+                             T_STALE,
                              catalog.generated_from, days, days == 1 ? "" : "s");
                     shell_status(stale);
                     logline("catalog: %s generated %u days ago", catalog.generated_from, days);
@@ -1114,7 +1110,7 @@ int main(int argc, char *argv[]) {
                        can be done about it. */
                     char again[96];
                     snprintf(again, sizeof(again), "%s   X to try again", sync_message());
-                    shell_word("Offline");
+                    shell_word(T_WORD_OFFLINE);
                     shell_status(again);
                 }
                 dump_diagnostics();
@@ -1212,9 +1208,9 @@ int main(int argc, char *argv[]) {
            until the console loads the new, so that is offered as soon as
            nothing else is being asked. */
         if (g_question == ASK_NOTHING && g_restart_of >= 0) {
-            char title[64];
-            snprintf(title, sizeof(title), "Restart PSPDX to apply %.20s?", g_restart_version);
-            shell_ask(title, "The running copy stays the old one until then");
+            char line[64];
+            snprintf(line, sizeof(line), T_RESTART_LINE, g_restart_version);
+            shell_ask(T_RESTART_ASK, line);
             g_question = ASK_RESTART;
             g_question_of = g_restart_of;
             g_restart_of = -1;
@@ -1237,7 +1233,7 @@ int main(int argc, char *argv[]) {
                     if (index >= 0 && index < g_sources.count &&
                         sources_remove(g_sources.url[index]) > 0)
                         refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
-                    else shell_status("Could not remove that source");
+                    else shell_status(T_SOURCE_DELETE_FAILED);
                 } else uninstall_app(index);
                 dump_diagnostics();
                 /* What was just done can have emptied a tab. */
@@ -1246,7 +1242,7 @@ int main(int argc, char *argv[]) {
             } else if (pressed & PSP_CTRL_CIRCLE) {
                 int later = g_question == ASK_RESTART;
                 ask_forget();
-                shell_status(later ? "Restart PSPDX to apply the update" : "");
+                shell_status(later ? T_RESTART_LATER : "");
             }
         } else if (g_sub) {
             if (pressed & PSP_CTRL_DOWN) { g_sub_cursor = (g_sub_cursor + 1) % g_sub_count; sub_push(); cues_post(CUE_MOVE, 0); }
@@ -1258,7 +1254,7 @@ int main(int argc, char *argv[]) {
                 sub_close();
                 if (kind == SUB_CATALOGS) {
                     if (chosen < g_sources.count) {
-                        shell_ask("Remove this source?", g_sub_short[chosen]);
+                        shell_ask(T_SOURCE_DELETE_ASK, g_sub_short[chosen]);
                         g_question = ASK_CATALOG;
                         g_question_of = chosen;
                     } else if (synced && type_source(0)) {
@@ -1271,13 +1267,11 @@ int main(int argc, char *argv[]) {
                 } else {
                     if (chosen == 0) sweep_again();
                     else if (chosen == 1) {
-                        shell_ask("Reset PSPDX completely?",
-                                  "Everything under PSP/PSPDX goes; apps in PSP/GAME stay");
+                        shell_ask(T_RESET_ASK, T_RESET_LINE);
                         g_question = ASK_RESET;
                         g_question_of = -1;
                     } else {
-                        shell_ask("Discard the unfinished install?",
-                                  "Its journal, archive and staging go; PSP/GAME stays as it is");
+                        shell_ask(T_DISCARD_ASK, T_DISCARD_LINE);
                         g_question = ASK_DISCARD;
                         g_question_of = -1;
                     }
@@ -1382,8 +1376,8 @@ int main(int argc, char *argv[]) {
                     ask_install(at);
                 else if (at >= 0) {
                     char title[64];
-                    snprintf(title, sizeof(title), "Run %.40s?", catalog.apps[at].name);
-                    shell_ask(title, "PSPDX ends and the app starts");
+                    snprintf(title, sizeof(title), T_RUN_ASK, catalog.apps[at].name);
+                    shell_ask(title, T_RUN_LINE);
                     g_question = ASK_RUN;
                     g_question_of = at;
                 }
@@ -1415,7 +1409,7 @@ int main(int argc, char *argv[]) {
         } else if ((pressed & PSP_CTRL_CROSS) && sync_state() == SYNC_FAILED) {
             /* Once more from the top: the wait comes back with its word,
                and the frames below carry on as they did the first time. */
-            shell_word("Connecting");
+            shell_word(T_WORD_CONNECTING);
             if (sync_start(&catalog) == 0) synced = 0;
         }
 

@@ -1,3 +1,4 @@
+#include "text.h"
 #include <time.h>
 #include "util/storage.h"
 /*
@@ -145,7 +146,7 @@ static float g_rest;                    /* 0 no picture, 1 the picture whole */
    so the number on screen does not flicker. */
 static float g_load;
 static float g_frame_us;                /* frame to frame, eased, for the fps */
-static char g_word[24] = "Connecting";
+static char g_word[24] = T_WORD_CONNECTING;
 static const struct catalog *g_catalog;
 static int g_cursor;
 
@@ -155,7 +156,7 @@ static int g_cursor;
    rest match the catalog's own category word, which schema/v1.pspdx spells
    in the singular: a tab holds many, an app is one. */
 static const char *const TAB_NAME[] = {
-    "All", "Games", "Demos", "Apps", "Emulators", "Plugins"
+    T_TAB_ALL, T_TAB_GAMES, T_TAB_DEMOS, T_TAB_APPS, T_TAB_EMULATORS, T_TAB_PLUGINS
 };
 static const char *const TAB_KEY[] = {
     "", "game", "demo", "app", "emulator", "plugin"
@@ -526,9 +527,9 @@ static void draw_chrome(const struct catalog *catalog, float t) {
        open tab, said in words here and lit as a sign among the others on
        the right. Nothing is counted; the list is there to be looked at. */
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
-    const char *title = tab == TAB_GEAR ? "PSPDX"
-                      : tab == TAB_STICK ? "Installed"
-                      : tab == TAB_BASKET ? "Basket" : TAB_NAME[tab];
+    const char *title = tab == TAB_GEAR ? T_HEAD_GEAR
+                      : tab == TAB_STICK ? T_HEAD_STICK
+                      : tab == TAB_BASKET ? T_HEAD_BASKET : TAB_NAME[tab];
     gfx_glow(LIST_X + 24, 18, 110, 56, rgb_pack(g_tint, 80));
     font_print(FONT_H1, LIST_X, 23, g_text, title);
     if (catalog->count > 0) draw_tabs(0, 0, t);
@@ -541,8 +542,8 @@ static void draw_chrome(const struct catalog *catalog, float t) {
    Both are wanted in the list and again in the panel, so they are made in one
    place. */
 static const char *action_title(void) {
-    if (shell_tab_kind() != SHELL_TAB_STICK) return "Download all";
-    return updates_waiting() > 0 ? "Update all" : "Check for updates";
+    if (shell_tab_kind() != SHELL_TAB_STICK) return T_DOWNLOAD_ALL;
+    return updates_waiting() > 0 ? T_UPDATE_ALL : T_CHECK;
 }
 
 /* "3 apps, 61.5 MB" -- or, when nothing in the tab has a release with a
@@ -553,12 +554,12 @@ static const char *action_line(void) {
     char size[24];
     shell_action_plan(&plan);
     if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK)
-        snprintf(line, sizeof(line), "All up to date");
+        snprintf(line, sizeof(line), T_ALL_CURRENT);
     else if (plan.apps <= 0)
-        snprintf(line, sizeof(line), "nothing here has a release");
+        snprintf(line, sizeof(line), T_NO_RELEASES);
     else {
         size_mb(plan.bytes, size, sizeof(size));
-        snprintf(line, sizeof(line), "%d app%s, %s", plan.apps,
+        snprintf(line, sizeof(line), T_PLAN_LINE, plan.apps,
                  plan.apps == 1 ? "" : "s", size);
     }
     return line;
@@ -729,23 +730,24 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
 
     font_print(FONT_H1, PANEL_X, y, g_text, action_title());
     if (plan.apps <= 0 && shell_tab_kind() == SHELL_TAB_STICK) {
-        int lines = draw_wrapped(FONT_META, PANEL_X, y + 20, SHOT_W, 16, 2, g_dim,
-                                 "Finds newer versions of your apps.");
+        int lines = draw_wrapped(FONT_META, PANEL_X, y + 20, SHOT_W, 16, 2, g_dim, T_CHECK_NOTE);
         /* The row has two keys, and the panel names them the way the footer
-           does, with the key's own mark rather than a word for it. */
+           does, with the key's own mark rather than a word for it; what the
+           two do is said under them. */
         float base = y + 20 + 16 * lines + 14;
-        draw_hint(PANEL_X, base, MARK_CROSS, "Check via catalog", g_dim);
-        draw_hint(PANEL_X, base + 18, MARK_SQUARE, "Check directly on GitHub", g_dim);
+        draw_hint(PANEL_X, base, MARK_CROSS, T_QUICK_CHECK, g_dim);
+        draw_hint(PANEL_X, base + 18, MARK_SQUARE, T_FULL_CHECK, g_dim);
+        draw_wrapped(FONT_META, PANEL_X, base + 40, SHOT_W, 16, 3, g_dim, T_CHECK_EXPLAIN);
         return;
     }
     if (plan.apps > 0) {
         size_mb(plan.bytes, size, sizeof(size));
         download_time(plan.bytes, value, sizeof(value));
-        font_printf(FONT_META, PANEL_X, y + 20, g_dim, "%s to download, about %s",
+        font_printf(FONT_META, PANEL_X, y + 20, g_dim, T_PLAN_SIZE,
                     size, value);
     } else {
         font_print(FONT_META, PANEL_X, y + 20, g_dim,
-                   "nothing here has a release with a size");
+                   T_NO_RELEASES);
     }
     /* One line a package, in the order they would be fetched, for as many as
        the panel holds; the rest are counted rather than named. */
@@ -757,7 +759,7 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
         if (!entry->has_release || !entry->release.size) continue;
         if (line >= room) {
             font_printf(FONT_META, PANEL_X, y + 40 + line * 14, g_dim,
-                        "and %d more", plan.apps - line);
+                        T_AND_MORE, plan.apps - line);
             line++;
             break;
         }
@@ -773,7 +775,7 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
     }
     if (plan.skipped)
         font_printf(FONT_META, PANEL_X, y + 46 + line * 14, g_dim,
-                    "%d without a release, left out", plan.skipped);
+                    T_PLAN_SKIPPED, plan.skipped);
 }
 
 /* The picture alone: the card with the still or the film on it and its
@@ -931,17 +933,17 @@ static void draw_panel(const struct app_entry *entry, float t) {
             size_mb(entry->release.size, size, sizeof(size));
         switch (entry->state) {
         case APP_UPDATE:
-            snprintf(line, sizeof(line), "Update to %s   %s", entry->remote_version, size);
+            snprintf(line, sizeof(line), T_PANEL_UPDATE, entry->remote_version, size);
             break;
         case APP_UNKNOWN:
-            snprintf(line, sizeof(line), "Installed %s", entry->local_version);
+            snprintf(line, sizeof(line), T_PANEL_INSTALLED, entry->local_version);
             break;
         case APP_CURRENT:
-            snprintf(line, sizeof(line), "Installed %s", entry->local_version);
+            snprintf(line, sizeof(line), T_PANEL_INSTALLED, entry->local_version);
             break;
         default:
-            snprintf(line, sizeof(line), "%s%s", size[0] ? size : "No release",
-                     in_basket ? "   in the basket" : "");
+            snprintf(line, sizeof(line), "%s%s", size[0] ? size : T_PANEL_NO_RELEASE,
+                     in_basket ? T_PANEL_IN_BASKET : "");
             break;
         }
     }
@@ -1116,8 +1118,8 @@ static void draw_menu(void) {
     }
     /* Enter and back, the way every band ends, at the panel's foot. */
     float hx = left;
-    hx = draw_hint(hx, SCR_H - 14, MARK_CROSS, "Enter", g_dim);
-    draw_hint(hx, SCR_H - 14, MARK_CIRCLE, "Back", g_dim);
+    hx = draw_hint(hx, SCR_H - 14, MARK_CROSS, T_HINT_ENTER, g_dim);
+    draw_hint(hx, SCR_H - 14, MARK_CIRCLE, T_HINT_BACK, g_dim);
 }
 
 /* --------------------------------------------------------------- install */
@@ -1158,8 +1160,8 @@ static void draw_install(void) {
        rename at the end is not left half done, so the key is not offered
        there. */
     if (strcmp(g_install_phase, "commit") != 0) {
-        float hw = hint_width(MARK_CIRCLE, "Cancel");
-        draw_hint(SCR_W / 2 - hw / 2, BAND_Y + BAND_H - 18, MARK_CIRCLE, "Cancel", g_dim);
+        float hw = hint_width(MARK_CIRCLE, T_HINT_CANCEL);
+        draw_hint(SCR_W / 2 - hw / 2, BAND_Y + BAND_H - 18, MARK_CIRCLE, T_HINT_CANCEL, g_dim);
     }
 }
 
@@ -1242,19 +1244,19 @@ static void read_storage(void) {
    the band that says what it is. A row here is read and taken the way a
    package's row is, because at this depth nothing is deeper. */
 static const char *const SETTING[SHELL_SETTINGS] = {
-    "Add sources",
-    "Direct install",
-    "Reset",
-    "Info",
+    T_SET_SOURCES,
+    T_SET_DIRECT,
+    T_SET_RESET,
+    T_SET_INFO,
 };
 
 /* What each row does, said on the right while the cursor is on it: the
    list names the thing, the panel says what it comes to. */
 static const char *const SETTING_NOTE[SHELL_SETTINGS] = {
-    "The lists this console reads apps from: a catalog, a list of repositories, or one repository. Add one by its URL, or take one out.",
-    "One app straight from its GitHub repository, or the .pspdx files put in PSP/PSPDX/INBOX.",
-    "Sweep the stick again for fresh TLS entropy, or put PSPDX back to its first start: everything under PSP/PSPDX goes, the apps in PSP/GAME stay.",
-    "What this session is connected to and what it is standing on.",
+    T_NOTE_SOURCES,
+    T_NOTE_DIRECT,
+    T_NOTE_RESET,
+    T_NOTE_INFO,
 };
 
 const char *shell_setting(int n) {
@@ -1275,11 +1277,11 @@ static void draw_info(void) {
     /* Which build this is, above the rest: the one fact the band states about
        itself rather than about the run. */
     fact(INFO_Y + 18, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
-         "PSPDX", PSPDX_VERSION);
+         T_INFO_PSPDX, PSPDX_VERSION);
 
     url_host(catalog_url(), value, sizeof(value));
     fact(INFO_Y + 36, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
-         "Catalog", value);
+         T_INFO_CATALOG, value);
 
     if (tls->cipher[0]) {
         char cipher[48];
@@ -1289,13 +1291,13 @@ static void draw_info(void) {
         snprintf(value, sizeof(value), "not connected");
     }
     fact(INFO_Y + 54, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
-         "Connection", value);
+         T_INFO_CONNECTION, value);
 
     snprintf(value, sizeof(value), "%u ms", tls->handshake_ms);
-    fact(INFO_Y + 76, FACT_LABEL, FACT_VALUE, 140, "Handshake", value);
+    fact(INFO_Y + 76, FACT_LABEL, FACT_VALUE, 140, T_INFO_HANDSHAKE, value);
 
     snprintf(value, sizeof(value), "%d bits", entropy_bits());
-    fact(INFO_Y + 96, FACT_LABEL, FACT_VALUE, 140, "Entropy", value);
+    fact(INFO_Y + 96, FACT_LABEL, FACT_VALUE, 140, T_INFO_ENTROPY, value);
 
     /* Not a scheduler's number -- the PSP has none to ask. The share of each
        frame that goes into drawing it; the rest is the wait for vblank, which
@@ -1303,23 +1305,23 @@ static void draw_info(void) {
     snprintf(value, sizeof(value), "%d fps, %d%% drawing",
              g_frame_us > 0.0f ? (int)(1000000.0f / g_frame_us + 0.5f) : 0,
              (int)(g_load * 100.0f + 0.5f));
-    fact(INFO_Y + 116, FACT_LABEL, FACT_VALUE, 160, "Frames", value);
+    fact(INFO_Y + 116, FACT_LABEL, FACT_VALUE, 160, T_INFO_FRAMES, value);
 
     int installed = 0;
     if (g_catalog)
         for (int i = 0; i < g_catalog->count; i++)
             if (g_catalog->apps[i].state != APP_NOT_INSTALLED) installed++;
     snprintf(value, sizeof(value), "%d", installed);
-    fact(INFO_Y + 76, FACT_LABEL2, FACT_VALUE2, 110, "Installed", value);
+    fact(INFO_Y + 76, FACT_LABEL2, FACT_VALUE2, 110, T_INFO_INSTALLED, value);
 
     snprintf(value, sizeof(value), "%u KB",
              (unsigned)sceKernelTotalFreeMemSize() / 1024);
-    fact(INFO_Y + 96, FACT_LABEL2, FACT_VALUE2, 110, "Memory free", value);
+    fact(INFO_Y + 96, FACT_LABEL2, FACT_VALUE2, 110, T_INFO_MEMORY, value);
 
     /* Room on the stick is the one fact here that is a proportion, so it is
        drawn as one: the line fills as the stick does, and what is left of it
        is what a package has to fit into. */
-    fact(INFO_Y + 116, FACT_LABEL2, FACT_VALUE2, 110, "Stick free", g_storage);
+    fact(INFO_Y + 116, FACT_LABEL2, FACT_VALUE2, 110, T_INFO_STICK, g_storage);
     if (g_storage_used >= 0.0f) {
         int x = FACT_VALUE2, w = SCR_W - FACT_VALUE2 - 30, y = INFO_Y + 125;
         int used = (int)(w * g_storage_used + 0.5f);
@@ -1328,8 +1330,8 @@ static void draw_info(void) {
     }
 
     band_rule(INFO_Y + 134, 160, 120);
-    float w = hint_width(MARK_CIRCLE, "Back");
-    draw_hint(SCR_W / 2 - w / 2, INFO_Y + 156, MARK_CIRCLE, "Back", g_dim);
+    float w = hint_width(MARK_CIRCLE, T_HINT_BACK);
+    draw_hint(SCR_W / 2 - w / 2, INFO_Y + 156, MARK_CIRCLE, T_HINT_BACK, g_dim);
 }
 
 /* --------------------------------------------------------------- details */
@@ -1382,30 +1384,30 @@ static void draw_details(void) {
 
     int y = INFO_Y + 56;
     if (e->state == APP_UPDATE)
-        snprintf(value, sizeof(value), "%.31s installed, %.31s published",
+        snprintf(value, sizeof(value), T_DETAIL_UPDATE,
                  e->local_version, e->remote_version);
     else if (e->state != APP_NOT_INSTALLED)
-        snprintf(value, sizeof(value), "%s installed", e->local_version);
+        snprintf(value, sizeof(value), T_DETAIL_INSTALLED, e->local_version);
     else if (e->has_release)
         snprintf(value, sizeof(value), "%s", e->release.version);
     else
-        snprintf(value, sizeof(value), "unknown");
-    fact(y, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, "Version", value);
-    fact(y + 20, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, "Author", e->author);
-    fact(y + 40, FACT_LABEL, FACT_VALUE, 140, "Licence", e->license);
-    fact(y + 40, FACT_LABEL2, FACT_VALUE2, 110, "Category", e->category);
+        snprintf(value, sizeof(value), T_UNKNOWN);
+    fact(y, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_VERSION, value);
+    fact(y + 20, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_AUTHOR, e->author);
+    fact(y + 40, FACT_LABEL, FACT_VALUE, 140, T_DETAIL_LICENSE, e->license);
+    fact(y + 40, FACT_LABEL2, FACT_VALUE2, 110, T_DETAIL_CATEGORY, e->category);
     if (e->has_release && e->release.size) {
         size_mb(e->release.size, size, sizeof(size));
-        fact(y + 60, FACT_LABEL, FACT_VALUE, 140, "Size", size);
+        fact(y + 60, FACT_LABEL, FACT_VALUE, 140, T_DETAIL_SIZE, size);
     }
-    fact(y + 80, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, "Id", e->id);
+    fact(y + 80, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_ID, e->id);
 
     if(e->release.checked_at){
         time_t checked=e->release.checked_at;struct tm *date=gmtime(&checked);
-        char when[24]="unknown";if(date)strftime(when,sizeof(when),"%Y-%m-%d %H:%M UTC",date);
-        snprintf(value,sizeof(value),"%s%s",e->fresh?"":"Saved: ",when);
-    }else snprintf(value,sizeof(value),"%s",e->fresh?"Checked this session":"Saved result; check time unknown");
-    fact(y+100,FACT_LABEL,FACT_VALUE,SCR_W-FACT_VALUE-30,"Checked",value);
+        char when[24]=T_UNKNOWN;if(date)strftime(when,sizeof(when),"%Y-%m-%d %H:%M UTC",date);
+        snprintf(value,sizeof(value),"%s%s",e->fresh?"":T_DETAIL_SAVED,when);
+    }else snprintf(value,sizeof(value),"%s",e->fresh?T_DETAIL_THIS_SESSION:T_UNKNOWN);
+    fact(y+100,FACT_LABEL,FACT_VALUE,SCR_W-FACT_VALUE-30,T_DETAIL_CHECKED,value);
     band_rule(y + 116, 160, 120);
     draw_wrapped(FONT_META, 40, y + 134, SCR_W - 80, 16, 2, g_dim, e->summary);
 }
@@ -1428,7 +1430,7 @@ static void draw_footer(void) {
     gfx_vgrad(0, FOOTER_Y, SCR_W, SCR_H - FOOTER_Y, RGBA(0, 0, 0, 120),
               RGBA(0, 0, 0, 200));
     if (g_details) {
-        draw_hint(LIST_X, FOOTER_BASE, MARK_CIRCLE, "Back", g_dim);
+        draw_hint(LIST_X, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
     } else {
         font_print_clipped(FONT_META, LIST_X, FOOTER_BASE, SCR_W - 2 * LIST_X,
                            g_accent, g_status);
@@ -1543,7 +1545,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
            behind; what it is waiting for is said in the strip below. */
         title_draw(SCR_W / 2.0f, 116.0f, t, g_tint);
     } else {
-        font_print(FONT_BODY, LIST_X, 120, g_dim, "The catalog came back empty.");
+        font_print(FONT_BODY, LIST_X, 120, g_dim, T_CATALOG_EMPTY);
     }
     if (g_info) draw_info();
     if (g_details) draw_details();

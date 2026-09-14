@@ -1,3 +1,4 @@
+#include "text.h"
 #include "install/state.h"
 #include "util/storage.h"
 #include <cjson/cJSON.h>
@@ -566,7 +567,7 @@ static int walk_list(struct catalog *catalog, const struct source_list *list, in
         sources_repo_url(&list->repo[i], url, sizeof(url));
         if (catalog_find_repo(catalog, url) >= 0)
             continue;
-        snprintf(g_progress, sizeof(g_progress), "origin: %d of %d", i + 1, list->count);
+        snprintf(g_progress, sizeof(g_progress), T_STATUS_ORIGIN, i + 1, list->count);
         (*asked)++;
         int rc = take_origin(catalog, &list->repo[i]);
         if (rc > 0)
