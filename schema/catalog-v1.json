@@ -220,7 +220,7 @@
           "items": {
             "$ref": "#/$defs/release"
           },
-          "description": "required; up to the 20 newest releases, newest first. The console installs and compares releases[0] only."
+          "description": "required; up to the 20 newest usable releases, newest first, or only the one a .pspdx pins with release. A release is usable with one zip, or of several exactly one with psp in its name, in any case. The console installs and compares releases[0] only."
         }
       }
     },

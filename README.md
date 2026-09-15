@@ -10,7 +10,7 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 
 ## How to use
 
-Just install, start and search for homebrews! Updates are shown automatically. Needs ARK-5 für WPA2.
+Just install, start and search for homebrew! Updates are shown automatically. Needs ARK-5 for WPA2.
 
 Issues? [Tell us how it went](https://github.com/chriopter/pspdx/issues).
 
@@ -22,11 +22,15 @@ Issues? [Tell us how it went](https://github.com/chriopter/pspdx/issues).
 
 ## The PSPDX standard
 
-**[PSPDX standard →](https://chriopter.github.io/pspdx/)** · example: [pspdx-demo](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx)
+**[PSPDX standard →](https://chriopter.github.io/pspdx/)** · examples: [pspdx-demo](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx) · [pspdx-catalog](https://github.com/chriopter/pspdx-catalog)
 
-- I propose a small `.pspdx` in the root of your homebrew's repository. Add it, publish a release, done.
+The standard has two formats:
+
+- **`.pspdx`** → a small file in the root of your homebrew's repository. Add it, publish a release, done.
+- **`catalog.json`** → many apps in one file, with their releases and artwork. Anyone can publish one.
+
 - It lives on its own: a catalog is only a shortcut.
-- The magic: When you download a brew, your PSP saves the original .pspdx so it can get updates from the original repo.
+- The magic: when you download a brew, your PSP saves the original `.pspdx` so it can get updates from the original repo.
 - Built to work 10 years forward, without another mirror going down.
 
 <details>
@@ -42,9 +46,23 @@ Issues? [Tell us how it went](https://github.com/chriopter/pspdx/issues).
 
 #### Releases
 
-- One published release, one ZIP, one `EBOOT.PBP` inside; no manifest edit per release
+- One published release, one `EBOOT.PBP` inside its ZIP; no manifest edit per release
+- ZIP rule → one `.zip` on the release, or of several exactly one with `psp` in its name, any case; otherwise the app is left out with the reason
 - `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed, not installed yet
-- No `.pspdx` in the repo? A catalog entry with `listed_by` → PSPDX installs from the entry, the repo's own file wins once it has one, updates only through catalogs until then
+- `size`, `sha256`, `eboot_md5` are never written by hand; the catalog computes them
+
+#### Pinning a release
+
+- No `release` → the newest GitHub release, with updates
+- `"release": {"tag": "v1.2"}` → exactly that release, prereleases too; no updates until someone edits the file; a pinned app's catalog `releases` is that one release
+- On GitHub → the tag must exist; `url`, if given, must be one of its assets, else the ZIP rule picks; `published_at` comes from GitHub, a value in the file is ignored
+- Outside GitHub → `url` and `published_at` are required
+
+#### Vouched listings
+
+- No `.pspdx` in the repo? A catalog keeps one for it → its entry carries `listed_by`
+- PSPDX installs from that entry; updates come only through that catalog
+- The repo's own `.pspdx` wins as soon as it has one
 
 #### Text list
 
@@ -223,7 +241,7 @@ hourly:  repos.txt -> catalog.txt
 ```
 
 - `catalog.json` carries metadata, tags, description, source, install path, up to the 20 newest releases (date, ZIP URL, size, hash, changelog) and media URLs; the console reads `releases[0]`
-- The reference builder lists only repos with their own `.pspdx`; another catalog can list an app without one by setting `listed_by` on its entry
+- The reference builder lists repos with their own `.pspdx`, and a repo without one from a file in its `listed/`, setting `listed_by` on that entry
 - A push or manual run also picks up manifest-only edits; hourly runs wait for a release
 - A build with no valid apps leaves the live site in place
 
