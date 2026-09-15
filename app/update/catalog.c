@@ -330,9 +330,12 @@ static int parse(struct catalog *catalog, const char *base) {
         logline("catalog: not json");
         return -1;
     }
+    /* A list that names no schema is read as v1, the only one there is: a
+       catalog another tool writes may simply not say. One that names any
+       schema is held to it, and anything but v1 is not read. */
     cJSON *schema = cJSON_GetObjectItemCaseSensitive(root, "schema");
-    if (!cJSON_IsString(schema) || strcmp(schema->valuestring,
-            "https://chriopter.github.io/pspdx/schema/catalog-v1.json")) {
+    if (schema && (!cJSON_IsString(schema) || strcmp(schema->valuestring,
+            "https://chriopter.github.io/pspdx/schema/catalog-v1.json"))) {
         logline("catalog: unsupported schema");
         cJSON_Delete(root);
         return -1;

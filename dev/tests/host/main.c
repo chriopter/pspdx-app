@@ -111,6 +111,22 @@ int main(int argc, char **argv) {
             }
         return 2;
     }
+    if (!strcmp(argv[1], "sha")) {
+        /* sha <id>: the hash the entry holds the download to, "-" for none,
+           and the zip it is the hash of. */
+        catalog_fetch(&catalog);
+        for (int i = 0; i < catalog.count; i++)
+            if (!strcmp(catalog.apps[i].id, argv[2])) {
+                const struct manifest *m = &catalog.apps[i].release;
+                if (manifest_has_sha256(m))
+                    for (int k = 0; k < 32; k++) printf("%02x", m->sha256[k]);
+                else
+                    printf("-");
+                printf(" %s\n", m->url);
+                return 0;
+            }
+        return 2;
+    }
     if (!strcmp(argv[1], "drop")) {
         /* drop <url>: the gear's delete of a source. */
         int rc = sources_remove(argv[2]);

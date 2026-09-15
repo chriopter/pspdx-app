@@ -315,11 +315,33 @@ class ClientTests(unittest.TestCase):
   shipped=[l.split('#')[0].strip() for l in (root/'app/presets.txt').read_text().splitlines() if l.split('#')[0].strip()]
   self.assertEqual(embedded,shipped);self.assertEqual(shipped,PRESETS)
  def test_unknown_catalog_schema_uses_original_source(self):
+  # A schema named is held to: anything but the v1 URL is not read and the app comes from its repository. None named is v1.
   self.fixtures()
   catalog=json.loads((self.root/'catalog.json').read_text())
-  catalog['schema']='https://example.com/other-format'
-  self.write('catalog.json',catalog)
-  self.assertIn(ID+' 3 1',self.run_client('fetch').stdout)
+  for schema in ['https://example.com/other-format','https://chriopter.github.io/pspdx/schema/catalog-v2.json','',None,7]:
+   with self.subTest(schema=schema):self.write('catalog.json',dict(catalog,schema=schema));self.assertIn(ID+' 3 ',self.run_client('fetch').stdout)
+  del catalog['schema'];self.write('catalog.json',catalog);self.assertIn(ID+' 2 1',self.run_client('fetch').stdout)
+ def test_sharkwouters_catalog_reads_as_v1(self):
+  # dev/testdata/wijsman-catalog-2026-09-15.json is https://wijsman.de/psp-homebrew-database/catalog.json as served on 2026-09-15, byte for byte:
+  # no top-level schema, ids of its own that are not catalog ids, tags that are not GitHub's (v1.1 for 1.1, 0.0.3 for 0.0.3-psp), PanelPop a GitHub pre-release.
+  root=pathlib.Path(__file__).resolve().parents[2]
+  catalog=json.loads((root/'dev/testdata/wijsman-catalog-2026-09-15.json').read_text());self.assertNotIn('schema',catalog)
+  # Stamped now, as fixtures() does: a day-old list is asked about at the origin, which is another test.
+  self.write('catalog.json',dict(catalog,generated_at=NOW()))
+  base=PRESETS[1];(self.root/'ms0:/PSP/PSPDX').mkdir(parents=True);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text(base+'\n');(self.root/'requests.log').write_text('')
+  ids=['io.github.sharkwouter.laserkombat','io.github.sharkwouter.oceanpop','io.github.sharkwouter.panelpop']
+  r=self.run_client('fetch',VERBOSE=1)
+  # The preset is the site's base, and the base is where catalog.json is asked for, and nothing else.
+  self.assertEqual((self.root/'requests.log').read_text().splitlines(),[base+'catalog.json'])
+  self.assertEqual([l.split() for l in r.stdout.splitlines()],[[ids[0],'1.1','1','1','0'],[ids[1],'2.0','1','1','0'],[ids[2],'0.0.3','1','1','0']],r.stderr)
+  self.assertIn('"laser_kombat" is not an id this stick can use; listed as '+ids[0],r.stderr)
+  for app_id,app in zip(ids,catalog['apps']):
+   with self.subTest(app=app_id):self.assertEqual(self.run_client('sha',app_id).stdout.split(),[app['releases'][0]['sha256'],app['releases'][0]['url']])
+  self.assertEqual(self.run_client('media',ids[0]).stdout.splitlines()[:2],[base+'icons/laser_kombat.png',base+'screenshots/laser_kombat.png'])
+  # Installed, the hash decides and the version string does not: the same zip under another tag is current, another zip under the same tag is an update.
+  for app,version,sha in [(catalog['apps'][1],'2.0-psp',catalog['apps'][1]['releases'][0]['sha256']),(catalog['apps'][2],'0.0.3','00'*32)]:
+   self.write('ms0:/PSP/PSPDX/INSTALLED/io.github.sharkwouter.%s.state.json'%app['id'],dict(source=app['source'],installed=dict(installdir='PSP/GAME/'+app['name'],version=version,published_at=7,sha256=sha)))
+  r=self.run_client('fetch',VERBOSE=1);self.assertEqual({l.split()[0]:l.split()[3] for l in r.stdout.splitlines()},{ids[0]:'1',ids[1]:'2',ids[2]:'3'},r.stderr)
  def test_invalid_catalog_release_date_uses_original_source(self):
   self.fixtures()
   catalog=json.loads((self.root/'catalog.json').read_text())
