@@ -1,7 +1,7 @@
 # PSPDX
 
-**PSP Download Index** — browse, install and update homebrew directly
-on your PlayStation Portable, using the [PSPDX standard](https://chriopter.github.io/pspdx/).
+**PSP Download Index** — install and update homebrew directly on your
+PlayStation Portable, uses the [PSPDX standard](https://chriopter.github.io/pspdx/).
 
 **[→ Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)**
 
@@ -39,7 +39,7 @@ Tested in PPSSPP so far. Running it on a real PSP?
 #### Derived, never written
 
 - `id` → GitHub: `io.github.<owner>.<repo>`; elsewhere the host of `listed_by` reversed, without `www.`, then the name; every part lowercased to `[a-z0-9]`
-- A catalog's own `id` is kept only when it already is one (lowercase `[a-z0-9]` parts joined by dots, at most 95 bytes, `io.github.` only as the derived one) and doesn't clash with what's installed; anything else → the derived id
+- A catalog's own `id` is kept only when it already is one (lowercase `[a-z0-9]` parts joined by dots, at most 159 bytes, `io.github.` only as the derived one) and doesn't clash with what's installed; anything else → the derived id
 - `installdir` left out → `PSP/GAME/<repository name>` on GitHub, `PSP/GAME/<name>` elsewhere, cut to 32 allowed characters
 - Update → the SHA-256 of `releases[0]` differs from the installed ZIP's; dates and version strings are not compared
 - Readers ignore fields they don't know
