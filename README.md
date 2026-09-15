@@ -1,8 +1,9 @@
 # PSPDX
 
 **PSP Download Index** — browse, install and update homebrew directly
-on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspdx/releases/latest)**
-PSPDX uses the [PSPDX standard](https://chriopter.github.io/pspdx/).
+on your PlayStation Portable, using the [PSPDX standard](https://chriopter.github.io/pspdx/).
+
+**[→ Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)**
 
 <img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="assets/pspdx-app.webp" />
 
@@ -28,13 +29,11 @@ Tested in PPSSPP so far. Running it on a real PSP?
 
 ## The PSPDX standard
 
-I propose a small file, `.pspdx`, in the root of your homebrew's repository.
-Add it, publish a release, done.
+**[PSPDX standard →](https://chriopter.github.io/pspdx/)** · example: [pspdx-demo](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx)
 
-I want this to work 10 years forward, without another mirror going down: the
-`.pspdx` lives on its own, a catalog is only a shortcut.
-
-Example: [pspdx-demo](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx) · All fields and rules: [PSPDX standard](https://chriopter.github.io/pspdx/)
+- I propose a small `.pspdx` in the root of your homebrew's repository. Add it, publish a release, done.
+- It lives on its own: a catalog is only a shortcut.
+- Built to work 10 years forward, without another mirror going down.
 
 <details>
 <summary><b>How PSPDX reads it</b> · ids, updates, lists</summary>
