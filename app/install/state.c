@@ -37,18 +37,23 @@ int state_validate(const cJSON *r) {
         /* A record written while a list's .pspdx could stand in for a
            repository's may still name it in manifest_url. Nothing reads that
            any more, so it is left as it is and never held against the rest. */
-        /* A GitHub record is held to the id its repository makes. One from
-           anywhere else has its id out of its list and its name, which the
-           record does not carry, so an https:// source is all it is asked
-           for: such a record is updated through a catalog and never at the
-           origin, and it must not make every other record unreadable. */
+        /* A GitHub record is the only one of its repository, under the id
+           the repository makes or one a catalog gave it; an io.github. id is
+           only ever the repository's own. One from anywhere else has its id
+           out of its list and its name, which the record does not carry, so
+           an https:// source is all it is asked for: such a record is
+           updated through a catalog and never at the origin, and it must not
+           make every other record unreadable. */
         struct source_repo repo;
         const char *source = str(v, "source");
         if (sources_parse_repo(source, &repo)) {
             char id[96];
             sources_repo_id(&repo, id, sizeof(id));
-            if (strcmp(id, v->string))
+            if (!strncmp(v->string, "io.github.", 10) && strcmp(id, v->string))
                 return 0;
+            for (const cJSON *other = v->next; other; other = other->next)
+                if (sources_same_repo(source, str(other, "source")))
+                    return 0;
         } else if (strncmp(source, "https://", 8) || !source[8] ||
                    !strncmp(source, "https://github.com/", 19)) {
             return 0;
@@ -193,8 +198,11 @@ int state_read_manifest(const char *id, char **raw, struct pspdx_file *f) {
         *raw = NULL;
         return -1;
     }
+    /* A file kept under a record is that record's repository's, whatever id a
+       catalog gave it; one with no record has to make its id itself. */
     struct installed installed;
-    if (strcmp(id, f->id) || (db_read(id,&installed)==0 && !sources_same_repo(installed.repo,f->source))) {
+    if (db_read(id, &installed) == 0 ? !sources_same_repo(installed.repo, f->source)
+                                     : strcmp(id, f->id) != 0) {
         free(*raw);
         *raw = NULL;
         return -1;

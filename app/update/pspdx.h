@@ -13,6 +13,8 @@
    control character, so a newline can only ever be the separator. */
 #define PSPDX_TAGS 8
 #define PSPDX_TAGS_TEXT (PSPDX_TAGS * (24 * 4 + 1))
+/* The category is one such word. */
+#define PSPDX_CATEGORY_SIZE (24 * 4 + 1)
 /* The byte sizes fit the character limits of schema/pspdx-v1.json at four
    bytes a character. The description is checked and not kept here, since
    it is the one field of kilobytes and this lives on stacks; whoever shows
@@ -22,6 +24,7 @@ struct pspdx_file {
     char name[161], author[241], summary[241], license[241];
     char type[12];              /* homebrew, plugin or iso; homebrew when the file says nothing */
     char tags[PSPDX_TAGS_TEXT]; /* newline between them */
+    char category[PSPDX_CATEGORY_SIZE]; /* the one group it names, empty when none */
     char id[96];                /* derived, never written in the file */
 };
 /* Holds a .pspdx to version 1. What the file leaves to a rule is filled in

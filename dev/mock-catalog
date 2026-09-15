@@ -88,6 +88,16 @@ TAGS = {"Nine Lives": [], "gpSP": ["emulator", "game"], "Chip-8": ["emulator", "
             "Kurzweil für Busfahrten", "Pixel art à l'ancienne", "Große Weltkarte zu Fuß",
             "Soundtrack på kassett"]}
 
+# An app that names its category, and tags with no word a tab has: the
+# category alone puts it in a tab.
+CATEGORY = {"Hex": ("game", ["puzzle", "hexagons"])}
+TAGS.update({name: tags for name, (_, tags) in CATEGORY.items()})
+
+# One entry the list calls by a word of its own rather than by an id: the
+# console makes the id from the source, so its rows and records are the
+# derived one's all the same.
+SLUGGED = "Pixel Pilot"
+
 # The longest a description may be, 2500 characters with its newlines, and
 # near it: paragraphs of letters beyond ASCII, for the details band to break
 # into lines once and scroll. schema/catalog-v1.json and the client both
@@ -290,11 +300,12 @@ def make(work, ms, base):
         # of these through that parser, so the two cannot drift apart
         # unnoticed.
         app = {
-            "id": entry_id,
+            "id": slug(name).lower() if name == SLUGGED else entry_id,
             "source": "https://github.com/pspdxmock/" + entry_id[len(ID_PREFIX):],
             "name": name,
             **({"type": "plugin"} if plugin else {"installdir": "PSP/GAME/" + dirname}),
             **({"tags": tags} if tags else {}),
+            **({"category": CATEGORY[name][0]} if name in CATEGORY else {}),
             "author": AUTHORS[author],
             "summary": SUMMARIES[rng.randrange(len(SUMMARIES))],
             "license": LICENSES[i % len(LICENSES)],
@@ -332,7 +343,7 @@ def make(work, ms, base):
         if media:
             app["media"] = media
         manifest=dict(schema="https://chriopter.github.io/pspdx/schema/pspdx-v1.json",source=app["source"],name=name[:39],
-                      **{k: app[k] for k in ("type", "tags", "installdir", "description", "listed_by")
+                      **{k: app[k] for k in ("type", "category", "tags", "installdir", "description", "listed_by")
                          if k in app})
         app["_test_manifest"]=manifest
         apps.append(app)

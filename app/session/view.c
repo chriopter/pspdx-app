@@ -83,11 +83,13 @@ int view_updates_waiting(void) {
 }
 
 /* Whether an app stands in a category tab. The plugins hold what is a
-   plugin, whatever it is tagged; every other tab holds what carries its word
-   among its tags, and an app tagged with several stands in each. */
+   plugin, whatever it is tagged. An app that names its category stands in
+   that tab alone, and in none but All when no tab has its word; one that
+   names none stands in every tab whose word is among its tags. */
 static int in_tab(const struct app_entry *app, int tab) {
     if (!TAB_KEY[tab][0]) return 1;
     if (!strcmp(TAB_KEY[tab], "plugin")) return !strcmp(app->type, "plugin");
+    if (app->category[0]) return !strcmp(app->category, TAB_KEY[tab]);
     return pspdx_has_tag(app->tags, TAB_KEY[tab]);
 }
 

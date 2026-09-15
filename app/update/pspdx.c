@@ -139,6 +139,7 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
                              {"source", out->source, sizeof(out->source), 255, 1, 0},
                              {"name", out->name, sizeof(out->name), 40, 1, 0},
                              {"type", out->type, sizeof(out->type), 11, 0, 0},
+                             {"category", out->category, sizeof(out->category), 24, 0, 0},
                              {"installdir", out->installdir, sizeof(out->installdir), 41, 0, 0},
                              {"author", out->author, sizeof(out->author), 60, 0, 0},
                              {"summary", out->summary, sizeof(out->summary), 60, 0, 0},
@@ -175,6 +176,11 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
         }
         if (f->dst)
             strcpy(f->dst, v->valuestring);
+    }
+    /* A category is a word: one of no characters names no group. */
+    if (cJSON_GetObjectItemCaseSensitive(root, "category") && !out->category[0]) {
+        snprintf(reason, cap, "invalid category");
+        goto bad;
     }
     if (strcmp(schema, PSPDX_SCHEMA)) {
         snprintf(reason, cap, "schema is not v1");

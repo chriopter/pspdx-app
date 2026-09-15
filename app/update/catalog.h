@@ -25,6 +25,9 @@ struct app_entry {
     /* The file's tags, a newline between them: the tabs are made of the ones
        the browser knows, and an app may stand in several. */
     char tags[PSPDX_TAGS_TEXT];
+    /* The one group the app names, which decides its tab over the tags;
+       empty when it names none. */
+    char category[PSPDX_CATEGORY_SIZE];
     /* The page of the list that vouches for the app, when one does. */
     char listed_by[PSPDX_URL_SIZE];
     /* The file's description, on the heap and owned by the entry, or NULL

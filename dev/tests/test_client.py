@@ -5,7 +5,7 @@ import gzip, hashlib, json, os, pathlib, shutil, subprocess, tempfile, time, uni
 BIN=os.environ.get('PSPDX_TEST_BIN','/tmp/pspdx-host-test')
 SCHEMA='https://chriopter.github.io/pspdx/schema/pspdx-v1.json'
 ID='io.github.test.demo'
-PRESETS=['https://chriopter.github.io/pspdx-catalog/','https://wijsman.de/psp-homebrew-database/']
+PRESETS=['https://chriopter.github.io/pspdx-catalog/','https://wijsman.de/psp-homebrew-database/homebrew.json']
 SPEC=dict(schema=SCHEMA,source='https://github.com/test/demo',name='Demo',tags=['demo'],installdir='PSP/GAME/Demo',author='test',summary='Demo',license='MIT')
 # A catalog stamped now: one a day old is asked about at the origin, which is another test.
 NOW=lambda:time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
@@ -297,7 +297,7 @@ class ClientTests(unittest.TestCase):
  def test_a_preset_that_does_not_answer_is_any_unreachable_source(self):
   self.fixtures();(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text(''.join(p+'\n' for p in PRESETS))
   r=self.run_client('fetch',DOWN_HOST='wijsman.de');self.assertIn(ID,r.stdout)
-  requests=(self.root/'requests.log').read_text();self.assertIn(PRESETS[1]+'catalog.json',requests);self.assertIn(PRESETS[1]+'catalog.txt',requests)
+  requests=(self.root/'requests.log').read_text();self.assertIn(PRESETS[1]+'\n',requests);self.assertNotIn(PRESETS[1]+'catalog',requests)
   lines=self.run_client('reach',DOWN_HOST='wijsman.de').stdout.splitlines()
   self.assertIn(PRESETS[0]+' ok',lines);self.assertIn(PRESETS[1]+' unreachable',lines)
  def test_a_source_that_does_not_load_is_marked_and_the_rest_still_load(self):
@@ -388,6 +388,14 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(self.parse(dict(mirror,listed_by='https://user@lists.example.co.uk:8443?x')),'PSP/GAME/PSPBlocks|homebrew|uk.co.example.lists.pspblocks|')
   for bad in [{k:v for k,v in mirror.items() if k!='listed_by'},dict(mirror,name='★ ★'),dict(mirror,listed_by='https://-/'),dict(mirror,name='.pspdx-stage'),dict(mirror,source='http://archive.org/details/psp-blocks')]:
    with self.subTest(bad=bad):self.parse(bad,ok=False)
+ def test_a_category_is_one_word_of_the_file(self):
+  # 1 to 24 characters and no control character, or the file is refused; a vouched entry's saved file keeps it.
+  for category in ('game','Rundenbasierte Strategie','\U0001f3ae'*24):
+   with self.subTest(category=category):self.parse(dict(SPEC,category=category))
+  for category in ('c'*25,'','one\ntwo',['game'],7):
+   with self.subTest(category=category):self.parse(dict(SPEC,category=category),ok=False)
+  catalog=self.vouched();catalog['apps'][0].update(category='emulator',tags=['retro']);self.write('catalog.json',catalog)
+  self.assertEqual(self.run_client('get',ID).stdout.strip(),'0');self.assertEqual((self.saved()['category'],self.saved()['tags']),('emulator',['retro']))
  def test_listed_by_is_named_by_its_host(self):
   # Information says which list vouches for an app by the host alone: lower case, no one logging in, no port, no www.
   for url,host in [('https://wijsman.de/psp-homebrew-database/','wijsman.de'),('https://www.Wijsman.DE/list','wijsman.de'),
@@ -411,14 +419,45 @@ class ClientTests(unittest.TestCase):
   # A mirror a list vouches for installs from its entry; a plugin, from anywhere, is listed and not installed.
   self.assertEqual((rows[ID][4],rows['io.github.test.plug'][4],rows['de.wijsman.blocks'][4]),('0','1','0'),r.stdout)
   r=self.run_client('prepare','io.github.test.plug',ok=False,VERBOSE=1);self.assertEqual(r.stdout.strip(),'-1');self.assertIn('cannot be installed yet',r.stderr)
-  # A plugin carrying an installdir, or a mirror whose id is not its list's and name, is not listed at all.
-  self.write('catalog.json',dict(catalog,apps=[first,dict(plugin,installdir='PSP/GAME/Plug'),dict(mirror,id='de.wijsman.other')]))
-  self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID])
+  # A plugin carrying an installdir is not listed at all; a mirror the list calls a word is listed as its list and name make it, and one it gives an id keeps that id.
+  self.write('catalog.json',dict(catalog,apps=[first,dict(plugin,installdir='PSP/GAME/Plug'),dict(mirror,id='blocks')]))
+  self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID,'de.wijsman.blocks'])
+  self.write('catalog.json',dict(catalog,apps=[first,dict(mirror,id='de.wijsman.other')]))
+  self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID,'de.wijsman.other'])
   # The origin path skips a .pspdx whose source is not GitHub, and INBOX keeps a plugin for a later version.
   (self.root/'catalog.txt').write_text(SPEC['source']+'\n');(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/pspdx/\n')
   self.write('manifest.json',dict(SPEC,source='https://archive.org/details/psp-blocks',listed_by='https://wijsman.de/'))
   r=self.run_client('fetch',CATALOG_DOWN=1,FORCE=1,VERBOSE=1);self.assertIn('outside GitHub',r.stderr)
   self.write('ms0:/PSP/PSPDX/INBOX/plug.pspdx',plug);r=self.run_client('inbox',VERBOSE=1);self.assertEqual(r.stdout.strip(),'0');self.assertIn('cannot install yet; kept',r.stderr)
+ def test_a_catalog_names_its_entries_as_it_likes(self):
+  # A catalog's id that is one is kept; a word, a path, nothing or too much gives way to the id the source makes, and only that names a file.
+  self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink()
+  names=['oceanpop','laser_kombat','../../x','','x'*500,None,'Io.Github.Test.App6','io.github.test.app7.',7,'a'*50+'.'+'b'*50,'com.example.laser','io.github.test.squat']
+  release=lambda source:[dict(first['releases'][0],url=source+'/releases/download/v2/download.zip')]
+  apps=[]
+  for i,name in enumerate(names):
+   source='https://github.com/test/app%d'%i;app=dict(first,source=source,name='App %d'%i,installdir='PSP/GAME/App%d'%i,listed_by='https://lists.example.org/psp/',releases=release(source))
+   if name is None:del app['id']
+   else:app['id']=name
+   apps.append(app)
+  # The demo the stick keeps as ID stays ID whatever the list calls it; a second entry making an id already listed loses to the first; an id held on the stick by another source is not taken.
+  evil='https://github.com/test/evil'
+  catalog['apps']=[dict(first,id='com.example.demo'),*apps,dict(apps[1],id='laser',name='Again',installdir='PSP/GAME/Again'),dict(apps[0],id=ID,source=evil,installdir='PSP/GAME/Evil',releases=release(evil))]
+  self.write('catalog.json',catalog)
+  expected=[ID,*['io.github.test.app%d'%i for i in range(10)],'com.example.laser','io.github.test.app11','io.github.test.evil']
+  r=self.run_client('fetch',VERBOSE=1);self.assertEqual([row.split()[0] for row in r.stdout.splitlines()],expected,r.stderr)
+  self.assertIn('"oceanpop" is not an id this stick can use; listed as io.github.test.app0',r.stderr)
+  self.assertIn('"%s..." is not an id'%('x'*40),r.stderr);self.assertNotIn('laser_kombat" is not',self.run_client('fetch').stderr)
+  # The saved catalog is read by the same rule.
+  self.assertEqual([row.split()[0] for row in self.run_client('fetch',CATALOG_DOWN=1,ok=False).stdout.splitlines()],expected)
+  for app_id in expected[1:]:
+   with self.subTest(app_id=app_id):self.assertEqual(self.run_client('get',app_id,VERBOSE=1).stdout.strip(),'0')
+  self.assertEqual(sorted(p.name for p in (self.root/'ms0:/PSP/PSPDX/INSTALLED').iterdir()),sorted(f'{i}.{kind}' for i in expected for kind in ('pspdx','state.json')))
+  self.assertEqual(sorted(p.name for p in (self.root/'ms0:/PSP/GAME').iterdir()),sorted(['Demo','Evil']+['App%d'%i for i in range(12)]))
+  # Kept under the catalog's id, the app is still the stick's with no catalog to say so.
+  row=next(l.split() for l in self.run_client('fetch',CATALOG_DOWN=1,FORCE=1,ok=False).stdout.splitlines() if l.startswith('com.example.laser '));self.assertEqual(row[3],'2',row)
+  self.assertEqual(sorted(p.name for p in self.root.iterdir() if p.name not in ('ms0:','ef0:')),['catalog.json','gzip.log','new.zip','release.json','requests.log'])
+  self.assertEqual([p for p in self.root.rglob('*') if any(w in str(p) for w in ('oceanpop','laser_kombat','x'*20,'Io.Github')) or p.name.split('.')[0] in ('laser','x')],[])
  def test_an_update_is_another_zip_not_a_later_date(self):
   self.fixtures();self.run_client('install',VERSION=100000)
   same=hashlib.sha256((self.root/'new.zip').read_bytes()).hexdigest();self.assertEqual(self.state()[ID]['installed']['sha256'],same)
@@ -508,11 +547,14 @@ class ClientTests(unittest.TestCase):
   lines=self.wrap(text,48,most=3000);self.assertTrue(all(len(l)<=48 for l in lines))
   self.assertEqual(''.join(lines).replace(' ',''),text.replace(' ','').replace('\n',''))
  def test_tabs_come_from_known_tags_and_the_plugin_type(self):
+  # A category decides the one tab; without one, the tags do; a category no tab has leaves All alone; the plugins are the type's.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]
-  for tags,kind,tabs in ((['Jeu','games','Game'],None,'-3 -2 0'),([],None,'-3 -2 0'),(None,None,'-3 -2 0'),(['game','demo','emulator'],None,'-3 -2 0 1 2 4'),(['plugin'],None,'-3 -2 0'),(['game'],'plugin','-3 -2 0 1 5')):
-   with self.subTest(tags=tags,kind=kind):
+  for tags,kind,tabs,category in ((['Jeu','games','Game'],None,'-3 -2 0',None),([],None,'-3 -2 0',None),(None,None,'-3 -2 0',None),(['game','demo','emulator'],None,'-3 -2 0 1 2 4',None),(['plugin'],None,'-3 -2 0',None),(['game'],'plugin','-3 -2 0 1 5',None),
+                                  (['puzzle'],None,'-3 -2 0 1','game'),(['game','demo'],None,'-3 -2 0 4','emulator'),(['game'],None,'-3 -2 0','Puzzle'),(['game'],None,'-3 -2 0','Game'),(['demo'],'plugin','-3 -2 0 3 5','app'),(['game'],None,'-3 -2 0 1','c'*25),(['game'],None,'-3 -2 0 1','')):
+   with self.subTest(tags=tags,kind=kind,category=category):
     a={k:v for k,v in app.items() if k!='tags'}
     if tags is not None:a['tags']=tags
+    if category is not None:a['category']=category
     if kind:a['type']=kind;a.pop('installdir')
     self.write('catalog.json',dict(catalog,apps=[a]))
     self.assertEqual(self.run_client('view').stdout.splitlines()[0],'tabs %d: %s'%(len(tabs.split()),tabs))

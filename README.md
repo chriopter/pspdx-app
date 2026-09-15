@@ -2,6 +2,7 @@
 
 **PSP Download Index** — browse, install and update homebrew directly
 on your PlayStation Portable. **[→ Download](https://github.com/chriopter/pspdx/releases/latest)**
+PSPDX uses the [PSPDX standard](https://chriopter.github.io/pspdx/).
 
 <img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="assets/pspdx-app.webp" />
 
@@ -21,83 +22,36 @@ Tested in PPSSPP so far. Running it on a real PSP?
 
 ## How it works
 
-**The PSPDX app**
-
-- Browses catalogs, installs the release ZIP, checks for updates at start.
-- Saves the `.pspdx` file on install, so it can update directly from the
-  source. No mirror.
-
-**The standard**
-
-- I propose the **[`.pspdx` standard](#the-pspdx-standard)**. A small file
-  that points to your homebrew.
-- To support it, just add a `.pspdx` file to your repo. Done!
-  [Example](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx)
-
-**The catalog**
-
-- Multiple `.pspdx` files make a catalog,
-  [like here](https://github.com/chriopter/pspdx-catalog/blob/master/repos.txt).
-  It's just like a phonebook.
-- OSS repos can be added to the main catalog.
-  [Here](https://github.com/chriopter/pspdx-catalog).
-- Or start your own catalog. It's just a bunch of GitHub workflows that
-  build a static page. [Please steal it](https://github.com/chriopter/pspdx-catalog)
-  and share the link!
-
-**The magic**
-
-- The catalog is only a shortcut. The `.pspdx` is what counts: a portable
-  file, independent from any catalog.
-  - **Catalog up** → PSP reads the catalog → every app, release and artwork
-    in one request, *very fast*.
-  - **Catalog gone** → PSP reads its saved `.pspdx` → asks each app's own
-    repository.
-  - **No catalog at all** → install `.pspdx` files directly.
+- **The app** → browses catalogs, installs the release ZIP, checks for updates at start
+- **The catalog** → many apps in one file, fetched in one request; [the main catalog](https://github.com/chriopter/pspdx-catalog) or your own
+- **No catalog?** → every installed app keeps its `.pspdx` and asks its own repository
 
 ## The PSPDX standard
 
 I propose a small file, `.pspdx`, in the root of your homebrew's repository.
-It says what the app is and where it lives; PSPDX, and any catalog, read the
-rest from your releases. Only `schema`, `source` and `name` are required.
+Add it, publish a release, done.
 
-A complete example, from the [demo app](https://github.com/chriopter/pspdx-demo):
+I want this to work 10 years forward, without another mirror going down: the
+`.pspdx` lives on its own, a catalog is only a shortcut.
 
-```json
-{
-  "schema":     "https://chriopter.github.io/pspdx/schema/pspdx-v1.json",
-  "source":     "https://github.com/chriopter/pspdx-demo",
-  "name":       "PSPDX Demo",
-  "tags":       ["demo"],
-  "author":     "chriopter",
-  "summary":    "Hello, PSP. A demo listing for PSPDX.",
-  "license":    "MIT",
-  "installdir": "PSP/GAME/PSPDXDemo"
-}
-```
-
-All fields and rules: [PSPDX standard](https://chriopter.github.io/pspdx/)
-
-I want this to work 10 years forward, without another mirror going down or an
-abandoned installer being a hurdle. The `.pspdx` file should live on its own!
+Example: [pspdx-demo](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx) · All fields and rules: [PSPDX standard](https://chriopter.github.io/pspdx/)
 
 <details>
-<summary><b>Format specification</b> · releases, derived values, lists</summary>
-
-#### What v1 needs
-
-- A root `.pspdx`, and a published release with exactly one ZIP holding one `EBOOT.PBP`
-- No `.pspdx` in the repo? A catalog can still list the app by setting `listed_by` on its entry: PSPDX installs from the entry, the repo's own file wins as soon as it has one, and until then updates come only through catalogs
-- Releases give versions and downloads; EBOOTs give media (`ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF`, `SND0.AT3`, all optional)
-- No manifest edit per release
-- `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed, not installed yet
+<summary><b>How PSPDX reads it</b> · ids, updates, lists</summary>
 
 #### Derived, never written
 
 - `id` → GitHub: `io.github.<owner>.<repo>`; elsewhere the host of `listed_by` reversed, without `www.`, then the name; every part lowercased to `[a-z0-9]`
+- A catalog's own `id` is kept only when it already is one (lowercase `[a-z0-9]` parts joined by dots, at most 95 bytes, `io.github.` only as the derived one) and doesn't clash with what's installed; anything else → the derived id
 - `installdir` left out → `PSP/GAME/<repository name>` on GitHub, `PSP/GAME/<name>` elsewhere, cut to 32 allowed characters
 - Update → the SHA-256 of `releases[0]` differs from the installed ZIP's; dates and version strings are not compared
-- Readers ignore fields they don't know; the schema still names only the real ones, so your editor flags a typo
+- Readers ignore fields they don't know
+
+#### Releases
+
+- One published release, one ZIP, one `EBOOT.PBP` inside; no manifest edit per release
+- `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed, not installed yet
+- No `.pspdx` in the repo? A catalog entry with `listed_by` → PSPDX installs from the entry, the repo's own file wins once it has one, updates only through catalogs until then
 
 #### Text list
 
@@ -133,7 +87,7 @@ https://github.com/someone/project@v1.2
 | GitHub URL or `owner/repo` | **Direct install** | Add the repository as a source and install its app |
 | `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct install** | Validate and install the selected files |
 
-- Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://wijsman.de/psp-homebrew-database/`
+- Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://wijsman.de/psp-homebrew-database/homebrew.json`
 - Presets ship as `PSP/GAME/PSPDX/presets.txt`, same lines as `sources.txt`; the EBOOT carries a copy for a stick without one
 - Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
 - A source that does not load is marked *unreachable* in the gear's list of catalogs; the rest load as usual

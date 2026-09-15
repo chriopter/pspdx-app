@@ -81,7 +81,7 @@ typedef void (*install_phase_cb)(void *ctx, const char *phase);
 /* The rules a release's fields are held to by whoever reads them out of
    JSON -- a cache's or GitHub's -- since they go straight into a download
    and an unpack. An id is a path component on the stick: letters, digits,
-   dot, dash and underscore, at most eighty of them, no "..". A package is
+   dot, dash and underscore, at most 95 of them, no "..". A package is
    at most a gigabyte, and a revision fits an unsigned. */
 #define MAX_PACKAGE_BYTES (1024u * 1024u * 1024u)
 int manifest_id_is_safe(const char *id);

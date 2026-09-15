@@ -4,7 +4,7 @@
   "name": "PSPDX",
   "author": "chriopter",
   "summary": "Download, run and update homebrew on your PSP.",
-  "tags": ["app"],
+  "category": "app",
   "license": "GPL-2.0-only",
   "installdir": "PSP/GAME/PSPDX"
 }

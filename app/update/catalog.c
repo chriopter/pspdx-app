@@ -158,6 +158,29 @@ static void settle_state(struct app_entry *entry) {
     }
 }
 
+/* An id as PSPDX makes them: letters and digits in lower case, in parts
+   joined by one dot, at least two parts, and no longer than the id buffers
+   and the file names made of it hold. */
+static int id_well_formed(const char *id) {
+    size_t n = strlen(id), part = 0;
+    int dots = 0;
+    if (n > 95)
+        return 0;
+    for (const char *p = id; *p; p++) {
+        if (*p == '.') {
+            if (!part)
+                return 0;
+            dots++;
+            part = 0;
+        } else if ((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9')) {
+            part++;
+        } else {
+            return 0;
+        }
+    }
+    return dots && part;
+}
+
 /* The first source to name an id wins: an entry already there is left
    alone, whatever a later source says about it. */
 static int has_id(const struct catalog *catalog, const char *id) {
@@ -219,13 +242,22 @@ static int parse(struct catalog *catalog, const char *base) {
             break;
         struct app_entry *entry = &catalog->apps[catalog->count];
         entry_clear(entry);
-        copy_str(entry->id, sizeof(entry->id), cJSON_GetObjectItemCaseSensitive(app, "id"));
+        /* What the catalog calls the entry, read whole: an id cut to fit the
+           buffer could look like one it never was. */
+        cJSON *named = cJSON_GetObjectItemCaseSensitive(app, "id");
+        const char *given = cJSON_IsString(named) ? named->valuestring : NULL;
         copy_str(entry->name, sizeof(entry->name), cJSON_GetObjectItemCaseSensitive(app, "name"));
         copy_str(entry->author, sizeof(entry->author),
                  cJSON_GetObjectItemCaseSensitive(app, "author"));
         copy_str(entry->summary, sizeof(entry->summary),
                  cJSON_GetObjectItemCaseSensitive(app, "summary"));
         copy_tags(entry->tags, sizeof(entry->tags), cJSON_GetObjectItemCaseSensitive(app, "tags"));
+        /* The category as a file holds it, 1 to 24 characters and no control
+           character; one that is not is left out, as a tag would be. */
+        cJSON *group = cJSON_GetObjectItemCaseSensitive(app, "category");
+        int letters = cJSON_IsString(group) ? pspdx_characters(group->valuestring, 0) : -1;
+        if (letters >= 1 && letters <= 24 && strlen(group->valuestring) < sizeof(entry->category))
+            snprintf(entry->category, sizeof(entry->category), "%s", group->valuestring);
         copy_str(entry->listed_by, sizeof(entry->listed_by),
                  cJSON_GetObjectItemCaseSensitive(app, "listed_by"));
         if (strncmp(entry->listed_by, "https://", 8))
@@ -243,6 +275,29 @@ static int parse(struct catalog *catalog, const char *base) {
         copy_str(entry->license, sizeof(entry->license),
                  cJSON_GetObjectItemCaseSensitive(app, "license"));
         copy_str(entry->repo, sizeof(entry->repo), cJSON_GetObjectItemCaseSensitive(app, "source"));
+        /* The id names files on the stick, so PSPDX makes its own from the
+           source, as it does for a .pspdx: the repository on GitHub, the
+           list's host and the name elsewhere. Empty when neither leaves one
+           to make. The catalog's own is taken instead only where it is an
+           id already, no other repository's io.github. one, and names no app
+           on the stick from another source,
+           and where the stick does not keep this app under the one made
+           here; anything else is what the list calls the entry, and a list
+           may call its entries as it likes. */
+        struct source_repo source;
+        struct installed record;
+        char derived[96] = "";
+        int github = sources_parse_repo(entry->repo, &source);
+        if (github)
+            sources_repo_id(&source, derived, sizeof(derived));
+        else if (!strncmp(entry->repo, "https://", 8))
+            sources_listed_id(entry->listed_by, entry->name, derived, sizeof(derived));
+        int own = given && id_well_formed(given) &&
+                  (strncmp(given, "io.github.", 10) || !strcmp(given, derived)) &&
+                  !(db_read(given, &record) == 0 && !sources_same_repo(record.repo, entry->repo)) &&
+                  !(derived[0] && strcmp(given, derived) && db_read(derived, &record) == 0 &&
+                    sources_same_repo(record.repo, entry->repo));
+        snprintf(entry->id, sizeof(entry->id), "%s", own ? given : derived);
 
         /* The newest release is the first, and the only one a console
            installs or compares; the rest are history. */
@@ -307,7 +362,6 @@ static int parse(struct catalog *catalog, const char *base) {
                a plugin or an ISO names no folder under PSP/GAME at all. */
             cJSON *target = cJSON_GetObjectItemCaseSensitive(app, "installdir");
             char folder[42];
-            struct source_repo named;
             if (!homebrew) {
                 if (target)
                     entry->has_release = 0;
@@ -317,8 +371,7 @@ static int parse(struct catalog *catalog, const char *base) {
                 else
                     snprintf(m->dir, sizeof(m->dir), "%s", target->valuestring + 9);
             } else {
-                int github = sources_parse_repo(entry->repo, &named);
-                pspdx_default_dir(github ? named.name : NULL, entry->name, folder, sizeof(folder));
+                pspdx_default_dir(github ? source.name : NULL, entry->name, folder, sizeof(folder));
                 if (!pspdx_install_dir(folder))
                     entry->has_release = 0;
                 else
@@ -352,33 +405,24 @@ static int parse(struct catalog *catalog, const char *base) {
         copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "sound"));
         asset_url(base, shot, entry->sound, sizeof(entry->sound));
 
-        /* An id names a directory on the stick and a file in the cache: one
-           that cannot be a path component is not an entry. */
-        if (!manifest_id_is_safe(entry->id) || !entry->name[0])
+        if (!entry->name[0] || !entry->has_release || !known_type)
             continue;
-        if (!entry->has_release || !known_type)
-            continue;
-        /* The id is what the source and the list make of it, and an entry
-           that says another is not believed about the rest either. Away
-           from GitHub the entry is the app's whole word, and the install
+        /* Away from GitHub the entry is the app's whole word, and the install
            holds the download to the hash the entry gives. */
-        struct source_repo source;
-        char expected[96];
-        int github = sources_parse_repo(entry->repo, &source);
-        if (github)
-            sources_repo_id(&source, expected, sizeof(expected));
-        else if (strncmp(entry->repo, "https://", 8))
+        if (!github && strncmp(entry->repo, "https://", 8))
             continue;
-        else if (sources_listed_id(entry->listed_by, entry->name, expected, sizeof(expected)) < 0) {
+        if (!derived[0]) {
             /* Away from GitHub the id is the list's and the name's, so an entry
                that leaves either with nothing to make one of is no app. Said,
                since the list meant to carry it. */
-            logline("catalog: %s is from outside GitHub and %s; dropped", entry->id,
+            logline("catalog: %s is from outside GitHub and %s; dropped", entry->name,
                     !entry->listed_by[0] ? "names no listed_by"
                                          : "its name or its list's host has no letter or digit");
             continue;
         }
-        if (strcmp(expected, entry->id) ||
+        /* An id names a directory on the stick and a file in the cache: one
+           that cannot be a path component is not an entry. */
+        if (!manifest_id_is_safe(entry->id) ||
             (github && !sources_release_url(entry->repo, entry->release.url)))
             continue;
         entry->unsupported = !homebrew;
@@ -403,6 +447,17 @@ static int parse(struct catalog *catalog, const char *base) {
             continue;
         }
 
+        if (given && !own) {
+            /* Said once the entry is kept, and only as much of the name as
+               is safe to put on a line of the log. */
+            char shown[41];
+            size_t k = 0;
+            for (const char *p = given; *p && k + 1 < sizeof(shown); p++)
+                shown[k++] = (unsigned char)*p < 32 || *p == 127 ? '?' : *p;
+            shown[k] = '\0';
+            logline("catalog: \"%s%s\" is not an id this stick can use; listed as %s", shown,
+                    given[k] ? "..." : "", entry->id);
+        }
         copy_description(entry, cJSON_GetObjectItemCaseSensitive(app, "description"));
         settle_state(entry);
         catalog->count++;
@@ -633,6 +688,7 @@ static int origin_entry(struct app_entry *entry, const struct source_repo *repo)
     snprintf(entry->repo, sizeof(entry->repo), "%s", url);
     snprintf(entry->name, sizeof(entry->name), "%s", file.name);
     memcpy(entry->tags, file.tags, sizeof(entry->tags));
+    memcpy(entry->category, file.category, sizeof(entry->category));
     memcpy(entry->listed_by, file.listed_by, sizeof(entry->listed_by));
     snprintf(entry->type, sizeof(entry->type), "%s", file.type);
     entry->unsupported = !pspdx_type_installable(file.type);
@@ -959,6 +1015,10 @@ static void restore_installed(struct catalog *catalog) {
                 entry_clear(dst);
                 *dst = *one;
                 memset(one, 0, sizeof(*one));
+                /* The record's id, which a catalog may have given it rather
+                   than the repository. */
+                snprintf(dst->id, sizeof(dst->id), "%s", id);
+                snprintf(dst->release.id, sizeof(dst->release.id), "%s", id);
                 settle_state(dst);
                 state_note_latest(&dst->release);
                 if (n < 0) {
@@ -974,6 +1034,7 @@ static void restore_installed(struct catalog *catalog) {
             snprintf(e->repo, sizeof(e->repo), "%s", source);
             snprintf(e->name, sizeof(e->name), "%s", file.name);
             memcpy(e->tags, file.tags, sizeof(e->tags));
+            memcpy(e->category, file.category, sizeof(e->category));
             memcpy(e->listed_by, file.listed_by, sizeof(e->listed_by));
             snprintf(e->type, sizeof(e->type), "%s", file.type);
             e->unsupported = !pspdx_type_installable(file.type);
@@ -1059,6 +1120,8 @@ static int vouched_pspdx(struct app_entry *entry) {
             p += n + (p[n] == '\n');
         }
     }
+    if (entry->category[0])
+        cJSON_AddStringToObject(o, "category", entry->category);
     cJSON_AddStringToObject(o, "installdir", folder);
     const char *said[][2] = {{"author", entry->author}, {"summary", entry->summary},
                              {"license", entry->license},
