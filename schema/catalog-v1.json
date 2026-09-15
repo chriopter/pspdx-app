@@ -87,7 +87,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128,
+          "maxLength": 159,
           "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
           "description": "optional; whatever name the catalog gives the entry. PSPDX does not rely on it: it makes its own id from the source, io.github.<owner>.<repo> on GitHub, or from the host of listed_by and the name elsewhere."
         },
