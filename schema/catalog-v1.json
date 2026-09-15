@@ -30,7 +30,6 @@
     "app": {
       "type": "object",
       "required": [
-        "id",
         "source",
         "name",
         "releases"
@@ -87,8 +86,10 @@
       "properties": {
         "id": {
           "type": "string",
-          "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)+(?![\\s\\S])",
-          "description": "Identity. A GitHub source is io.github.<owner>.<repository>; any other source is the host of listed_by with its labels reversed and a leading www. dropped, then the name. Every part is lowercased and stripped to [a-z0-9], and empty labels are dropped."
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+          "description": "optional; whatever name the catalog gives the entry. PSPDX does not rely on it: it makes its own id from the source, io.github.<owner>.<repo> on GitHub, or from the host of listed_by and the name elsewhere."
         },
         "source": {
           "type": "string",
