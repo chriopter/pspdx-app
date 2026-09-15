@@ -111,11 +111,29 @@ A site with only `catalog.txt` works without a builder.
 
 #### Install
 
-```text
-x on app -> confirm -> repo's own .pspdx (404: the catalog entry or your INBOX file)
-         -> check source + folder -> room for the ZIP? -> download release ZIP -> check size, SHA-256, ZIP, paths -> room to unpack?
-first install -> stage -> rename into PSP/GAME/<dir> -> write state
-update        -> each shipped file beside its old one -> swap file by file -> write state -> old copies go
+```mermaid
+flowchart TD
+  pick(["× on an app, an INBOX file, or Direct install"]) --> github{"Source on GitHub?"}
+  github -- "no" --> outside["Only from a catalog entry<br>the ZIP must match its SHA-256<br>an INBOX file waits"]
+  github -- "yes" --> pspdx{".pspdx at<br>raw.githubusercontent.com"}
+  pspdx -- "200" --> own["The repository's own .pspdx wins"]
+  pspdx -- "GitHub's 404" --> stand["The catalog entry, your INBOX file,<br>or the repository name from Direct install"]
+  pspdx -- "no answer, 404 elsewhere" --> later(["Not installed, try again later"])
+  own --> release{"Release: the catalog's,<br>a pinned tag, or GitHub's latest"}
+  stand --> release
+  release -- "none, rate limit, 5xx" --> norelease(["No release to install,<br>or GitHub didn't answer"])
+  release -- "found" --> folder{"PSP/GAME/#lt;dir#gt; free<br>or already this app's?"}
+  outside --> folder
+  folder -- "another folder in the way" --> bak(["Offer to move it to #lt;dir#gt;.bak"])
+  folder -- "yes" --> room{"Room for the ZIP<br>and for unpacking?"}
+  room -- "no" --> space(["Status line: how many MB are needed"])
+  room -- "yes" --> check{"Size, SHA-256,<br>ZIP and paths ok?"}
+  check -- "no" --> refused(["Refused, the stick is untouched"])
+  check -- "yes" --> installed{"Already installed?"}
+  installed -- "no" --> fresh["Stage, then rename into PSP/GAME/#lt;dir#gt;"]
+  installed -- "yes" --> overlay["Swap each shipped file,<br>your other files stay"]
+  fresh --> state(["Write the record and keep the .pspdx"])
+  overlay --> state
 ```
 
 - Only the folder holding the single `EBOOT.PBP` is installed
