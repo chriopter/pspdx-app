@@ -113,6 +113,21 @@ static int json_text(const char *text, size_t len) {
     }
     return 1;
 }
+int pspdx_json_mark_nul(char *text, size_t len) {
+    int marked = 0, in = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (text[i] == '"')
+            in = !in;
+        else if (in && text[i] == '\\' && i + 1 < len) {
+            if (text[i + 1] == 'u' && i + 5 < len && !memcmp(text + i + 2, "0000", 4)) {
+                text[i + 5] = '1';
+                marked++;
+            }
+            i++;
+        }
+    }
+    return marked;
+}
 /* Days from the civil date by Howard Hinnant's arithmetic; the month lengths
    are only there to refuse a day no calendar has. */
 unsigned pspdx_time(const char *text) {

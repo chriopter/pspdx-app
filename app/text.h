@@ -60,6 +60,7 @@
 
 /* The card under the picture. */
 #define T_PANEL_UPDATE       "Update to %s   %s"                  /* version, size */
+#define T_PANEL_REBUILD      "Update to %s (new build)   %s"      /* version, size */
 #define T_PANEL_INSTALLED    "Version %s"                         /* version */
 #define T_PANEL_NO_RELEASE   "No release"
 #define T_PANEL_UNSUPPORTED  "Not installable yet"
@@ -76,6 +77,7 @@
 #define T_MENU_INSTALL       "Install"
 #define T_MENU_REINSTALL     "Reinstall"
 #define T_MENU_UPDATE        "Update to %s"                       /* version, at most 20 bytes */
+#define T_MENU_REBUILD       "Update (new build)"
 #define T_MENU_DELETE        "Delete"
 #define T_MENU_BASKET_IN     "Add to"                             /* then the basket mark */
 #define T_MENU_BASKET_OUT    "Remove from"                        /* then the basket mark */
@@ -90,6 +92,7 @@
 #define T_INSTALL_ASK        "Do you want to install %s?"         /* name */
 #define T_UPDATE_ASK         "Do you want to update %s?"          /* name */
 #define T_INSTALL_LINE       "Version %s, %lu.%lu MB"             /* version, MB, tenths */
+#define T_INSTALL_LINE_REBUILD "Version %s (new build), %lu.%lu MB" /* version, MB, tenths */
 #define T_INSTALL_LINE_NOSIZE "Version %s"                        /* version */
 #define T_INSTALL_MOVES      " Its folder changes from %.32s to %.32s."   /* old, new; after the version line */
 #define T_DIR_OTHER_APP      "Another app uses the folder %.32s." /* folder */
@@ -126,9 +129,12 @@
 /* ---------------------------------------------------------------- results */
 
 #define T_INSTALLED          "%s %s was installed."               /* name, version */
+#define T_INSTALLED_NO_PSPDX "%s %s was installed. Its repository has no .pspdx." /* name, version */
+#define T_INSTALLED_FROM_FILE "%s %s was installed from your file; the repository has no .pspdx." /* name, version */
 #define T_UPDATED_SELF       "PSPDX was updated to %s."           /* version */
 #define T_CANCELLED          "Installation of %s was canceled."   /* name */
 #define T_INSTALL_FAILED     "Could not install %s (%d)."         /* name, code */
+#define T_NO_SPACE           "Could not install %s. %lu.%lu MB of free space is needed." /* name, MB, tenths */
 #define T_INSTALL_UNSUPPORTED "%.60s cannot be installed yet."   /* name */
 #define T_REMOVED            "%s was deleted."                    /* name */
 #define T_REMOVE_FAILED      "Could not delete %s (%d)."          /* name, code */
@@ -154,6 +160,7 @@
 #define T_WANT_NO_REPO       "%.62s was not found on GitHub."     /* owner/repo */
 #define T_WANT_NO_RELEASE    "%.62s has no release to install."   /* owner/repo */
 #define T_WANT_FAILED        "Could not add %.60s."               /* owner/repo */
+#define T_WANT_NO_ANSWER     "GitHub did not answer for %.50s (rate limit or error)." /* owner/repo */
 #define T_FOLDER_TAKEN       "%s not listed: PSP/GAME/%s is another app's." /* name or owner/repo, folder */
 #define T_WANT_CURRENT       "%s is up to date."                  /* name */
 
@@ -175,6 +182,7 @@
 #define T_SUB_RESET          "Reset"
 #define T_SUB_ADD_SOURCE     "Add source"
 #define T_SOURCE_UNREACHABLE_NOTE "unreachable"                /* after a source the last fetch could not load */
+#define T_SOURCE_SAVED_NOTE  "offline copy"                       /* after a source only its saved copy answered for */
 #define T_SUB_FROM_GITHUB    "From GitHub"
 #define T_SUB_FROM_INBOX     "From INBOX folder"
 #define T_SUB_SWEEP          "Renew TLS Seed"
@@ -207,6 +215,7 @@
 #define T_DETAIL_ID          "ID"
 #define T_DETAIL_CHECKED     "Last checked"
 #define T_DETAIL_UPDATE      "%s, %s available"                   /* installed, published */
+#define T_DETAIL_REBUILD     "%s, new build available"            /* installed */
 #define T_DETAIL_INSTALLED   "%s (installed)"                     /* version */
 #define T_DETAIL_SAVED       "Saved "
 #define T_DETAIL_THIS_SESSION "This session"

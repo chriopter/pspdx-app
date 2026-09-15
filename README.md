@@ -17,7 +17,8 @@ Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 ## How it works
 
 - **Catalogs:** PSPDX comes with the main catalog and a community list. Add your own in the gear tab.
-- **Updates:** at start, PSPDX fetches the catalogs and the `.pspdx` of any app no catalog lists.
+- **Updates:** at start, PSPDX fetches the catalogs and asks GitHub about any app no catalog lists.
+- **Your files stay:** an update replaces only the files the release ships; saves and settings next to the EBOOT are kept.
 - **Memory:** every installed app's `.pspdx` stays on the Memory Stick.
 
 ## Under the hood
@@ -33,14 +34,15 @@ PSPDX reads the [PSPDX standard](https://chriopter.github.io/pspdx/): a `.pspdx`
 
 What PSPDX does on top:
 
-- **Ids:** GitHub → `io.github.<owner>.<repo>`; elsewhere the reversed host of `source` plus the name. A catalog's own `id` is kept only when it is well-formed and doesn't clash with an installed app.
-- **Folder:** without `installdir` → `PSP/GAME/<repository name>`, cut to 32 characters. An installed app keeps its folder.
+- **Ids:** GitHub → `io.github.<owner>.<repo>`; elsewhere the reversed host of `source` plus the name. A catalog's own `id` is kept only when it is well-formed and doesn't clash with an installed app. An installed app keeps the id of its record, whatever a list calls it later; one repository is one row.
+- **Folder:** without `installdir` → `PSP/GAME/<repository name>`, cut to 32 characters. An installed app keeps its folder: a list naming another moves nothing, a folder you renamed (record too) stays, and only the author's `.pspdx` naming another folder moves it, with everything in it.
 - **Updates:** the SHA-256 of `releases[0]` differs from the installed ZIP's. Versions and dates are not compared.
 - **ZIP rule:** one `.zip` on the release, or of several exactly the one with `psp` in its name; otherwise the app is left out with the reason.
 - **Pinned release:** `"release": {"tag": "v1.2"}` installs exactly that release, with no updates until the file changes.
-- **No `.pspdx` at the source:** the repository answers 404, and PSPDX installs from the catalog entry and keeps updating from the catalog. As soon as the author adds a `.pspdx`, that file counts.
+- **No `.pspdx` at the source:** GitHub's own 404 (not one after a redirect elsewhere). PSPDX installs from the catalog entry, your INBOX file or, typed into Direct install, the repository's name. A live catalog keeps it updated; without one the latest release is asked at GitHub by the saved `.pspdx`, same ZIP rule and SHA-256. As soon as the author adds a `.pspdx`, that file counts.
+- **Catalog text:** CR LF and tabs in `description` and `summary` are read as meant; an entry with a NUL in its text is dropped, and a `sha256` of zeros is no hash.
 - **Types:** `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed, not installed yet.
-- **No `schema` field:** a `catalog.json` without one is read as v1.
+- **`schema` field:** a `catalog.json` is read as v1 unless it names another PSPDX catalog version (`catalog-v2.json`); none, a relative path to a copy, or any other value is read as v1 and noted in the log.
 
 #### Text list
 
@@ -71,13 +73,13 @@ https://github.com/someone/project@v1.2
 | Source | Added through | Result |
 |---|---|---|
 | Catalog site URL, `catalog.json` or text list | **Add sources** | Browse all listed apps |
-| GitHub URL or `owner/repo` | **Direct install** | Add the repository as a source and install its app |
-| `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct install** | Validate and install the selected files |
+| GitHub URL or `owner/repo` | **Direct install** | Add the repository as a source and install its app; without a `.pspdx` it installs from its latest release, named after the repository |
+| `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct install** | Validate and install the selected files; for a repository without its own `.pspdx` your file is the app |
 
 - Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://wijsman.de/psp-homebrew-database/`
 - Presets ship as `PSP/GAME/PSPDX/presets.txt`, same lines as `sources.txt`; the EBOOT carries a copy for a stick without one
 - Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
-- A source that does not load is marked *unreachable* in the gear's list of catalogs; the rest load as usual
+- A source that does not load is marked *unreachable* in the gear's list of catalogs, one served only from its saved copy *offline copy*; the rest load as usual
 - A line ending in `.pspdx`, left from an older version, is skipped with a line in the log
 - Sources are validated before they land in `PSP/PSPDX/sources.txt`
 - Adding a catalog installs nothing; Direct install and INBOX do
@@ -110,57 +112,66 @@ A site with only `catalog.txt` works without a builder.
 #### Install
 
 ```text
-x on app -> confirm -> repo's own .pspdx (404: the catalog entry)
-         -> check source + installdir -> download release ZIP -> check size, SHA-256, ZIP, paths
-         -> stage -> swap into PSP/GAME/<dir> -> write state
+x on app -> confirm -> repo's own .pspdx (404: the catalog entry or your INBOX file)
+         -> check source + folder -> room for the ZIP? -> download release ZIP -> check size, SHA-256, ZIP, paths -> room to unpack?
+first install -> stage -> rename into PSP/GAME/<dir> -> write state
+update        -> each shipped file beside its old one -> swap file by file -> write state -> old copies go
 ```
 
 - Only the folder holding the single `EBOOT.PBP` is installed
+- **Updates keep your files:** files the ZIP ships are replaced or added, everything else in the folder stays; files an older version shipped and the new one doesn't are left over. **Delete** removes the whole folder
+- An author who moves `installdir` moves the folder with your files in it, then the release is laid over it
 - Installed from a catalog entry, the saved `.pspdx` is the entry's words; from outside GitHub the ZIP must match the entry's SHA-256
 - An unmanaged folder in the way is never adopted or overwritten; PSPDX offers to move it to `<dir>.bak`
-- A transaction journal covers files, manifest and state; an interrupted install recovers at the next start
+- Not enough room: the status line says how many MB are needed, before anything is written
+- A transaction journal covers every shipped file, manifest and state; a cut install or update recovers at the next start to the old or the new version
+- A leftover that won't delete (a read-only file in `<dir>.old`) is retried at every start and blocks only that app; a folder deleted by hand installs fresh
+- PSPDX never deletes the folder it runs from, whatever record names it
 
 #### Check
 
-Runs at startup and on **Check for updates**, the top row of the stick tab.
-An update is a newest release whose SHA-256 differs from the installed one.
-Dates and version strings are not compared; a record from before SHA-256 was
-kept falls back to a newer `published_at`.
+Runs at startup and on **Check for updates**, the top row of the stick tab: **×** is the quick check, **□** the full one.
+An update is a newest release whose SHA-256 differs from the installed ZIP's; versions and dates are not compared,
+except for a record from before SHA-256 was kept.
 
-**×** on **Check for updates** runs this; **□** runs it forced.
-
-```text
-1. Fetch every source in sources.txt.
-
-2. For each installed app:
-     in a catalog that answered and is under 24 h old?
-       yes, not forced   ->  take the catalog entry, no GitHub request
-       outside GitHub    ->  the catalog or the record, never GitHub
-       otherwise         ->  step 3
-
-3. Direct check due?
-     due if forced, never asked, last answer came from a catalog,
-     or the last direct answer is older than 6 h
-       due               ->  .pspdx          raw.githubusercontent.com   no limit
-                             latest release  api.github.com              1 of 60 an hour
-       .pspdx is 404     ->  the catalog entry or the record stands; counts as asked
-       not due           ->  the last answer saved in the record
-
-4. releases[0] SHA-256 differs         ->  "Update to x.y"
-
-5. Catalog older than 24 h             ->  the status line names its host
+```mermaid
+flowchart TD
+  start(["Start, or × Check for updates"]) --> fresh{"In a catalog that answered<br>and is under 24 h old?"}
+  fresh -- "yes" --> entry["The catalog entry<br>no GitHub request"]
+  fresh -- "no, or □ full check" --> github{"Source on GitHub?"}
+  github -- "no" --> record["The catalog entry or the record<br>never asks anywhere else"]
+  github -- "yes" --> due{"Asked in the last 6 h?"}
+  due -- "yes, not □" --> saved["The last answer in the record"]
+  due -- "no, or □" --> pspdx{".pspdx at<br>raw.githubusercontent.com"}
+  pspdx -- "200" --> api["Latest release<br>api.github.com, 1 of 60 an hour"]
+  pspdx -- "GitHub's 404" --> listed{"A live catalog lists it?"}
+  listed -- "yes" --> entry
+  listed -- "no" --> api
+  pspdx -- "no answer, 404 elsewhere" --> saved
+  api -- "rate limit, 5xx" --> backoff["Keep the record<br>asked again after 6 h"]
+  api -- "release" --> zip["ZIP rule, GitHub's SHA-256"]
+  entry --> differs
+  record --> differs
+  saved --> differs
+  zip --> differs{"SHA-256 differs<br>from the installed ZIP?"}
+  differs -- "yes" --> update(["Update to x.y"])
+  differs -- "no" --> current(["Up to date"])
 ```
 
 - A check against a maintained catalog is one request and no API call
-- An app added by **Direct install** or from INBOX costs one API call, then none for six hours
-- Only GitHub apps are asked directly; a repo without `.pspdx` costs one raw.githubusercontent.com request and no API call; an app from anywhere else updates through a catalog
+- An app without `.pspdx` is asked by the saved one: GitHub's 404 on raw.githubusercontent.com, then the API
+- A pinned release (`"release": {"tag": ...}`) is current until its file changes; the newest `.pspdx` GitHub answers with is saved
+- A repository added by **Direct install** is a source: its `.pspdx` and one API call at every start; an app from INBOX is asked every six hours
+- Rate limit or 5xx: the record stands, the check counts as asked, and **Direct install** says GitHub didn't answer
+- Catalog older than 24 h: the status line names its host
 - Nothing is topped up from GitHub: a `.pspdx` without author is by the account in its URL, a missing summary or licence stays empty
 
 #### Apply
 
 - Checking never installs; confirm an update with **×**
 - **○** during download or unpack cancels the install and puts the stick back; in a batch it also stops the rest
-- INBOX skips conflicts; only successful imports leave INBOX
+- INBOX skips conflicts; only successful imports leave INBOX; up to 64 files that install are queued
+- A pinned tag in an INBOX file must be the release's exactly (`0.1.3` is not `v0.1.3`); the repository's own `.pspdx` wins over your file
 - Self-updates run last; restart PSPDX afterward
 
 #### Keys
@@ -185,6 +196,7 @@ download  ->  release ZIP, following GitHub asset redirects
 
 - First saved PSP network profile
 - Everything over HTTPS
+- A catalog, `.pspdx` or API answer has 120 s in all; a response head 30 s
 - Only a catalog asks for gzip, inflated as it arrives into a 512 KB buffer; `pspdx.log` says `fetch: <n> bytes gzipped, <m> inflated`. A ZIP is never asked for compressed
 - TLS connections to the same host are briefly reused; a closed or expired one is reopened
 
@@ -231,6 +243,7 @@ hourly:  repos.txt -> catalog.txt
 #### Previews
 
 - The catalog hosts `ICON0.PNG`, `PIC1.PNG`, `ICON1.PMF` and `SND0.AT3` separately: no ZIP download for a preview; of several screenshots the first is shown
+- A picture over 512 px, up to 4096, is scaled down to fit, a row at a time
 - Priority: installed EBOOT media -> cached or catalog media -> placeholder
 - Direct GitHub lookups fetch no new previews
 
@@ -268,8 +281,10 @@ ms0:/
     │   ├── Cathedral/                   # Installed homebrew
     │   │   ├── EBOOT.PBP
     │   │   └── ...
-    │   ├── .pspdx-stage/                # Temporary install
-    │   ├── Cathedral.old/               # Rollback backup
+    │   │   ├── EBOOT.PBP.pspdx-new      # During an update: the new file
+    │   │   └── EBOOT.PBP.pspdx-old      # During an update: the old one
+    │   ├── .pspdx-stage/                # Temporary first install
+    │   ├── Cathedral.old/               # Folder being deleted
     │   └── Cathedral.bak/               # Unmanaged folder moved aside
     └── PSPDX/
         ├── sources.txt                  # Subscriptions
@@ -288,7 +303,8 @@ ms0:/
         │       └── <app-id>-<file>.at3
         ├── TMP/
         │   ├── download.zip
-        │   └── transaction.json
+        │   ├── transaction.json
+        │   └── cleanup.txt              # Leftovers retried at start
         ├── LOGS/
         │   ├── pspdx.log
         │   └── http.txt
@@ -312,7 +328,7 @@ for an app installed from a catalog entry, it is the entry's words.
 | Field | Contents |
 |---|---|
 | `source`, `added_from` | Original repository and import route |
-| `installed` | Version, `published_at`, SHA-256, install directory |
+| `installed` | Version, `published_at`, SHA-256, install directory, and `pspdx_installdir`: the folder the `.pspdx` named at install |
 | `latest` | Version, `published_at`, download URL, size, SHA-256, last successful check time and source |
 | `update_check`, `manifest_url` | Written by older versions; read and ignored |
 
@@ -329,10 +345,11 @@ browse                  ->  writes nothing
 #### Recovery and housekeeping
 
 - Recoverable writes may leave `.new` or `.bak` files
-- Staging and backup stay under `GAME/`: PSP renames need the same parent
+- Staging stays under `GAME/` and an update's copies beside their files: PSP renames need the same parent
 - Keep `INSTALLED/`; `CACHE/` is disposable; never delete a pending transaction's files
 - Only per-app state files load; older combined state files are ignored
-- Corrupt records are preserved and block writes
+- Corrupt records are preserved and block writes; a NUL in a string or a SHA-256 of zeros makes a record corrupt
+- A record PSPDX 0.5 kept of itself (`io.github.chriopter.pspdx`) is retired at start
 
 </details>
 
@@ -417,9 +434,9 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 sh dev/tests/run
 ```
 
-- Needs a C compiler, Python, cJSON, zlib and OpenSSL development files
-- Runs the client code with address and undefined-behavior sanitizers
-- A filesystem adapter simulates power cuts
+- Needs a C compiler, Python, cJSON, zlib, OpenSSL and libpng development files
+- Runs the client code and the PNG decoder with address and undefined-behavior sanitizers
+- A filesystem adapter simulates power cuts, failed calls, a full or read-only stick and any network answer (`FAULT`, `FAILAT`, `STICK_BYTES`, `RO_MATCH`, `URL_MAP`)
 
 #### Emulator soak
 

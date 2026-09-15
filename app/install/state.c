@@ -47,6 +47,17 @@ int state_validate(const cJSON *r) {
             return 0;
         if (strlen(str(in, "version")) >= VERSION_SIZE)
             return 0;
+        /* The folder the .pspdx named at the install, where the record keeps
+           one, is a folder like any other. */
+        const cJSON *named = cJSON_GetObjectItemCaseSensitive(in, "pspdx_installdir");
+        if (named && (!cJSON_IsString(named) || !pspdx_install_dir(named->valuestring)))
+            return 0;
+        /* A hash of nothing but zeros is no hash anyone computed: a record
+           that says so has been written by hand, and is not believed about
+           the rest either. */
+        const char *sha = str(in, "sha256");
+        if (*sha && strspn(sha, "0") == strlen(sha))
+            return 0;
         /* A record written while a list's .pspdx could stand in for a
            repository's may still name it in manifest_url. Nothing reads that
            any more, so it is left as it is and never held against the rest. */
@@ -90,6 +101,12 @@ static cJSON *read_json(const char *path, size_t limit) {
     int n = storage_read(path, &raw, limit);
     if (n < 0)
         return NULL;
+    /* A NUL inside a string would end it early and leave the record saying
+       less than it says: such a record is a damaged one, as in a .pspdx. */
+    if (pspdx_json_mark_nul(raw, (size_t)n)) {
+        free(raw);
+        return NULL;
+    }
     cJSON *value = cJSON_ParseWithLengthOpts(raw, n + 1, NULL, 1);
     free(raw);
     return value;
@@ -252,6 +269,8 @@ int db_read(const char *id, struct installed *out) {
     out->rev = number(in, "published_at");
     hex_bytes(str(in, "sha256"), out->sha256);
     snprintf(out->repo, sizeof(out->repo), "%s", str(r, "source"));
+    const char *named = str(in, "pspdx_installdir");
+    snprintf(out->file_dir, sizeof(out->file_dir), "%s", *named ? named + 9 : "");
     return 0;
 }
 static cJSON *latest_json(const struct manifest *m) {
@@ -274,13 +293,20 @@ static cJSON *latest_json(const struct manifest *m) {
         cJSON_AddTrueToObject(r, "pinned");
     return r;
 }
-int state_commit(const struct manifest *m, const char *dir, const unsigned char *sha256) {
-    if (!healthy || !manifest_dir_is_safe(dir))
+int state_commit(const struct manifest *m, const char *dir, const unsigned char *sha256,
+                 const char *file_dir) {
+    if (!healthy || !manifest_dir_is_safe(dir) || (file_dir && !manifest_dir_is_safe(file_dir)))
         return -1;
     cJSON *next = state_snapshot();
     if (!next)
         return -1;
     cJSON *r = cJSON_GetObjectItemCaseSensitive(next, m->id);
+    /* What the record said the .pspdx named, for a caller that does not
+       know: the record PSPDX rewrites of itself. */
+    char kept[64] = "";
+    const char *was = str(cJSON_GetObjectItemCaseSensitive(r, "installed"), "pspdx_installdir");
+    if (!file_dir && *was)
+        snprintf(kept, sizeof(kept), "%s", was + 9);
     if (!r) {
         r = cJSON_AddObjectToObject(next, m->id);
         if (!r) {
@@ -298,6 +324,11 @@ int state_commit(const struct manifest *m, const char *dir, const unsigned char 
     cJSON_AddStringToObject(in, "version", m->version);
     cJSON_AddNumberToObject(in, "published_at", m->rev);
     cJSON_AddStringToObject(in, "installdir", target);
+    if (file_dir || kept[0]) {
+        char named[64];
+        snprintf(named, sizeof(named), "PSP/GAME/%.32s", file_dir ? file_dir : kept);
+        cJSON_AddStringToObject(in, "pspdx_installdir", named);
+    }
     /* The zip that is on the stick now, by its hash: an update is a zip
        with another one, whatever date it was published on. */
     int hashed = 0;
@@ -323,7 +354,7 @@ int db_write_record(const struct installed *r) {
     snprintf(m.repo, sizeof(m.repo), "%s", r->repo);
     snprintf(m.version, sizeof(m.version), "%s", r->version);
     m.rev = r->rev;
-    return state_commit(&m, r->dir, r->sha256);
+    return state_commit(&m, r->dir, r->sha256, NULL);
 }
 int state_note_latest(const struct manifest *m) {
     if (!healthy)
@@ -352,6 +383,31 @@ int state_forget(const char *id) {
     int rc = state_restore(next);
     cJSON_Delete(next);
     return rc;
+}
+int state_note_file_dir(const char *id, const char *file_dir) {
+    struct installed rec;
+    if (!healthy || db_read(id, &rec) < 0 || rec.file_dir[0] || !manifest_dir_is_safe(file_dir))
+        return !healthy ? -1 : 0;
+    cJSON *next = state_snapshot();
+    if (!next)
+        return -1;
+    cJSON *in = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(next, id), "installed");
+    char named[64];
+    snprintf(named, sizeof(named), "PSP/GAME/%.32s", file_dir);
+    int rc = cJSON_AddStringToObject(in, "pspdx_installdir", named) ? state_restore(next) : -1;
+    cJSON_Delete(next);
+    return rc;
+}
+int state_retire_legacy(const char *id, const char *source, const char *dir) {
+    struct installed rec;
+    if (!healthy || db_read(id, &rec) < 0 || !sources_same_repo(rec.repo, source) ||
+        strcasecmp(rec.dir, dir))
+        return 0;
+    char path[256];
+    storage_app_path(id, path, sizeof(path));
+    if (state_forget(id) < 0 || storage_remove(path) < 0)
+        return -1;
+    return 1;
 }
 int state_target_owner(const char *dir, const char *id) {
     if (!healthy)
@@ -398,7 +454,7 @@ int state_latest(const char *id, struct manifest *m) {
     m->pinned = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(l, "pinned"));
     const char *hex = str(l, "sha256");
     if (*hex) {
-        if (strlen(hex) != 64)
+        if (strlen(hex) != 64 || strspn(hex, "0") == 64)
             return -1;
         for (int i = 0; i < 32; i++) {
             unsigned byte;

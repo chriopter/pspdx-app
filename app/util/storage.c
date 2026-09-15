@@ -1,11 +1,13 @@
 #include "util/storage.h"
 #include "util/runtime.h"
 #include "storage_paths.inc"
+#include <ctype.h>
 #include <pspiofilemgr.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 static char device[5] = "ms0:";
+static char self_dir[64] = "PSPDX";
 const char *storage_device(void) { return device; }
 const char *storage_path(const char *relative) {
     for (size_t i = 0; i < sizeof(paths) / sizeof(*paths); i++)
@@ -153,9 +155,54 @@ void storage_sweep(const char *directory) {
 void storage_app_path(const char *id, char *out, size_t size) {
     snprintf(out, size, "%s/%s.pspdx", storage_path("PSP/PSPDX/INSTALLED"), id);
 }
+int storage_game_dir(const char *path, char *out, size_t size) {
+    static const char mark[] = "PSP/GAME/";
+    for (const char *p = path; p && *p; p++) {
+        size_t i = 0;
+        while (mark[i] && toupper((unsigned char)p[i]) == mark[i])
+            i++;
+        if (mark[i])
+            continue;
+        const char *start = p + i;
+        const char *slash = strchr(start, '/');
+        if (!slash)
+            return 0;
+        size_t n = (size_t)(slash - start);
+        if (n == 0 || n >= size)
+            return 0;
+        memcpy(out, start, n);
+        out[n] = '\0';
+        return 1;
+    }
+    return 0;
+}
+const char *storage_self_dir(void) { return self_dir; }
+long long storage_free_bytes(unsigned *cluster) {
+    /* The Memory Stick's own count, as the information band reads it: a
+       FAT32 free count walks the allocation table, so it is asked when an
+       install needs the answer and not before. */
+    struct ms_info {
+        unsigned max_clusters, free_clusters, max_sectors, sector_size, sector_count;
+    } info;
+    struct {
+        struct ms_info *at;
+    } command = {&info};
+    memset(&info, 0, sizeof(info));
+    if (sceIoDevctl(device, 0x02425818, &command, sizeof(command), NULL, 0) < 0)
+        return -1;
+    unsigned long long unit = (unsigned long long)info.sector_count * info.sector_size;
+    if (!unit || unit > 0x10000000u)
+        return -1;
+    if (cluster)
+        *cluster = (unsigned)unit;
+    return (long long)(info.free_clusters * unit);
+}
 void storage_init(const char *boot) {
     if (boot && !strncmp(boot, "ef0:/", 5))
         memcpy(device, "ef0:", 5);
+    char here[64];
+    if (boot && storage_game_dir(boot, here, sizeof(here)))
+        snprintf(self_dir, sizeof(self_dir), "%s", here);
     for (size_t i = 0; i < sizeof(paths) / sizeof(*paths); i++)
         snprintf(paths[i].absolute, sizeof(paths[i].absolute), "%s/%s", device, paths[i].relative);
     const char *dirs[] = {"PSP",

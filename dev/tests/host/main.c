@@ -28,6 +28,9 @@ int main(int argc, char **argv) {
         return 2;
     storage_init(getenv("DEVICE") ? getenv("DEVICE") : "ms0:/PSP/GAME/PSPDX/EBOOT.PBP");
     state_load();
+    /* A power cut after that many mutating calls, for any command; recover,
+       install and remove also take it as their argument. */
+    host_fault(getenv("FAULT") ? atol(getenv("FAULT")) : 0);
     if (!strcmp(argv[1], "parse")) {
         char *raw = NULL;
         struct pspdx_file f;
@@ -70,7 +73,8 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (!strcmp(argv[1], "recover")) {
-        host_fault(argc > 2 ? atol(argv[2]) : 0);
+        if (argc > 2)
+            host_fault(atol(argv[2]));
         install_recover();
         return 0;
     }
@@ -86,6 +90,21 @@ int main(int argc, char **argv) {
         /* What the status line says once the fetch is through. */
         if (catalog.collision[0])
             fprintf(stderr, "status: %s\n", catalog.collision);
+        if (rc < 0)
+            fprintf(stderr, "status: %s\n", catalog_too_large() ? "too large" : "unreachable");
+        return rc < 0 ? 1 : 0;
+    }
+    if (!strcmp(argv[1], "rows")) {
+        /* rows: every row after a fetch and a check, id|name|folder|state. */
+        catalog_offline(getenv("OFFLINE") != NULL);
+        if (getenv("FORCE"))
+            catalog_force_sources();
+        int rc = catalog_fetch(&catalog);
+        catalog_check_updates(&catalog);
+        for (int i = 0; i < catalog.count; i++)
+            printf("%s|%s|%s|%d|%d\n", catalog.apps[i].id, catalog.apps[i].name,
+                   catalog.apps[i].release.dir, catalog.apps[i].state,
+                   catalog_new_build(&catalog.apps[i]));
         return rc < 0 ? 1 : 0;
     }
     if (!strcmp(argv[1], "media")) {
@@ -215,7 +234,10 @@ int main(int argc, char **argv) {
             for (int i = 0; i < catalog.count; i++)
                 printf("%s\n", catalog.apps[i].id);
             for (int i = 0; i < s.count; i++)
-                printf("%s %s\n", s.url[i], reach_unreachable(s.url[i]) ? "unreachable" : "ok");
+                printf("%s %s\n", s.url[i],
+                       reach_unreachable(s.url[i])    ? "unreachable"
+                       : reach_offline_copy(s.url[i]) ? "offline copy"
+                                                      : "ok");
         }
         return 0;
     }
@@ -228,10 +250,15 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "add")) {
         char url[SOURCE_URL];
         if(sources_normalize(argv[2],url,sizeof(url))<0)return 1;
-        if(catalog_validate_source(url,sources_kind(url)==SOURCE_REPO)<0)return 1;
+        if (catalog_validate_source(url, sources_kind(url) == SOURCE_REPO) < 0) {
+            fprintf(stderr, "refused %d\n", catalog_refused(url));
+            return 1;
+        }
         return sources_add(url,url,sizeof(url))<0?1:0;
     }
     if (!strcmp(argv[1], "inboxinstall")) {
+        if (getenv("FETCH_FIRST"))
+            catalog_fetch(&catalog);
         int count=inbox_scan(&catalog);
         for(int i=0;i<count;i++){
             struct app_entry *entry=&catalog.apps[inbox_index(i)];struct install_report report;
@@ -254,8 +281,21 @@ int main(int argc, char **argv) {
         return rc < 0 ? 1 : 0;
     }
     if (!strcmp(argv[1], "remove")) {
-        host_fault(argc > 2 ? atol(argv[2]) : 0);
+        if (argc > 2)
+            host_fault(atol(argv[2]));
         return uninstall("io.github.test.demo") < 0 ? 1 : 0;
+    }
+    if (!strcmp(argv[1], "uninstall")) {
+        /* uninstall <id>: Delete on any row, and what it returned. */
+        int rc = uninstall(argv[2]);
+        printf("%d\n", rc);
+        return rc < 0 ? 1 : 0;
+    }
+    if (!strcmp(argv[1], "retire")) {
+        /* The start's step before the self record: the one PSPDX 0.5 kept goes. */
+        int rc = install_retire_legacy();
+        printf("%d\n", rc);
+        return rc < 0 ? 1 : 0;
     }
     if (!strcmp(argv[1], "install")) {
         struct manifest m = {0};
@@ -271,7 +311,7 @@ int main(int argc, char **argv) {
         sources_repo_id(&repo, m.id, sizeof(m.id));
         strcpy(m.repo, spec.source);
         strcpy(m.dir, spec.installdir[0] ? spec.installdir + 9 : "Demo");
-        strcpy(m.url, "https://github.com/test/demo/releases/download/v2/download.zip");
+        snprintf(m.url, sizeof(m.url), "%s/releases/download/v2/download.zip", spec.source);
         strcpy(m.version, getenv("VERSION") ? getenv("VERSION") : "2");
         m.rev = atoi(m.version);
         strcpy(m.checked_from, m.repo);
@@ -282,10 +322,11 @@ int main(int argc, char **argv) {
         if (getenv("BAD_HASH"))
             memset(m.sha256, 1, 32);
         struct install_report report;
-        host_fault(argc > 2 ? atol(argv[2]) : 0);
+        if (argc > 2)
+            host_fault(atol(argv[2]));
         int rc = install_release(&m, &report, NULL, NULL, NULL);
         manifest_forget(&m);
-        printf("%d %u\n", rc, host_operations());
+        printf("%d %u %llu\n", rc, host_operations(), report.needed);
         return rc < 0 ? 1 : 0;
     }
     if (!strcmp(argv[1], "get")) {

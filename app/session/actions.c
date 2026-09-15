@@ -163,13 +163,24 @@ int install_app(int index, int screenshot, int at, int of) {
             snprintf(g_restart_version, sizeof(g_restart_version), "%s", report.version);
             g_restart_of = index;
         } else {
-            snprintf(message, sizeof(message), T_INSTALLED, entry->name, report.version);
+            /* Said, since the next check will not find the author's words
+               there either. */
+            snprintf(message, sizeof(message),
+                     entry->no_pspdx == PSPDX_FROM_FILE         ? T_INSTALLED_FROM_FILE
+                     : entry->no_pspdx == PSPDX_FROM_REPOSITORY ? T_INSTALLED_NO_PSPDX
+                                                                : T_INSTALLED,
+                     entry->name, report.version);
         }
         pspdx_utf8_mend(message);
         logline("installed %s %s: %d files, %luK, %us", entry->name, report.version,
                 report.files, (unsigned long)(report.bytes / 1024), seconds);
     } else if (rc == INSTALL_CANCELLED) {
         snprintf(message, sizeof(message), T_CANCELLED, entry->name);
+    } else if (rc == INSTALL_NO_SPACE) {
+        /* Tenths, rounded up: what is said to be needed has to be enough. */
+        unsigned long long tenths = (report.needed * 10 + (1u << 20) - 1) >> 20;
+        snprintf(message, sizeof(message), T_NO_SPACE, entry->name, (unsigned long)(tenths / 10),
+                 (unsigned long)(tenths % 10));
     } else {
         snprintf(message, sizeof(message), T_INSTALL_FAILED, entry->name, rc);
     }
@@ -193,6 +204,8 @@ void uninstall_app(int index) {
         entry->local_rev = 0;
         entry->local_version[0] = '\0';
         snprintf(message, sizeof(message), T_REMOVED, entry->name);
+    } else if (rc == INSTALL_SELF) {
+        snprintf(message, sizeof(message), "%s", T_SELF_DELETE);
     } else {
         snprintf(message, sizeof(message), T_REMOVE_FAILED, entry->name, rc);
     }
@@ -330,7 +343,7 @@ int auto_install_index(void) {
     /* The media thread shares the network stack; it is parked for the
        two requests as it is for the install that follows. */
     preview_quiesce();
-    int index = catalog_add_repo(g_catalog, url);
+    int index = catalog_add_repo(g_catalog, url, 1);
     preview_resume();
     if (index < 0) logline("PSPDX.INSTALL: nothing to install at %s", url);
     else view_rebuild(g_catalog);
@@ -345,6 +358,20 @@ static char g_wanted_url[SOURCE_URL];     /* that repository, while one is waite
 static char g_wanted_name[64];            /* owner/repo, for the status line */
 
 const char *wanted_url(void) { return g_wanted_url; }
+void refused_line(int why, const char *name, char *out, size_t size) {
+    if (why == REFUSED_PSPDX || why == REFUSED_NO_PSPDX)
+        snprintf(out, size, T_WANT_NO_PSPDX, name);
+    else if (why == REFUSED_REPO)
+        snprintf(out, size, T_WANT_NO_REPO, name);
+    else if (why == REFUSED_RELEASE)
+        snprintf(out, size, T_WANT_NO_RELEASE, name);
+    else if (why == REFUSED_NO_ANSWER)
+        snprintf(out, size, T_WANT_NO_ANSWER, name);
+    else if (why == REFUSED_FOLDER)
+        catalog_folder_line(out, size, name, catalog_refused_folder());
+    else
+        snprintf(out, size, T_WANT_FAILED, name);
+}
 const char *wanted_name(void) { return g_wanted_name; }
 void wanted_forget(void) { g_wanted_url[0] = '\0'; }
 
@@ -432,7 +459,18 @@ int type_source(int install) {
     preview_quiesce();catalog_offline(https_net_connect()<0);
     rc=catalog_validate_source(url,install);
     preview_resume();
-    if(rc<0){shell_status(T_SOURCE_UNAVAILABLE);return 0;}
+    if (rc < 0) {
+        /* A repository says why: no release, GitHub not answering. */
+        struct source_repo named;
+        int why = install && sources_parse_repo(url, &named) ? catalog_refused(url) : 0;
+        char line[96], name[64];
+        if (why) {
+            snprintf(name, sizeof(name), "%.24s/%.36s", named.owner, named.name);
+            refused_line(why, name, line, sizeof(line));
+        }
+        shell_status(why ? line : T_SOURCE_UNAVAILABLE);
+        return 0;
+    }
     rc=sources_add(url,url,sizeof(url));
     if(rc<0){shell_status(T_SOURCE_SAVE_FAILED);return 0;}
     if (!install) {
@@ -456,5 +494,11 @@ void install_inbox(void){
         int at=inbox_index(i);
         if(install_app(at,0,i+1,count)==0){inbox_installed(i);done++;}
     }
-    char message[96];snprintf(message,sizeof(message),T_INBOX_DONE,done,count);shell_status(message);
+    /* One app's own line -- installed, from the user's file, or why not --
+       says more than "1 of 1". */
+    if (count != 1) {
+        char message[96];
+        snprintf(message, sizeof(message), T_INBOX_DONE, done, count);
+        shell_status(message);
+    }
 }

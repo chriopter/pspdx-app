@@ -63,6 +63,12 @@ char *pspdx_description(const char *text, size_t len);
    well-formed UTF-8, or -1, and -1 too for a control character, but for a
    newline where newline says it may stand. */
 int pspdx_characters(const char *s, int newline);
+/* Every \u0000 escape inside a JSON string of text, len bytes, made \u0001
+   in place, so that no reader of the parsed text finds a string cut short
+   at a NUL where it goes on: a control character any check of the text then
+   refuses. An escaped backslash before the letters is read as one. Returns
+   how many there were. */
+int pspdx_json_mark_nul(char *text, size_t len);
 /* "2026-09-12T08:29:23Z", or the day alone, "2024-12-20", to unix seconds;
    0 for anything that is not a time a release can have been published at. */
 unsigned pspdx_time(const char *text);

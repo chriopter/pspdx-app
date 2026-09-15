@@ -39,4 +39,5 @@ int sceIoSync(const char *, int);
 int sceIoDopen(const char *);
 int sceIoDclose(int);
 int sceIoDread(int, SceIoDirent *);
+int sceIoDevctl(const char *, unsigned int, void *, int, void *, int);
 #endif

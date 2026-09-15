@@ -55,8 +55,8 @@ void ask_install(int index) {
         /* Tenths: whole megabytes call everything under one of them nothing,
            and a count of bytes is not a size anybody reads. */
         unsigned long long size = entry->release.size;
-        snprintf(line, sizeof(line), T_INSTALL_LINE, version,
-                 (unsigned long)(size >> 20), (unsigned long)((size * 10 >> 20) % 10));
+        snprintf(line, sizeof(line), catalog_new_build(entry) ? T_INSTALL_LINE_REBUILD : T_INSTALL_LINE,
+                 version, (unsigned long)(size >> 20), (unsigned long)((size * 10 >> 20) % 10));
     } else {
         snprintf(line, sizeof(line), T_INSTALL_LINE_NOSIZE, version);
     }

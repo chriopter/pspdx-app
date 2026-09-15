@@ -13,6 +13,9 @@
    and the one whose record was written by a first start rather than by an
    install. The id is written once, here. */
 #define PSPDX_SELF_ID "io.github.chriopter.pspdxapp"
+/* What PSPDX up to 0.5 called itself, from where it was published then. */
+#define PSPDX_LEGACY_ID "io.github.chriopter.pspdx"
+#define PSPDX_LEGACY_SOURCE "https://github.com/chriopter/pspdx"
 
 enum app_state { APP_UNKNOWN, APP_NOT_INSTALLED, APP_CURRENT, APP_UPDATE };
 
@@ -43,6 +46,17 @@ struct app_entry {
        entry are known to be the same app. */
     struct manifest release;
     int has_release;
+    /* The repository answered that it has no .pspdx, and the entry is made
+       out of something else: PSPDX_FROM_FILE the .pspdx the user put in
+       INBOX, PSPDX_FROM_REPOSITORY the repository's own name, for a
+       repository the user typed. 0 for every other entry. */
+    int no_pspdx;
+    /* A .pspdx from INBOX stands in the release until catalog_prepare has
+       asked the repository whether it has one of its own, which wins. */
+    int from_inbox;
+    /* The release's tag as the list or GitHub wrote it, "v" and all: what a
+       pinned tag is compared with, exactly. Empty where neither said. */
+    char tag[PSPDX_TAG_SIZE];
     int fresh;
     int media_cached_only;
     char repo[PSPDX_URL_SIZE];
@@ -98,7 +112,13 @@ int catalog_validate_source(const char *url,int repository);
 /* One repository asked at the origin and put into the catalog, for the
    unattended install: the index of its entry, which may have been there
    already, or -1 when GitHub had no release with a zip for it. */
-int catalog_add_repo(struct catalog *catalog, const char *url);
+#define PSPDX_FROM_FILE 1
+#define PSPDX_FROM_REPOSITORY 2
+int catalog_add_repo(struct catalog *catalog, const char *url, int make);
+/* The app a .pspdx from INBOX describes, for a repository that has none of its
+   own: its release asked at GitHub by the file, and the file the app's. The
+   index of its entry, or -1. */
+int catalog_add_file(struct catalog *catalog, const char *raw);
 
 /* The entry that came from a repository, by its URL, or -1. */
 int catalog_find_repo(const struct catalog *catalog, const char *url);
@@ -126,6 +146,11 @@ const char *catalog_progress(void);
 /* REFUSED_FOLDER: the app installs to a folder under PSP/GAME that an entry
    already listed has, which catalog_refused_folder names. */
 #define REFUSED_FOLDER (-4)
+/* REFUSED_NO_ANSWER: GitHub did not answer -- a rate limit, an error of its
+   own -- which says nothing about the repository. */
+#define REFUSED_NO_ANSWER (-5)
+/* REFUSED_NO_PSPDX: GitHub answered 404 for the repository's .pspdx. */
+#define REFUSED_NO_PSPDX (-6)
 int catalog_refused(const char *url);
 const char *catalog_refused_folder(void);
 
@@ -134,6 +159,9 @@ const char *catalog_refused_folder(void);
 void catalog_folder_line(char *out, size_t size, const char *name, const char *dir);
 
 int catalog_check_updates(struct catalog *catalog);
+/* An update whose version is the one installed: the same tag over another
+   ZIP, which the screen calls a new build rather than "0.2.6, 0.2.6". */
+int catalog_new_build(const struct app_entry *entry);
 void catalog_dump_http(void);
 
 #endif

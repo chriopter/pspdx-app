@@ -51,6 +51,9 @@ struct install_report {
     unsigned rev;
     int files;
     size_t bytes;
+    /* What the install wanted free on the stick, when that is why it
+       stopped: INSTALL_NO_SPACE. */
+    unsigned long long needed;
 };
 
 /* What PSP/PSPDX/db/<id>.json remembers about an installed package. */
@@ -63,6 +66,11 @@ struct installed {
     /* The zip that was installed, by its SHA-256, which is what an update is
        told by; all zeros for a record written before hashes were kept. */
     unsigned char sha256[32];
+    /* The folder the .pspdx named when the app went in, which may not be
+       the one it is in: the app keeps its folder, and only the author's
+       naming another one moves it. Empty for a record from before this was
+       kept. */
+    char file_dir[64];
 };
 
 int db_read(const char *id, struct installed *out);
@@ -118,6 +126,19 @@ int install_discard(char *line, size_t size);
 
 /* What install_release returns when it was called off. */
 #define INSTALL_CANCELLED (-9)
+/* The Memory Stick has less room than the package needs; the report says
+   how much it wanted. */
+#define INSTALL_NO_SPACE (-10)
+/* What uninstall returns for the folder PSPDX runs from, whatever record
+   names it. */
+#define INSTALL_SELF (-11)
+
+/* PSPDX up to 0.5 kept a record of itself as io.github.chriopter.pspdx, from
+   the repository that is the standard alone now. Such a record for the folder
+   the client runs from is the client, and goes with its saved file, before
+   anything reads the records. Nothing while a transaction is unfinished.
+   1 retired, 0 none, -1 failed. */
+int install_retire_legacy(void);
 
 /* Calls the install in progress off, from its own progress callback: the
    download or the unpack stops at its next piece and the stick is put back

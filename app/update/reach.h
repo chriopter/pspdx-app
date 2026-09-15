@@ -13,8 +13,11 @@
 
 void reach_reset(void);
 void reach_failed(const char *url);
+/* A source whose apps came from nothing but the copy saved on the stick. */
+void reach_saved(const char *url);
 
 void reach_take(void);
 int reach_unreachable(const char *url);
+int reach_offline_copy(const char *url);
 
 #endif

@@ -16,4 +16,13 @@ int storage_remove_tree(const char *path);
    directory. A .bak with no file beside it stays: it is the file. */
 void storage_sweep(const char *directory);
 void storage_app_path(const char *id, char *out, size_t size);
+/* The directory under PSP/GAME a path names -- ms0:/PSP/GAME/PSPDX/EBOOT.PBP
+   gives PSPDX -- matched without regard to case. 0 when it names none. */
+int storage_game_dir(const char *path, char *out, size_t size);
+/* The folder under PSP/GAME the running EBOOT was started from, or PSPDX,
+   the name the release ships under, when the start path says nothing. */
+const char *storage_self_dir(void);
+/* Free bytes on the startup device, and the size of one cluster there, which
+   every file rounds up to; -1 when the device does not say. */
+long long storage_free_bytes(unsigned *cluster);
 #endif

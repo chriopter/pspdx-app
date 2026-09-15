@@ -743,7 +743,10 @@ static void draw_panel(const struct app_entry *entry, float t) {
             size_mb(entry->release.size, size, sizeof(size));
         switch (entry->state) {
         case APP_UPDATE:
-            snprintf(line, sizeof(line), T_PANEL_UPDATE, entry->remote_version, size);
+            if (catalog_new_build(entry))
+                snprintf(line, sizeof(line), T_PANEL_REBUILD, entry->remote_version, size);
+            else
+                snprintf(line, sizeof(line), T_PANEL_UPDATE, entry->remote_version, size);
             break;
         case APP_UNKNOWN:
             snprintf(line, sizeof(line), T_PANEL_INSTALLED, entry->local_version);
@@ -1265,7 +1268,9 @@ static void draw_details(void) {
        stays inside the band while it does. */
     gfx_clip(0, DETAIL_TOP, SCR_W, DETAIL_BOTTOM - DETAIL_TOP);
     int y = DETAIL_Y - (int)g_detail_scroll;
-    if (e->state == APP_UPDATE)
+    if (catalog_new_build(e))
+        snprintf(value, sizeof(value), T_DETAIL_REBUILD, e->local_version);
+    else if (e->state == APP_UPDATE)
         snprintf(value, sizeof(value), T_DETAIL_UPDATE,
                  e->local_version, e->remote_version);
     else if (e->state != APP_NOT_INSTALLED)
@@ -1295,7 +1300,9 @@ static void draw_details(void) {
     }
     tags[t] = '\0';
     pspdx_utf8_mend(tags);
-    fact(y + 40, FACT_LABEL2, FACT_VALUE2, 110, T_DETAIL_TAGS, tags);
+    /* An app with no tags has no row for them, rather than a label alone. */
+    if (tags[0])
+        fact(y + 40, FACT_LABEL2, FACT_VALUE2, 110, T_DETAIL_TAGS, tags);
     if (e->has_release && e->release.size) {
         size_mb(e->release.size, size, sizeof(size));
         fact(y + 60, FACT_LABEL, FACT_VALUE, 140, T_DETAIL_SIZE, size);

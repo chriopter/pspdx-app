@@ -80,28 +80,6 @@ static int setup_callbacks(void) {
 
 /* ------------------------------------------------------------------- self */
 
-/* ms0:/PSP/GAME/PSPDX/EBOOT.PBP -> PSPDX. FAT32 keeps no case worth trusting
-   and the path arrives from the loader rather than from this program, so the
-   marker is matched without it. Returns 0 when the path names no directory
-   under PSP/GAME. */
-static int dir_under_game(const char *path, char *out, size_t size) {
-    static const char mark[] = "PSP/GAME/";
-    for (const char *p = path; *p; p++) {
-        size_t i = 0;
-        while (mark[i] && toupper((unsigned char)p[i]) == mark[i]) i++;
-        if (mark[i]) continue;
-        const char *start = p + i;
-        const char *slash = strchr(start, '/');
-        if (!slash) return 0;
-        size_t n = (size_t)(slash - start);
-        if (n == 0 || n >= size) return 0;
-        memcpy(out, start, n);
-        out[n] = '\0';
-        return 1;
-    }
-    return 0;
-}
-
 /* PSPDX is an app in its own catalog, so the browser wants a record of it like
    any other package -- and no install ever wrote one: somebody copied this
    onto the stick. The first start writes it, out of where the loader started
@@ -134,7 +112,7 @@ static void record_self(const char *path) {
     strncpy(self.version, PSPDX_VERSION, sizeof(self.version) - 1);
     /* Started from somewhere this cannot read -- a shell, a host debugger --
        leaves the name the release ships under, which is where it would be. */
-    if (!path || !dir_under_game(path, self.dir, sizeof(self.dir)))
+    if (!path || !storage_game_dir(path, self.dir, sizeof(self.dir)))
         snprintf(self.dir, sizeof(self.dir), "PSPDX");
     if (db_write_record(&self) < 0) {
         logline("self: no record written; PSPDX will list as not installed");
@@ -267,18 +245,7 @@ static int wanted_settled(int *cursor) {
     char message[96];
     int found = catalog_find_repo(&catalog, wanted_url());
     if (found < 0) {
-        int why = catalog_refused(wanted_url());
-        if (why == REFUSED_PSPDX)
-            snprintf(message, sizeof(message), T_WANT_NO_PSPDX, wanted_name());
-        else if (why == REFUSED_REPO)
-            snprintf(message, sizeof(message), T_WANT_NO_REPO, wanted_name());
-        else if (why == REFUSED_RELEASE)
-            snprintf(message, sizeof(message), T_WANT_NO_RELEASE, wanted_name());
-        else if (why == REFUSED_FOLDER)
-            catalog_folder_line(message, sizeof(message), wanted_name(), catalog_refused_folder());
-        else
-            snprintf(message, sizeof(message), T_WANT_FAILED,
-                     wanted_name());
+        refused_line(catalog_refused(wanted_url()), wanted_name(), message, sizeof(message));
         shell_status(message);
         return -1;
     }
@@ -316,7 +283,10 @@ int main(int argc, char *argv[]) {
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
     install_recover();
     /* After the recovery, which is what settles what is actually under
-       PSP/GAME, and before the sync, which reads every record there is. */
+       PSP/GAME, and before the sync, which reads every record there is. The
+       record PSPDX 0.5 kept of itself goes first: it names this folder, and
+       would list the client twice and hand its folder to a Delete. */
+    install_retire_legacy();
     record_self(argc > 0 ? argv[0] : 0);
     char self_manifest_path[256];storage_app_path(PSPDX_SELF_ID,self_manifest_path,sizeof(self_manifest_path));
     if (!storage_exists(self_manifest_path) && state_ok() &&
@@ -347,6 +317,21 @@ int main(int argc, char *argv[]) {
     presets_merge(argc > 0 ? argv[0] : NULL);
     https_set_log(https_log);
     https_set_user_agent("pspdx/0.0");
+    /* A folder where the seed goes, or where its copy steps aside while it
+       is written -- a stick put together by hand -- made every save of the
+       seed fail, and every start sweep again. None of the three is anybody's
+       folder, so it goes before the seed is read. */
+    for (int i = 0; i < 3; i++) {
+        static const char *const aside[] = {"", ".bak", ".new"};
+        char path[256];
+        snprintf(path, sizeof(path), "%s%s", storage_path("PSP/PSPDX/CRYPTO/seed.bin"), aside[i]);
+        SceUID folder = sceIoDopen(path);
+        if (folder >= 0) {
+            sceIoDclose(folder);
+            logline("seed: %s is a folder; %s", path,
+                    storage_remove_tree(path) == 0 ? "removed" : "could not be removed");
+        }
+    }
     entropy_set_seed_file(storage_path("PSP/PSPDX/CRYPTO/seed.bin"));
 
     /* The test rig only. An emulator borrows the host's network, which is an

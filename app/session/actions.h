@@ -70,6 +70,9 @@ int type_source(int install);
    turn up in is fetched: its URL, empty while none is waited for, and
    owner/repo for the status line. */
 const char *wanted_url(void);
+/* Why a repository named owner/repo is not in the catalog, as the status
+   line says it, out of what catalog_refused gave. */
+void refused_line(int why, const char *name, char *out, size_t size);
 const char *wanted_name(void);
 void wanted_forget(void);
 

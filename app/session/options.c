@@ -76,7 +76,10 @@ void menu_open(int index) {
         char version[21];
         snprintf(version, sizeof(version), "%s", entry->remote_version);
         pspdx_utf8_mend(version);
-        snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), T_MENU_UPDATE, version);
+        if (catalog_new_build(entry))
+            snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), "%s", T_MENU_REBUILD);
+        else
+            snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), T_MENU_UPDATE, version);
     }
     else
         snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]),
@@ -151,6 +154,9 @@ void sub_open(enum sub which) {
             if (reach_unreachable(question_sources()->url[i]))
                 snprintf(g_sub_row[i], sizeof(g_sub_row[i]), "%.47s\x02%s", g_sub_short[i],
                          T_SOURCE_UNREACHABLE_NOTE);
+            else if (reach_offline_copy(question_sources()->url[i]))
+                snprintf(g_sub_row[i], sizeof(g_sub_row[i]), "%.47s\x02%s", g_sub_short[i],
+                         T_SOURCE_SAVED_NOTE);
             else
                 snprintf(g_sub_row[i], sizeof(g_sub_row[i]), "%.47s", g_sub_short[i]);
             g_menu.item[g_menu.count++] = g_sub_row[i];

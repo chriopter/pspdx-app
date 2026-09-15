@@ -3,6 +3,7 @@ The adapter preserves same-directory rename semantics and supports power cuts.
 """
 import gzip, hashlib, json, os, pathlib, shutil, subprocess, tempfile, time, unittest, zipfile
 BIN=os.environ.get('PSPDX_TEST_BIN','/tmp/pspdx-host-test')
+IMAGE_BIN=os.environ.get('PSPDX_IMAGE_BIN')
 SCHEMA='https://chriopter.github.io/pspdx/schema/pspdx-v1.json'
 ID='io.github.test.demo'
 PRESETS=['https://chriopter.github.io/pspdx-catalog/','https://wijsman.de/psp-homebrew-database/']
@@ -88,10 +89,10 @@ class ClientTests(unittest.TestCase):
     self.zip('new.zip',entries);self.assertNotEqual(self.run_client('install',ok=False).returncode,0);self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists())
   self.zip('new.zip',{'EBOOT.PBP':b'a'});self.assertNotEqual(self.run_client('install',ok=False,BAD_HASH=1).returncode,0)
  def test_long_paths_can_be_removed_again(self):
-  # rm_rf later names every file under PSP/GAME/<32 chars>.old/, so unpack refuses what removal could not delete.
+  # rm_rf later names every file under PSP/GAME/<32 chars>.old/, and an update beside itself with .pspdx-old, so unpack refuses what either could not name.
   d='D'*32;self.write('manifest.json',dict(SPEC,installdir='PSP/GAME/'+d))
-  self.zip('new.zip',{'EBOOT.PBP':b'a','f'*205:b'x'});self.assertNotEqual(self.run_client('install',ok=False).returncode,0);self.assertFalse((self.root/'ms0:/PSP/GAME'/d).exists())
-  self.zip('new.zip',{'EBOOT.PBP':b'a','f'*204:b'x','a/'*40+'deep':b'y'});self.run_client('install');self.run_client('remove')
+  self.zip('new.zip',{'EBOOT.PBP':b'a','f'*199:b'x'});self.assertNotEqual(self.run_client('install',ok=False).returncode,0);self.assertFalse((self.root/'ms0:/PSP/GAME'/d).exists())
+  self.zip('new.zip',{'EBOOT.PBP':b'a','f'*198:b'x','a/'*40+'deep':b'y'});self.run_client('install');self.run_client('install',VERSION=3);self.run_client('remove')
   self.assertFalse((self.root/'ms0:/PSP/GAME'/d).exists());self.assertFalse((self.root/'ms0:/PSP/GAME'/(d+'.old')).exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists())
  def test_discard_clears_what_recovery_cannot(self):
   self.run_client('install',VERSION=1)
@@ -315,17 +316,23 @@ class ClientTests(unittest.TestCase):
   shipped=[l.split('#')[0].strip() for l in (root/'app/presets.txt').read_text().splitlines() if l.split('#')[0].strip()]
   self.assertEqual(embedded,shipped);self.assertEqual(shipped,PRESETS)
  def test_unknown_catalog_schema_uses_original_source(self):
-  # A schema named is held to: anything but the v1 URL is not read and the app comes from its repository. None named is v1.
+  # Another version of PSPDX's catalog schema is not read, and the app comes from its repository. Anything else -- none, a relative path to a copy, another site, a word, a number -- is v1, and said.
   self.fixtures()
   catalog=json.loads((self.root/'catalog.json').read_text())
-  for schema in ['https://example.com/other-format','https://chriopter.github.io/pspdx/schema/catalog-v2.json','',None,7]:
-   with self.subTest(schema=schema):self.write('catalog.json',dict(catalog,schema=schema));self.assertIn(ID+' 3 ',self.run_client('fetch').stdout)
-  del catalog['schema'];self.write('catalog.json',catalog);self.assertIn(ID+' 2 1',self.run_client('fetch').stdout)
+  for schema in ['https://chriopter.github.io/pspdx/schema/catalog-v2.json','https://chriopter.github.io/pspdx/schema/catalog-v10.json']:
+   with self.subTest(schema=schema):
+    self.write('catalog.json',dict(catalog,schema=schema));r=self.run_client('fetch',VERBOSE=1);self.assertIn(ID+' 3 ',r.stdout);self.assertIn('another version of the catalog schema; not read',r.stderr)
+  for schema in ['schemas/catalog.schema.json','https://example.com/other-format','https://chriopter.github.io/pspdx/schema/catalog-v1.json.bak','',None,7]:
+   with self.subTest(schema=schema):
+    self.write('catalog.json',dict(catalog,schema=schema));r=self.run_client('fetch',VERBOSE=1);self.assertIn(ID+' 2 1',r.stdout);self.assertIn('read as v1',r.stderr)
+  del catalog['schema'];self.write('catalog.json',catalog);r=self.run_client('fetch',VERBOSE=1);self.assertIn(ID+' 2 1',r.stdout);self.assertNotIn('read as v1',r.stderr)
  def test_sharkwouters_catalog_reads_as_v1(self):
   # dev/testdata/wijsman-catalog-2026-09-15.json is https://wijsman.de/psp-homebrew-database/catalog.json as served on 2026-09-15, byte for byte:
-  # no top-level schema, ids of its own that are not catalog ids, tags that are not GitHub's (v1.1 for 1.1, 0.0.3 for 0.0.3-psp), PanelPop a GitHub pre-release.
+  # a schema by a relative path to his own copy of it, ids of its own that are not catalog ids, tags that are not GitHub's (v1.1 for 1.1, 0.0.3 for 0.0.3-psp),
+  # PanelPop a GitHub pre-release, Laser Kombat's source with a slash at its end.
   root=pathlib.Path(__file__).resolve().parents[2]
-  catalog=json.loads((root/'dev/testdata/wijsman-catalog-2026-09-15.json').read_text());self.assertNotIn('schema',catalog)
+  catalog=json.loads((root/'dev/testdata/wijsman-catalog-2026-09-15.json').read_text());self.assertEqual(catalog['schema'],'schemas/catalog.schema.json')
+  self.assertEqual(catalog['apps'][0]['source'],'https://github.com/sharkwouter/laserkombat/')
   # Stamped now, as fixtures() does: a day-old list is asked about at the origin, which is another test.
   self.write('catalog.json',dict(catalog,generated_at=NOW()))
   base=PRESETS[1];(self.root/'ms0:/PSP/PSPDX').mkdir(parents=True);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text(base+'\n');(self.root/'requests.log').write_text('')
@@ -339,9 +346,16 @@ class ClientTests(unittest.TestCase):
    with self.subTest(app=app_id):self.assertEqual(self.run_client('sha',app_id).stdout.split(),[app['releases'][0]['sha256'],app['releases'][0]['url']])
   self.assertEqual(self.run_client('media',ids[0]).stdout.splitlines()[:2],[base+'icons/laser_kombat.png',base+'screenshots/laser_kombat.png'])
   # Installed, the hash decides and the version string does not: the same zip under another tag is current, another zip under the same tag is an update.
-  for app,version,sha in [(catalog['apps'][1],'2.0-psp',catalog['apps'][1]['releases'][0]['sha256']),(catalog['apps'][2],'0.0.3','00'*32)]:
+  for app,version,sha in [(catalog['apps'][1],'2.0-psp',catalog['apps'][1]['releases'][0]['sha256']),(catalog['apps'][2],'0.0.3','11'*32)]:
    self.write('ms0:/PSP/PSPDX/INSTALLED/io.github.sharkwouter.%s.state.json'%app['id'],dict(source=app['source'],installed=dict(installdir='PSP/GAME/'+app['name'],version=version,published_at=7,sha256=sha)))
   r=self.run_client('fetch',VERBOSE=1);self.assertEqual({l.split()[0]:l.split()[3] for l in r.stdout.splitlines()},{ids[0]:'1',ids[1]:'2',ids[2]:'3'},r.stderr)
+  # The slash at the end of a source is the same repository: a record written without it is the same app, one row, current by its hash, and asked at the origin it is still that one.
+  laser=catalog['apps'][0];self.write('ms0:/PSP/PSPDX/INSTALLED/%s.state.json'%ids[0],dict(source='https://github.com/sharkwouter/laserkombat',installed=dict(installdir='PSP/GAME/laserkombat',version='1.1',published_at=7,sha256=laser['releases'][0]['sha256'])))
+  r=self.run_client('fetch',VERBOSE=1);rows=[l.split() for l in r.stdout.splitlines()];self.assertEqual([row[0] for row in rows],ids,r.stderr);self.assertEqual(rows[0][3],'2',r.stderr)
+  self.write('catalog.json',dict(catalog,generated_at=NOW(),apps=[dict(laser,id='other.name.laser')]));self.assertEqual([l.split()[0] for l in self.run_client('fetch').stdout.splitlines()][0],ids[0])
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://github.com/sharkwouter/laserkombat/\n');self.write('manifest.json',dict(SPEC,source=laser['source'],installdir='PSP/GAME/laserkombat'))
+  self.write('release.json',dict(tag_name='v1.1',published_at='2026-09-12T00:00:00Z',assets=[dict(name='LaserKombat-PSP.zip',size=10,browser_download_url='https://github.com/sharkwouter/laserkombat/releases/download/v1.1/LaserKombat-PSP.zip')]))
+  r=self.run_client('fetch',FORCE=1,VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],[ids[0]],r.stderr);self.assertEqual(sorted(self.state()),ids)
  def test_invalid_catalog_release_date_uses_original_source(self):
   self.fixtures()
   catalog=json.loads((self.root/'catalog.json').read_text())
@@ -505,16 +519,17 @@ class ClientTests(unittest.TestCase):
   self.assertEqual((self.root/'requests.log').read_text().splitlines().count('https://raw.githubusercontent.com/test/demo/HEAD/.pspdx'),1)
   self.assertEqual(self.saved(),dict(schema=SCHEMA,source=SPEC['source'],name='Demo',tags=['demo'],installdir='PSP/GAME/Demo',author='test',summary='From the list',description='Two lines.\nFrom the list.'))
   record=self.state()[ID];self.assertEqual((record['installed']['version'],record['latest']['checked_from']),('2','https://example.com/catalog.json'))
-  # Another zip in the entry is an update. A live catalog answers without GitHub; a forced check, or one with only the saved catalog, asks
-  # the repository for its .pspdx, hears 404, and the entry stands. The API is never asked.
+  # Another zip in the entry is an update. A live catalog answers without GitHub; a forced check asks the repository for its .pspdx, hears 404,
+  # and the live entry stands. With only the saved catalog the release is asked of GitHub's API by the saved file, as for any app.
   catalog['apps'][0]['releases'][0]['sha256']='0'*63+'1';self.write('catalog.json',catalog);pspdx='https://raw.githubusercontent.com/test/demo/HEAD/.pspdx'
+  api='https://api.github.com/repos/test/demo/releases/latest'
   github=lambda:[x for x in (self.root/'requests.log').read_text().splitlines() if 'github' in x]
-  for env,asked in (({},0),(dict(FORCE=1),1),(dict(FORCE=1,CATALOG_DOWN=1),1),(dict(CATALOG_DOWN=1),0)):
+  for env,asked in (({},[]),(dict(FORCE=1),[pspdx]),(dict(FORCE=1,CATALOG_DOWN=1),[pspdx,api]),(dict(CATALOG_DOWN=1),[])):
    with self.subTest(env=env):
     (self.root/'requests.log').write_text('');r=self.run_client('fetch',VERBOSE=1,**env)
     row=next(l.split() for l in r.stdout.splitlines() if l.startswith(ID+' '));self.assertEqual(row[3],'3',(row,r.stderr))
-    # The 404 counts as the repository's answer: the check after it, with only the saved catalog, waits the six hours.
-    self.assertEqual(github(),[pspdx]*asked,r.stderr)
+    # What GitHub answered counts as asked: the check after it, with only the saved catalog, waits the six hours.
+    self.assertEqual(github(),asked,r.stderr)
   self.assertEqual(self.state()[ID]['latest']['checked_from'],SPEC['source'])
   # Once the repository has a .pspdx of its own, that is what the check hears, and the release is asked for.
   self.write('manifest.json',dict(SPEC,summary='From the repository'));(self.root/'requests.log').write_text('')
@@ -909,7 +924,7 @@ class ClientTests(unittest.TestCase):
  def test_an_inbox_file_that_pins_installs_that_release_or_nothing(self):
   # The catalog offers v2: a file pinning v1 waits in INBOX, one pinning v2 is queued.
   self.fixtures()
-  for tag,queued in [('v1','0'),('v2','1')]:
+  for tag,queued in [('v1','0'),('v2','1'),('2','0')]:
    with self.subTest(tag=tag):
     self.write('ms0:/PSP/PSPDX/INBOX/one.pspdx',dict(SPEC,release=dict(tag=tag)));r=self.run_client('inbox',VERBOSE=1,FETCH_FIRST=1)
     self.assertEqual(r.stdout.strip(),queued,r.stderr);self.assertEqual('which its source does not offer; kept' in r.stderr,queued=='0')
@@ -954,13 +969,13 @@ class ClientTests(unittest.TestCase):
   (self.root/'raw.json').write_text(json.dumps(SPEC)[:-1]+', "release": {"tag": "v1", "tag": "v2"}}');self.assertNotEqual(self.run_client('parse','raw.json',ok=False).returncode,0)
  # --- the small things before 0.7 ---
  def test_a_catalog_that_names_no_schema_reads_past_what_it_does_not_know(self):
-  # No schema and fields no version reads, top-level and in an entry, a listed_by among them: read as v1, gzipped or not (an update, since the entry names no hash and a later date). A schema that is a list, an object or true is named, and not v1.
+  # No schema and fields no version reads, top-level and in an entry, a listed_by among them: read as v1, gzipped or not (an update, since the entry names no hash and a later date). A schema that is a list, an object or true names no other version, and is v1 too.
   self.fixtures();catalog=self.catalog_app();del catalog['schema']
   catalog.update(maintainer='someone',listed_by='https://lists.example.org/psp/');catalog['apps'][0].update(listed_by='https://lists.example.org/psp/',homepage={'any':1})
   self.write('catalog.json',catalog);self.assertEqual(self.row(self.run_client('fetch').stdout)[1:4],['2','1','3'])
   self.gzip_catalog();self.assertEqual(self.row(self.run_client('fetch').stdout)[1:4],['2','1','3']);(self.root/'catalog.json.gz').unlink()
   for schema in ([],{},True):
-   with self.subTest(schema=schema):self.write('catalog.json',dict(catalog,schema=schema));self.assertEqual(self.row(self.run_client('fetch').stdout)[1],'3')
+   with self.subTest(schema=schema):self.write('catalog.json',dict(catalog,schema=schema));self.assertEqual(self.row(self.run_client('fetch').stdout)[1:4],['2','1','3'])
  def test_a_catalog_id_is_kept_up_to_159_bytes_and_when_it_is_one(self):
   self.fixtures();catalog=self.catalog_app();first=catalog['apps'][0]
   longest='com.example.'+'a'*(159-len('com.example.'));self.assertEqual(len(longest),159)
@@ -1052,4 +1067,336 @@ class ClientTests(unittest.TestCase):
   # A 0.6 that has already noted its release's rev: 0.7 is an update, 0.6 itself is not.
   record('0.6',0);self.write('catalog.json',entry(release('v0.6',14,a)));self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[3],'2');self.assertNotEqual(self.state()[self_id]['installed']['published_at'],0)
   self.write('catalog.json',entry(release('v0.7',15,b),release('v0.6',14,a)));self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[1:4],['0.7','1','3'])
+ # --- installs and removals the megatest broke (0.7) ---
+ def game(self,*parts):return self.root.joinpath('ms0:/PSP/GAME',*parts)
+ def journal_path(self):return self.root/'ms0:/PSP/PSPDX/TMP/transaction.json'
+ def ours_left(self,folder):return sorted(str(p.relative_to(folder)) for p in folder.rglob('*') if p.name.endswith(('.pspdx-new','.pspdx-old')))
+ def test_an_app_whose_folder_was_deleted_by_hand_can_be_installed_and_removed(self):
+  # The record says installed, the folder is gone: neither a reinstall nor a removal may be stuck on it.
+  self.run_client('install');d=self.game('Demo');shutil.rmtree(d)
+  r=self.run_client('install',VERBOSE=1);self.assertEqual((d/'EBOOT.PBP').read_bytes(),b'new package');self.assertEqual(self.state()[ID]['installed']['installdir'],'PSP/GAME/Demo');self.assertIn('is gone; installed as new',r.stderr)
+  shutil.rmtree(d);self.run_client('remove');self.assertNotIn(ID,self.state());self.assertFalse((self.root/f'ms0:/PSP/PSPDX/INSTALLED/{ID}.pspdx').exists())
+  self.assertFalse(self.journal_path().exists());self.assertFalse(self.game('.pspdx-stage').exists())
+  # Cut anywhere in a reinstall over the missing folder, recovery leaves either no folder or the whole new one.
+  self.run_client('install',VERSION=1);shutil.rmtree(d);base=self.root/'base';shutil.copytree(self.root/'ms0:',base)
+  for fault in range(1,120):
+   shutil.rmtree(self.root/'ms0:');shutil.copytree(base,self.root/'ms0:')
+   r=self.run_client('install',fault,ok=False);self.run_client('recover');version=self.state()[ID]['installed']['version']
+   self.assertEqual((d/'EBOOT.PBP').read_bytes() if d.exists() else None,b'new package' if version=='2' else None,(fault,version))
+   self.assertFalse(self.journal_path().exists(),fault)
+   if r.returncode==0:break
+  else:self.fail('the sweep did not reach the end')
+ def test_a_finished_transaction_is_not_called_put_back(self):
+  for command in ('install','remove'):
+   with self.subTest(command=command):self.assertNotIn('put back',self.run_client(command,VERBOSE=1).stderr)
+  self.run_client('install');self.write('ms0:/PSP/PSPDX/TMP/transaction.json',dict(id=ID,dir='Demo',prior='Demo',phase='ready',op='install',old_state=self.state(),old_manifest=json.dumps(SPEC)))
+  self.assertIn('an unfinished transaction was put back',self.run_client('recover',VERBOSE=1).stderr)
+ def test_recovery_leaves_a_folder_the_records_give_another_app(self):
+  # A journal for a new id that names an installed app's folder, with a snapshot that leaves that app out, and one that names the folder PSPDX runs from: recovery touches neither and keeps the journal.
+  self.run_client('install');game=self.game('Demo');before=self.state()
+  pspdx=self.game('PSPDX');pspdx.mkdir();(pspdx/'EBOOT.PBP').write_bytes(b'running')
+  for folder,check in (('Demo',lambda:(game/'EBOOT.PBP').read_bytes()==b'new package'),('PSPDX',lambda:(pspdx/'EBOOT.PBP').read_bytes()==b'running')):
+   for op in ('install','remove'):
+    for phase in ('placed','committed'):
+     with self.subTest(folder=folder,op=op,phase=phase):
+      if phase=='committed' and folder=='PSPDX':shutil.copytree(pspdx,self.game('PSPDX.old'))
+      self.write('ms0:/PSP/PSPDX/TMP/transaction.json',dict(id='io.github.x.y',dir=folder,prior='',op=op,phase=phase,old_state={}))
+      r=self.run_client('recover',VERBOSE=1);self.assertTrue(check());self.assertEqual(self.state(),before);self.assertIn('another app',r.stderr)
+      self.assertTrue(self.journal_path().exists());self.run_client('discard');self.assertTrue(check())
+      if phase=='committed' and folder=='PSPDX':self.assertTrue(self.game('PSPDX.old','EBOOT.PBP').exists());shutil.rmtree(self.game('PSPDX.old'))
+ def test_an_update_that_fills_the_stick_leaves_nothing_in_the_way(self):
+  # A stick that does not say what is free fills up in the middle of the unpack: recovery makes room before it writes the record back, and the next install goes through.
+  self.run_client('install',VERSION=1);before=self.state();used=sum(p.stat().st_size for p in (self.root/'ms0:').rglob('*') if p.is_file())
+  self.zip('new.zip',{'EBOOT.PBP':os.urandom(60000),'data.txt':b'new data'})
+  r=self.run_client('install',ok=False,DEVCTL_FAIL=1,STICK_BYTES=used+60000+2000,VERBOSE=1);self.assertNotEqual(r.returncode,0)
+  self.assertFalse(self.journal_path().exists(),r.stderr);self.assertEqual(self.state(),before);self.assertEqual(self.ours_left(self.game('Demo')),[])
+  self.assertEqual((self.game('Demo','EBOOT.PBP')).read_bytes(),b'new package');self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/download.zip').exists())
+  self.run_client('install');self.assertEqual(len(self.game('Demo','EBOOT.PBP').read_bytes()),60000)
+ def test_an_install_that_does_not_fit_says_so_before_it_writes(self):
+  self.run_client('recover');used=sum(p.stat().st_size for p in (self.root/'ms0:').rglob('*') if p.is_file())
+  # Not even the download fits, and then the download fits and what it unpacks to does not.
+  for entries,room in (({'EBOOT.PBP':b'new package'},100),({'EBOOT.PBP':bytes(3000000)},400000)):
+   with self.subTest(room=room):
+    self.zip('new.zip',entries);r=self.run_client('install',ok=False,STICK_BYTES=used+room,VERBOSE=1)
+    code,ops,needed=r.stdout.split();self.assertEqual(code,'-10',r.stderr);self.assertGreater(int(needed),room);self.assertIn('KB needed on the Memory Stick',r.stderr)
+    self.assertNotIn(ID,self.state());self.assertFalse(self.game('Demo').exists());self.assertFalse(self.journal_path().exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/download.zip').exists())
+  self.run_client('install');self.assertEqual(len(self.game('Demo','EBOOT.PBP').read_bytes()),3000000)
+ def test_a_backup_that_will_not_go_blocks_no_other_install(self):
+  # A read-only file in Demo.old: the removal is done, every other app still installs, only Demo says the folder is in the way, and the next start clears it.
+  self.run_client('install');self.write('manifest.json',dict(SPEC,source='https://github.com/test/other',installdir='PSP/GAME/Other'))
+  self.run_client('install');self.write('manifest.json',SPEC)
+  r=self.run_client('remove',VERBOSE=1,RO_MATCH='Demo.old/');self.assertNotIn(ID,self.state());self.assertFalse(self.journal_path().exists());self.assertIn('tried again at the next start',r.stderr)
+  self.assertTrue(self.game('Demo.old').exists());self.write('manifest.json',dict(SPEC,source='https://github.com/test/other',installdir='PSP/GAME/Other'))
+  self.run_client('install',VERSION=3,RO_MATCH='Demo.old/');self.assertEqual(self.state()['io.github.test.other']['installed']['version'],'3')
+  self.write('manifest.json',SPEC);r=self.run_client('install',ok=False,VERBOSE=1,RO_MATCH='Demo.old/');self.assertIn('Demo.old is in the way',r.stderr);self.assertTrue(self.game('Demo.old').exists())
+  r=self.run_client('recover',VERBOSE=1);self.assertFalse(self.game('Demo.old').exists());self.assertIn('cleared',r.stderr);self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/cleanup.txt').exists())
+  self.run_client('install');self.assertEqual(self.state()[ID]['installed']['version'],'2')
+  # A user's own folder that happens to end in .old is nobody's to clear.
+  mine=self.game('Mine.old');mine.mkdir();(mine/'keep').write_text('keep');self.run_client('recover');self.assertTrue((mine/'keep').exists())
+ def test_pspdx_never_deletes_the_folder_it_runs_from(self):
+  # Whatever id a record gives it: the folder the EBOOT was started from is not deleted, and the code says why.
+  pspdx=self.game('PSPDX');pspdx.mkdir(parents=True);(pspdx/'EBOOT.PBP').write_bytes(b'running')
+  for app_id,source in (('io.github.chriopter.pspdxapp','https://github.com/chriopter/pspdx-app'),('io.github.someone.thing','https://github.com/someone/thing'),('org.example.pspdx','https://example.org/pspdx')):
+   with self.subTest(app_id=app_id):
+    self.plant_record(app_id,source,'PSP/GAME/pspdx');r=self.run_client('uninstall',app_id,ok=False,VERBOSE=1)
+    self.assertEqual(r.stdout.strip(),'-11',r.stderr);self.assertIn('the folder PSPDX runs from',r.stderr);self.assertTrue((pspdx/'EBOOT.PBP').exists());self.assertIn(app_id,self.state())
+    (self.root/f'ms0:/PSP/PSPDX/INSTALLED/{app_id}.state.json').unlink()
+  # Started from another folder, a record of PSP/GAME/PSPDX is an app like any other.
+  self.plant_record('io.github.someone.thing','https://github.com/someone/thing','PSP/GAME/PSPDX')
+  self.assertEqual(self.run_client('uninstall','io.github.someone.thing',DEVICE='ms0:/PSP/GAME/PSPDX2/EBOOT.PBP').stdout.strip(),'0');self.assertFalse(pspdx.exists())
+ def test_the_record_pspdx_0_5_kept_of_itself_is_retired(self):
+  legacy='io.github.chriopter.pspdx';self.game('PSPDX').mkdir(parents=True)
+  self.plant_record(legacy,'https://github.com/chriopter/pspdx','PSP/GAME/PSPDX',dict(schema=SCHEMA,source='https://github.com/chriopter/pspdx',name='PSPDX',installdir='PSP/GAME/PSPDX'))
+  # Not while a transaction is open, not for another folder than the running one, and never the folder itself.
+  self.write('ms0:/PSP/PSPDX/TMP/transaction.json',{'broken':1});self.assertEqual(self.run_client('retire',ok=False).stdout.strip(),'0');self.journal_path().unlink()
+  self.assertEqual(self.run_client('retire',DEVICE='ms0:/PSP/GAME/Other/EBOOT.PBP').stdout.strip(),'0');self.assertIn(legacy,self.state())
+  self.assertEqual(self.run_client('retire').stdout.strip(),'1');self.assertNotIn(legacy,self.state())
+  self.assertFalse((self.root/f'ms0:/PSP/PSPDX/INSTALLED/{legacy}.pspdx').exists());self.assertTrue(self.game('PSPDX').exists())
+  self.assertEqual(self.run_client('retire').stdout.strip(),'0')
+ def update_fixture(self,moved=False):
+  # Version 1 with a file the next one drops, a save and a folder the user added; version 2 with a file of its own.
+  self.zip('new.zip',{'EBOOT.PBP':b'old package','data.txt':b'old data','gone.txt':b'only in 1','lib/a.prx':b'old prx'})
+  self.run_client('install',VERSION=1);d=self.game('Demo')
+  (d/'save.dat').write_text('mine');(d/'SAVES').mkdir();(d/'SAVES/slot1').write_text('slot');(d/'lib/user.cfg').write_text('cfg')
+  self.zip('new.zip',{'EBOOT.PBP':b'new package','data.txt':b'new data','lib/a.prx':b'new prx','added/new.txt':b'added'})
+  if moved:self.write('manifest.json',dict(SPEC,installdir='PSP/GAME/Moved'))
+ def assert_whole(self,where,label):
+  # One version or the other in every file it ships, the user's files untouched, and nothing of PSPDX's left beside them.
+  state=self.state()[ID];version=state['installed']['version'];folder=self.root/'ms0:'/state['installed']['installdir']
+  self.assertEqual(self.ours_left(folder),[],label);self.assertFalse(self.journal_path().exists(),label)
+  expect={'1':{'EBOOT.PBP':b'old package','data.txt':b'old data','lib/a.prx':b'old prx'},'2':{'EBOOT.PBP':b'new package','data.txt':b'new data','lib/a.prx':b'new prx','added/new.txt':b'added'}}[version]
+  for name,data in expect.items():self.assertEqual((folder/name).read_bytes(),data,(label,version,name))
+  if version=='1':self.assertFalse((folder/'added/new.txt').exists(),label)
+  self.assertEqual(((folder/'save.dat').read_text(),(folder/'SAVES/slot1').read_text(),(folder/'lib/user.cfg').read_text(),(folder/'gone.txt').read_bytes()),('mine','slot','cfg',b'only in 1'),label)
+  self.assertEqual([p.name for p in self.game().iterdir() if p.name not in ('Demo','Moved','PSPDX')],[],label)
+  self.assertFalse((self.game('Demo') if folder.name=='Moved' else self.game('Moved')).exists(),label)
+  return version
+ def test_an_update_keeps_the_files_the_release_does_not_ship(self):
+  for moved in (False,True):
+   with self.subTest(moved=moved):
+    shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();self.write('manifest.json',SPEC)
+    self.update_fixture(moved);self.run_client('install');self.assertEqual(self.assert_whole(self.root,'done'),'2')
+    self.assertEqual(self.state()[ID]['installed']['installdir'],'PSP/GAME/Moved' if moved else 'PSP/GAME/Demo')
+    # Delete still takes the whole folder, the user's files with it.
+    self.run_client('remove');self.assertFalse(self.game('Moved' if moved else 'Demo').exists())
+ def test_power_cuts_and_failures_during_an_update_leave_one_version_and_the_users_files(self):
+  for moved in (False,True):
+   shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();self.write('manifest.json',SPEC)
+   self.update_fixture(moved);base=self.root/('base%d'%moved);shutil.rmtree(base,ignore_errors=True);shutil.copytree(self.root/'ms0:',base)
+   seen=set()
+   for kind in ('cut','fail'):
+    for step in range(1,200):
+     shutil.rmtree(self.root/'ms0:');shutil.copytree(base,self.root/'ms0:');(self.root/'failat.log').unlink(missing_ok=True)
+     r=self.run_client('install',*((step,) if kind=='cut' else ()),ok=False,**({} if kind=='cut' else dict(FAILAT=step)))
+     self.assertIn(r.returncode,[0,1,77],(moved,kind,step,r.stderr[-400:]))
+     phase=json.loads(self.journal_path().read_text()).get('phase') if self.journal_path().exists() else None
+     if kind=='cut' and phase in ('placed','restoring','committed'):
+      # The recovery itself cut short, again and again, before one gets through.
+      snapshot=self.root/'cut';shutil.rmtree(snapshot,ignore_errors=True);shutil.copytree(self.root/'ms0:',snapshot)
+      for again in range(1,80):
+       shutil.rmtree(self.root/'ms0:');shutil.copytree(snapshot,self.root/'ms0:')
+       if self.run_client('recover',again,ok=False).returncode==0:break
+       self.run_client('recover');self.assert_whole(self.root,(moved,kind,step,'recovery cut',again))
+      shutil.rmtree(self.root/'ms0:');shutil.copytree(snapshot,self.root/'ms0:')
+     self.run_client('recover');seen.add(self.assert_whole(self.root,(moved,kind,step,phase)))
+     if r.returncode==0:break
+    else:self.fail('the sweep did not reach the end: %s %s'%(moved,kind))
+   self.assertEqual(seen,{'1','2'},moved)
+ # --- what text and hashes are held to (0.7 megatest) ---
+ def test_a_catalog_written_with_crlf_and_tabs_is_read_as_meant(self):
+  # sharkwouter's list as a Windows editor would save it: the apps stay, and what they install from is v1.
+  root=pathlib.Path(__file__).resolve().parents[2];wouter=json.loads((root/'dev/testdata/wijsman-catalog-2026-09-15.json').read_text())
+  for app in wouter['apps']:app['description']=app.get('description','Game').replace('\n','\r\n')+'\r\n\tEnd\rOf text';app['summary']='Fast\tand\r\nfun'
+  self.write('catalog.json',dict(wouter,generated_at=NOW()));(self.root/'ms0:/PSP/PSPDX').mkdir(parents=True);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text(PRESETS[1]+'\n')
+  r=self.run_client('fetch',VERBOSE=1);self.assertEqual(len(r.stdout.splitlines()),3,r.stderr);self.assertNotIn('breaks the .pspdx rules',r.stderr)
+  catalog=self.from_the_entry();catalog['apps'][0].update(summary='Tab\there\r\n',description='One\r\nTwo\rThree\tfour');self.write('catalog.json',catalog)
+  r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
+  self.assertEqual((self.saved()['summary'],self.saved()['description']),('Tab here ','One\nTwo\nThree four'))
+  # The file itself stays strict.
+  self.parse(dict(SPEC,description='a\r\nb'),ok=False)
+ def test_a_nul_in_text_is_no_text(self):
+  # In a catalog entry the entry goes, said; an escaped backslash before the letters is text like any other.
+  self.fixtures();catalog=self.catalog_app();first=catalog['apps'][0];other=self.mirror('Other')
+  text=json.dumps(dict(catalog,apps=[first,other])).replace('"name": "Other"','"name": "Oth\\u0000er"')
+  (self.root/'catalog.json').write_text(text);r=self.run_client('fetch',VERBOSE=1)
+  self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],[ID],r.stderr);self.assertIn('holds a NUL or a control character in its text; dropped',r.stderr)
+  (self.root/'catalog.json').write_text(json.dumps(dict(catalog,apps=[first,dict(other,description='a \\u0000 b')])));self.assertEqual(len(self.run_client('fetch').stdout.splitlines()),2)
+  # In a record the record is damaged, as any other damaged record: nothing is written over it.
+  record=self.root/f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json';good=record.read_text()
+  record.write_text(good.replace('"version":"1"','"version":"1\\u0000x"'));r=self.run_client('install',ok=False,VERBOSE=1)
+  self.assertNotEqual(r.returncode,0);self.assertIn('writes blocked',r.stderr);self.assertIn('\\u0000',record.read_text())
+ def test_a_sha256_of_zeros_is_no_hash(self):
+  # A catalog's release with one is not taken, and the repository answers; a record with one is damaged; GitHub's digest of zeros is none.
+  self.fixtures();catalog=self.catalog_app();release=catalog['apps'][0]['releases'][0]
+  self.write('catalog.json',dict(catalog,apps=[dict(catalog['apps'][0],releases=[dict(release,sha256='0'*64)])]));self.assertEqual(self.row(self.run_client('fetch').stdout)[1],'3')
+  self.write('catalog.json',catalog);self.run_client('fetch');record=self.state()[ID]
+  self.write(f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json',dict(record,latest=dict(record['latest'],sha256='0'*64)));self.assertEqual(self.run_client('latest',ID,ok=False).stdout.strip(),'-1')
+  self.write(f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json',dict(record,installed=dict(record['installed'],sha256='0'*64)))
+  self.assertIn('writes blocked',self.run_client('install',ok=False,VERBOSE=1).stderr)
+  self.write(f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json',record);self.write('catalog.json',dict(catalog,apps=[]))
+  release_json=json.loads((self.root/'release.json').read_text());release_json['assets'][0]['digest']='sha256:'+'0'*64;self.write('release.json',release_json)
+  self.assertEqual(self.run_client('sha',ID,FORCE=1).stdout.split()[0],'-')
+ # --- one app, one row, one folder (0.7 megatest) ---
+ def rows(self,*args,**env):
+  r=self.run_client('rows',*args,ok=False,**env);return {l.split('|')[0]:l.split('|')[1:] for l in r.stdout.splitlines()},r
+ def test_an_installed_app_keeps_its_record_id_whatever_a_list_calls_it(self):
+  # Installed under a catalog's own id: another id, none, the text list's repository and a mirror's entry all list and update the one record.
+  self.fixtures();self.run_client('remove');catalog=self.catalog_app();first=catalog['apps'][0];kept='de.example.demo'
+  self.write('catalog.json',dict(catalog,apps=[dict(first,id=kept)]));self.assertEqual(self.run_client('get',kept).stdout.strip(),'0');self.assertEqual(list(self.state()),[kept])
+  for change in (dict(id='com.other.demo'),dict(id=None)):
+   with self.subTest(change=change):
+    app=dict(first,**change)
+    if change['id'] is None:del app['id']
+    self.write('catalog.json',dict(catalog,apps=[app]));rows,r=self.rows(VERBOSE=1)
+    self.assertEqual(list(rows),[kept],r.stderr);self.assertNotEqual(rows[kept][2],'1');self.assertIn('is kept on this stick as '+kept,r.stderr)
+  (self.root/'catalog.txt').write_text(SPEC['source']+'\n');(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/pspdx/\n')
+  rows,r=self.rows(CATALOG_DOWN=1);self.assertEqual(list(rows),[kept],r.stderr)
+  self.assertEqual(self.run_client('get',kept,CATALOG_DOWN=1).stdout.strip(),'0');self.assertEqual(list(self.state()),[kept])
+  # Away from GitHub the same, by the source.
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n');mirror=self.mirror(id='de.wijsman.blocks')
+  self.write('catalog.json',dict(catalog,apps=[mirror]));self.assertEqual(self.run_client('get','de.wijsman.blocks').stdout.strip(),'0')
+  del mirror['id'];self.write('catalog.json',dict(catalog,apps=[mirror]));self.assertIn('de.wijsman.blocks',self.rows()[0])
+ def test_an_installed_app_keeps_its_folder_when_a_list_names_another(self):
+  # A catalog names another folder for the installed demo: the row and the update stay in Demo. Not installed, the repository's own file wins over the entry's folder.
+  self.fixtures();catalog=self.catalog_app();catalog['apps'][0]['installdir']='PSP/GAME/Elsewhere';self.write('catalog.json',catalog)
+  self.assertEqual(self.rows()[0][ID][1],'Demo');r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
+  self.assertEqual(self.state()[ID]['installed']['installdir'],'PSP/GAME/Demo');self.assertFalse(self.game('Elsewhere').exists())
+  self.run_client('remove');r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertTrue(self.game('Demo','EBOOT.PBP').exists());self.assertFalse(self.game('Elsewhere').exists())
+ def test_a_repository_listed_under_two_ids_is_one_row(self):
+  # Not installed, so no record folds the second into the first: two rows would offer the same app twice, and the second install fail.
+  self.fixtures();self.run_client('remove');catalog=self.catalog_app();first=catalog['apps'][0]
+  self.write('catalog.json',dict(catalog,apps=[first,dict(first,id='de.example.demo',name='Mirror',installdir='PSP/GAME/Other')]))
+  r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],[ID],r.stderr);self.assertIn('listed already; not listed twice',r.stderr)
+ def test_a_text_list_that_answered_is_not_unreachable(self):
+  # Its repositories listed by a source before it, or every one of them refused at GitHub: the list is there either way.
+  self.fixtures();shutil.copy(self.root/'catalog.json',self.root/'second.json');(self.root/'catalog.txt').write_text(SPEC['source']+'\n')
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/second/catalog.json\nhttps://example.com/list/\n')
+  self.assertIn('https://example.com/list/ ok',self.run_client('reach',SECOND_CATALOG='second.json',CATALOG_DOWN=1).stdout.splitlines())
+  (self.root/'catalog.txt').write_text('https://github.com/test/nothing\n');(self.root/'map').write_text('test/nothing/HEAD/.pspdx -\n')
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/list/\n');shutil.rmtree(self.root/'ms0:/PSP/PSPDX/CACHE')
+  self.assertIn('https://example.com/list/ ok',self.run_client('reach',CATALOG_DOWN=1,URL_MAP=self.root/'map').stdout.splitlines())
+ def test_the_newest_pspdx_is_kept_and_only_its_author_moves_the_folder(self):
+  self.fixtures();(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('')
+  # A forced check hears a new name, and one that does not ask says the same after it.
+  self.write('manifest.json',dict(SPEC,name='Demo Two'))
+  for env in (dict(FORCE=1),{}):
+   with self.subTest(env=env):self.assertEqual(self.rows(**env)[0][ID][:2],['Demo Two','Demo'])
+  self.assertEqual(self.saved()['name'],'Demo Two')
+  # The user renames the folder, and the record with it: the update goes there, and Demo is not made again.
+  record=self.state()[ID];self.assertEqual(record['installed']['pspdx_installdir'],'PSP/GAME/Demo')
+  self.game('Demo').rename(self.game('Mine'));(self.game('Mine')/'save.dat').write_text('mine')
+  record['installed']['installdir']='PSP/GAME/Mine';self.write(f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json',record)
+  self.assertEqual(self.rows(FORCE=1)[0][ID][1],'Mine');r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
+  self.assertEqual(self.state()[ID]['installed']['installdir'],'PSP/GAME/Mine');self.assertFalse(self.game('Demo').exists());self.assertEqual((self.game('Mine')/'save.dat').read_text(),'mine')
+  # The author names another folder: then it moves, with what the user keeps in it. A record from before the field was kept is told by its saved file,
+  # even once a check has saved the author's newer one.
+  record=self.state()[ID];del record['installed']['pspdx_installdir'];self.write(f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json',record)
+  self.write('manifest.json',dict(SPEC,name='Demo Two',installdir='PSP/GAME/Moved'))
+  self.assertEqual(self.rows(FORCE=1)[0][ID][1],'Moved');self.assertEqual(self.saved()['installdir'],'PSP/GAME/Moved');self.assertEqual(self.state()[ID]['installed']['pspdx_installdir'],'PSP/GAME/Demo')
+  self.assertEqual(self.rows()[0][ID][1],'Moved');r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
+  self.assertEqual(self.state()[ID]['installed']['installdir'],'PSP/GAME/Moved');self.assertEqual((self.game('Moved')/'save.dat').read_text(),'mine');self.assertFalse(self.game('Mine').exists())
+ # --- what GitHub answers, and when it does not (0.7 megatest) ---
+ def test_a_check_stamped_in_the_future_is_due(self):
+  self.fixtures();(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('');self.run_client('fetch',FORCE=1);record=self.state()[ID]
+  record['latest']['checked_at']=int(time.time())+400*86400;self.write(f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json',record);(self.root/'requests.log').write_text('')
+  self.run_client('fetch');self.assertIn('api.github.com',(self.root/'requests.log').read_text())
+  (self.root/'requests.log').write_text('');self.run_client('fetch');self.assertNotIn('api.github.com',(self.root/'requests.log').read_text())
+ def test_a_pinned_release_url_that_is_no_zip_is_refused_before_the_download(self):
+  base='https://github.com/test/demo/releases/download/v2/'
+  self.write('release-tag.json',self.release_json('v2','download.zip','notes.txt'))
+  self.direct(dict(SPEC,release=dict(tag='v2',url=base+'notes.txt')));self.forget_latest()
+  r=self.run_client('release',ID,ok=False,VERBOSE=1);self.assertNotIn('releases/download',r.stdout);self.assertIn('names no .zip',r.stderr)
+  self.assertNotIn('notes.txt',(self.root/'requests.log').read_text().replace('releases/tags/v2',''))
+ def test_a_text_that_trickles_is_given_up_after_two_minutes(self):
+  # The clock moves 200 s a read: the catalog is given up, the saved one stands; a ZIP has no such limit.
+  self.fixtures();self.run_client('fetch');r=self.run_client('fetch',VERBOSE=1,CLOCK_STEP_MS=200000)
+  self.assertIn('took more than 120 s; given up',r.stderr);self.assertIn(ID,r.stdout)
+  self.assertEqual(self.run_client('install',CLOCK_STEP_MS=200000).stdout.split()[0],'0')
+ def test_too_large_is_said_for_a_catalog_directory(self):
+  # The presets name a catalog by its directory, so catalog.txt is asked for after it, and a second source answers nothing: the status line still says the size was why.
+  self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text())
+  for f in (self.root/'ms0:/PSP/PSPDX/INSTALLED').glob('*'):f.unlink()
+  self.write('catalog.json',dict(catalog,pad='x'*530000))
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/\nhttps://other.example/catalog.json\n')
+  r=self.run_client('fetch',VERBOSE=1,ok=False,DOWN_HOST='other.example');self.assertIn('live catalog too large',r.stderr);self.assertIn('status: too large',r.stderr,r.stderr[-600:])
+ def test_github_not_answering_is_no_missing_release_and_waits_six_hours(self):
+  self.fixtures();(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('');(self.root/'map').write_text('api.github.com - 403\n');before=self.state()[ID]['installed']
+  r=self.run_client('fetch',FORCE=1,VERBOSE=1,URL_MAP=self.root/'map');self.assertIn('GitHub did not answer',r.stderr);self.assertNotIn('has no release',r.stderr)
+  self.assertEqual(self.state()[ID]['installed'],before);self.assertEqual(self.state()[ID]['latest']['checked_from'],SPEC['source'])
+  (self.root/'requests.log').write_text('');self.run_client('fetch',URL_MAP=self.root/'map');self.assertNotIn('api.github.com',(self.root/'requests.log').read_text())
+  # Direct install says so, as it says a repository with no release.
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('');r=self.run_client('add','test/demo',ok=False,URL_MAP=self.root/'map');self.assertIn('refused -5',r.stderr)
+  (self.root/'map').write_text('api.github.com - 404\n');r=self.run_client('add','test/demo',ok=False,URL_MAP=self.root/'map');self.assertIn('refused -2',r.stderr)
+ def test_a_404_from_another_host_is_not_a_missing_pspdx(self):
+  # The .pspdx request ends somewhere else after a redirect and hears 404 there: that is no answer about the repository.
+  catalog=self.from_the_entry();(self.root/'map').write_text('/HEAD/.pspdx - 404 portal.example.net\n')
+  r=self.run_client('get',ID,ok=False,VERBOSE=1,URL_MAP=self.root/'map');self.assertNotEqual(r.stdout.strip(),'0');self.assertIn('did not come (status 404 from portal.example.net)',r.stderr)
+  self.assertNotIn('installed from the catalog entry',r.stderr)
+  r=self.run_client('fetch',FORCE=1,CATALOG_DOWN=1,VERBOSE=1,URL_MAP=self.root/'map');self.assertNotIn('has no .pspdx',r.stderr);self.assertNotIn('api.github.com',(self.root/'requests.log').read_text())
+ def test_a_repository_typed_without_a_pspdx_installs_from_its_release(self):
+  self.fixtures();self.run_client('remove');(self.root/'manifest.json').unlink();(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('')
+  r=self.run_client('add','test/demo',VERBOSE=1);self.assertIn('made an app of its own name',r.stderr)
+  rows,r=self.rows(VERBOSE=1);self.assertEqual(rows[ID][:2],['demo','demo'],r.stderr)
+  r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertTrue(self.game('demo','EBOOT.PBP').exists())
+  self.assertEqual(self.saved(),dict(schema=SCHEMA,source=SPEC['source'],name='demo'))
+  # A list's line is not the user's word: without a .pspdx it stays out.
+  (self.root/'catalog.txt').write_text('https://github.com/test/other\n');(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/list/\n')
+  self.assertNotIn('io.github.test.other',self.rows(CATALOG_DOWN=1)[0])
+ def test_a_catalog_from_its_saved_copy_is_said_to_be_one(self):
+  self.fixtures();self.run_client('fetch')
+  self.assertIn('https://example.com/catalog.json offline copy',self.run_client('reach',CATALOG_DOWN=1).stdout.splitlines())
+  self.assertIn('https://example.com/catalog.json ok',self.run_client('reach').stdout.splitlines())
+ # --- INBOX and Direct install (0.7 megatest) ---
+ def test_an_inbox_file_for_a_repository_without_a_pspdx_is_the_app(self):
+  # The repository answers 404: the user's file installs, is kept, and the release is asked at GitHub by it, now and at a check with no catalog.
+  self.fixtures();self.run_client('remove');catalog=self.catalog_app();(self.root/'manifest.json').unlink();sources=self.root/'ms0:/PSP/PSPDX/sources.txt';sources.write_text('')
+  mine=dict(SPEC,summary='Mine',tags=['mine']);inbox=self.root/'ms0:/PSP/PSPDX/INBOX/demo.pspdx';self.write('ms0:/PSP/PSPDX/INBOX/demo.pspdx',mine)
+  r=self.run_client('inbox',VERBOSE=1);self.assertEqual(r.stdout.strip(),'1',r.stderr);self.assertIn('the repository has no .pspdx; installed from your file',r.stderr)
+  r=self.run_client('inboxinstall',VERBOSE=1);self.assertEqual(self.saved(),mine,r.stderr);self.assertFalse(inbox.exists());self.assertEqual(self.state()[ID]['installed']['version'],'3')
+  (self.root/'requests.log').write_text('');rows,r=self.rows(FORCE=1,VERBOSE=1);self.assertEqual(rows[ID][2],'2',r.stderr);self.assertIn('https://api.github.com/repos/test/demo/releases/latest',(self.root/'requests.log').read_text())
+  self.assertEqual(self.saved(),mine)
+  # A catalog lists it as well: where the repository has none, the file is still what installs; a .pspdx of its own wins over the file.
+  for own,saved in ((None,mine),(SPEC,SPEC)):
+   with self.subTest(own=own is not None):
+    self.run_client('remove');sources.write_text('https://example.com/catalog.json\n');self.write('catalog.json',catalog);self.write('ms0:/PSP/PSPDX/INBOX/demo.pspdx',mine)
+    if own:self.write('manifest.json',own)
+    r=self.run_client('inboxinstall',VERBOSE=1,FETCH_FIRST=1);self.assertEqual(self.saved(),saved,r.stderr);self.assertFalse(inbox.exists())
+    self.assertIn('installed instead of the file' if own else 'installed from your file',r.stderr)
+ def test_inbox_places_go_only_to_files_that_install(self):
+  # Seventy files for repositories that are gone, and one that installs: the one is queued, whichever order the stick lists them in.
+  self.fixtures();(self.root/'map').write_text('test/gone - 404\n')
+  for i in range(70):self.write('ms0:/PSP/PSPDX/INBOX/gone%02d.pspdx'%i,dict(SPEC,source='https://github.com/test/gone%d'%i,installdir='PSP/GAME/Gone%d'%i))
+  self.write('ms0:/PSP/PSPDX/INBOX/zz-demo.pspdx',SPEC)
+  r=self.run_client('inbox',VERBOSE=1,URL_MAP=self.root/'map');self.assertEqual(r.stdout.strip(),'1',r.stderr[-800:]);self.assertNotIn('capacity',r.stderr)
+ # --- what the screen shows (0.7 megatest) ---
+ def test_the_same_version_over_another_zip_is_a_new_build(self):
+  self.fixtures();catalog=self.catalog_app();release=catalog['apps'][0]['releases'][0]
+  for tag,sha,new_build in (('v1','0'*63+'1','1'),('v2','0'*63+'1','0')):
+   with self.subTest(tag=tag):self.write('catalog.json',dict(catalog,apps=[dict(catalog['apps'][0],releases=[dict(release,tag=tag,sha256=sha)])]));self.assertEqual(self.rows()[0][ID][2:],['3',new_build])
+ def png(self,name,w,h,row,kind=6,interlace=0,cut=0,palette=b''):
+  # A PNG of rows the caller makes, 8 bits a sample; cut takes that many bytes off the end of its image data.
+  import struct,zlib
+  chunk=lambda t,d:struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d))
+  body=zlib.compress(b''.join(b'\0'+row(y) for y in range(h)))
+  (self.root/name).write_bytes(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,kind,0,0,interlace))+(chunk(b'PLTE',palette) if palette else b'')+chunk(b'IDAT',body[:len(body)-cut])+chunk(b'IEND',b''))
+  return name
+ def decode(self,*names):
+  if not IMAGE_BIN:self.skipTest('no image decoder built')
+  r=subprocess.run([IMAGE_BIN,*names],cwd=self.root,env=dict(os.environ,ASAN_OPTIONS='detect_leaks=1'),capture_output=True,text=True)
+  self.assertEqual(r.returncode,0,r.stderr[-2000:]);self.assertNotIn('Sanitizer',r.stderr);self.assertNotIn('runtime error:',r.stderr);return r.stdout.splitlines()
+ def test_a_picture_larger_than_a_texture_is_scaled_down_to_fit(self):
+  halves=lambda w,left,right:lambda y:left*(w//2)+right*(w-w//2)
+  cases=[(self.png('screenshot.png',640,480,halves(640,b'\xff\0\0',b'\0\0\xff'),kind=2),'0 512x384 512x512 255,0,0,255 0,0,255,255'),
+         (self.png('wide.png',2048,100,halves(2048,b'\0\xff\0\0',b'\x0a\x14\x1e\xff')),'0 512x25 512x32 0,0,0,0 10,20,30,255'),
+         (self.png('tall.png',100,2048,lambda y:b'\x80'*100,kind=0),'0 25x512 32x512 128,128,128,255 128,128,128,255'),
+         # A transparent pixel does not whiten the red beside it: the colour is weighted by alpha, the alpha averaged.
+         (self.png('edge.png',1024,2,lambda y:b'\xff\xff\xff\0\xc8\0\0\xff'*512),'0 512x1 512x1 200,0,0,128 200,0,0,128'),
+         (self.png('exact.png',512,512,lambda y:b'\x01\x02\x03\x04'*512),'0 512x512 512x512 1,2,3,4 1,2,3,4'),
+         (self.png('palette.png',480,272,lambda y:b'\0'*240+b'\1'*240,kind=3,palette=b'\x11\x22\x33\x44\x55\x66'),'0 480x272 512x512 17,34,51,255 68,85,102,255'),
+         (self.png('huge.png',4097,1,lambda y:b'\0\0\0\0'*4097),'-1'),
+         (self.png('interlaced.png',600,600,lambda y:b'\0\0\0\0'*600,interlace=1),'-1'),
+         # Cut short part way through the rows, scaled or not: nothing it had allocated is left behind.
+         (self.png('cut-scaled.png',640,480,lambda y:os.urandom(1920),kind=2,cut=4000),'-1'),
+         (self.png('cut.png',480,272,lambda y:os.urandom(1920),cut=4000),'-1')]
+  self.assertEqual(self.decode(*[name for name,_ in cases]),[line for _,line in cases])
 if __name__=='__main__':unittest.main()

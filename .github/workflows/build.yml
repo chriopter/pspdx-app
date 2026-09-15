@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - run: sudo apt-get update && sudo apt-get install -y libcjson-dev zlib1g-dev libssl-dev
+      - run: sudo apt-get update && sudo apt-get install -y libcjson-dev zlib1g-dev libssl-dev libpng-dev pkg-config
       - run: sh dev/tests/run
       # The same pinned validator pspdx-catalog checks with, against the
       # schemas the standard publishes at chriopter.github.io/pspdx.
