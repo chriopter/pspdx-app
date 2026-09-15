@@ -703,15 +703,34 @@ class ClientTests(unittest.TestCase):
   r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],['io.github.other.thing'],r.stderr)
   self.assertIn('origin: io.github.test.demo wants PSP/GAME/Demo, which io.github.other.thing has; not listed',r.stderr)
   self.assertIn("status: Demo not listed: PSP/GAME/Demo is another app's.",r.stderr)
- def test_a_restored_app_leaves_a_taken_folder_alone(self):
-  # Installed, and a catalog lists another app under its folder: the first to claim it is listed, the second is said on the status line, from its saved file or its repository alike.
+ def test_an_installed_app_keeps_its_folder(self):
+  # Installed, and a catalog lists another app under its folder before it: the installed app stays listed, from its saved file or its repository alike, and the other entry is the one said on the status line.
   (self.root/'ms0:/PSP/PSPDX').mkdir(parents=True);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
   self.write('catalog.json',self.other_thing());(self.root/'manifest.json').unlink();self.plant_record(ID,SPEC['source'],'PSP/GAME/Demo',SPEC)
   for repository in (False,True):
    with self.subTest(repository=repository):
     if repository:self.write('manifest.json',SPEC);self.write('release.json',dict(tag_name='v3',published_at='2026-09-12T00:00:00Z',assets=[dict(name='download.zip',size=10,browser_download_url='https://github.com/test/demo/releases/download/v3/download.zip')]))
-    r=self.run_client('fetch',VERBOSE=1,FORCE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],['io.github.other.thing'],r.stderr)
-    self.assertIn('restore: %s wants PSP/GAME/Demo, which io.github.other.thing has; not listed'%ID,r.stderr);self.assertIn("status: Demo not listed: PSP/GAME/Demo is another app's.",r.stderr)
+    r=self.run_client('fetch',VERBOSE=1,FORCE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],[ID],r.stderr)
+    self.assertIn('catalog: io.github.other.thing wants PSP/GAME/Demo, which %s has; not listed'%ID,r.stderr);self.assertIn("status: Thing not listed: PSP/GAME/Demo is another app's.",r.stderr)
+ def test_an_installed_app_listed_after_another_in_its_folder_is_still_usable(self):
+  # The catalog names the other app first and the installed demo second: the demo is listed, updates from its own source and is removed; the other entry is not listed.
+  self.fixtures();catalog=self.catalog_app();thing=self.other_thing()['apps'][0]
+  self.write('catalog.json',dict(catalog,apps=[thing,catalog['apps'][0]]))
+  r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],[ID],r.stderr);self.assertEqual(self.row(r.stdout)[1],'2')
+  self.assertIn('catalog: io.github.other.thing wants PSP/GAME/Demo, which %s has; not listed'%ID,r.stderr);self.assertIn("status: Thing not listed: PSP/GAME/Demo is another app's.",r.stderr)
+  r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertEqual(self.state()[ID]['installed']['version'],'2')
+  self.run_client('remove');self.assertNotIn(ID,self.state());self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists())
+  # Removed, it holds nothing: the other app is listed again.
+  self.assertEqual([l.split()[0] for l in self.run_client('fetch').stdout.splitlines()],['io.github.other.thing'])
+ def test_between_two_apps_not_installed_the_first_listed_keeps_the_folder(self):
+  (self.root/'ms0:/PSP/PSPDX').mkdir(parents=True);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
+  catalog=self.other_thing();thing=catalog['apps'][0]
+  second=dict(thing,id='io.github.other.second',name='Second',source='https://github.com/other/second',releases=[dict(thing['releases'][0],url='https://github.com/other/second/releases/download/v1/x.zip')])
+  self.write('catalog.json',dict(catalog,apps=[thing,second]))
+  r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],['io.github.other.thing'],r.stderr)
+  self.assertIn('catalog: io.github.other.second wants PSP/GAME/Demo, which io.github.other.thing has; not listed',r.stderr);self.assertIn("status: Second not listed: PSP/GAME/Demo is another app's.",r.stderr)
+  self.write('catalog.json',dict(catalog,apps=[second,thing]))
+  r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],['io.github.other.second'],r.stderr);self.assertIn("status: Thing not listed",r.stderr)
  def test_the_folder_line_gives_way_in_the_name_only(self):
   self.assertEqual(self.run_client('folderline','Demo','Demo').stdout,"Demo not listed: PSP/GAME/Demo is another app's.\n")
   line=self.run_client('folderline','Ä'*60,'D'*32).stdout.rstrip('\n');self.assertLessEqual(len(line.encode()),95)
@@ -860,14 +879,15 @@ class ClientTests(unittest.TestCase):
    with self.subTest(tag=tag):
     self.write('ms0:/PSP/PSPDX/INBOX/one.pspdx',dict(SPEC,release=dict(tag=tag)));r=self.run_client('inbox',VERBOSE=1,FETCH_FIRST=1)
     self.assertEqual(r.stdout.strip(),queued,r.stderr);self.assertEqual('which its source does not offer; kept' in r.stderr,queued=='0')
- def test_a_record_that_moves_a_listed_app_leaves_a_taken_folder_alone(self):
-  # A catalog that is only saved lists another app in Demo and the installed demo in Other; the record's newer release would move the demo's row to Demo.
+ def test_a_record_keeps_its_folder_from_a_saved_catalog(self):
+  # A catalog that is only saved lists another app in Demo and the installed demo in Other; the record has Demo, so the other app is the one left out, and the record's word moves the demo's row to Demo.
   self.fixtures();catalog=self.catalog_app();first=catalog['apps'][0]
   a=dict(first,id='io.github.test.a',name='Aaa',source='https://github.com/test/a',installdir='PSP/GAME/Demo',releases=[dict(first['releases'][0],url='https://github.com/test/a/releases/download/v2/download.zip')])
   self.write('catalog.json',dict(catalog,apps=[a,dict(first,installdir='PSP/GAME/Other')]));self.run_client('fetch')
   # Offline nothing is asked at the repository: only the record's word can move the row.
   (self.root/'requests.log').write_text('');r=self.run_client('fetch',VERBOSE=1,OFFLINE=1);self.assertEqual((self.root/'requests.log').read_text(),'')
-  self.assertIn('restore: %s wants PSP/GAME/Demo, which io.github.test.a has; not listed'%ID,r.stderr);self.assertIn("status: Demo not listed: PSP/GAME/Demo is another app's.",r.stderr)
+  self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],[ID],r.stderr)
+  self.assertIn('catalog: io.github.test.a wants PSP/GAME/Demo, which %s has; not listed'%ID,r.stderr);self.assertIn("status: Aaa not listed: PSP/GAME/Demo is another app's.",r.stderr)
  def test_a_pinned_release_names_one_of_its_assets(self):
   base='https://github.com/test/demo/releases/download/v2/'
   self.write('release-tag.json',self.release_json('v2','game-psp-download.zip','other-download.zip','notes.txt'))

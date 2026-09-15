@@ -272,6 +272,35 @@ static int folder_holder(const struct catalog *catalog, const char *dir, int exc
     return -1;
 }
 
+/* The id of an app installed on the stick that has PSP/GAME/<dir>, when it
+   is not the app an entry with this id and source describes; NULL when none
+   is. An installed app keeps its folder whatever a list says, so an entry
+   for any other app that names it is the one left out, wherever it stands. */
+static const char *folder_installed(const char *dir, const char *id, const char *repo,
+                                    struct installed *rec) {
+    for (int i = 0; dir[0] && i < state_count(); i++) {
+        const char *other = state_id(i);
+        if (!other || db_read(other, rec) < 0 || strcasecmp(rec->dir, dir))
+            continue;
+        if (strcmp(rec->id, id) && !sources_same_repo(rec->repo, repo))
+            return rec->id;
+    }
+    return NULL;
+}
+
+/* Who has the folder an entry wants: an installed app of another id first,
+   then an entry listed before it. NULL when the folder is free. */
+static const char *folder_claimed(const struct catalog *catalog, const struct app_entry *entry,
+                                  struct installed *rec) {
+    if (entry->unsupported)
+        return NULL;
+    const char *installed = folder_installed(entry->release.dir, entry->id, entry->repo, rec);
+    if (installed)
+        return installed;
+    int held = folder_holder(catalog, entry->release.dir, -1);
+    return held >= 0 ? catalog->apps[held].id : NULL;
+}
+
 void catalog_folder_line(char *out, size_t size, const char *name, const char *dir) {
     /* The name gives way, never the folder or the end of the sentence. */
     char shown[161];
@@ -286,9 +315,8 @@ void catalog_folder_line(char *out, size_t size, const char *name, const char *d
    first such one kept for the status line once the fetch is through, since an
    app that is simply missing from the list says nothing. */
 static void folder_taken(struct catalog *catalog, const char *from, const char *id,
-                         const char *name, const char *dir, int holder) {
-    logline("%s: %s wants PSP/GAME/%s, which %s has; not listed", from, id, dir,
-            catalog->apps[holder].id);
+                         const char *name, const char *dir, const char *holder) {
+    logline("%s: %s wants PSP/GAME/%s, which %s has; not listed", from, id, dir, holder);
     if (!catalog->collision[0])
         catalog_folder_line(catalog->collision, sizeof(catalog->collision), name, dir);
 }
@@ -561,12 +589,14 @@ static int parse(struct catalog *catalog, const char *base) {
             }
         }
         /* One directory is one app's: a second entry that wants the same
-           name would only be refused at install time, so the first keeps it,
-           and the second is said. What cannot be installed claims no
-           directory, and is not kept out by one either. */
-        int held = entry->unsupported ? -1 : folder_holder(catalog, entry->release.dir, -1);
-        if (held >= 0) {
-            folder_taken(catalog, "catalog", entry->id, entry->name, entry->release.dir, held);
+           name would only be refused at install time. An app installed there
+           keeps it; otherwise the first entry does, and the one left out is
+           said. What cannot be installed claims no directory, and is not kept
+           out by one either. */
+        struct installed rec;
+        const char *holder = folder_claimed(catalog, entry, &rec);
+        if (holder) {
+            folder_taken(catalog, "catalog", entry->id, entry->name, entry->release.dir, holder);
             continue;
         }
 
@@ -951,11 +981,11 @@ static int take_origin(struct catalog *catalog, const struct source_repo *repo) 
     if (origin_entry(entry, repo) < 0)
         return -1;
     /* The folder rule holds here as it does between a catalog's entries. */
-    int held = entry->unsupported ? -1 : folder_holder(catalog, entry->release.dir, -1);
-    if (held >= 0) {
+    const char *holder = folder_claimed(catalog, entry, &local);
+    if (holder) {
         char url[SOURCE_URL];
         sources_repo_url(repo, url, sizeof(url));
-        folder_taken(catalog, "origin", entry->id, entry->name, entry->release.dir, held);
+        folder_taken(catalog, "origin", entry->id, entry->name, entry->release.dir, holder);
         refuse(url, REFUSED_FOLDER);
         snprintf(g_refused_folder, sizeof(g_refused_folder), "%s", entry->release.dir);
         entry_clear(entry);
@@ -1172,7 +1202,8 @@ static void restore_installed(struct catalog *catalog) {
                row a catalog gave the app stays as it was, and none is added. */
             held = one->unsupported ? -1 : folder_holder(catalog, one->release.dir, at);
             if (held >= 0)
-                folder_taken(catalog, "restore", id, one->name, one->release.dir, held);
+                folder_taken(catalog, "restore", id, one->name, one->release.dir,
+                            catalog->apps[held].id);
             else if (at < 0 && catalog->count < MAX_APPS)
                 at = catalog->count++;
             /* A release the file pins says nothing about updates: where an
@@ -1207,7 +1238,8 @@ static void restore_installed(struct catalog *catalog) {
             }
         } else if (at < 0 && n >= 0 && pspdx_type_installable(file.type) &&
                    (held = folder_holder(catalog, file.installdir + 9, -1)) >= 0) {
-            folder_taken(catalog, "restore", id, file.name, file.installdir + 9, held);
+            folder_taken(catalog, "restore", id, file.name, file.installdir + 9,
+                         catalog->apps[held].id);
         } else if (at < 0 && n >= 0 && catalog->count < MAX_APPS) {
             struct app_entry *e = &catalog->apps[catalog->count++];
             entry_clear(e);
@@ -1242,7 +1274,8 @@ static void restore_installed(struct catalog *catalog) {
                    row stays as the catalog gave it. */
                 int moved = e->unsupported ? -1 : folder_holder(catalog, latest.dir, at);
                 if (moved >= 0) {
-                    folder_taken(catalog, "restore", id, e->name, latest.dir, moved);
+                    folder_taken(catalog, "restore", id, e->name, latest.dir,
+                                 catalog->apps[moved].id);
                     goto next;
                 }
                 manifest_forget(&e->release);
