@@ -64,8 +64,9 @@ int gunzip_feed(struct gunzip *g, const void *data, size_t len, char *out, size_
             g->lead[g->lead_len++] = *p++;
             len--;
         }
-        if (g->lead[0] == 0x1f && g->lead_len < 2)
-            return GUNZIP_OK;                   /* one byte so far; the next one says */
+        /* Nothing yet, or one byte that may start gzip: the next piece says. */
+        if (!g->lead_len || (g->lead[0] == 0x1f && g->lead_len < 2))
+            return GUNZIP_OK;
         int rc;
         if (g->lead[0] == 0x1f && g->lead[1] == 0x8b) {
             /* 16 on top of the window size: a gzip wrapper, header and CRC,

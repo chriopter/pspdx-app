@@ -42,7 +42,7 @@
 /* An id becomes a file name, so it may not carry a path. Reverse-DNS letters,
    digits, dot, dash and underscore only. */
 int manifest_id_is_safe(const char *id) {
-    if (!id || !*id || strlen(id) > 95)
+    if (!id || !*id || strlen(id) >= PSPDX_ID_SIZE)
         return 0;
     for (const char *p = id; *p; p++) {
         int ok = (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') ||
@@ -498,6 +498,12 @@ static int recover_journal(cJSON *j) {
     if (!manifest_id_is_safe(id) || !manifest_dir_is_safe(dir) ||
         (*prior && !manifest_dir_is_safe(prior)))
         return logline("recovery: bad id or directory in the journal"), -1;
+    /* Recovery writes old_manifest back, or removes the saved file when the
+       journal has none; one that is there and is not text is a damaged
+       journal, not the word that there was no file. */
+    const cJSON *manifest = cJSON_GetObjectItemCaseSensitive(j, "old_manifest");
+    if (manifest && !cJSON_IsString(manifest))
+        return logline("recovery: the saved manifest in the journal is not text"), -1;
     const cJSON *snapshot = cJSON_GetObjectItemCaseSensitive(j, "old_state");
     if (!state_validate(snapshot))
         return logline("recovery: the saved state does not validate"), -1;

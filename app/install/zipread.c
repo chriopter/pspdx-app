@@ -162,8 +162,11 @@ int zip_extract(struct zipread *z, const struct zipentry *e,
     if (inflateInit2(&s, -MAX_WBITS) != Z_OK) return -1;   /* raw deflate */
     int rc = -1, zr = Z_OK;
     while (zr != Z_STREAM_END) {
-        if (s.avail_in == 0) {
-            if (left == 0) { logline("zip: %s ended early", e->name); break; }
+        /* All of the entry's bytes read is not the end of its output: zlib
+           can still hold a long match when the out buffer fills, and gives
+           it with no more input. The stream ended early only when inflate
+           cannot go on and there is nothing left to give it. */
+        if (s.avail_in == 0 && left) {
             int n = sceIoRead(z->fd, in, left < sizeof(in) ? left : sizeof(in));
             if (n <= 0) break;
             left -= (uint32_t)n;
@@ -173,6 +176,7 @@ int zip_extract(struct zipread *z, const struct zipentry *e,
         s.next_out = out;
         s.avail_out = sizeof(out);
         zr = inflate(&s, Z_NO_FLUSH);
+        if (zr == Z_BUF_ERROR && s.avail_in == 0 && left == 0) { logline("zip: %s ended early", e->name); break; }
         if (zr != Z_OK && zr != Z_STREAM_END) { logline("zip: inflate %d in %s", zr, e->name); break; }
         size_t got = sizeof(out) - s.avail_out;
         /* A deflate stream can claim any expansion ratio it likes. Writing

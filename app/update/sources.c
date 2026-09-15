@@ -105,10 +105,11 @@ int sources_load(struct sources *s) {
             logline("sources: wrote the built-in list");
     }
     char *line = g_text;
-    /* The mark an editor on a PC puts first, which is not part of the line. */
-    if (!strncmp(line, "\xEF\xBB\xBF", 3))
-        line += 3;
     while (line && *line && s->count < SOURCES_MAX) {
+        /* The mark an editor on a PC puts first, which is not part of the
+           line; a file pasted together from two has one inside as well. */
+        if (!strncmp(line, "\xEF\xBB\xBF", 3))
+            line += 3;
         char *end = strpbrk(line, "\r\n");
         if (end)
             *end++ = '\0';
@@ -133,27 +134,30 @@ int sources_load(struct sources *s) {
 }
 
 int sources_normalize(const char *text, char *url, size_t size) {
-    char line[SOURCE_URL];
-    if (!text || strlen(text) >= SOURCE_URL - 24)
+    /* What sources_load keeps is a URL of up to SOURCE_URL - 1 bytes once
+       its line is trimmed, and a source is added by the same measure. */
+    char line[2 * SOURCE_URL];
+    int n;
+    if (!text || strlen(text) >= sizeof(line))
         return -1;
-    snprintf(line, sizeof(line), "%s", text ? text : "");
+    memcpy(line, text, strlen(text) + 1);
     if (trim(line) <= 0 || strchr(line, ' '))
         return -1;
     if (strncmp(line, "https://", 8) == 0)
-        snprintf(url, size, "%s", line);
+        n = snprintf(url, size, "%s", line);
     else if (strncmp(line, "http://", 7) == 0)
-        snprintf(url, size, "https://%s", line + 7);
+        n = snprintf(url, size, "https://%s", line + 7);
     else if (strncmp(line, "github.com/", 11) == 0)
-        snprintf(url, size, "https://%s", line);
+        n = snprintf(url, size, "https://%s", line);
     else {
         /* "owner/repo" and nothing else: one slash, both halves there. */
         const char *slash = strchr(line, '/');
         if (!slash || slash == line || !slash[1] || strchr(slash + 1, '/'))
             return -1;
-        snprintf(url, size, "https://github.com/%s", line);
+        n = snprintf(url, size, "https://github.com/%s", line);
     }
     struct source_repo repo;
-    if (strpbrk(url, "\r\n\t #") || strlen(url) >= size - 1)
+    if (n < 0 || (size_t)n >= size || n >= SOURCE_URL || strpbrk(url, "\r\n\t #"))
         return -1;
     if (!strncmp(url, "https://github.com/", 19) && !sources_parse_repo(url, &repo))
         return -1;
@@ -199,14 +203,18 @@ int sources_remove(const char *url) {
     int n = read_file();
     if (n < 0)
         return -1;
-    static char all[sizeof(g_text)];
+    static char all[sizeof(g_text)], copy[sizeof(g_text)];
     size_t at = 0;
     int found = 0;
     for (char *line = g_text; *line;) {
         size_t len = strcspn(line, "\r\n"), whole = len + strspn(line + len, "\r\n");
-        char copy[SOURCE_URL];
-        snprintf(copy, sizeof(copy), "%.*s", (int)(len < sizeof(copy) ? len : sizeof(copy) - 1), line);
-        if (len < SOURCE_URL && trim(copy) > 0 && !strncmp(copy, "https://", 8) &&
+        /* The line as sources_load reads it: past the mark a PC editor puts
+           first, its comment cut off and its ends trimmed before its length
+           counts. Otherwise a source that loads could not be taken out. */
+        size_t skip = len >= 3 && !strncmp(line, "\xEF\xBB\xBF", 3) ? 3 : 0;
+        memcpy(copy, line + skip, len - skip);
+        copy[len - skip] = '\0';
+        if (trim(copy) > 0 && strlen(copy) < SOURCE_URL && !strncmp(copy, "https://", 8) &&
             sources_same_url(copy, url))
             found = 1;
         else {
@@ -265,8 +273,13 @@ int sources_parse_repo(const char *url, struct source_repo *out) {
     if (!len || len >= sizeof(out->name))
         return 0;
     memcpy(out->name, p, len);
-    if (len > 4 && strcmp(out->name + len - 4, ".git") == 0)
+    if (len > 4 && strcmp(out->name + len - 4, ".git") == 0) {
         out->name[len - 4] = '\0';
+        /* https://github.com/<owner>/<name> is how the repository is written
+           again, and read back that has to be the same name. */
+        if (len > 8 && strcmp(out->name + len - 8, ".git") == 0)
+            return 0;
+    }
     const char *rest = p + len;
     if (*rest == '/')
         rest++;
@@ -288,6 +301,10 @@ int sources_parse_repo(const char *url, struct source_repo *out) {
         if (strspn(parts[i], "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") !=
             strlen(parts[i]))
             return 0;
+        /* The id is made of the letters and digits of both, and one with
+           none would leave it an empty part. */
+        if (!strpbrk(parts[i], "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"))
+            return 0;
     }
     return 1;
 }
@@ -295,7 +312,16 @@ int sources_parse_repo(const char *url, struct source_repo *out) {
 int sources_parse_list(const char *text, struct source_list *out) {
     memset(out, 0, sizeof(*out));
     static char copy[64 * 1024];
-    snprintf(copy, sizeof(copy), "%s", text);
+    if (snprintf(copy, sizeof(copy), "%s", text) >= (int)sizeof(copy)) {
+        /* The copy ends inside a line, and a cut URL names another
+           repository: only whole lines are read. */
+        size_t n = sizeof(copy) - 1;
+        while (n && copy[n - 1] != '\n' && copy[n - 1] != '\r')
+            n--;
+        if (text[sizeof(copy) - 1] != '\n' && text[sizeof(copy) - 1] != '\r')
+            copy[n] = '\0';
+        logline("list: longer than %u KB, the rest is not read", (unsigned)(sizeof(copy) / 1024));
+    }
     char *line = copy;
     while (line && *line && out->count < LIST_REPOS) {
         char *end = strpbrk(line, "\r\n");
@@ -305,7 +331,8 @@ int sources_parse_list(const char *text, struct source_list *out) {
             if (strncmp(line, "cache ", 6) == 0) {
                 char *url = line + 6;
                 trim(url);
-                if (!out->cache[0])
+                /* A cache address cut to fit would be another address. */
+                if (!out->cache[0] && strlen(url) < sizeof(out->cache))
                     snprintf(out->cache, sizeof(out->cache), "%s", url);
             } else {
                 /* The URL is the whole line. Anything after it is from a
@@ -330,8 +357,14 @@ int sources_parse_list(const char *text, struct source_list *out) {
 /* The id names a directory on the stick, so only [a-z0-9] of the owner
    and the repository survive in it: "Chris-Opter/PSP-Thing" becomes
    io.github.chrisopter.pspthing. */
-static size_t append_plain(char *id, size_t n, size_t size, const char *text) {
-    for (const char *p = text; *p && n + 1 < size; p++) {
+static size_t plain_length(const char *text) {
+    size_t n = 0;
+    for (const char *p = text; *p; p++)
+        n += isalnum((unsigned char)*p) && (unsigned char)*p < 0x80;
+    return n;
+}
+static size_t append_plain(char *id, size_t n, const char *text) {
+    for (const char *p = text; *p; p++) {
         int c = tolower((unsigned char)*p);
         if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
             id[n++] = (char)c;
@@ -340,12 +373,20 @@ static size_t append_plain(char *id, size_t n, size_t size, const char *text) {
     return n;
 }
 
-void sources_repo_id(const struct source_repo *r, char *id, size_t size) {
-    size_t n = (size_t)snprintf(id, size, "io.github.");
-    n = append_plain(id, n, size, r->owner);
-    if (n + 1 < size)
-        id[n++] = '.';
-    append_plain(id, n, size, r->name);
+int sources_repo_id(const struct source_repo *r, char *id, size_t size) {
+    static const char prefix[] = "io.github.";
+    size_t owner = plain_length(r->owner), name = plain_length(r->name);
+    /* Never cut: a shorter id could be another repository's. */
+    if (!owner || !name || sizeof(prefix) - 1 + owner + 1 + name >= size) {
+        if (size)
+            id[0] = '\0';
+        return -1;
+    }
+    memcpy(id, prefix, sizeof(prefix));
+    size_t n = append_plain(id, sizeof(prefix) - 1, r->owner);
+    id[n++] = '.';
+    append_plain(id, n, r->name);
+    return 0;
 }
 
 /* One part of an id out of len bytes of text: its ASCII letters and digits,
@@ -381,14 +422,19 @@ static int listed_host(const char *listed_by, const char **host, size_t *n) {
     if (strncmp(listed_by, "https://", 8))
         return -1;
     const char *h = listed_by + 8;
-    size_t len = strcspn(h, "/?#");
+    /* A backslash ends the host as a slash does, the way a browser reads
+       it: https://evil.example\\@good.example/ is evil.example. */
+    size_t len = strcspn(h, "/?#\\");
     for (size_t i = len; i > 0; i--)
         if (h[i - 1] == '@') {
             h += i;
             len -= i;
             break;
         }
-    const char *colon = memchr(h, ':', len);
+    /* A bracketed IPv6 address is kept whole; the port is after it. */
+    const char *bracket = len && *h == '[' ? memchr(h, ']', len) : NULL;
+    const char *from = bracket ? bracket : h;
+    const char *colon = memchr(from, ':', len - (size_t)(from - h));
     if (colon)
         len = (size_t)(colon - h);
     if (len >= 4 && !strncasecmp(h, "www.", 4)) {
@@ -434,7 +480,10 @@ int sources_listed_id(const char *listed_by, const char *name, char *id, size_t 
         while (start > 0 && host[start - 1] != '.')
             start--;
         int rc = put_part(id, &used, size, host + start, end - start);
-        if (rc < 0)
+        /* A label with none of the letters an id keeps -- one not written in
+           punycode, or an empty one -- would drop out and leave another
+           host's id; only the empty label after a trailing dot may. */
+        if (rc < 0 || (!rc && (end != start || end != n)))
             goto none;
         labels += rc;
         if (!start)
@@ -443,6 +492,13 @@ int sources_listed_id(const char *listed_by, const char *name, char *id, size_t 
     }
     if (!labels || put_part(id, &used, size, name, strlen(name)) != 1)
         goto none;
+    /* io.github. is the ids of GitHub repositories: a list at
+       <owner>.github.io would otherwise make one of theirs. */
+    if (!strncmp(id, "io.github.", 10)) {
+        logline("sources: %.60s and %.40s would make an id under io.github., which only a "
+                "GitHub repository has; refused", listed_by, name);
+        goto none;
+    }
     return 0;
 none:
     id[0] = '\0';

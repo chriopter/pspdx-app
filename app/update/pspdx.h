@@ -15,6 +15,16 @@
 #define PSPDX_TAGS_TEXT (PSPDX_TAGS * (24 * 4 + 1))
 /* The category is one such word. */
 #define PSPDX_CATEGORY_SIZE (24 * 4 + 1)
+/* A release tag, 1 to 64 characters, and an address of up to 512 ASCII
+   characters, as a catalog's release has them. */
+#define PSPDX_TAG_SIZE (64 * 4 + 1)
+#define PSPDX_RELEASE_URL_SIZE 513
+/* An id and the byte after it: io.github.<owner>.<repository> is at most
+   10 + 39 + 1 + 100 characters, since GitHub allows an owner of 39 and a
+   repository of 100, and an id is only ever [a-z0-9.]. It names files under
+   PSP/PSPDX/INSTALLED, <id>.state.json.bak the longest, well inside the 255
+   characters a FAT name may have. */
+#define PSPDX_ID_SIZE 160
 /* The byte sizes fit the character limits of schema/pspdx-v1.json at four
    bytes a character. The description is checked and not kept here, since
    it is the one field of kilobytes and this lives on stacks; whoever shows
@@ -25,7 +35,12 @@ struct pspdx_file {
     char type[12];              /* homebrew, plugin or iso; homebrew when the file says nothing */
     char tags[PSPDX_TAGS_TEXT]; /* newline between them */
     char category[PSPDX_CATEGORY_SIZE]; /* the one group it names, empty when none */
-    char id[96];                /* derived, never written in the file */
+    char id[PSPDX_ID_SIZE];     /* derived, never written in the file */
+    /* The release the file pins, when it has "release": its tag, and the
+       asset and the time when it names them; empty and 0 when not. */
+    char release_tag[PSPDX_TAG_SIZE];
+    char release_url[PSPDX_RELEASE_URL_SIZE];
+    unsigned release_published;
 };
 /* Holds a .pspdx to version 1. What the file leaves to a rule is filled in
    the way the catalog builder fills it: the type, the install directory of a
@@ -48,6 +63,9 @@ char *pspdx_description(const char *text, size_t len);
    well-formed UTF-8, or -1, and -1 too for a control character, but for a
    newline where newline says it may stand. */
 int pspdx_characters(const char *s, int newline);
+/* "2026-09-12T08:29:23Z", or the day alone, "2024-12-20", to unix seconds;
+   0 for anything that is not a time a release can have been published at. */
+unsigned pspdx_time(const char *text);
 /* A string snprintf may have cut: a character left without its last bytes
    at the end is taken off, so what is drawn is never half a letter. */
 void pspdx_utf8_mend(char *s);

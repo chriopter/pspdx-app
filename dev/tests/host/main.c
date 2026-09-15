@@ -91,7 +91,70 @@ int main(int argc, char **argv) {
         for (int i = 0; i < catalog.count; i++)
             printf("%s %s %d %d %d\n", catalog.apps[i].id, catalog.apps[i].release.version,
                    catalog.apps[i].fresh, catalog.apps[i].state, catalog.apps[i].unsupported);
+        /* What the status line says once the fetch is through. */
+        if (catalog.collision[0])
+            fprintf(stderr, "status: %s\n", catalog.collision);
         return rc < 0 ? 1 : 0;
+    }
+    if (!strcmp(argv[1], "media")) {
+        /* media <id>: the four addresses the entry's pictures and sounds
+           resolved to, one a line, empty where there is none. */
+        catalog_fetch(&catalog);
+        for (int i = 0; i < catalog.count; i++)
+            if (!strcmp(catalog.apps[i].id, argv[2])) {
+                printf("%s\n%s\n%s\n%s\n", catalog.apps[i].icon, catalog.apps[i].screenshot,
+                       catalog.apps[i].video, catalog.apps[i].sound);
+                return 0;
+            }
+        return 2;
+    }
+    if (!strcmp(argv[1], "release")) {
+        /* release <id>: the version, the zip and whether the file pinned it. */
+        catalog_fetch(&catalog);
+        for (int i = 0; i < catalog.count; i++)
+            if (!strcmp(catalog.apps[i].id, argv[2])) {
+                printf("%s %s %d\n", catalog.apps[i].release.version, catalog.apps[i].release.url,
+                       catalog.apps[i].release.pinned);
+                return 0;
+            }
+        return 2;
+    }
+    if (!strcmp(argv[1], "drop")) {
+        /* drop <url>: the gear's delete of a source. */
+        int rc = sources_remove(argv[2]);
+        printf("%d\n", rc);
+        return rc < 0 ? 1 : 0;
+    }
+    if (!strcmp(argv[1], "ids")) {
+        /* ids <url> [<listed_by> <name>]: the id a repository makes, and
+           the one a list and a name make, each "-" where there is none. */
+        struct source_repo repo;
+        char id[PSPDX_ID_SIZE], url[SOURCE_URL];
+        int github = sources_parse_repo(argv[2], &repo);
+        if (github)
+            sources_repo_url(&repo, url, sizeof(url));
+        printf("%s %s\n", github && sources_repo_id(&repo, id, sizeof(id)) == 0 ? id : "-",
+               github ? url : "-");
+        if (argc > 4)
+            printf("%s\n", sources_listed_id(argv[3], argv[4], id, sizeof(id)) == 0 ? id : "-");
+        return 0;
+    }
+    if (!strcmp(argv[1], "latest")) {
+        /* latest <id>: what the record last heard, or -1 when it is refused. */
+        struct manifest m;
+        if (state_latest(argv[2], &m) < 0) {
+            puts("-1");
+            return 1;
+        }
+        printf("%s %s\n", m.version, m.url);
+        return 0;
+    }
+    if (!strcmp(argv[1], "folderline")) {
+        /* folderline <name> <dir>: the status line for an app left out. */
+        char line[96];
+        catalog_folder_line(line, sizeof(line), argv[2], argv[3]);
+        puts(line);
+        return 0;
     }
     if (!strcmp(argv[1], "view")) {
         /* The browser's model over the fetched catalog: which tabs there
@@ -167,8 +230,12 @@ int main(int argc, char **argv) {
         }return 0;
     }
     if (!strcmp(argv[1], "inbox")) {
+        if (getenv("FETCH_FIRST"))
+            catalog_fetch(&catalog);
         int n = inbox_scan(&catalog);
         printf("%d\n", n);
+        /* The names the question lists, apart from the count tests read. */
+        fprintf(stderr, "summary: %s\n", inbox_summary());
         return 0;
     }
     if (!strcmp(argv[1], "discard")) {

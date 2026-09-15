@@ -139,6 +139,13 @@ int presets_merge(const char *boot) {
     for (int i = 0; i < list.count; i++) {
         if (seen(list.url[i]))
             continue;
+        /* A preset added and not remembered as offered would come back at
+           every start after the user took it out. With presets.seen full a
+           new one waits, and nothing in it is forgotten to make room. */
+        if (g_seen_count == SEEN_MAX) {
+            logline("presets: presets.seen is full, %s is not offered", list.url[i]);
+            continue;
+        }
         /* Already in the file counts as offered too: a stick that had the
            first catalog before there were presets gets only the rest. A
            write that fails is not remembered, and is tried next start. */
@@ -149,10 +156,6 @@ int presets_merge(const char *boot) {
             continue;
         }
         added += rc;
-        if (g_seen_count == SEEN_MAX) {
-            logline("presets: presets.seen is full");
-            continue;
-        }
         memcpy(g_seen[g_seen_count++], url, strlen(url) + 1);
         marked++;
     }

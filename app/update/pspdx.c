@@ -1,7 +1,7 @@
 #include "update/pspdx.h"
 #include "update/sources.h"
 #include <cjson/cJSON.h>
-#include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +43,151 @@ int pspdx_characters(const char *s, int newline) {
     }
     return n;
 }
+/* What cJSON lets through and JSON does not, read before it: a byte that is
+   not UTF-8, a control byte inside a string, one between tokens other than
+   the four JSON calls whitespace, a number JSON would not write, and the
+   escape of a NUL, which a cJSON string cannot hold. Read escape by escape,
+   so \\u0000 in the file -- an escaped backslash and the text u0000 -- is
+   left alone. A byte order mark at the start is skipped, as cJSON skips it. */
+static int json_text(const char *text, size_t len) {
+    const unsigned char *p = (const unsigned char *)text, *end = p + len;
+    int in = 0;
+    if (len >= 3 && !memcmp(p, "\xEF\xBB\xBF", 3))
+        p += 3;
+    while (p < end) {
+        unsigned c = *p;
+        if (c < 0x20) {
+            if (in || (c != '\t' && c != '\n' && c != '\r'))
+                return 0;
+            p++;
+        } else if (c == '"') {
+            in = !in;
+            p++;
+        } else if (c == '\\' && in) {
+            if (end - p < 2)
+                return 0;
+            if (p[1] == 'u' && end - p >= 6 && !memcmp(p + 2, "0000", 4))
+                return 0;
+            p += 2;
+        } else if (!in && (c == '-' || (c >= '0' && c <= '9'))) {
+            /* A number as JSON writes one; cJSON also takes 01, 1. and 1.e5. */
+            const unsigned char *q = p + (c == '-');
+            if (q == end || *q < '0' || *q > '9')
+                return 0;
+            if (*q == '0')
+                q++;
+            else
+                while (q < end && *q >= '0' && *q <= '9')
+                    q++;
+            if (q < end && *q == '.') {
+                if (++q == end || *q < '0' || *q > '9')
+                    return 0;
+                while (q < end && *q >= '0' && *q <= '9')
+                    q++;
+            }
+            if (q < end && (*q == 'e' || *q == 'E')) {
+                if (++q < end && (*q == '+' || *q == '-'))
+                    q++;
+                if (q == end || *q < '0' || *q > '9')
+                    return 0;
+                while (q < end && *q >= '0' && *q <= '9')
+                    q++;
+            }
+            if (q < end && (*q == '.' || *q == 'e' || *q == 'E' || *q == '+' || *q == '-' ||
+                            (*q >= '0' && *q <= '9')))
+                return 0;
+            p = q;
+        } else if (c < 0x80) {
+            p++;
+        } else {
+            /* One character of well-formed UTF-8, its bytes all inside len. */
+            char one[5] = {0};
+            size_t k = c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : c >= 0xc0 ? 2 : 1;
+            if ((size_t)(end - p) < k)
+                return 0;
+            memcpy(one, p, k);
+            if (pspdx_characters(one, 0) != 1)
+                return 0;
+            p += k;
+        }
+    }
+    return 1;
+}
+/* Days from the civil date by Howard Hinnant's arithmetic; the month lengths
+   are only there to refuse a day no calendar has. */
+unsigned pspdx_time(const char *text) {
+    int y, mo, d, h = 0, mi = 0, sec = 0;
+    /* A release entered by hand may know only its day, "2024-12-20"; it
+       counts from that day's midnight, which orders it and dates it, and
+       nothing more is asked of it. */
+    size_t n = text ? strlen(text) : 0;
+    if ((n != 20 && n != 10) || text[4] != '-' || text[7] != '-' ||
+        (n == 20 && (text[10] != 'T' || text[13] != ':' || text[16] != ':' || text[19] != 'Z')))
+        return 0;
+    for (size_t i = 0; i < (n == 20 ? 19 : 10); i++)
+        if (i != 4 && i != 7 && i != 10 && i != 13 && i != 16 && (text[i] < '0' || text[i] > '9'))
+            return 0;
+    if (n == 20 ? sscanf(text, "%d-%d-%dT%d:%d:%dZ", &y, &mo, &d, &h, &mi, &sec) != 6
+                : sscanf(text, "%d-%d-%d", &y, &mo, &d) != 3)
+        return 0;
+    static const unsigned char days_in[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    if (mo < 1 || mo > 12 || d < 1 || d > days_in[mo - 1] + (mo == 2 && leap) || y < 1970 ||
+        h > 23 || mi > 59 || sec > 59)
+        return 0;
+    y -= mo <= 2;
+    int era = y / 400;
+    int yoe = y - era * 400;
+    int doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    long long days = (long long)era * 146097 + doe - 719468;
+    long long seconds = days * 86400 + h * 3600 + mi * 60 + sec;
+    return seconds > 0 && seconds <= UINT_MAX ? (unsigned)seconds : 0;
+}
+/* The release a file pins: an object with a tag of 1 to 64 characters, and
+   where it names them an https address of up to 512 characters and the time
+   it was published. What else the object holds is passed over, as a field
+   of the file this version does not know is. 0, or -1 with why. */
+static int pinned_release(const cJSON *v, struct pspdx_file *out, const char **why) {
+    static const char *const keys[] = {"tag", "url", "published_at"};
+    *why = "invalid release";
+    if (!cJSON_IsObject(v))
+        return -1;
+    for (unsigned i = 0; i < sizeof(keys) / sizeof(*keys); i++) {
+        int seen = 0;
+        for (const cJSON *w = v->child; w; w = w->next)
+            if (!strcmp(w->string, keys[i]) && seen++) {
+                *why = "duplicate field in release";
+                return -1;
+            }
+    }
+    const cJSON *tag = cJSON_GetObjectItemCaseSensitive(v, "tag");
+    const cJSON *url = cJSON_GetObjectItemCaseSensitive(v, "url");
+    const cJSON *published = cJSON_GetObjectItemCaseSensitive(v, "published_at");
+    int n = cJSON_IsString(tag) ? pspdx_characters(tag->valuestring, 0) : -1;
+    if (n < 1 || n > 64 || strlen(tag->valuestring) >= sizeof(out->release_tag)) {
+        *why = "invalid release tag";
+        return -1;
+    }
+    if (url && (!cJSON_IsString(url) || strncmp(url->valuestring, "https://", 8) ||
+                !url->valuestring[8] || strlen(url->valuestring) >= sizeof(out->release_url) ||
+                strspn(url->valuestring, "!#$%&'()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                         "[]_abcdefghijklmnopqrstuvwxyz~") !=
+                    strlen(url->valuestring))) {
+        *why = "invalid release url";
+        return -1;
+    }
+    unsigned when = cJSON_IsString(published) ? pspdx_time(published->valuestring) : 0;
+    if (published && !when) {
+        *why = "invalid release published_at";
+        return -1;
+    }
+    strcpy(out->release_tag, tag->valuestring);
+    if (url)
+        strcpy(out->release_url, url->valuestring);
+    out->release_published = when;
+    return 0;
+}
 void pspdx_utf8_mend(char *s) {
     size_t n = strlen(s), lead = n;
     /* Back over the continuation bytes to the byte that starts the last
@@ -74,7 +219,9 @@ int pspdx_install_dir(const char *path) {
         return 0;
     const char *d = path + 9;
     size_t n = strlen(d);
-    if (!n || n > 32 || !strcmp(d, ".") || !strcmp(d, "..") || !strcasecmp(d, ".pspdx-stage"))
+    /* FAT drops a trailing dot, so PSP/GAME/Demo. is PSP/GAME/Demo on the
+       stick and ... the folder above: a name may not end in one. */
+    if (!n || n > 32 || d[n - 1] == '.' || !strcasecmp(d, ".pspdx-stage"))
         return 0;
     for (; *d; d++)
         if (!((*d >= 'A' && *d <= 'Z') || (*d >= 'a' && *d <= 'z') || (*d >= '0' && *d <= '9') ||
@@ -83,6 +230,11 @@ int pspdx_install_dir(const char *path) {
     return 1;
 }
 void pspdx_default_dir(const char *repo, const char *name, char *out, size_t size) {
+    if (size < sizeof("PSP/GAME/")) {
+        if (size)
+            out[0] = '\0';
+        return;
+    }
     size_t n = (size_t)snprintf(out, size, "PSP/GAME/");
     int kept = 0;
     for (const char *p = repo ? repo : name; *p && kept < 32 && n + 1 < size; p++)
@@ -91,6 +243,9 @@ void pspdx_default_dir(const char *repo, const char *name, char *out, size_t siz
             out[n++] = *p;
             kept++;
         }
+    /* The dots a name ends in are not a folder's: FAT would drop them. */
+    while (n > 9 && out[n - 1] == '.')
+        n--;
     out[n] = '\0';
 }
 int pspdx_type_installable(const char *type) { return type && !strcmp(type, "homebrew"); }
@@ -109,19 +264,15 @@ int pspdx_has_tag(const char *tags, const char *word) {
 int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reason, size_t cap) {
     memset(out, 0, sizeof(*out));
     snprintf(reason, cap, "invalid manifest");
-    if (!text || !len || len > PSPDX_FILE_MAX || memchr(text, 0, len))
+    if (!text || !len || len > PSPDX_FILE_MAX || !json_text(text, len))
         return -1;
-    /* cJSON strings cannot represent embedded NULs. Reject their JSON escape. */
-    for (size_t i = 0; i + 5 < len; i++)
-        if (!memcmp(text + i, "\\u0000", 6))
-            return -1;
     const char *end = NULL;
     cJSON *root = cJSON_ParseWithLengthOpts(text, len, &end, 0);
     if (!cJSON_IsObject(root)) {
         cJSON_Delete(root);
         return -1;
     }
-    while (end < text + len && isspace((unsigned char)*end))
+    while (end < text + len && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r'))
         end++;
     if (end != text + len) {
         cJSON_Delete(root);
@@ -148,7 +299,7 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
                              {"description", NULL, PSPDX_FILE_MAX + 1, 2500, 0, 1}};
     cJSON *v;
     cJSON_ArrayForEach(v, root) {
-        int found = !strcmp(v->string, "tags");
+        int found = !strcmp(v->string, "tags") || !strcmp(v->string, "release");
         for (unsigned i = 0; i < sizeof(fields) / sizeof(*fields); i++)
             if (!strcmp(v->string, fields[i].key))
                 found = 1;
@@ -231,10 +382,22 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
        that vouches for the app and the app's name, so a file that names no
        list, or whose list and name leave nothing to make one of, is no app
        anyone could find again. */
-    if (github)
-        sources_repo_id(&repo, out->id, sizeof(out->id));
-    else if (!listed || sources_listed_id(out->listed_by, out->name, out->id, sizeof(out->id)) < 0) {
+    if (github ? sources_repo_id(&repo, out->id, sizeof(out->id)) < 0
+               : !listed || sources_listed_id(out->listed_by, out->name, out->id,
+                                              sizeof(out->id)) < 0) {
         snprintf(reason, cap, "no id: a source outside GitHub needs listed_by and a name");
+        goto bad;
+    }
+    v = cJSON_GetObjectItemCaseSensitive(root, "release");
+    const char *why;
+    if (v && pinned_release(v, out, &why) < 0) {
+        snprintf(reason, cap, "%s", why);
+        goto bad;
+    }
+    /* GitHub says where a tag's zip is and when it was published; anywhere
+       else the file has to. */
+    if (v && !github && (!out->release_url[0] || !out->release_published)) {
+        snprintf(reason, cap, "invalid release: outside GitHub it needs url and published_at");
         goto bad;
     }
     v = cJSON_GetObjectItemCaseSensitive(root, "tags");
@@ -264,7 +427,8 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
         }
     }
     cJSON_Delete(root);
-    reason[0] = 0;
+    if (cap)
+        reason[0] = 0;
     return 0;
 bad:
     cJSON_Delete(root);

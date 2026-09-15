@@ -98,7 +98,7 @@ https://github.com/someone/project@v1.2
 | GitHub URL or `owner/repo` | **Direct install** | Add the repository as a source and install its app |
 | `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct install** | Validate and install the selected files |
 
-- Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://wijsman.de/psp-homebrew-database/homebrew.json`
+- Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://wijsman.de/psp-homebrew-database/`
 - Presets ship as `PSP/GAME/PSPDX/presets.txt`, same lines as `sources.txt`; the EBOOT carries a copy for a stick without one
 - Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
 - A source that does not load is marked *unreachable* in the gear's list of catalogs; the rest load as usual

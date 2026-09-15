@@ -43,6 +43,7 @@ void catalog_force_sources(void) { g_force = 1; }
 static char g_catalog_url[SOURCE_URL] = CATALOG_URL;
 static char g_progress[64];
 static char g_refused_url[SOURCE_URL];
+static char g_refused_folder[64];
 static int g_refused_rc;
 
 static void copy_str(char *dst, size_t size, cJSON *value) {
@@ -129,16 +130,33 @@ static void asset_url(const char *base, const char *rel, char *out, size_t size)
         out[0] = '\0';
         return;
     }
-    if (strncmp(rel, "http://", 7) == 0 || strncmp(rel, "https://", 8) == 0) {
-        snprintf(out, size, "%s", rel);
-        return;
+    int n;
+    const char *scheme_end = strstr(base, "://");
+    if (strncasecmp(rel, "http://", 7) == 0 || strncasecmp(rel, "https://", 8) == 0) {
+        n = snprintf(out, size, "%s", rel);
+    } else if (!scheme_end) {
+        n = -1;
+    } else if (rel[0] == '/' && rel[1] == '/') {
+        /* Another host, by the catalog's scheme. */
+        n = snprintf(out, size, "%.*s%s", (int)(scheme_end - base) + 1, base, rel);
+    } else if (rel[0] == '/') {
+        /* The catalog's host, from its root. */
+        const char *host = scheme_end + 3;
+        n = snprintf(out, size, "%.*s%s", (int)(host - base + strcspn(host, "/?#")), base, rel);
+    } else {
+        /* Beside the catalog: its path up to the last slash, without a query. */
+        const char *end = base + strcspn(base, "?#");
+        const char *slash = end;
+        while (slash > scheme_end + 3 && slash[-1] != '/')
+            slash--;
+        if (slash <= scheme_end + 3)
+            n = snprintf(out, size, "%.*s/%s", (int)(end - base), base, rel);
+        else
+            n = snprintf(out, size, "%.*s%s", (int)(slash - base), base, rel);
     }
-    const char *slash = strrchr(base, '/');
-    if (!slash) {
-        out[0] = 0;
-        return;
-    }
-    snprintf(out, size, "%.*s%s", (int)(slash - base) + 1, base, rel);
+    /* An address cut to fit is another address: none at all instead. */
+    if (n < 0 || (size_t)n >= size)
+        out[0] = '\0';
 }
 
 /* Which state the stick puts an entry in: unknown until the update check
@@ -164,7 +182,7 @@ static void settle_state(struct app_entry *entry) {
 static int id_well_formed(const char *id) {
     size_t n = strlen(id), part = 0;
     int dots = 0;
-    if (n > 95)
+    if (n >= PSPDX_ID_SIZE)
         return 0;
     for (const char *p = id; *p; p++) {
         if (*p == '.') {
@@ -190,7 +208,90 @@ static int has_id(const struct catalog *catalog, const char *id) {
     return 0;
 }
 
-static unsigned iso8601(const char *text);
+static int vouched_pspdx(struct app_entry *entry);
+
+/* Whether an object names one of the fields this version reads twice. cJSON
+   finds the first and most other readers the last, so such an entry says
+   two things, and is refused as a .pspdx that did so would be. A field this
+   version does not know is passed over, as it is in a .pspdx. */
+static int names_twice(const cJSON *object, const char *const *keys) {
+    for (; cJSON_IsObject(object) && *keys; keys++) {
+        int seen = 0;
+        for (const cJSON *v = object->child; v; v = v->next)
+            if (v->string && !strcmp(v->string, *keys) && seen++)
+                return 1;
+    }
+    return 0;
+}
+static const char *const APP_KEYS[] = {"id", "source", "name", "type", "category", "tags",
+                                       "installdir", "summary", "author", "license",
+                                       "description", "listed_by", "website", "media",
+                                       "releases", NULL};
+static const char *const MEDIA_KEYS[] = {"icon", "screenshots", "video", "sound", NULL};
+static const char *const RELEASE_KEYS[] = {"tag", "published_at", "url", "size", "sha256",
+                                           "eboot_md5", "changelog", NULL};
+
+/* The fields of an entry a list vouches for, held to the rules of the .pspdx
+   an install writes out of them. The entry's own copies cannot say: a field
+   too long for its buffer is left empty there, and a tag that breaks the
+   rules is left out, where the file would be refused. NULL when they hold,
+   or the field that does not. */
+static const char *vouched_fields(const cJSON *app) {
+    static const struct {
+        const char *key;
+        int limit, newline;
+    } text[] = {{"name", 40, 0},    {"author", 60, 0},   {"summary", 60, 0},
+                {"license", 60, 0}, {"category", 24, 0}, {"description", 2500, 1}};
+    for (unsigned i = 0; i < sizeof(text) / sizeof(*text); i++) {
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(app, text[i].key);
+        int n = cJSON_IsString(v) ? pspdx_characters(v->valuestring, text[i].newline) : -1;
+        if (v && (n < 0 || n > text[i].limit || (!n && !strcmp(text[i].key, "category"))))
+            return text[i].key;
+    }
+    const cJSON *tags = cJSON_GetObjectItemCaseSensitive(app, "tags"), *tag;
+    if (tags && (!cJSON_IsArray(tags) || cJSON_GetArraySize(tags) > PSPDX_TAGS))
+        return "tags";
+    cJSON_ArrayForEach(tag, tags) {
+        int n = cJSON_IsString(tag) ? pspdx_characters(tag->valuestring, 0) : -1;
+        if (n < 1 || n > 24)
+            return "tags";
+        for (const cJSON *w = tags->child; w != tag; w = w->next)
+            if (!strcmp(w->valuestring, tag->valuestring))
+                return "tags";
+    }
+    return NULL;
+}
+
+/* The entry that already has PSP/GAME/<dir>, but for the one at except, or
+   -1. One directory is one app's, and what cannot be installed claims none. */
+static int folder_holder(const struct catalog *catalog, const char *dir, int except) {
+    for (int i = 0; dir[0] && i < catalog->count; i++)
+        if (i != except && !catalog->apps[i].unsupported &&
+            !strcasecmp(catalog->apps[i].release.dir, dir))
+            return i;
+    return -1;
+}
+
+void catalog_folder_line(char *out, size_t size, const char *name, const char *dir) {
+    /* The name gives way, never the folder or the end of the sentence. */
+    char shown[161];
+    int fixed = snprintf(NULL, 0, T_FOLDER_TAKEN, "", dir);
+    size_t room = fixed >= 0 && (size_t)fixed + 1 < size ? size - 1 - (size_t)fixed : 0;
+    snprintf(shown, room + 1 < sizeof(shown) ? room + 1 : sizeof(shown), "%s", name);
+    pspdx_utf8_mend(shown);
+    snprintf(out, size, T_FOLDER_TAKEN, shown, dir);
+}
+
+/* An entry left out because another has its folder: said in the log, and the
+   first such one kept for the status line once the fetch is through, since an
+   app that is simply missing from the list says nothing. */
+static void folder_taken(struct catalog *catalog, const char *from, const char *id,
+                         const char *name, const char *dir, int holder) {
+    logline("%s: %s wants PSP/GAME/%s, which %s has; not listed", from, id, dir,
+            catalog->apps[holder].id);
+    if (!catalog->collision[0])
+        catalog_folder_line(catalog->collision, sizeof(catalog->collision), name, dir);
+}
 
 /* A catalog.json in the response buffer, merged into the catalog. base is
    the URL it came from, for the assets it names relative to itself.
@@ -217,31 +318,28 @@ static int parse(struct catalog *catalog, const char *base) {
     /* When the list was last written, as the list says; the oldest of the
        sources is what the session is told about. */
     cJSON *generated = cJSON_GetObjectItemCaseSensitive(root, "generated_at");
-    unsigned when = iso8601(cJSON_IsString(generated) ? generated->valuestring : NULL);
+    unsigned when = pspdx_time(cJSON_IsString(generated) ? generated->valuestring : NULL);
     if (!when) {
         logline("catalog: invalid generated_at");
         cJSON_Delete(root);
         return -1;
     }
-    if (!catalog->generated || when < catalog->generated) {
-        catalog->generated = when;
-        /* The host alone: a line on the console has no room for a URL,
-           and the host is what a person calls the list. */
-        const char *host = strstr(base, "://");
-        host = host ? host + 3 : base;
-        size_t n = strcspn(host, "/");
-        snprintf(catalog->generated_from, sizeof(catalog->generated_from), "%.*s", (int)n, host);
-    }
-
     int before = catalog->count;
     int taken = 0;
-    catalog->total += cJSON_GetArraySize(apps);
     cJSON *app;
     cJSON_ArrayForEach(app, apps) {
         if (catalog->count >= MAX_APPS)
             break;
         struct app_entry *entry = &catalog->apps[catalog->count];
         entry_clear(entry);
+        cJSON *releases = cJSON_GetObjectItemCaseSensitive(app, "releases");
+        if (names_twice(app, APP_KEYS) ||
+            names_twice(cJSON_GetObjectItemCaseSensitive(app, "media"), MEDIA_KEYS) ||
+            names_twice(cJSON_GetArrayItem(cJSON_IsArray(releases) ? releases : NULL, 0),
+                        RELEASE_KEYS)) {
+            logline("catalog: an entry names a field twice; dropped");
+            continue;
+        }
         /* What the catalog calls the entry, read whole: an id cut to fit the
            buffer could look like one it never was. */
         cJSON *named = cJSON_GetObjectItemCaseSensitive(app, "id");
@@ -286,7 +384,7 @@ static int parse(struct catalog *catalog, const char *base) {
            may call its entries as it likes. */
         struct source_repo source;
         struct installed record;
-        char derived[96] = "";
+        char derived[PSPDX_ID_SIZE] = "";
         int github = sources_parse_repo(entry->repo, &source);
         if (github)
             sources_repo_id(&source, derived, sizeof(derived));
@@ -301,7 +399,7 @@ static int parse(struct catalog *catalog, const char *base) {
 
         /* The newest release is the first, and the only one a console
            installs or compares; the rest are history. */
-        cJSON *release = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(app, "releases"), 0);
+        cJSON *release = cJSON_IsArray(releases) ? cJSON_GetArrayItem(releases, 0) : NULL;
         if (cJSON_IsObject(release)) {
             struct manifest *m = &entry->release;
             strncpy(m->id, entry->id, sizeof(m->id) - 1);
@@ -312,7 +410,7 @@ static int parse(struct catalog *catalog, const char *base) {
             /* The rules install.h states: these fields go straight into
                a download and an unpack. */
             int ok = 1;
-            m->rev = iso8601(cJSON_IsString(published) ? published->valuestring : NULL);
+            m->rev = pspdx_time(cJSON_IsString(published) ? published->valuestring : NULL);
             if (!m->rev) ok = 0;
             if (cJSON_IsNumber(size) && manifest_size_in_range(size->valuedouble))
                 m->size = (size_t)size->valuedouble;
@@ -323,7 +421,10 @@ static int parse(struct catalog *catalog, const char *base) {
                version is kept in bytes enough for 64 of four bytes each. */
             int characters = cJSON_IsString(tag) ? pspdx_characters(tag->valuestring, 0) : -1;
             if (characters >= 1 && characters <= 64) {
-                const char *version = tag->valuestring + (tag->valuestring[0] == 'v');
+                /* A "v" is taken off a version, and a tag that is only
+                   one is the version. */
+                const char *version =
+                    tag->valuestring + (tag->valuestring[0] == 'v' && tag->valuestring[1]);
                 if (strlen(version) < sizeof(m->version))
                     snprintf(m->version, sizeof(m->version), "%s", version);
                 else ok = 0;
@@ -334,7 +435,9 @@ static int parse(struct catalog *catalog, const char *base) {
                hash out leaves the size as the check, as the origin path
                does; one that wrote something that is not a hash is not
                trusted with the rest. */
-            if (cJSON_IsString(sha)) {
+            if (sha && !cJSON_IsString(sha)) {
+                ok = 0;
+            } else if (sha) {
                 ok = ok && strlen(sha->valuestring) == 64;
                 for (int k = 0; ok && k < 32; k++) {
                     unsigned byte = 0;
@@ -397,8 +500,8 @@ static int parse(struct catalog *catalog, const char *base) {
         cJSON *media = cJSON_GetObjectItemCaseSensitive(app, "media");
         copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "icon"));
         asset_url(base, shot, entry->icon, sizeof(entry->icon));
-        copy_str(shot, sizeof(shot),
-                 cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(media, "screenshots"), 0));
+        cJSON *shots = cJSON_GetObjectItemCaseSensitive(media, "screenshots");
+        copy_str(shot, sizeof(shot), cJSON_IsArray(shots) ? cJSON_GetArrayItem(shots, 0) : NULL);
         asset_url(base, shot, entry->screenshot, sizeof(entry->screenshot));
         copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "video"));
         asset_url(base, shot, entry->video, sizeof(entry->video));
@@ -431,19 +534,39 @@ static int parse(struct catalog *catalog, const char *base) {
         struct installed local;
         if (db_read(entry->id, &local) < 0 && catalog->count >= MAX_APPS - state_count())
             continue;
+        copy_description(entry, cJSON_GetObjectItemCaseSensitive(app, "description"));
+        /* What a list vouches for is installed from the .pspdx written out of
+           its entry, wherever the repository has none, and that file is held
+           to v1: an entry that could never make one is not listed as an app
+           that installs. */
+        if (entry->listed_by[0]) {
+            const char *bad = vouched_fields(app);
+            char why[80] = "";
+            if (!bad && !entry->unsupported) {
+                struct pspdx_file file;
+                char *fixture = entry->release.raw;
+                entry->release.raw = NULL;
+                if (vouched_pspdx(entry) < 0)
+                    bad = "too large";
+                else if (pspdx_parse(entry->release.raw, strlen(entry->release.raw), &file, why,
+                                     sizeof(why)) < 0)
+                    bad = why;
+                manifest_forget(&entry->release);
+                entry->release.raw = fixture;
+            }
+            if (bad) {
+                logline("catalog: %s is vouched for and breaks the .pspdx rules (%s); dropped",
+                        entry->id, bad);
+                continue;
+            }
+        }
         /* One directory is one app's: a second entry that wants the same
-           name would only be refused at install time, so the first keeps it.
-           What cannot be installed claims no directory, and is not kept out
-           by one either. */
-        int claims = entry->release.dir[0] && !entry->unsupported;
-        int held;
-        for (held = 0; held < catalog->count && claims; held++)
-            if (!catalog->apps[held].unsupported &&
-                !strcasecmp(catalog->apps[held].release.dir, entry->release.dir))
-                break;
-        if (claims && held < catalog->count) {
-            logline("catalog: %s wants PSP/GAME/%s, which %s has; dropped", entry->id,
-                    entry->release.dir, catalog->apps[held].id);
+           name would only be refused at install time, so the first keeps it,
+           and the second is said. What cannot be installed claims no
+           directory, and is not kept out by one either. */
+        int held = entry->unsupported ? -1 : folder_holder(catalog, entry->release.dir, -1);
+        if (held >= 0) {
+            folder_taken(catalog, "catalog", entry->id, entry->name, entry->release.dir, held);
             continue;
         }
 
@@ -458,15 +581,29 @@ static int parse(struct catalog *catalog, const char *base) {
             logline("catalog: \"%s%s\" is not an id this stick can use; listed as %s", shown,
                     given[k] ? "..." : "", entry->id);
         }
-        copy_description(entry, cJSON_GetObjectItemCaseSensitive(app, "description"));
         settle_state(entry);
         catalog->count++;
         taken++;
     }
     int empty = cJSON_GetArraySize(apps) == 0;
     g_parsed_empty = empty;
+    int rc = taken || empty || before > 0 ? taken : -1;
+    /* A catalog that was not taken says nothing about how old the list is. */
+    if (rc >= 0) {
+        catalog->total += cJSON_GetArraySize(apps);
+        if (!catalog->generated || when < catalog->generated) {
+            catalog->generated = when;
+            /* The host alone: a line on the console has no room for a URL,
+               and the host is what a person calls the list. */
+            const char *host = strstr(base, "://");
+            host = host ? host + 3 : base;
+            size_t n = strcspn(host, "/");
+            snprintf(catalog->generated_from, sizeof(catalog->generated_from), "%.*s", (int)n,
+                     host);
+        }
+    }
     cJSON_Delete(root);
-    return taken || empty || before > 0 ? taken : -1;
+    return rc;
 }
 
 /* A gzipped body is inflated as it arrives, and the room is counted in
@@ -561,38 +698,6 @@ static int take_cache(struct catalog *catalog, const char *url, enum cache_mode 
 }
 
 /* ------------------------------------------------------------- origin */
-
-/* "2026-09-12T08:29:23Z", as GitHub writes published_at, to unix seconds.
-   Days from the civil date by Howard Hinnant's arithmetic, which needs no
-   table of month lengths. Returns 0 for anything that is not that. */
-static unsigned iso8601(const char *text) {
-    int y, mo, d, h = 0, mi = 0, sec = 0;
-    /* A release entered by hand may know only its day, "2024-12-20"; it
-       counts from that day's midnight, which orders it and dates it, and
-       nothing more is asked of it. */
-    size_t n = text ? strlen(text) : 0;
-    if ((n != 20 && n != 10) || text[4] != '-' || text[7] != '-' ||
-        (n == 20 && (text[10] != 'T' || text[13] != ':' || text[16] != ':' || text[19] != 'Z')))
-        return 0;
-    for (size_t i = 0; i < (n == 20 ? 19 : 10); i++)
-        if (i != 4 && i != 7 && i != 10 && i != 13 && i != 16 &&
-            !isdigit((unsigned char)text[i]))
-            return 0;
-    if (n == 20 ? sscanf(text, "%d-%d-%dT%d:%d:%dZ", &y, &mo, &d, &h, &mi, &sec) != 6
-                : sscanf(text, "%d-%d-%d", &y, &mo, &d) != 3)
-        return 0;
-    if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 1970 ||
-        h > 23 || mi > 59 || sec > 59)
-        return 0;
-    y -= mo <= 2;
-    int era = y / 400;
-    int yoe = y - era * 400;
-    int doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    long long days = (long long)era * 146097 + doe - 719468;
-    long long seconds = days * 86400 + h * 3600 + mi * 60 + sec;
-    return seconds > 0 && seconds <= UINT_MAX ? (unsigned)seconds : 0;
-}
 
 static int ends_with_zip(const char *name) {
     size_t n = strlen(name);
@@ -703,15 +808,31 @@ static int origin_entry(struct app_entry *entry, const struct source_repo *repo)
        account in the URL. */
 
     /* Which release: the list's @tag pins hardest, then the file's own
-       release, and with neither it is whatever GitHub calls latest. */
+       release, and with neither it is whatever GitHub calls latest. A pinned
+       one is asked for by its tag, which finds a prerelease too, and nothing
+       newer is looked for. */
     const char *pinned = strcmp(repo->ref, "HEAD") != 0 ? repo->ref : NULL;
-    if (pinned)
-        snprintf(api, sizeof(api), "https://api.github.com/repos/%s/%s/releases/tags/%s",
-                 repo->owner, repo->name, pinned);
-    else
-        snprintf(api, sizeof(api), "https://api.github.com/repos/%s/%s/releases/latest",
-                 repo->owner, repo->name);
-    cJSON *root = fetch_json(api);
+    int by_file = !pinned && file.release_tag[0];
+    if (by_file)
+        pinned = file.release_tag;
+    /* Room for the longest tag with every byte of it escaped. */
+    char release_api[1024];
+    if (pinned) {
+        char escaped[64 * 4 * 3 + 1];
+        size_t k = 0;
+        for (const unsigned char *p = (const unsigned char *)pinned; *p; p++) {
+            int plain = (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+                        (*p >= '0' && *p <= '9') || strchr("-._~", *p);
+            k += (size_t)snprintf(escaped + k, sizeof(escaped) - k, plain ? "%c" : "%%%02X", *p);
+        }
+        snprintf(release_api, sizeof(release_api),
+                 "https://api.github.com/repos/%s/%s/releases/tags/%s", repo->owner, repo->name,
+                 escaped);
+    } else {
+        snprintf(release_api, sizeof(release_api),
+                 "https://api.github.com/repos/%s/%s/releases/latest", repo->owner, repo->name);
+    }
+    cJSON *root = fetch_json(release_api);
     if (!root) {
         logline("origin: %s/%s has no release %s", repo->owner, repo->name,
                 pinned ? pinned : "(latest)");
@@ -729,20 +850,46 @@ static int origin_entry(struct app_entry *entry, const struct source_repo *repo)
     copy_str(tag, sizeof(tag), cJSON_GetObjectItemCaseSensitive(root, "tag_name"));
     int characters = pspdx_characters(tag, 0);
     if (characters >= 1 && characters <= 64)
-        snprintf(m->version, sizeof(m->version), "%s", tag[0] == 'v' ? tag + 1 : tag);
+        snprintf(m->version, sizeof(m->version), "%s", tag[0] == 'v' && tag[1] ? tag + 1 : tag);
     cJSON *published = cJSON_GetObjectItemCaseSensitive(root, "published_at");
-    m->rev = iso8601(cJSON_IsString(published) ? published->valuestring : NULL);
-    /* The zip: the only one on the release. */
-    int zips = 0;
-    cJSON *asset;
+    m->rev = pspdx_time(cJSON_IsString(published) ? published->valuestring : NULL);
+    /* The zip: the asset the file names, when it pins a release and names
+       one, which has to be on that release; otherwise the only .zip on it,
+       or of several the only one whose name says psp. */
+    const char *wanted = by_file && file.release_url[0] ? file.release_url : NULL;
+    int zips = 0, psp = 0, named = 0;
+    cJSON *asset, *zip = NULL, *psp_zip = NULL;
     cJSON_ArrayForEach(asset, cJSON_GetObjectItemCaseSensitive(root, "assets")) {
         cJSON *aname = cJSON_GetObjectItemCaseSensitive(asset, "name");
         cJSON *size = cJSON_GetObjectItemCaseSensitive(asset, "size");
+        cJSON *link = cJSON_GetObjectItemCaseSensitive(asset, "browser_download_url");
         if (!cJSON_IsString(aname) || !cJSON_IsNumber(size))
             continue;
+        if (wanted) {
+            if (cJSON_IsString(link) && !strcmp(link->valuestring, wanted)) {
+                named++;
+                zip = asset;
+            }
+            continue;
+        }
         if (!ends_with_zip(aname->valuestring))
             continue;
         zips++;
+        zip = asset;
+        for (const char *p = aname->valuestring; *p; p++)
+            if (!strncasecmp(p, "psp", 3)) {
+                psp++;
+                psp_zip = asset;
+                break;
+            }
+    }
+    cJSON *chosen = wanted ? (named == 1 ? zip : NULL) : zips == 1 ? zip : psp == 1 ? psp_zip : NULL;
+    const char *unusable = wanted ? "the release.url of its .pspdx is not an asset of the release"
+                           : !zips ? "no .zip on the release"
+                                   : "several .zip files and not exactly one with psp in its name";
+    if (chosen) {
+        asset = chosen;
+        cJSON *size = cJSON_GetObjectItemCaseSensitive(asset, "size");
         if (manifest_size_in_range(size->valuedouble))
             m->size = (size_t)size->valuedouble;
         copy_str(m->url, sizeof(m->url),
@@ -756,10 +903,10 @@ static int origin_entry(struct app_entry *entry, const struct source_repo *repo)
             memset(m->sha256, 0, sizeof(m->sha256));
     }
     cJSON_Delete(root);
-    if (zips != 1 || !m->rev || !m->version[0] || !sources_release_url(m->repo, m->url) ||
+    if (!chosen || !m->rev || !m->version[0] || !sources_release_url(m->repo, m->url) ||
         !m->size) {
-        logline("origin: %s/%s %s: %d zip%s, rev %u%s", repo->owner, repo->name,
-                tag[0] ? tag : "no tag", zips, zips == 1 ? "" : "s", m->rev,
+        logline("origin: %s/%s %s: %s, rev %u%s", repo->owner, repo->name,
+                tag[0] ? tag : "no tag", chosen ? "a zip it cannot install" : unusable, m->rev,
                 m->version[0] || !tag[0] ? "" : ", a tag of more than 64 characters");
         free(text);
         entry_clear(entry);
@@ -767,6 +914,7 @@ static int origin_entry(struct app_entry *entry, const struct source_repo *repo)
         return -1;
     }
     entry->has_release = 1;
+    m->pinned = by_file;
     /* The shape of the zip, as the author stated it; install.c holds both
        to their rules, the same ones a cache entry's are held to. */
     snprintf(m->dir, sizeof(m->dir), "%.32s", file.installdir + 9);
@@ -790,7 +938,7 @@ refused:
 /* The same, into the catalog's next slot: 1 taken, 0 already there, -1
    refused or no room. */
 static int take_origin(struct catalog *catalog, const struct source_repo *repo) {
-    char id[96];
+    char id[PSPDX_ID_SIZE];
     sources_repo_id(repo, id, sizeof(id));
     if (catalog->count >= MAX_APPS)
         return -1;
@@ -802,6 +950,17 @@ static int take_origin(struct catalog *catalog, const struct source_repo *repo) 
     struct app_entry *entry = &catalog->apps[catalog->count];
     if (origin_entry(entry, repo) < 0)
         return -1;
+    /* The folder rule holds here as it does between a catalog's entries. */
+    int held = entry->unsupported ? -1 : folder_holder(catalog, entry->release.dir, -1);
+    if (held >= 0) {
+        char url[SOURCE_URL];
+        sources_repo_url(repo, url, sizeof(url));
+        folder_taken(catalog, "origin", entry->id, entry->name, entry->release.dir, held);
+        refuse(url, REFUSED_FOLDER);
+        snprintf(g_refused_folder, sizeof(g_refused_folder), "%s", entry->release.dir);
+        entry_clear(entry);
+        return -1;
+    }
     settle_state(entry);
     catalog->count++;
     catalog->total++;
@@ -924,6 +1083,7 @@ const char *catalog_progress(void) { return g_progress; }
 int catalog_refused(const char *url) {
     return sources_same_url(g_refused_url, url) ? g_refused_rc : 0;
 }
+const char *catalog_refused_folder(void) { return g_refused_folder; }
 
 int catalog_find_repo(const struct catalog *catalog, const char *url) {
     for (int i = 0; i < catalog->count; i++)
@@ -955,12 +1115,19 @@ static void restore_installed(struct catalog *catalog) {
     unsigned now = (unsigned)time(NULL);
     int stale = catalog->generated && catalog->generated + 24u * 3600u < now;
     for (int i = 0; i < state_count(); i++) {
-        char id[96];
+        char id[PSPDX_ID_SIZE];
         snprintf(id, sizeof(id), "%s", state_id(i));
         struct installed rec;
         if (db_read(id, &rec) < 0)
             continue;
         int at = catalog_find_repo(catalog, rec.repo);
+        /* An app is one row: an id a catalog lists for another source is not
+           listed a second time beside it. */
+        if (at < 0 && has_id(catalog, id)) {
+            logline("restore: %s from %s has its id listed for another source; not listed twice",
+                    id, rec.repo);
+            continue;
+        }
         /* A live catalog that is not a day behind answers for what it
            lists. Past that -- an app no catalog lists, a list served from
            the cache, a stamp a day old -- the app is asked at its own
@@ -997,12 +1164,23 @@ static void restore_installed(struct catalog *catalog) {
         if (one)
             snprintf(g_progress, sizeof(g_progress), T_STATUS_ORIGIN, repo.name, i + 1,
                      state_count());
+        int held;
         if (one && origin_entry(one, &repo) > 0) {
             fetched = 1;
             int known = at >= 0;
-            if (at < 0 && catalog->count < MAX_APPS)
+            /* Another entry has the folder the repository names now: the
+               row a catalog gave the app stays as it was, and none is added. */
+            held = one->unsupported ? -1 : folder_holder(catalog, one->release.dir, at);
+            if (held >= 0)
+                folder_taken(catalog, "restore", id, one->name, one->release.dir, held);
+            else if (at < 0 && catalog->count < MAX_APPS)
                 at = catalog->count++;
-            if (at >= 0) {
+            /* A release the file pins says nothing about updates: where an
+               entry lists the app already, it does, and stays, and is what
+               the record hears. */
+            if (at >= 0 && held < 0 && known && one->release.pinned)
+                state_note_latest(&catalog->apps[at].release);
+            if (at >= 0 && held < 0 && !(known && one->release.pinned)) {
                 struct app_entry *dst = &catalog->apps[at];
                 if (known) {
                     memcpy(one->icon, dst->icon, sizeof(dst->icon));
@@ -1027,6 +1205,9 @@ static void restore_installed(struct catalog *catalog) {
                     storage_write(path, dst->release.raw, strlen(dst->release.raw));
                 }
             }
+        } else if (at < 0 && n >= 0 && pspdx_type_installable(file.type) &&
+                   (held = folder_holder(catalog, file.installdir + 9, -1)) >= 0) {
+            folder_taken(catalog, "restore", id, file.name, file.installdir + 9, held);
         } else if (at < 0 && n >= 0 && catalog->count < MAX_APPS) {
             struct app_entry *e = &catalog->apps[catalog->count++];
             entry_clear(e);
@@ -1056,6 +1237,14 @@ static void restore_installed(struct catalog *catalog) {
                 struct app_entry *e = &catalog->apps[at];
                 snprintf(latest.dir, sizeof(latest.dir), "%.32s",
                          n >= 0 ? file.installdir + 9 : rec.dir);
+                /* Taking the record's word moves the row to the folder the
+                   saved file names, which another entry may have: then the
+                   row stays as the catalog gave it. */
+                int moved = e->unsupported ? -1 : folder_holder(catalog, latest.dir, at);
+                if (moved >= 0) {
+                    folder_taken(catalog, "restore", id, e->name, latest.dir, moved);
+                    goto next;
+                }
                 manifest_forget(&e->release);
                 e->release = latest;
                 if (n >= 0) {
@@ -1065,6 +1254,7 @@ static void restore_installed(struct catalog *catalog) {
                 e->has_release = 1;
             }
         }
+    next:
         if (one)
             entry_clear(one);
         free(one);
@@ -1080,6 +1270,7 @@ int catalog_fetch(struct catalog *catalog) {
     g_too_large = 0;
     g_progress[0] = 0;
     g_refused_url[0] = 0;
+    g_refused_folder[0] = 0;
     sources_load(&sources);
     reach_reset();
     int answered = 0;
@@ -1291,6 +1482,13 @@ int catalog_check_updates(struct catalog *catalog) {
                 updates++;
                 logline("self: %s installed, %s published", entry->local_version, manifest->version);
             }
+            continue;
+        }
+        /* A release the app's file pins is the one there is, as far as its
+           repository goes; only a catalog's entry says otherwise, and such
+           an entry is never marked pinned. */
+        if (manifest->pinned) {
+            entry->state = APP_CURRENT;
             continue;
         }
         /* An update is another zip than the one on the stick. The catalog

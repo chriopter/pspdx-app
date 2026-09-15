@@ -52,7 +52,7 @@ enum source_kind sources_kind(const char *url);
    listed_by. */
 struct source_repo {
     char owner[40];
-    char name[100];
+    char name[101];             /* GitHub allows 100 characters */
     char ref[40];               /* the tag, or HEAD when none is pinned */
 };
 
@@ -86,11 +86,14 @@ int sources_same_repo(const char *a, const char *b);
 
 /* The id the repository derives to: io.github.<owner>.<repo>, lower case,
    [a-z0-9] only, so that "Chris-Opter/PSP-Thing" owns io.github.chrisopter.pspthing.
-   It names a directory on the stick and never changes. */
-void sources_repo_id(const struct source_repo *r, char *id, size_t size);
+   It names a directory on the stick and never changes. Never cut: -1, and
+   id empty, when it does not fit in size or a part leaves nothing. */
+int sources_repo_id(const struct source_repo *r, char *id, size_t size);
 
 /* The id of an app from outside GitHub: the host of the list that vouches for
-   it, reversed, and its name. -1 when those leave nothing to name. */
+   it, reversed, and its name. -1 when those leave nothing to name, when a
+   label of the host has no letter or digit, when the id does not fit, and
+   when it would start with io.github., which is GitHub's. */
 int sources_listed_id(const char *listed_by, const char *name, char *id, size_t size);
 
 /* The host of the list that vouches for an app, as Information names it:

@@ -18,6 +18,16 @@ static double number(const cJSON *o, const char *key) {
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
     return cJSON_IsNumber(v) ? v->valuedouble : -1;
 }
+/* cJSON keeps both members of a key written twice and finds the first,
+   while a commit deletes the first and appends its own: the stale second
+   would come to the front and be the record. Each member is named once. */
+static int unique_members(const cJSON *o) {
+    for (const cJSON *a = o ? o->child : NULL; a; a = a->next)
+        for (const cJSON *b = a->next; b; b = b->next)
+            if (a->string && b->string && !strcmp(a->string, b->string))
+                return 0;
+    return 1;
+}
 int state_validate(const cJSON *r) {
     if (!cJSON_IsObject(r))
         return 0;
@@ -29,6 +39,9 @@ int state_validate(const cJSON *r) {
             if (!strcasecmp(v->string, other->string))
                 return 0;
         const cJSON *in = cJSON_GetObjectItemCaseSensitive(v, "installed");
+        if (!unique_members(v) || !unique_members(in) ||
+            !unique_members(cJSON_GetObjectItemCaseSensitive(v, "latest")))
+            return 0;
         if (!cJSON_IsObject(in) || !pspdx_install_dir(str(in, "installdir")) ||
             !manifest_rev_in_range(number(in, "published_at")))
             return 0;
@@ -46,8 +59,12 @@ int state_validate(const cJSON *r) {
            make every other record unreadable. */
         struct source_repo repo;
         const char *source = str(v, "source");
+        /* db_read keeps the source in PSPDX_URL_SIZE; a longer one would be
+           compared cut, as another repository. */
+        if (strlen(source) >= PSPDX_URL_SIZE)
+            return 0;
         if (sources_parse_repo(source, &repo)) {
-            char id[96];
+            char id[PSPDX_ID_SIZE];
             sources_repo_id(&repo, id, sizeof(id));
             if (!strncmp(v->string, "io.github.", 10) && strcmp(id, v->string))
                 return 0;
@@ -102,7 +119,7 @@ int state_load(void) {
     SceIoDirent e;
     memset(&e, 0, sizeof(e));
     while ((rc = sceIoDread(d, &e)) > 0) {
-        char id[96], path[256];
+        char id[PSPDX_ID_SIZE], path[256];
         size_t n = strlen(e.d_name);
         if (n > 4 && !strcmp(e.d_name + n - 4, ".bak"))
             n -= 4;
@@ -253,6 +270,8 @@ static cJSON *latest_json(const struct manifest *m) {
     }
     cJSON_AddNumberToObject(r, "checked_at", m->checked_at);
     cJSON_AddStringToObject(r, "checked_from", m->checked_from);
+    if (m->pinned)
+        cJSON_AddTrueToObject(r, "pinned");
     return r;
 }
 int state_commit(const struct manifest *m, const char *dir, const unsigned char *sha256) {
@@ -353,6 +372,14 @@ int state_latest(const char *id, struct manifest *m) {
     if (!cJSON_IsObject(l))
         return -1;
     memset(m, 0, sizeof(*m));
+    /* A field longer than its place is refused, not cut: a cut address is
+       another address, and a cut version can end inside a character. */
+    if (strlen(str(r, "source")) >= sizeof(m->repo) ||
+        strlen(str(r, "added_from")) >= sizeof(m->added_from) ||
+        strlen(str(l, "version")) >= sizeof(m->version) ||
+        strlen(str(l, "download_url")) >= sizeof(m->url) ||
+        strlen(str(l, "checked_from")) >= sizeof(m->checked_from))
+        return -1;
     snprintf(m->id, sizeof(m->id), "%s", id);
     snprintf(m->repo, sizeof(m->repo), "%s", str(r, "source"));
     snprintf(m->added_from, sizeof(m->added_from), "%s", str(r, "added_from"));
@@ -368,6 +395,7 @@ int state_latest(const char *id, struct manifest *m) {
     snprintf(m->checked_from, sizeof(m->checked_from), "%s", str(l, "checked_from"));
     double checked = number(l, "checked_at");
     m->checked_at = manifest_rev_in_range(checked) ? checked : 0;
+    m->pinned = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(l, "pinned"));
     const char *hex = str(l, "sha256");
     if (*hex) {
         if (strlen(hex) != 64)

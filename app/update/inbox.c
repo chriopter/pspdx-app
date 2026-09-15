@@ -9,7 +9,7 @@
 #include <string.h>
 #include <strings.h>
 struct item {
-    char path[512], id[96];
+    char path[512], id[PSPDX_ID_SIZE];
     char *raw;
     int index, conflict;
 };
@@ -106,6 +106,16 @@ int inbox_scan(struct catalog *catalog) {
             logline("INBOX: identity collision");
             continue;
         }
+        /* A file that pins a release is installed from that release or not at
+           all: the source's word on which zip is current does not stand in. */
+        const char *pinned = spec.release_tag + (spec.release_tag[0] == 'v' && spec.release_tag[1]);
+        if (spec.release_tag[0] &&
+            (strcmp(entry->release.version, pinned) ||
+             (spec.release_url[0] && strcmp(entry->release.url, spec.release_url)))) {
+            logline("INBOX: %s pins release %s, which its source does not offer; kept", it->id,
+                    spec.release_tag);
+            continue;
+        }
         /* A supplied manifest may have a different target from the cache. */
         if (manifest_keep_raw(&entry->release, it->raw, strlen(it->raw)) < 0) {
             logline("INBOX: no memory for %s", it->id);
@@ -129,11 +139,18 @@ int inbox_scan(struct catalog *catalog) {
     for (int i = 0; i < count; i++) {
         size_t n = strlen(summary);
         const char *name = catalog->apps[items[queue[i]].index].name;
-        if (strlen(name) + n + 3 >= sizeof(summary)) {
-            snprintf(summary + n, sizeof(summary) - n, " …");
+        /* Room is kept for the ellipsis after every name that has another
+           after it, so it is never cut inside its three bytes. */
+        size_t need = (i ? 2 : 0) + strlen(name) + (i + 1 < count ? sizeof(" …") - 1 : 0);
+        if (n + need >= sizeof(summary)) {
+            memcpy(summary + n, " …", sizeof(" …"));
             break;
         }
-        snprintf(summary + n, sizeof(summary) - n, "%s%s", i ? ", " : "", name);
+        if (i) {
+            memcpy(summary + n, ", ", 2);
+            n += 2;
+        }
+        memcpy(summary + n, name, strlen(name) + 1);
     }
     return count;
 }

@@ -15,9 +15,9 @@
    again. A sha256 of all zeros means nobody has hashed the zip: the origin
    path gives none, and the size is what is checked then. */
 struct manifest {
-    char id[96];
+    char id[PSPDX_ID_SIZE];
     unsigned rev;               /* the release's published_at, unix seconds */
-    char url[512];
+    char url[513];              /* the 512 characters of an address the catalog allows */
     unsigned char sha256[32];
     size_t size;
     char version[VERSION_SIZE];
@@ -37,10 +37,15 @@ struct manifest {
     unsigned checked_at;
     char root[200];
     char dir[64];
+    /* The release came from the app's repository by the tag its .pspdx pins:
+       no newer one is looked for there, and only a catalog's entry, by
+       another zip, can say there is an update. Kept in the record's latest,
+       so a check that does not ask the repository knows it too. */
+    int pinned;
 };
 
 struct install_report {
-    char id[96];
+    char id[PSPDX_ID_SIZE];
     char dir[64];               /* PSP/GAME/<dir> actually written */
     char version[VERSION_SIZE];
     unsigned rev;
@@ -50,7 +55,7 @@ struct install_report {
 
 /* What PSP/PSPDX/db/<id>.json remembers about an installed package. */
 struct installed {
-    char id[96];
+    char id[PSPDX_ID_SIZE];
     char dir[64];
     char version[VERSION_SIZE];
     unsigned rev;
@@ -81,7 +86,7 @@ typedef void (*install_phase_cb)(void *ctx, const char *phase);
 /* The rules a release's fields are held to by whoever reads them out of
    JSON -- a cache's or GitHub's -- since they go straight into a download
    and an unpack. An id is a path component on the stick: letters, digits,
-   dot, dash and underscore, at most 95 of them, no "..". A package is
+   dot, dash and underscore, at most PSPDX_ID_SIZE - 1 of them, no "..". A package is
    at most a gigabyte, and a revision fits an unsigned. */
 #define MAX_PACKAGE_BYTES (1024u * 1024u * 1024u)
 int manifest_id_is_safe(const char *id);

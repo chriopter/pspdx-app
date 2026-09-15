@@ -152,6 +152,10 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
     }
     if (strstr(url, "download.zip"))
         path = getenv("ZIP_FILE");
+    else if (strstr(url, "second/catalog.json") && getenv("SECOND_CATALOG"))
+        /* A second catalog beside the first, for what one source's answer
+           does to the other's. */
+        path = getenv("SECOND_CATALOG");
     else if (strstr(url, "catalog.json")) {
         /* Like GitHub Pages: gzip only to a client that asks, and named in
            the header unless the test wants a server that forgets to. */
@@ -168,6 +172,9 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
             path = "catalog.txt";
     } else if (strstr(url, "/.pspdx"))
         path = "manifest.json";
+    else if (strstr(url, "/releases/tags/") && access("release-tag.json", F_OK) == 0)
+        /* The release a tag names, beside the one GitHub calls latest. */
+        path = "release-tag.json";
     else if (strstr(url, "/releases/"))
         path = "release.json";
     else if (strstr(url, "api.github.com/repos/"))
@@ -185,6 +192,9 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
     char b[4096];
     size_t n;
     enum https_outcome rc = HTTPS_COMPLETE;
+    /* A network stack may hand over a piece of nothing before the first byte. */
+    if (getenv("EMPTY_FIRST_PIECE") && sink && sink(ctx, b, 0) != 0)
+        rc = HTTPS_TRUNCATED;
     while ((n = fread(b, 1, sizeof(b), f))) {
         if (sink && sink(ctx, b, n) != 0) {
             rc = HTTPS_TRUNCATED;

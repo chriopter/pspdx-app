@@ -17,7 +17,7 @@
 enum app_state { APP_UNKNOWN, APP_NOT_INSTALLED, APP_CURRENT, APP_UPDATE };
 
 struct app_entry {
-    char id[96];
+    char id[PSPDX_ID_SIZE];
     char name[161];
     char author[241];
     char summary[MAX_SUMMARY];
@@ -73,6 +73,10 @@ struct catalog {
     unsigned generated;             /* the oldest source's own stamp, unix seconds; 0 unknown */
     char generated_from[64];        /* that source's host, for the line that names it */
     int total;
+    /* The first entry left out because another has its folder under
+       PSP/GAME, said on the status line once the fetch is through; empty
+       when there was none. */
+    char collision[96];
     size_t response_len;
     struct https_result fetch;
 };
@@ -115,12 +119,21 @@ const char *catalog_progress(void);
    when it was asked at the origin: 0 if it did or was never asked for,
    REFUSED_PSPDX when it has no .pspdx in its root or the one it has is not
    a v1 file, REFUSED_REPO when GitHub had no such repository or did not
-   answer, REFUSED_RELEASE when it has no release with one zip on it. Only
+   answer, REFUSED_RELEASE when it has no release with one zip on it, and
+   REFUSED_FOLDER as below. Only
    the last one is kept, which is the one the gear tab just asked for. */
 #define REFUSED_REPO (-1)
 #define REFUSED_RELEASE (-2)
 #define REFUSED_PSPDX (-3)
+/* REFUSED_FOLDER: the app installs to a folder under PSP/GAME that an entry
+   already listed has, which catalog_refused_folder names. */
+#define REFUSED_FOLDER (-4)
 int catalog_refused(const char *url);
+const char *catalog_refused_folder(void);
+
+/* The line that says an app is not listed because its folder, PSP/GAME/<dir>,
+   is another app's: the name cut to leave the rest whole in size bytes. */
+void catalog_folder_line(char *out, size_t size, const char *name, const char *dir);
 
 int catalog_check_updates(struct catalog *catalog);
 void catalog_dump_http(void);

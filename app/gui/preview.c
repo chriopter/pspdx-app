@@ -50,7 +50,7 @@ enum film_state { FILM_NONE, FILM_LOADING, FILM_PLAYING, FILM_FAILED };
    each picture before the cache or the network is: the stick is free, and
    the bytes are the app's own rather than what a catalog says about it. */
 struct request {
-    char id[96], shot_url[256], video_url[256], sound_url[256];
+    char id[PSPDX_ID_SIZE], shot_url[256], video_url[256], sound_url[256];
     int installed, cached_only;
     char file[160];                     /* a file off the stick instead, and */
     int file_kind;                      /* what it is, a preview_file */

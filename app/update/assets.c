@@ -43,10 +43,15 @@ static void cache_path(enum asset_kind kind, const char *id, const char *url,
     const char *base = url && url[0] ? strrchr(url, '/') : 0;
     if (base && base[1]) {
         base++;
-        /* A name is a name: only what a file on the stick may be called. */
+        /* A name is a name: only what a file on the stick may be called,
+           and only as much of it as leaves the whole path within the 255
+           characters a path is given, whatever the length of the id. */
         char safe[96];
-        size_t n = 0;
-        for (const char *p = base; *p && n + 1 < sizeof(safe); p++) {
+        size_t n = 0, dir = strlen(CACHE_DIR) + 1 + strlen(id) + 1;
+        size_t room = dir < 255 ? 255 - dir : 0;
+        if (room > sizeof(safe) - 1)
+            room = sizeof(safe) - 1;
+        for (const char *p = base; *p && n < room; p++) {
             char c = *p;
             int ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
                      (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';

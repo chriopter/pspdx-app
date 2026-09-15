@@ -154,6 +154,7 @@
 #define T_WANT_NO_REPO       "%.62s was not found on GitHub."     /* owner/repo */
 #define T_WANT_NO_RELEASE    "%.62s has no release to install."   /* owner/repo */
 #define T_WANT_FAILED        "Could not add %.60s."               /* owner/repo */
+#define T_FOLDER_TAKEN       "%s not listed: PSP/GAME/%s is another app's." /* name or owner/repo, folder */
 #define T_WANT_CURRENT       "%s is up to date."                  /* name */
 
 /* ------------------------------------------------------------------ gear */

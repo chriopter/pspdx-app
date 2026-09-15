@@ -34,7 +34,7 @@ static const struct { const char *name, *note, *dir; } AREA[A_COUNT] = {
 /* The rows of an area are files, and the file a row stands for is remembered
    beside the view, since the row itself carries only what is read. */
 static char g_path[FILES_MAX][272];     /* relative to PSP/PSPDX: an area, a slash, a name as long as FAT allows */
-static char g_id[FILES_MAX][96];        /* the app, in the installed area */
+static char g_id[FILES_MAX][PSPDX_ID_SIZE];        /* the app, in the installed area */
 static struct sources g_sources;
 static const char *(*g_name_of)(const char *id);
 
@@ -421,7 +421,7 @@ static void name_cached(struct file_row *r, const char *file) {
     for (int k = 0; k < 4; k++) {
         const char *at = strstr(file, kinds[k]);
         if (!at) continue;
-        char id[96], app[64];
+        char id[PSPDX_ID_SIZE], app[64];
         snprintf(id, sizeof(id), "%.*s", (int)(at - file), file);
         struct pspdx_file f;
         char *raw = NULL;

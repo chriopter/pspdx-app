@@ -274,6 +274,8 @@ static int wanted_settled(int *cursor) {
             snprintf(message, sizeof(message), T_WANT_NO_REPO, wanted_name());
         else if (why == REFUSED_RELEASE)
             snprintf(message, sizeof(message), T_WANT_NO_RELEASE, wanted_name());
+        else if (why == REFUSED_FOLDER)
+            catalog_folder_line(message, sizeof(message), wanted_name(), catalog_refused_folder());
         else
             snprintf(message, sizeof(message), T_WANT_FAILED,
                      wanted_name());
@@ -401,7 +403,7 @@ int main(int argc, char *argv[]) {
     int synced = 0;
     int rounds = 0;                     /* times the sync has come back */
     int refreshing = 0;                 /* SELECT, with the list already up */
-    char keep[96] = "";                 /* the entry to come back to after one */
+    char keep[PSPDX_ID_SIZE] = "";                 /* the entry to come back to after one */
     int automatic = -1;
     int info = 0;                       /* the band of facts, over the list */
     int resting = 0;                    /* idle: the picture behind the shell */
@@ -494,7 +496,9 @@ int main(int argc, char *argv[]) {
                     icons_reset();
                     preview_resume();
                 }
-                if (sync_state() == SYNC_DONE) shell_status("");
+                /* An app left out because another has its folder would
+                   otherwise just be missing: the first one is said. */
+                if (sync_state() == SYNC_DONE) shell_status(catalog.collision);
                 if (wanted_url()[0]) {
                     /* A fetch that failed altogether says so below; the
                        repository waited for is let go of either way. */
