@@ -155,7 +155,10 @@ int inbox_scan(struct catalog *catalog) {
             continue;
         }
         /* A file that pins a release is installed from that release or not at
-           all, and the tag is the tag: 0.1.3 is not v0.1.3. */
+           all, and the tag is the tag: 0.1.3 is not v0.1.3. A row that knows
+           no tag yet, an installed app nobody lists, asks GitHub for it. */
+        if (spec.release_tag[0] && !entry->tag[0])
+            catalog_ask_pinned(entry, raw);
         if (spec.release_tag[0] && (strcmp(entry->tag, spec.release_tag) ||
                                     (spec.release_url[0] && strcmp(entry->release.url, spec.release_url)))) {
             logline("INBOX: %s pins release %s, which its source does not offer; kept", it->id,

@@ -1420,6 +1420,40 @@ int catalog_add_file(struct catalog *catalog, const char *raw) {
     return catalog->count - 1;
 }
 
+int catalog_ask_pinned(struct app_entry *entry, const char *raw) {
+    struct source_repo repo;
+    struct pspdx_file file;
+    char why[80];
+    /* Outside GitHub there is no one to ask: the file's url and date are
+       all there is, as they are without this. */
+    if (entry->tag[0] || !sources_parse_repo(entry->repo, &repo) ||
+        pspdx_parse(raw, strlen(raw), &file, why, sizeof(why)) < 0 || !file.release_tag[0])
+        return -1;
+    struct app_entry *one = calloc(1, sizeof(*one));
+    if (!one)
+        return -1;
+    /* The file is given, so its .pspdx is not asked for: one request, the
+       release by its tag. */
+    int rc = origin_entry(one, &repo, raw, 0) > 0 ? 0 : -1;
+    if (rc == 0) {
+        struct manifest *m = &entry->release;
+        char dir[sizeof(m->dir)];
+        snprintf(dir, sizeof(dir), "%s", m->dir);
+        manifest_forget(m);
+        *m = one->release;
+        memset(&one->release, 0, sizeof(one->release));
+        snprintf(m->id, sizeof(m->id), "%s", entry->id);
+        snprintf(m->dir, sizeof(m->dir), "%s", dir);
+        snprintf(entry->tag, sizeof(entry->tag), "%s", one->tag);
+        entry->has_release = 1;
+        settle_state(entry);
+        logline("INBOX: %s: GitHub has release %s for the file", entry->id, entry->tag);
+    }
+    entry_clear(one);
+    free(one);
+    return rc;
+}
+
 /* How long an answer from an app's own repository stands before it is
    asked again, unless the check is forced. */
 #define DIRECT_EVERY_S (6u * 3600u)

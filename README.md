@@ -172,6 +172,7 @@ flowchart TD
 - **○** during download or unpack cancels the install and puts the stick back; in a batch it also stops the rest
 - INBOX skips conflicts; only successful imports leave INBOX; up to 64 files that install are queued
 - A pinned tag in an INBOX file must be the release's exactly (`0.1.3` is not `v0.1.3`); the repository's own `.pspdx` wins over your file
+- For an installed app no catalog lists, PSPDX asks GitHub for exactly that tag (one API call)
 - Self-updates run last; restart PSPDX afterward
 
 #### Keys

@@ -119,6 +119,11 @@ int catalog_add_repo(struct catalog *catalog, const char *url, int make);
    own: its release asked at GitHub by the file, and the file the app's. The
    index of its entry, or -1. */
 int catalog_add_file(struct catalog *catalog, const char *raw);
+/* For a row that knows no release tag yet -- an installed app no catalog
+   lists this session -- the release a .pspdx from INBOX pins, asked at
+   GitHub by exactly that tag and put into the entry. 0 when GitHub answered
+   with a release that installs, -1 otherwise and outside GitHub. */
+int catalog_ask_pinned(struct app_entry *entry, const char *raw);
 
 /* The entry that came from a repository, by its URL, or -1. */
 int catalog_find_repo(const struct catalog *catalog, const char *url);

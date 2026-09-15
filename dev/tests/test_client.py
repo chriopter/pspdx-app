@@ -928,6 +928,29 @@ class ClientTests(unittest.TestCase):
    with self.subTest(tag=tag):
     self.write('ms0:/PSP/PSPDX/INBOX/one.pspdx',dict(SPEC,release=dict(tag=tag)));r=self.run_client('inbox',VERBOSE=1,FETCH_FIRST=1)
     self.assertEqual(r.stdout.strip(),queued,r.stderr);self.assertEqual('which its source does not offer; kept' in r.stderr,queued=='0')
+ def test_an_inbox_pin_for_an_installed_app_nobody_lists_asks_github_for_that_tag(self):
+  # Installed at 1 and heard at its repository; no list names it now, so its row knows no tag: GitHub is asked once, for the pinned tag, and what it answers must be the pin exactly.
+  def installed_and_unlisted():
+   self.direct(SPEC);self.write('release.json',self.release_json('v3','download.zip'));self.write('release-tag.json',self.release_json('v2','download.zip'))
+   self.run_client('fetch');(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('');(self.root/'requests.log').write_text('')
+  api=lambda:[l for l in (self.root/'requests.log').read_text().splitlines() if 'api.github.com' in l]
+  (self.root/'map').write_text('releases/tags/v9 - 404\n');installed_and_unlisted()
+  for tag,queued in [('v2','1'),('2','0'),('v9','0')]:
+   with self.subTest(tag=tag):
+    self.write('ms0:/PSP/PSPDX/INBOX/one.pspdx',dict(SPEC,release=dict(tag=tag)));(self.root/'requests.log').write_text('')
+    r=self.run_client('inbox',VERBOSE=1,FETCH_FIRST=1,URL_MAP=self.root/'map');self.assertEqual(r.stdout.strip(),queued,r.stderr)
+    self.assertEqual(api(),['https://api.github.com/repos/test/demo/releases/tags/'+tag],r.stderr)
+    self.assertEqual('which its source does not offer; kept' in r.stderr,queued=='0')
+  # It installs that release: the repository's own .pspdx wins where there is one, the file where GitHub says there is none.
+  mine=dict(SPEC,summary='Mine',release=dict(tag='v2'))
+  for own in (True,False):
+   with self.subTest(own=own):
+    installed_and_unlisted()
+    if not own:(self.root/'manifest.json').unlink()
+    inbox=self.root/'ms0:/PSP/PSPDX/INBOX/one.pspdx';self.write('ms0:/PSP/PSPDX/INBOX/one.pspdx',mine)
+    r=self.run_client('inboxinstall',VERBOSE=1,FETCH_FIRST=1);self.assertFalse(inbox.exists(),r.stderr)
+    self.assertEqual(self.state()[ID]['installed']['version'],'2');self.assertEqual(self.saved(),SPEC if own else mine)
+    self.assertEqual(api(),['https://api.github.com/repos/test/demo/releases/tags/v2'],r.stderr)
  def test_a_record_keeps_its_folder_from_a_saved_catalog(self):
   # A catalog that is only saved lists another app in Demo and the installed demo in Other; the record has Demo, so the other app is the one left out, and the record's word moves the demo's row to Demo.
   self.fixtures();catalog=self.catalog_app();first=catalog['apps'][0]
