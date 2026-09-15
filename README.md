@@ -1,7 +1,8 @@
 # PSPDX
 
-**PSP Download Index** — install and update homebrew directly on your
-PlayStation Portable, uses the [PSPDX standard](https://chriopter.github.io/pspdx/).
+**PSP Download Index**
+
+Install and update homebrew directly on your PlayStation Portable, using the [PSPDX standard](https://chriopter.github.io/pspdx/).
 
 **[→ Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)**
 
@@ -9,15 +10,9 @@ PlayStation Portable, uses the [PSPDX standard](https://chriopter.github.io/pspd
 
 ## How to use
 
-Just install, start and install homebrew! Updates are shown automatically.
+Just install, start and search for homebrews! Updates are shown automatically. Needs ARK-5 für WPA2.
 
-Needs [ARK-5](https://github.com/PSP-Arkfive/ARK-5) and a saved Wi-Fi
-connection. Extract
-[`pspdx.zip`](https://github.com/chriopter/pspdx/releases/latest) to the root
-of your Memory Stick.
-
-Tested in PPSSPP so far. Running it on a real PSP?
-[Tell us how it went](https://github.com/chriopter/pspdx/issues).
+Issues? [Tell us how it went](https://github.com/chriopter/pspdx/issues).
 
 ## How it works
 
@@ -31,6 +26,7 @@ Tested in PPSSPP so far. Running it on a real PSP?
 
 - I propose a small `.pspdx` in the root of your homebrew's repository. Add it, publish a release, done.
 - It lives on its own: a catalog is only a shortcut.
+- The magic: When you download a brew, your PSP saves the original .pspdx so it can get updates from the original repo.
 - Built to work 10 years forward, without another mirror going down.
 
 <details>
