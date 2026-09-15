@@ -7,8 +7,6 @@ on your PlayStation Portable, using the [PSPDX standard](https://chriopter.githu
 
 <img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="assets/pspdx-app.webp" />
 
-[The same as a video](assets/pspdx-app.mp4) (480×272, 34 s).
-
 ## How to use
 
 Just install, start and install homebrew! Updates are shown automatically.
