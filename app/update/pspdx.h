@@ -30,7 +30,7 @@
    it is the one field of kilobytes and this lives on stacks; whoever shows
    it asks pspdx_description for it. */
 struct pspdx_file {
-    char source[PSPDX_URL_SIZE], installdir[42], listed_by[PSPDX_URL_SIZE];
+    char source[PSPDX_URL_SIZE], installdir[42];
     char name[161], author[241], summary[241], license[241];
     char type[12];              /* homebrew, plugin or iso; homebrew when the file says nothing */
     char tags[PSPDX_TAGS_TEXT]; /* newline between them */

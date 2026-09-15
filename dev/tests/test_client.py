@@ -373,36 +373,39 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(self.parse(dict(base,source='https://github.com/test/'+'r'*40+'.git/')),'PSP/GAME/'+'r'*32+'|homebrew|io.github.test.'+'r'*40+'|')
   self.assertEqual(self.parse(dict(base,tags=['game','Jeu de rôle'],type='plugin')),'|plugin|io.github.test.demo|game,Jeu de rôle')
   for good in [dict(base,author='é'*60),dict(base,license='l'*60),dict(base,license='Public domain, see README'),dict(base,tags=['c'*24]),dict(base,tags=['🎮'*24]),dict(base,tags=[]),dict(base,tags=['t%d'%i for i in range(8)]),
-               dict(base,description='d'*2400+'\n'*100),dict(base,description='é'*2500),dict(base,listed_by='https://wijsman.de/psp-homebrew-database/'),dict(base,type='iso'),dict(base,type='homebrew',installdir='PSP/GAME/Demo'),dict(base,summary='s'*60),dict(base,name='é'*39),dict(base,category='game'),dict(base,version='2.0',notes={'any':'thing'})]:
+               dict(base,description='d'*2400+'\n'*100),dict(base,description='é'*2500),dict(base,listed_by='https://wijsman.de/psp-homebrew-database/'),dict(base,listed_by='http://wijsman.de/'),dict(base,listed_by=''),dict(base,listed_by=7),dict(base,type='iso'),dict(base,type='homebrew',installdir='PSP/GAME/Demo'),dict(base,summary='s'*60),dict(base,name='é'*39),dict(base,category='game'),dict(base,version='2.0',notes={'any':'thing'})]:
    with self.subTest(good=good):self.parse(good)
   for bad in [dict(base,author='a'*61),dict(base,license='l'*61),dict(base,tags=['c'*25]),dict(base,tags=['']),dict(base,tags='game'),dict(base,tags=['game','game']),dict(base,tags=['t%d'%i for i in range(9)]),dict(base,tags=[1]),dict(base,tags=['a\nb']),
               dict(base,description='d'*2501),dict(base,description='a\tb'),dict(base,description='a\r\nb'),dict(base,name='a\nb'),dict(base,summary='a\nb'),dict(base,author='a\tb'),dict(base,license='a\rb'),
-              dict(base,listed_by='http://wijsman.de/'),dict(base,listed_by='https://'),dict(base,listed_by=''),dict(base,type='theme'),dict(base,type=''),dict(base,type='Plugin'),dict(base,type='plugin',installdir='PSP/GAME/Demo'),dict(base,type='iso',installdir='PSP/GAME/Demo'),
+              dict(base,type='theme'),dict(base,type=''),dict(base,type='Plugin'),dict(base,type='plugin',installdir='PSP/GAME/Demo'),dict(base,type='iso',installdir='PSP/GAME/Demo'),
               dict(base,source='http://github.com/test/demo'),dict(base,source='http://example.com/demo'),dict(base,source='https://github.com/test'),dict(base,source='https://github.com/test/demo/issues'),dict(base,source='https://'),dict(base,source='https://github.com/test/.pspdx-stage')]:
    with self.subTest(bad=bad):self.parse(bad,ok=False)
  def test_manifest_from_outside_github(self):
-  # Any https source; the id is the vouching list's host and the name, the folder the name.
-  mirror=dict(schema=SCHEMA,source='https://archive.org/details/psp-blocks',name='PSP Blocks!',listed_by='https://www.Wijsman.de/psp-homebrew-database/')
-  self.assertEqual(self.parse(mirror),'PSP/GAME/PSPBlocks|homebrew|de.wijsman.pspblocks|')
-  self.assertEqual(self.parse(dict(mirror,installdir='PSP/GAME/Blocks',tags=['game','demo'])),'PSP/GAME/Blocks|homebrew|de.wijsman.pspblocks|game,demo')
-  self.assertEqual(self.parse(dict(mirror,listed_by='https://user@lists.example.co.uk:8443?x')),'PSP/GAME/PSPBlocks|homebrew|uk.co.example.lists.pspblocks|')
-  for bad in [{k:v for k,v in mirror.items() if k!='listed_by'},dict(mirror,name='★ ★'),dict(mirror,listed_by='https://-/'),dict(mirror,name='.pspdx-stage'),dict(mirror,source='http://archive.org/details/psp-blocks')]:
+  # Any https source; the id is the source's host and the name, the folder the name. An old listed_by is read past.
+  mirror=dict(schema=SCHEMA,source='https://www.Archive.org/details/psp-blocks',name='PSP Blocks!')
+  self.assertEqual(self.parse(mirror),'PSP/GAME/PSPBlocks|homebrew|org.archive.pspblocks|')
+  self.assertEqual(self.parse(dict(mirror,installdir='PSP/GAME/Blocks',tags=['game','demo'])),'PSP/GAME/Blocks|homebrew|org.archive.pspblocks|game,demo')
+  self.assertEqual(self.parse(dict(mirror,source='https://user@lists.example.co.uk:8443?x')),'PSP/GAME/PSPBlocks|homebrew|uk.co.example.lists.pspblocks|')
+  self.assertEqual(self.parse(dict(mirror,listed_by='https://wijsman.de/psp-homebrew-database/')),'PSP/GAME/PSPBlocks|homebrew|org.archive.pspblocks|')
+  for bad in [dict(mirror,name='★ ★'),dict(mirror,source='https://-/'),dict(mirror,name='.pspdx-stage'),dict(mirror,source='http://archive.org/details/psp-blocks'),
+              dict(mirror,source='https://owner.github.io/blocks/'),dict(mirror,source='https://GitHub.IO./')]:
    with self.subTest(bad=bad):self.parse(bad,ok=False)
  def test_a_category_is_one_word_of_the_file(self):
-  # 1 to 24 characters and no control character, or the file is refused; a vouched entry's saved file keeps it.
+  # 1 to 24 characters and no control character, or the file is refused; a file saved from a catalog entry keeps it.
   for category in ('game','Rundenbasierte Strategie','\U0001f3ae'*24):
    with self.subTest(category=category):self.parse(dict(SPEC,category=category))
   for category in ('c'*25,'','one\ntwo',['game'],7):
    with self.subTest(category=category):self.parse(dict(SPEC,category=category),ok=False)
-  catalog=self.vouched();catalog['apps'][0].update(category='emulator',tags=['retro']);self.write('catalog.json',catalog)
+  catalog=self.from_the_entry();catalog['apps'][0].update(category='emulator',tags=['retro']);self.write('catalog.json',catalog)
   self.assertEqual(self.run_client('get',ID).stdout.strip(),'0');self.assertEqual((self.saved()['category'],self.saved()['tags']),('emulator',['retro']))
- def test_listed_by_is_named_by_its_host(self):
-  # Information says which list vouches for an app by the host alone: lower case, no one logging in, no port, no www.
-  for url,host in [('https://wijsman.de/psp-homebrew-database/','wijsman.de'),('https://www.Wijsman.DE/list','wijsman.de'),
-                   ('https://user@Lists.Example.co.uk:8443?x','lists.example.co.uk'),('https://example.org','example.org'),('https://wwwx.org/','wwwx.org')]:
-   with self.subTest(url=url):self.assertEqual(self.run_client('listedhost',url).stdout.strip(),host)
+ def test_an_id_outside_github_is_the_source_host_and_the_name(self):
+  # Outside GitHub the host of the source makes the id: lower case, no one logging in, no port, no www., labels backwards, then the name.
+  made=lambda source:self.run_client('ids','x',source,'App').stdout.split('\n')[1]
+  for url,app_id in [('https://wijsman.de/psp-homebrew-database/','de.wijsman.app'),('https://www.Wijsman.DE/list','de.wijsman.app'),
+                     ('https://user@Lists.Example.co.uk:8443?x','uk.co.example.lists.app'),('https://example.org','org.example.app'),('https://wwwx.org/','org.wwwx.app')]:
+   with self.subTest(url=url):self.assertEqual(made(url),app_id)
   for url in ['http://wijsman.de/','https://','https://www./','https://user@:8443/','https://'+'h'*300,'']:
-   with self.subTest(url=url):self.assertNotEqual(self.run_client('listedhost',url,ok=False).returncode,0)
+   with self.subTest(url=url):self.assertEqual(made(url),'-')
  def test_install_without_installdir_takes_the_repository_name(self):
   self.write('manifest.json',{k:v for k,v in SPEC.items() if k!='installdir'})
   self.run_client('install');self.assertEqual((self.root/'ms0:/PSP/GAME/demo/EBOOT.PBP').read_bytes(),b'new package')
@@ -413,20 +416,20 @@ class ClientTests(unittest.TestCase):
   r=self.run_client('install',ok=False,VERBOSE=1);self.assertIn('type plugin cannot be installed yet',r.stderr);self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists())
   self.write('manifest.json',SPEC);self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0]
   plugin={k:v for k,v in dict(first,id='io.github.test.plug',name='Plug',type='plugin',tags=['plugin'],source='https://github.com/test/plug',releases=[dict(first['releases'][0],url='https://github.com/test/plug/releases/download/v2/download.zip')]).items() if k!='installdir'}
-  mirror={k:v for k,v in dict(first,id='de.wijsman.blocks',name='Blocks',source='https://archive.org/details/psp-blocks',listed_by='https://wijsman.de/psp-homebrew-database/',releases=[dict(first['releases'][0],url='https://archive.org/download/psp-blocks/blocks.zip')]).items() if k!='installdir'}
+  mirror={k:v for k,v in dict(first,id='de.wijsman.blocks',name='Blocks',source='https://archive.org/details/psp-blocks',releases=[dict(first['releases'][0],url='https://archive.org/download/psp-blocks/blocks.zip')]).items() if k!='installdir'}
   self.write('catalog.json',dict(catalog,apps=[first,plugin,mirror]))
   r=self.run_client('fetch',VERBOSE=1);rows={row.split()[0]:row.split() for row in r.stdout.splitlines()}
-  # A mirror a list vouches for installs from its entry; a plugin, from anywhere, is listed and not installed.
+  # A mirror installs from its entry; a plugin, from anywhere, is listed and not installed.
   self.assertEqual((rows[ID][4],rows['io.github.test.plug'][4],rows['de.wijsman.blocks'][4]),('0','1','0'),r.stdout)
   r=self.run_client('prepare','io.github.test.plug',ok=False,VERBOSE=1);self.assertEqual(r.stdout.strip(),'-1');self.assertIn('cannot be installed yet',r.stderr)
-  # A plugin carrying an installdir is not listed at all; a mirror the list calls a word is listed as its list and name make it, and one it gives an id keeps that id.
+  # A plugin carrying an installdir is not listed at all; a mirror the list calls a word is listed as its source's host and name make it, and one it gives an id keeps that id.
   self.write('catalog.json',dict(catalog,apps=[first,dict(plugin,installdir='PSP/GAME/Plug'),dict(mirror,id='blocks')]))
-  self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID,'de.wijsman.blocks'])
+  self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID,'org.archive.blocks'])
   self.write('catalog.json',dict(catalog,apps=[first,dict(mirror,id='de.wijsman.other')]))
   self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID,'de.wijsman.other'])
   # The origin path skips a .pspdx whose source is not GitHub, and INBOX keeps a plugin for a later version.
   (self.root/'catalog.txt').write_text(SPEC['source']+'\n');(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/pspdx/\n')
-  self.write('manifest.json',dict(SPEC,source='https://archive.org/details/psp-blocks',listed_by='https://wijsman.de/'))
+  self.write('manifest.json',dict(SPEC,source='https://archive.org/details/psp-blocks'))
   r=self.run_client('fetch',CATALOG_DOWN=1,FORCE=1,VERBOSE=1);self.assertIn('outside GitHub',r.stderr)
   self.write('ms0:/PSP/PSPDX/INBOX/plug.pspdx',plug);r=self.run_client('inbox',VERBOSE=1);self.assertEqual(r.stdout.strip(),'0');self.assertIn('cannot install yet; kept',r.stderr)
  def test_a_catalog_names_its_entries_as_it_likes(self):
@@ -436,7 +439,7 @@ class ClientTests(unittest.TestCase):
   release=lambda source:[dict(first['releases'][0],url=source+'/releases/download/v2/download.zip')]
   apps=[]
   for i,name in enumerate(names):
-   source='https://github.com/test/app%d'%i;app=dict(first,source=source,name='App %d'%i,installdir='PSP/GAME/App%d'%i,listed_by='https://lists.example.org/psp/',releases=release(source))
+   source='https://github.com/test/app%d'%i;app=dict(first,source=source,name='App %d'%i,installdir='PSP/GAME/App%d'%i,releases=release(source))
    if name is None:del app['id']
    else:app['id']=name
    apps.append(app)
@@ -466,42 +469,51 @@ class ClientTests(unittest.TestCase):
    with self.subTest(published=published,sha=sha):
     release.update(published_at=published,sha256=sha);self.write('catalog.json',catalog)
     row=next(line.split() for line in self.run_client('fetch').stdout.splitlines() if line.startswith(ID+' '));self.assertEqual(row[3],state,row)
- def vouched(self):
-  # The fixtures' one app, vouched for by a list in the catalog, and its repository's own .pspdx gone.
+ def from_the_entry(self):
+  # The fixtures' one app as its catalog entry says it, and its repository's own .pspdx gone: GitHub answers 404.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text())
-  catalog['apps'][0].update(listed_by='https://lists.example.org/psp/',summary='From the list',description='Two lines.\nFrom the list.')
+  catalog['apps'][0].update(summary='From the list',description='Two lines.\nFrom the list.')
   self.write('catalog.json',catalog);(self.root/'manifest.json').unlink();(self.root/'requests.log').write_text('')
   return catalog
  def saved(self,app_id=ID):return json.loads((self.root/f'ms0:/PSP/PSPDX/INSTALLED/{app_id}.pspdx').read_text())
- def test_a_vouched_entry_installs_from_the_catalog_and_updates_only_through_one(self):
-  catalog=self.vouched();r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
-  self.assertEqual((self.root/'ms0:/PSP/GAME/Demo/EBOOT.PBP').read_bytes(),b'new package');self.assertIn('vouches for it',r.stderr)
-  # The repository was asked once, and what is saved is the entry's word with the list that gives it.
+ def test_a_github_app_whose_repository_has_no_pspdx_installs_and_updates_from_its_entry(self):
+  catalog=self.from_the_entry();r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
+  self.assertEqual((self.root/'ms0:/PSP/GAME/Demo/EBOOT.PBP').read_bytes(),b'new package');self.assertIn('installed from the catalog entry',r.stderr)
+  # The repository was asked once, and what is saved is the entry's word.
   self.assertEqual((self.root/'requests.log').read_text().splitlines().count('https://raw.githubusercontent.com/test/demo/HEAD/.pspdx'),1)
-  self.assertEqual(self.saved(),dict(schema=SCHEMA,source=SPEC['source'],name='Demo',tags=['demo'],installdir='PSP/GAME/Demo',author='test',summary='From the list',description='Two lines.\nFrom the list.',listed_by='https://lists.example.org/psp/'))
+  self.assertEqual(self.saved(),dict(schema=SCHEMA,source=SPEC['source'],name='Demo',tags=['demo'],installdir='PSP/GAME/Demo',author='test',summary='From the list',description='Two lines.\nFrom the list.'))
   record=self.state()[ID];self.assertEqual((record['installed']['version'],record['latest']['checked_from']),('2','https://example.com/catalog.json'))
-  # Another zip in the entry is an update, and no check asks the repository about it, forced or not, with the catalog up or only saved.
-  catalog['apps'][0]['releases'][0]['sha256']='0'*63+'1';self.write('catalog.json',catalog);(self.root/'requests.log').write_text('')
-  for env in ({},dict(FORCE=1),dict(FORCE=1,CATALOG_DOWN=1)):
+  # Another zip in the entry is an update. A live catalog answers without GitHub; a forced check, or one with only the saved catalog, asks
+  # the repository for its .pspdx, hears 404, and the entry stands. The API is never asked.
+  catalog['apps'][0]['releases'][0]['sha256']='0'*63+'1';self.write('catalog.json',catalog);pspdx='https://raw.githubusercontent.com/test/demo/HEAD/.pspdx'
+  github=lambda:[x for x in (self.root/'requests.log').read_text().splitlines() if 'github' in x]
+  for env,asked in (({},0),(dict(FORCE=1),1),(dict(FORCE=1,CATALOG_DOWN=1),1),(dict(CATALOG_DOWN=1),0)):
    with self.subTest(env=env):
-    row=next(l.split() for l in self.run_client('fetch',**env).stdout.splitlines() if l.startswith(ID+' '));self.assertEqual(row[3],'3',row)
-  self.assertEqual([x for x in (self.root/'requests.log').read_text().splitlines() if 'github' in x],[])
- def test_the_repositorys_own_pspdx_wins_and_no_vouch_is_no_install(self):
-  self.vouched();self.write('manifest.json',SPEC)
-  r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertEqual(self.saved(),SPEC);self.assertNotIn('vouches for it',r.stderr)
-  # Without listed_by, no .pspdx is no install, as it always was.
-  catalog=json.loads((self.root/'catalog.json').read_text());del catalog['apps'][0]['listed_by'];self.write('catalog.json',catalog);(self.root/'manifest.json').unlink()
-  before=self.state()[ID];r=self.run_client('get',ID,ok=False,VERBOSE=1)
-  self.assertNotEqual(r.returncode,0);self.assertIn('no catalog vouches for it',r.stderr);self.assertEqual((self.state()[ID],self.saved()),(before,SPEC))
- def test_a_vouched_entry_from_outside_github_installs_from_the_entry(self):
+    (self.root/'requests.log').write_text('');r=self.run_client('fetch',VERBOSE=1,**env)
+    row=next(l.split() for l in r.stdout.splitlines() if l.startswith(ID+' '));self.assertEqual(row[3],'3',(row,r.stderr))
+    # The 404 counts as the repository's answer: the check after it, with only the saved catalog, waits the six hours.
+    self.assertEqual(github(),[pspdx]*asked,r.stderr)
+  self.assertEqual(self.state()[ID]['latest']['checked_from'],SPEC['source'])
+  # Once the repository has a .pspdx of its own, that is what the check hears, and the release is asked for.
+  self.write('manifest.json',dict(SPEC,summary='From the repository'));(self.root/'requests.log').write_text('')
+  r=self.run_client('fetch',FORCE=1,CATALOG_DOWN=1,VERBOSE=1);self.assertIn('origin: test/demo .pspdx: Demo',r.stderr);self.assertIn(pspdx,github())
+  self.assertTrue(any('api.github.com' in x for x in github()),github())
+ def test_the_repositorys_own_pspdx_wins(self):
+  self.from_the_entry();self.write('manifest.json',SPEC)
+  r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertEqual(self.saved(),SPEC);self.assertNotIn('installed from the catalog entry',r.stderr)
+ def test_an_entry_that_still_names_listed_by_installs_as_any_other(self):
+  # A catalog written before listed_by went: the field is read past, doubled or not, and not saved.
+  catalog=self.from_the_entry();(self.root/'catalog.json').write_text(json.dumps(catalog).replace('"name": "Demo"','"name": "Demo", "listed_by": "https://lists.example.org/psp/", "listed_by": 7'))
+  r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertNotIn('listed_by',self.saved())
+ def test_an_entry_from_outside_github_installs_from_the_entry(self):
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0]
   package=(self.root/'new.zip').read_bytes();blocks='de.wijsman.blocks'
-  mirror=dict(id=blocks,name='Blocks',source='https://archive.org/details/psp-blocks',listed_by='https://wijsman.de/psp-homebrew-database/',installdir='PSP/GAME/Blocks',
+  mirror=dict(id=blocks,name='Blocks',source='https://archive.org/details/psp-blocks',installdir='PSP/GAME/Blocks',
               releases=[dict(tag='v1',published_at='2026-01-02T00:00:00Z',size=len(package),sha256=hashlib.sha256(package).hexdigest(),url='https://archive.org/download/psp-blocks/download.zip')])
   self.write('catalog.json',dict(catalog,apps=[first,mirror]));(self.root/'requests.log').write_text('')
   r=self.run_client('get',blocks,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
   self.assertEqual((self.root/'ms0:/PSP/GAME/Blocks/EBOOT.PBP').read_bytes(),b'new package')
-  self.assertEqual((self.state()[blocks]['source'],self.saved(blocks)['listed_by']),(mirror['source'],mirror['listed_by']))
+  self.assertEqual((self.state()[blocks]['source'],self.saved(blocks)['source']),(mirror['source'],mirror['source']))
   self.assertEqual([x for x in (self.root/'requests.log').read_text().splitlines() if 'archive.org' in x],[mirror['releases'][0]['url']])
   # With no catalog at all it is still on the stick, from the file it was saved with, and nothing is asked about it.
   shutil.rmtree(self.root/'ms0:/PSP/PSPDX/CACHE');(self.root/'requests.log').write_text('')
@@ -565,7 +577,7 @@ class ClientTests(unittest.TestCase):
   # A category decides the one tab; without one, the tags do; a category no tab has leaves All alone; the plugins are the type's.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]
   for tags,kind,tabs,category in ((['Jeu','games','Game'],None,'-3 -2 0',None),([],None,'-3 -2 0',None),(None,None,'-3 -2 0',None),(['game','demo','emulator'],None,'-3 -2 0 1 2 4',None),(['plugin'],None,'-3 -2 0',None),(['game'],'plugin','-3 -2 0 1 5',None),
-                                  (['puzzle'],None,'-3 -2 0 1','game'),(['game','demo'],None,'-3 -2 0 4','emulator'),(['game'],None,'-3 -2 0','Puzzle'),(['game'],None,'-3 -2 0','Game'),(['demo'],'plugin','-3 -2 0 3 5','app'),(['game'],None,'-3 -2 0 1','c'*25),(['game'],None,'-3 -2 0 1','')):
+                                  (['puzzle'],None,'-3 -2 0 1','game'),(['game','demo'],None,'-3 -2 0 4','emulator'),(['game'],None,'-3 -2 0','Puzzle'),(['game'],None,'-3 -2 0','Game'),(['demo'],'plugin','-3 -2 0 3 5','app')):
    with self.subTest(tags=tags,kind=kind,category=category):
     a={k:v for k,v in app.items() if k!='tags'}
     if tags is not None:a['tags']=tags
@@ -626,7 +638,7 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(self.row(self.run_client('fetch',FORCE=1).stdout)[1],'v')
  def mirror(self,name='Blocks',**change):
   package=(self.root/'new.zip').read_bytes();plain=''.join(c for c in name if c.isalnum())
-  app=dict(name=name,source='https://archive.org/details/psp-'+plain.lower(),listed_by='https://wijsman.de/psp-homebrew-database/',installdir='PSP/GAME/'+plain[:32],
+  app=dict(name=name,source='https://archive.org/details/psp-'+plain.lower(),installdir='PSP/GAME/'+plain[:32],
            releases=[dict(tag='v1',published_at='2026-01-02T00:00:00Z',size=len(package),sha256=hashlib.sha256(package).hexdigest(),url='https://archive.org/download/psp-blocks/download.zip')])
   app.update(change);return app
  def test_a_release_address_of_512_characters_fits(self):
@@ -635,22 +647,24 @@ class ClientTests(unittest.TestCase):
    with self.subTest(length=length):
     url='https://archive.org/download/'+'u'*(length-len('https://archive.org/download/')-len('/download.zip'))+'/download.zip';self.assertEqual(len(url),length)
     mirror=self.mirror();mirror['releases'][0]['url']=url;self.write('catalog.json',dict(catalog,apps=[first,mirror]))
-    self.assertEqual(self.row(self.run_client('fetch').stdout,'de.wijsman.blocks') is not None,listed)
+    self.assertEqual(self.row(self.run_client('fetch').stdout,'org.archive.blocks') is not None,listed)
   mirror['releases'][0]['url']=url[:len('https://archive.org/download/')]+url[len('https://archive.org/download/')+1:];self.assertEqual(len(mirror['releases'][0]['url']),512)
-  self.write('catalog.json',dict(catalog,apps=[first,mirror]));r=self.run_client('get','de.wijsman.blocks',VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
- def test_what_a_list_vouches_for_is_held_to_the_pspdx_rules(self):
+  self.write('catalog.json',dict(catalog,apps=[first,mirror]));r=self.run_client('get','org.archive.blocks',VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
+ def test_an_entry_is_held_to_the_pspdx_rules(self):
   # Outside GitHub and on it, an entry that could never make a v1 .pspdx is not listed as an app that installs, and the log says which field.
+  # A source under github.io would make an id that is a repository's, and is no app either.
   self.fixtures();catalog=self.catalog_app();first=catalog['apps'][0]
   bad=[self.mirror('Summary',summary='s'*61),self.mirror('N'*41),self.mirror('Tagged',tags=['t'*25]),self.mirror('Twice',tags=['game','game']),self.mirror('Tab',author='tab\there'),
-       self.mirror('Empty',category=''),self.mirror('Long',description='d'*2501),self.mirror('Null',license=None),self.mirror('Many',tags=['t%d'%i for i in range(9)])]
-  github=dict(first,id='io.github.test.other',source='https://github.com/test/other',installdir='PSP/GAME/Other',listed_by='https://lists.example.org/psp/',summary='s'*61,
+       self.mirror('Empty',category=''),self.mirror('Wide',category='c'*25),self.mirror('Long',description='d'*2501),self.mirror('Null',license=None),self.mirror('Many',tags=['t%d'%i for i in range(9)]),self.mirror('Pages',source='https://owner.github.io/pages/')]
+  github=dict(first,id='io.github.test.other',source='https://github.com/test/other',installdir='PSP/GAME/Other',summary='s'*61,
               releases=[dict(first['releases'][0],url='https://github.com/test/other/releases/download/v2/download.zip')])
   good=self.mirror('Fine',summary='s'*60,description='d'*2500,tags=['t%d'%i for i in range(8)],category='game')
   self.write('catalog.json',dict(catalog,apps=[first,*bad,github,good]))
-  r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],[ID,'de.wijsman.fine'],r.stderr)
+  r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],[ID,'org.archive.fine'],r.stderr)
   for field in ('summary','name','tags','author','category','description','license'):self.assertIn('breaks the .pspdx rules (%s); dropped'%field,r.stderr)
-  self.assertIn('io.github.test.other is vouched for and breaks the .pspdx rules (summary)',r.stderr)
-  self.assertEqual(self.run_client('get','de.wijsman.fine',VERBOSE=1).stdout.strip(),'0')
+  self.assertIn('io.github.test.other breaks the .pspdx rules (summary)',r.stderr)
+  self.assertIn('which only a GitHub repository has; refused',r.stderr);self.assertIn('Pages is from outside GitHub and its source\'s host and name make no id; dropped',r.stderr)
+  self.assertEqual(self.run_client('get','org.archive.fine',VERBOSE=1).stdout.strip(),'0')
  def test_an_id_as_long_as_github_makes_one(self):
   # GitHub allows an owner of 39 characters and a repository of 100: the id is 150, and names the files on the stick whole.
   owner,repo='o'*39,'r'*100;source='https://github.com/%s/%s'%(owner,repo);long_id='io.github.%s.%s'%(owner,repo);self.assertEqual(len(long_id),150)
@@ -691,8 +705,8 @@ class ClientTests(unittest.TestCase):
   # Installed from a mirror the list has since moved away from: the list's row stands, and the stick's record adds no second one under the same id.
   (self.root/'ms0:/PSP/PSPDX').mkdir(parents=True);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
   self.write('catalog.json',dict(schema='https://chriopter.github.io/pspdx/schema/catalog-v1.json',generated_at=NOW(),apps=[self.mirror(source='https://archive.org/details/psp-blocks-v2')]))
-  self.plant_record('de.wijsman.blocks','https://archive.org/details/psp-blocks','PSP/GAME/Blocks',dict(schema=SCHEMA,source='https://archive.org/details/psp-blocks',name='Blocks',installdir='PSP/GAME/Blocks',listed_by='https://wijsman.de/psp-homebrew-database/'))
-  r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],['de.wijsman.blocks'],r.stderr);self.assertIn('not listed twice',r.stderr)
+  self.plant_record('org.archive.blocks','https://archive.org/details/psp-blocks','PSP/GAME/Blocks',dict(schema=SCHEMA,source='https://archive.org/details/psp-blocks',name='Blocks',installdir='PSP/GAME/Blocks'))
+  r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],['org.archive.blocks'],r.stderr);self.assertIn('not listed twice',r.stderr)
  def other_thing(self):
   # A catalog entry of another app that wants PSP/GAME/Demo.
   sha='ab'*32;return dict(schema='https://chriopter.github.io/pspdx/schema/catalog-v1.json',generated_at=NOW(),apps=[dict(id='io.github.other.thing',name='Thing',source='https://github.com/other/thing',installdir='PSP/GAME/Demo',
@@ -796,7 +810,7 @@ class ClientTests(unittest.TestCase):
   for folder in ('Demo.','...','.'):
    with self.subTest(folder=folder):self.parse(dict(SPEC,installdir='PSP/GAME/'+folder),ok=False)
   self.assertEqual(self.parse(dict(SPEC,installdir='PSP/GAME/.Demo.x')).split('|')[0],'PSP/GAME/.Demo.x')
-  mirror=dict(schema=SCHEMA,source='https://archive.org/details/tetris',name='Tetris Inc.',listed_by='https://wijsman.de/psp-homebrew-database/')
+  mirror=dict(schema=SCHEMA,source='https://archive.org/details/tetris',name='Tetris Inc.')
   self.assertEqual(self.parse(mirror).split('|')[0],'PSP/GAME/TetrisInc')
   self.assertEqual(self.parse({k:v for k,v in SPEC.items() if k!='installdir'}|dict(source='https://github.com/test/demo.')).split('|')[0],'PSP/GAME/demo')
  def test_a_journal_whose_manifest_is_not_text_is_left_alone(self):
@@ -831,14 +845,12 @@ class ClientTests(unittest.TestCase):
   ids=lambda *a:self.run_client('ids',*a).stdout.split('\n')
   for url,made in [('https://github.com/-/_',['-','-']),('https://github.com/owner/-',['-','-']),('https://github.com/o/a.git.git',['-','-']),('https://github.com/o/a.git',['io.github.o.a','https://github.com/o/a']),('https://github.com/O-1/R_2',['io.github.o1.r2','https://github.com/O-1/R_2'])]:
    with self.subTest(url=url):self.assertEqual(ids(url)[0].split(),made)
-  for listed,name,made in [('https://例え.jp/','App','-'),('https://テスト.jp/','App','-'),('https://a..b.org/','App','-'),('https://example.org./','App','org.example.app'),('https://evil.example\\@good.example/','App','example.evil.app'),
+  for source,name,made in [('https://例え.jp/','App','-'),('https://テスト.jp/','App','-'),('https://a..b.org/','App','-'),('https://example.org./','App','org.example.app'),('https://evil.example\\@good.example/','App','example.evil.app'),
                            ('https://[2001:db8::1]:8443/list','App','2001db81.app'),('https://owner.github.io/list/','App','-'),('https://github.io/','App','-'),('https://github.io.example/','App','example.io.github.app')]:
-   with self.subTest(listed=listed):self.assertEqual(ids('https://github.com/o/r',listed,name)[1],made)
+   with self.subTest(source=source):self.assertEqual(ids('https://github.com/o/r',source,name)[1],made)
   self.assertIn('which only a GitHub repository has',self.run_client('ids','x','https://owner.github.io/','App',VERBOSE=1).stderr)
-  self.assertEqual(self.run_client('listedhost','https://evil.example\\@good.example/').stdout.strip(),'evil.example')
-  self.assertEqual(self.run_client('listedhost','https://[2001:db8::1]:8443/').stdout.strip(),'[2001:db8::1]')
-  # A file whose list is at <owner>.github.io makes no id, since it would be a repository's.
-  self.parse(dict(schema=SCHEMA,source='https://archive.org/details/x',name='App',listed_by='https://owner.github.io/list/'),ok=False)
+  # A file whose source is at <owner>.github.io makes no id, since it would be a repository's.
+  self.parse(dict(schema=SCHEMA,source='https://owner.github.io/list/',name='App'),ok=False)
  # --- a release the .pspdx pins ---
  def release_json(self,tag,*names,**extra):
   size=(self.root/'new.zip').stat().st_size
@@ -913,7 +925,7 @@ class ClientTests(unittest.TestCase):
    with self.subTest(release=release):self.parse(dict(SPEC,release=release),ok=False)
   self.parse(dict(SPEC,release=dict(tag='v1',url='https://'+'u'*504)))
   # Outside GitHub nothing says where the tag's zip is or when it came out but the file.
-  mirror=dict(schema=SCHEMA,source='https://archive.org/details/psp-blocks',name='Blocks',listed_by='https://wijsman.de/psp-homebrew-database/')
+  mirror=dict(schema=SCHEMA,source='https://archive.org/details/psp-blocks',name='Blocks')
   self.parse(dict(mirror,release=dict(tag='v1',url='https://archive.org/download/psp-blocks/blocks.zip',published_at='2024-12-20')))
   for release in (dict(tag='v1'),dict(tag='v1',url='https://archive.org/download/psp-blocks/blocks.zip'),dict(tag='v1',published_at='2024-12-20')):
    with self.subTest(outside=release):self.parse(dict(mirror,release=release),ok=False)

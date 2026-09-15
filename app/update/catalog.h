@@ -28,8 +28,6 @@ struct app_entry {
     /* The one group the app names, which decides its tab over the tags;
        empty when it names none. */
     char category[PSPDX_CATEGORY_SIZE];
-    /* The page of the list that vouches for the app, when one does. */
-    char listed_by[PSPDX_URL_SIZE];
     /* The file's description, on the heap and owned by the entry, or NULL
        when it has none: kilobytes that only the details band reads. */
     char *description;

@@ -29,7 +29,7 @@ PSPDX uses the [PSPDX standard](https://chriopter.github.io/pspdx/) — its sche
 
 #### Derived, never written
 
-- `id` → GitHub: `io.github.<owner>.<repo>`; elsewhere the host of `listed_by` reversed, without `www.`, then the name; every part lowercased to `[a-z0-9]`
+- `id` → GitHub: `io.github.<owner>.<repo>`; elsewhere the host of `source` reversed, without `www.`, then the name; every part lowercased to `[a-z0-9]`; an `io.github.` id from anywhere but GitHub is refused
 - A catalog's own `id` is kept only when it already is one (lowercase `[a-z0-9]` parts joined by dots, at most 159 bytes, `io.github.` only as the derived one) and doesn't clash with what's installed; anything else → the derived id
 - `installdir` left out → `PSP/GAME/<repository name>` on GitHub, `PSP/GAME/<name>` elsewhere, cut to 32 allowed characters
 - Update → the SHA-256 of `releases[0]` differs from the installed ZIP's; dates and version strings are not compared
@@ -49,11 +49,10 @@ PSPDX uses the [PSPDX standard](https://chriopter.github.io/pspdx/) — its sche
 - On GitHub → the tag must exist; `url`, if given, must be one of its assets, else the ZIP rule picks; `published_at` comes from GitHub, a value in the file is ignored
 - Outside GitHub → `url` and `published_at` are required
 
-#### Vouched listings
+#### No `.pspdx` in the repo
 
-- No `.pspdx` in the repo? A catalog keeps one for it → its entry carries `listed_by`
-- PSPDX installs from that entry; updates come only through that catalog
-- The repo's own `.pspdx` wins as soon as it has one
+- A catalog can still list the app → PSPDX installs from its entry; the repo's 404 is all the PSP needs to know
+- Updates keep coming from the catalog entry; the repo's own `.pspdx` wins as soon as it has one
 
 #### Text list
 
@@ -125,13 +124,13 @@ A site with only `catalog.txt` works without a builder.
 #### Install
 
 ```text
-x on app -> confirm -> repo's own .pspdx (none: the catalog entry, if it names listed_by)
+x on app -> confirm -> repo's own .pspdx (404: the catalog entry)
          -> check source + installdir -> download release ZIP -> check size, SHA-256, ZIP, paths
          -> stage -> swap into PSP/GAME/<dir> -> write state
 ```
 
 - Only the folder holding the single `EBOOT.PBP` is installed
-- Installed from a catalog entry, the saved `.pspdx` is the entry's words with its `listed_by`; from outside GitHub the ZIP must match the entry's SHA-256
+- Installed from a catalog entry, the saved `.pspdx` is the entry's words; from outside GitHub the ZIP must match the entry's SHA-256
 - An unmanaged folder in the way is never adopted or overwritten; PSPDX offers to move it to `<dir>.bak`
 - A transaction journal covers files, manifest and state; an interrupted install recovers at the next start
 
@@ -150,7 +149,7 @@ kept falls back to a newer `published_at`.
 2. For each installed app:
      in a catalog that answered and is under 24 h old?
        yes, not forced   ->  take the catalog entry, no GitHub request
-       vouched by a catalog, or outside GitHub  ->  the catalog or the record, never GitHub
+       outside GitHub    ->  the catalog or the record, never GitHub
        otherwise         ->  step 3
 
 3. Direct check due?
@@ -158,6 +157,7 @@ kept falls back to a newer `published_at`.
      or the last direct answer is older than 6 h
        due               ->  .pspdx          raw.githubusercontent.com   no limit
                              latest release  api.github.com              1 of 60 an hour
+       .pspdx is 404     ->  the catalog entry or the record stands; counts as asked
        not due           ->  the last answer saved in the record
 
 4. releases[0] SHA-256 differs         ->  "Update to x.y"
@@ -167,7 +167,7 @@ kept falls back to a newer `published_at`.
 
 - A check against a maintained catalog is one request and no API call
 - An app added by **Direct install** or from INBOX costs one API call, then none for six hours
-- Only GitHub apps with their own `.pspdx` are asked directly; an app from anywhere else, or one a catalog vouches for, updates through a catalog
+- Only GitHub apps are asked directly; a repo without `.pspdx` costs one raw.githubusercontent.com request and no API call; an app from anywhere else updates through a catalog
 - Nothing is topped up from GitHub: a `.pspdx` without author is by the account in its URL, a missing summary or licence stays empty
 
 #### Apply
@@ -232,7 +232,7 @@ hourly:  repos.txt -> catalog.txt
 ```
 
 - `catalog.json` carries metadata, tags, description, source, install path, up to the 20 newest releases (date, ZIP URL, size, hash, changelog) and media URLs; the console reads `releases[0]`
-- The reference builder lists repos with their own `.pspdx`, and a repo without one from a file in its `listed/`, setting `listed_by` on that entry
+- The reference builder lists repos with their own `.pspdx`, and a repo without one from a file in its `listed/`
 - A push or manual run also picks up manifest-only edits; hourly runs wait for a release
 - A build with no valid apps leaves the live site in place
 
@@ -320,7 +320,7 @@ ms0:/
 #### App state
 
 `INSTALLED/<app-id>.pspdx` keeps the source independently of `sources.txt`;
-for an app a catalog vouched for, it is the entry's words with `listed_by`.
+for an app installed from a catalog entry, it is the entry's words.
 `<app-id>.state.json` next to it has no outer app-ID key:
 
 | Field | Contents |

@@ -48,8 +48,7 @@ enum source_kind sources_kind(const char *url);
    else. The category, the title, the summary and the rest used to be words
    after the URL; they are the repository's own .pspdx now, so a list says
    only where the apps are and every list shows the same app the same way.
-   An app without a .pspdx is a catalog's to list, by vouching for it in
-   listed_by. */
+   An app without a .pspdx is a catalog's to list, from its entry. */
 struct source_repo {
     char owner[40];
     char name[101];             /* GitHub allows 100 characters */
@@ -65,7 +64,7 @@ struct source_list {
 
 /* Whether a line is the URL of a .pspdx: https://, one word, ".pspdx" at
    its end. Such a line once named a list's file standing in for a
-   repository without one; a catalog vouches for that app now, and a line
+   repository without one; a catalog lists that app from its entry now, and a line
    of the kind, in sources.txt or in a list, is passed over and said. */
 int sources_is_pspdx(const char *line);
 
@@ -90,16 +89,12 @@ int sources_same_repo(const char *a, const char *b);
    id empty, when it does not fit in size or a part leaves nothing. */
 int sources_repo_id(const struct source_repo *r, char *id, size_t size);
 
-/* The id of an app from outside GitHub: the host of the list that vouches for
-   it, reversed, and its name. -1 when those leave nothing to name, when a
-   label of the host has no letter or digit, when the id does not fit, and
-   when it would start with io.github., which is GitHub's. */
-int sources_listed_id(const char *listed_by, const char *name, char *id, size_t size);
-
-/* The host of the list that vouches for an app, as Information names it:
-   lower case, without who logs in, the port or a leading www. 0, or -1 when
-   listed_by is not https, leaves no host, or the host does not fit. */
-int sources_listed_host(const char *listed_by, char *host, size_t size);
+/* The id of an app from outside GitHub: the host of its source, without who
+   logs in, the port or a leading www., reversed, and its name. -1 when those
+   leave nothing to name, when a label of the host has no letter or digit,
+   when the id does not fit, and when it would start with io.github., which
+   is GitHub's. */
+int sources_host_id(const char *source, const char *name, char *id, size_t size);
 
 /* The repository's canonical URL, https://github.com/<owner>/<repo>, with
    no tag on it: what the record on the stick and the cache both call the

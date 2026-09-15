@@ -415,13 +415,13 @@ static int put_part(char *id, size_t *used, size_t size, const char *text, size_
     return 1;
 }
 
-/* The host a list is known by, out of its https URL: who logs in, the port
+/* The host of an https URL as an id is made of it: who logs in, the port
    and a leading www. are not part of it. 0 with the span in *host and *n,
    -1 when the URL is not https or leaves no host. */
-static int listed_host(const char *listed_by, const char **host, size_t *n) {
-    if (strncmp(listed_by, "https://", 8))
+static int url_host(const char *url, const char **host, size_t *n) {
+    if (strncmp(url, "https://", 8))
         return -1;
-    const char *h = listed_by + 8;
+    const char *h = url + 8;
     /* A backslash ends the host as a slash does, the way a browser reads
        it: https://evil.example\\@good.example/ is evil.example. */
     size_t len = strcspn(h, "/?#\\");
@@ -446,33 +446,17 @@ static int listed_host(const char *listed_by, const char **host, size_t *n) {
     return len ? 0 : -1;
 }
 
-int sources_listed_host(const char *listed_by, char *out, size_t size) {
-    const char *host;
-    size_t n;
-    if (!size)
-        return -1;
-    out[0] = '\0';
-    if (listed_host(listed_by, &host, &n) < 0 || n >= size)
-        return -1;
-    for (size_t i = 0; i < n; i++)
-        out[i] = host[i] >= 'A' && host[i] <= 'Z' ? (char)(host[i] - 'A' + 'a') : host[i];
-    out[n] = '\0';
-    return 0;
-}
-
-/* The id of an app whose source is not a GitHub repository. The address of
-   a mirror says too little about which project it is, so the id is the list
-   that vouches for the app and the app's name: the host of listed_by with
-   its labels backwards, then the name. Returns 0, or -1 when the host or the
-   name leaves nothing, or the id does not fit. */
-int sources_listed_id(const char *listed_by, const char *name, char *id, size_t size) {
+/* The id of an app whose source is not a GitHub repository: the host of
+   the source with its labels backwards, then the name. Returns 0, or -1 when
+   the host or the name leaves nothing, or the id does not fit. */
+int sources_host_id(const char *source, const char *name, char *id, size_t size) {
     size_t used = 0;
     if (!size)
         return -1;
     id[0] = '\0';
     const char *host;
     size_t n;
-    if (listed_host(listed_by, &host, &n) < 0)
+    if (url_host(source, &host, &n) < 0)
         return -1;
     int labels = 0;
     for (size_t end = n;;) {
@@ -492,11 +476,11 @@ int sources_listed_id(const char *listed_by, const char *name, char *id, size_t 
     }
     if (!labels || put_part(id, &used, size, name, strlen(name)) != 1)
         goto none;
-    /* io.github. is the ids of GitHub repositories: a list at
+    /* io.github. is the ids of GitHub repositories: a source at
        <owner>.github.io would otherwise make one of theirs. */
     if (!strncmp(id, "io.github.", 10)) {
         logline("sources: %.60s and %.40s would make an id under io.github., which only a "
-                "GitHub repository has; refused", listed_by, name);
+                "GitHub repository has; refused", source, name);
         goto none;
     }
     return 0;

@@ -45,14 +45,6 @@ int main(int argc, char **argv) {
         printf("%s|%s|%s|%s\n", f.installdir, f.type, f.id, f.tags);
         return 0;
     }
-    if (!strcmp(argv[1], "listedhost")) {
-        /* listedhost <url>: the host Information names the list by. */
-        char host[256];
-        if (sources_listed_host(argv[2], host, sizeof(host)) < 0)
-            return 1;
-        puts(host);
-        return 0;
-    }
     if (!strcmp(argv[1], "wrap")) {
         /* wrap <width> <max bytes> <max lines> <file>: the lines, one JSON
            string each, as the details band would draw them. */
@@ -126,8 +118,9 @@ int main(int argc, char **argv) {
         return rc < 0 ? 1 : 0;
     }
     if (!strcmp(argv[1], "ids")) {
-        /* ids <url> [<listed_by> <name>]: the id a repository makes, and
-           the one a list and a name make, each "-" where there is none. */
+        /* ids <url> [<source> <name>]: the id a repository makes, and
+           the one a source's host and a name make, each "-" where there is
+           none. */
         struct source_repo repo;
         char id[PSPDX_ID_SIZE], url[SOURCE_URL];
         int github = sources_parse_repo(argv[2], &repo);
@@ -136,7 +129,7 @@ int main(int argc, char **argv) {
         printf("%s %s\n", github && sources_repo_id(&repo, id, sizeof(id)) == 0 ? id : "-",
                github ? url : "-");
         if (argc > 4)
-            printf("%s\n", sources_listed_id(argv[3], argv[4], id, sizeof(id)) == 0 ? id : "-");
+            printf("%s\n", sources_host_id(argv[3], argv[4], id, sizeof(id)) == 0 ? id : "-");
         return 0;
     }
     if (!strcmp(argv[1], "latest")) {

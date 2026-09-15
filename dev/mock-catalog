@@ -146,9 +146,6 @@ DESCRIPTIONS = {"Chronicles of the Dawnbringer Saga II": "\n\n".join([
 # their own room.
 LONG_TAGS = {"Master System": "v2.0.0-beta.3+build.20260911.gitabcdef0123456789-rc2-final-final"}
 
-# A GitHub app that a list vouches for, so the band has a listed_by to say.
-LISTED = {"ScummVM": "https://wijsman.de/psp-homebrew-database/"}
-
 # Plugins by their type, which is what the plugins tab goes by. They name no
 # folder under PSP/GAME; the catalog lists them and the console will not
 # install them.
@@ -316,7 +313,6 @@ def make(work, ms, base):
             "summary": SUMMARY_OF.get(name, SUMMARIES[rng.randrange(len(SUMMARIES))]),
             "license": LICENSES[i % len(LICENSES)],
             **({"description": DESCRIPTIONS[name]} if name in DESCRIPTIONS else {}),
-            **({"listed_by": LISTED[name]} if name in LISTED else {}),
             "releases": [{
                 "tag": "v" + version,
                 "published_at": iso(rev),
@@ -349,7 +345,7 @@ def make(work, ms, base):
         if media:
             app["media"] = media
         manifest=dict(schema="https://chriopter.github.io/pspdx/schema/pspdx-v1.json",source=app["source"],name=name[:39],
-                      **{k: app[k] for k in ("type", "category", "tags", "installdir", "description", "listed_by")
+                      **{k: app[k] for k in ("type", "category", "tags", "installdir", "description")
                          if k in app})
         app["_test_manifest"]=manifest
         apps.append(app)

@@ -295,7 +295,6 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
                              {"author", out->author, sizeof(out->author), 60, 0, 0},
                              {"summary", out->summary, sizeof(out->summary), 60, 0, 0},
                              {"license", out->license, sizeof(out->license), 60, 0, 0},
-                             {"listed_by", out->listed_by, sizeof(out->listed_by), 255, 0, 0},
                              {"description", NULL, PSPDX_FILE_MAX + 1, 2500, 0, 1}};
     cJSON *v;
     cJSON_ArrayForEach(v, root) {
@@ -349,11 +348,6 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
         snprintf(reason, cap, "invalid source");
         goto bad;
     }
-    int listed = cJSON_GetObjectItemCaseSensitive(root, "listed_by") != NULL;
-    if (listed && (strncmp(out->listed_by, "https://", 8) || !out->listed_by[8])) {
-        snprintf(reason, cap, "invalid listed_by");
-        goto bad;
-    }
     if (!cJSON_GetObjectItemCaseSensitive(root, "type"))
         strcpy(out->type, "homebrew");
     if (strcmp(out->type, "homebrew") && strcmp(out->type, "plugin") && strcmp(out->type, "iso")) {
@@ -378,14 +372,12 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
             goto bad;
         }
     }
-    /* The id is the repository's on GitHub. Anywhere else it is the list
-       that vouches for the app and the app's name, so a file that names no
-       list, or whose list and name leave nothing to make one of, is no app
-       anyone could find again. */
+    /* The id is the repository's on GitHub. Anywhere else it is the host of
+       the source and the app's name, so a file whose host and name leave
+       nothing to make one of is no app anyone could find again. */
     if (github ? sources_repo_id(&repo, out->id, sizeof(out->id)) < 0
-               : !listed || sources_listed_id(out->listed_by, out->name, out->id,
-                                              sizeof(out->id)) < 0) {
-        snprintf(reason, cap, "no id: a source outside GitHub needs listed_by and a name");
+               : sources_host_id(out->source, out->name, out->id, sizeof(out->id)) < 0) {
+        snprintf(reason, cap, "no id: the source's host and the name make none");
         goto bad;
     }
     v = cJSON_GetObjectItemCaseSensitive(root, "release");
