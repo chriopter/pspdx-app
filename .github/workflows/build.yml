@@ -10,7 +10,7 @@ jobs:
   client-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - run: sudo apt-get update && sudo apt-get install -y libcjson-dev zlib1g-dev libssl-dev libpng-dev pkg-config
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     container: pspdev/pspdev:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -36,7 +36,7 @@ jobs:
         run: echo "commit=$(git -C app/lib/pspkit-https rev-parse HEAD:wolfssl)" >> "$GITHUB_OUTPUT"
 
       # wolfSSL is cached on everything that controls its source and build.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: wolfssl
         with:
           path: app/lib/pspkit-https/build/wolfssl
@@ -56,7 +56,7 @@ jobs:
           head -c 4 "$eboot" | grep -q $'\x00PBP'
           ls -l "$eboot"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pspdx-EBOOT
           path: app/EBOOT.PBP
