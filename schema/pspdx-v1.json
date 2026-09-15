@@ -92,6 +92,13 @@
       "default": "homebrew",
       "description": "optional; homebrew when missing. homebrew is an EBOOT installed under PSP/GAME, plugin a .prx for custom firmware, iso a disc image."
     },
+    "category": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 24,
+      "pattern": "^[^\\u0000-\\u001f]*(?![\\s\\S])",
+      "description": "optional; the one group the app belongs in. game, emulator, app and demo are the ones the console has a tab for; without a category, a tab word in tags decides."
+    },
     "tags": {
       "type": "array",
       "maxItems": 8,
