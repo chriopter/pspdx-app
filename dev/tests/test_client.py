@@ -1075,21 +1075,35 @@ class ClientTests(unittest.TestCase):
   self.fixtures();self.write('ms0:/PSP/PSPDX/INBOX/blocks.pspdx',mirror)
   r=self.run_client('inbox',VERBOSE=1,FETCH_FIRST=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertIn('from outside GitHub',r.stderr)
   self.run_client('inboxinstall');self.assertTrue((self.root/'ms0:/PSP/PSPDX/INBOX/blocks.pspdx').exists());self.assertNotIn('org.example.psp.blocks',self.state())
- def test_a_stick_at_0_6_sees_0_7_as_an_update_of_itself(self):
-  # PSPDX's own record comes from its first start: rev 0 and the version built in. The same version is the release and notes its rev; another is an update; once noted, another zip is one too.
+ def test_a_stick_at_0_4_to_0_7_sees_0_8_0_as_an_update_of_itself(self):
+  # PSPDX's own record comes from its first start: rev 0 and the version built in. The same version is the release and notes its rev, a build past its tag too; any other is an update, 0.8 and 0.8.00 included; once noted, another zip is one too.
   (self.root/'ms0:/PSP/PSPDX').mkdir(parents=True);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
   self_id='io.github.chriopter.pspdxapp';source='https://github.com/chriopter/pspdx-app'
   release=lambda tag,day,sha:dict(tag=tag,published_at='2026-09-%02dT08:51:07Z'%day,size=3000000,sha256=sha,url=source+'/releases/download/%s/pspdx.zip'%tag)
   entry=lambda *releases:dict(generated_at=NOW(),apps=[dict(id=self_id,name='PSPDX',author='chriopter',source=source,installdir='PSP/GAME/PSPDX',category='app',releases=list(releases))])
-  record=lambda version,rev:self.write(f'ms0:/PSP/PSPDX/INSTALLED/{self_id}.state.json',dict(source=source,installed=dict(installdir='PSP/GAME/PSPDX',version=version,published_at=rev)))
-  (a,b)=('62'*32,'7a'*32)
-  for version,state in [('0.6','3'),('0.7','2'),('0.7-3-gabc1234','2'),('0.70','3'),('dev','3')]:
+  def record(version,rev,sha=None,app_id=self_id,source=source):
+   installed=dict(installdir='PSP/GAME/PSPDX',version=version,published_at=rev,**({'sha256':sha} if sha else {}))
+   self.write(f'ms0:/PSP/PSPDX/INSTALLED/{app_id}.state.json',dict(source=source,installed=installed))
+  (old,new)=('62'*32,'7a'*32);catalog=lambda:self.write('catalog.json',entry(release('v0.8.0',16,new),release('v0.4',14,old)))
+  for version,state in [('0.4','3'),('0.5','3'),('0.6','3'),('0.7','3'),('0.7-3-gabc1234','3'),('0.8','3'),('0.8.0','2'),('0.8.0-3-gabc1234','2'),('0.8.00','3'),('dev','3')]:
    with self.subTest(version=version):
-    record(version,0);self.write('catalog.json',entry(release('v0.7',15,b),release('v0.6',14,a)));self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[1:4],['0.7','1',state])
+    record(version,0);catalog();self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[1:4],['0.8.0','1',state])
     self.assertEqual(self.state()[self_id]['installed']['published_at']!=0,state=='2')
-  # A 0.6 that has already noted its release's rev: 0.7 is an update, 0.6 itself is not.
-  record('0.6',0);self.write('catalog.json',entry(release('v0.6',14,a)));self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[3],'2');self.assertNotEqual(self.state()[self_id]['installed']['published_at'],0)
-  self.write('catalog.json',entry(release('v0.7',15,b),release('v0.6',14,a)));self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[1:4],['0.7','1','3'])
+  # A stick that noted its release's rev and hash: the zip of 0.8.0 is another than 0.4's to 0.7's, and 0.8.0's own is not.
+  for version,sha,state in [('0.4',old,'3'),('0.5',old,'3'),('0.6',old,'3'),('0.7',old,'3'),('0.8.0',new,'2')]:
+   with self.subTest(noted=version):
+    record(version,1757926267,sha);catalog();self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[1:4],['0.8.0','1',state])
+  # A 0.6 that has already noted its release's rev without a hash: 0.8.0 is an update, 0.6 itself is not.
+  record('0.6',0);self.write('catalog.json',entry(release('v0.6',14,old)));self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[3],'2');self.assertNotEqual(self.state()[self_id]['installed']['published_at'],0)
+  catalog();self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[1:4],['0.8.0','1','3'])
+  # 0.4 and 0.5 kept their record as io.github.chriopter.pspdx: retired at start, and 0.8.0 is PSPDX's one row again.
+  (self.root/f'ms0:/PSP/PSPDX/INSTALLED/{self_id}.state.json').unlink();self.game('PSPDX').mkdir(parents=True)
+  legacy='io.github.chriopter.pspdx'
+  for version in ('0.4','0.5'):
+   with self.subTest(legacy=version):
+    record(version,1757926267,old,app_id=legacy,source='https://github.com/chriopter/pspdx');catalog()
+    self.assertEqual(self.run_client('retire').stdout.strip(),'1');self.assertNotIn(legacy,self.state())
+    rows=self.run_client('fetch').stdout.splitlines();self.assertEqual([l.split()[0] for l in rows],[self_id]);self.assertEqual(self.row('\n'.join(rows),self_id)[1:3],['0.8.0','1'])
  # --- installs and removals the megatest broke (0.7) ---
  def game(self,*parts):return self.root.joinpath('ms0:/PSP/GAME',*parts)
  def journal_path(self):return self.root/'ms0:/PSP/PSPDX/TMP/transaction.json'
