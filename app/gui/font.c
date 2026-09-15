@@ -132,10 +132,18 @@ static void use(enum font_style style, unsigned color) {
    text, from two prints instead of a shadow map the font does not have. */
 static float shadowed(enum font_style style, float x, float y, unsigned color,
                       const char *text, int len) {
+    /* intraFont takes its vertices out of the display list and never asks
+       whether they fit: two per sprite of 24 bytes, up to three sprites for
+       a character put together from pieces and one more for its shadow,
+       which it lays even for a font that has none. A band of kilobytes of
+       text ran the list into the globals behind it, the font among them. */
+    unsigned bytes = (unsigned)len * 4 * 2 * 24 + 256;
     if (STYLES[style].shadow >> 24) {
+        if (!gfx_list_room(bytes)) return x;
         use(style, STYLES[style].shadow);
         intraFontPrintEx(g_font, x + 1.0f, y + 1.0f, text, len);
     }
+    if (!gfx_list_room(bytes)) return x;
     use(style, color);
     return intraFontPrintEx(g_font, x, y, text, len);
 }

@@ -39,6 +39,11 @@
 #define RIPPLE_BYTES (87040)    /* 256^2 + 128^2 + 64^2 + 32^2 */
 
 static unsigned int __attribute__((aligned(16))) g_list[64 * 1024];
+/* Kept clear under the list's end for what is drawn between two calls of
+   gfx_list_room: rectangles, strips, a batch's worth of glows. */
+#define LIST_SPARE (32 * 1024)
+static int g_in_frame;
+static unsigned g_list_sent;            /* bytes of this frame already sent */
 static unsigned g_frames;
 static void *g_draw;                    /* the draw buffer, relative to VRAM */
 static int g_up;
@@ -258,6 +263,8 @@ void gfx_frame_begin(unsigned clear) {
     g_batching = g_sprites = g_nstrips = g_strip_verts = 0;
     g_sprite = 0;
     g_strip = 0;
+    g_in_frame = 1;
+    g_list_sent = 0;
     sceGuStart(GU_DIRECT, g_list);
     sceGuClearColor(clear);
     sceGuClear(GU_COLOR_BUFFER_BIT | GU_FAST_CLEAR_BIT);
@@ -270,9 +277,11 @@ void gfx_frame_overlay(void (*overlay)(void)) { g_overlay = overlay; }
 
 void gfx_frame_end(void) {
     gfx_batch_end();
+    g_in_frame = 0;
     /* How much of the list the frame took: a frame that fills it writes
-       past it, and the first sign of that would be a hang. */
-    unsigned used = (unsigned)sceGuFinish();
+       past it, and the first sign of that would be a hang. What went to
+       the GE early to make room counts too. */
+    unsigned used = g_list_sent + (unsigned)sceGuFinish();
     if (used > g_worst_list) g_worst_list = used;
     unsigned t0 = now_us();
     sceGuSync(0, 0);
@@ -365,6 +374,24 @@ void gfx_batch_begin(void) { g_batching = 1; }
 void gfx_batch_end(void) {
     flush_batch();
     g_batching = 0;
+}
+
+int gfx_list_room(unsigned bytes) {
+    if (bytes > sizeof(g_list) - LIST_SPARE)
+        return 0;
+    if ((unsigned)sceGuCheckList() + bytes + LIST_SPARE <= sizeof(g_list))
+        return 1;
+    /* A bake or a readback has the list to itself and never comes near. */
+    if (!g_in_frame)
+        return 0;
+    /* The GE keeps its state from one list to the next -- every frame
+       counts on that already -- so the frame goes on where it stopped,
+       into the same draw buffer. A batch lives in the list and goes first. */
+    flush_batch();
+    g_list_sent += (unsigned)sceGuFinish();
+    sceGuSync(0, 0);
+    sceGuStart(GU_DIRECT, g_list);
+    return 1;
 }
 
 /* Four corners as a strip: TL, BL, TR, BR. Culling is off, so winding does

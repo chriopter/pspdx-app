@@ -33,6 +33,13 @@ void gfx_frame_overlay(void (*overlay)(void));
    and how much is slack. */
 void gfx_frame_worst(unsigned *ge_us, unsigned *vblank_us, unsigned *list_bytes);
 
+/* Makes room for bytes more in the display list before something that
+   takes them without asking, intraFont above all. Inside a frame that has
+   no room left, what is drawn so far goes to the GE and the frame goes on
+   in an empty list. 0 when no list holds that many bytes, or when there
+   is no room outside a frame: the caller then draws nothing. */
+int gfx_list_room(unsigned bytes);
+
 void gfx_rect(int x, int y, int w, int h, unsigned color);
 void gfx_vgrad(int x, int y, int w, int h, unsigned top, unsigned bottom);
 void gfx_hgrad(int x, int y, int w, int h, unsigned left, unsigned right);
