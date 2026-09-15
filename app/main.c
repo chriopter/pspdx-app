@@ -130,7 +130,7 @@ static void record_self(const char *path) {
 
     memset(&self, 0, sizeof(self));
     strncpy(self.id, PSPDX_SELF_ID, sizeof(self.id) - 1);
-    snprintf(self.repo, sizeof(self.repo), "https://github.com/chriopter/pspdx");
+    snprintf(self.repo, sizeof(self.repo), "https://github.com/chriopter/pspdx-app");
     strncpy(self.version, PSPDX_VERSION, sizeof(self.version) - 1);
     /* Started from somewhere this cannot read -- a shell, a host debugger --
        leaves the name the release ships under, which is where it would be. */
@@ -335,7 +335,7 @@ int main(int argc, char *argv[]) {
         struct pspdx_file file;
         char why[80];
         if (n >= 0 && pspdx_parse(bundled, n, &file, why, sizeof(why)) == 0 &&
-            !strcmp(file.source, "https://github.com/chriopter/pspdx"))
+            !strcmp(file.source, "https://github.com/chriopter/pspdx-app"))
             storage_write(self_manifest_path, bundled, n);
         else
             storage_write(self_manifest_path, PSPDX_SELF_MANIFEST, strlen(PSPDX_SELF_MANIFEST));

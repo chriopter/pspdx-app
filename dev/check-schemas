@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-"""Holds what this repository writes to the schemas it publishes, read from
-this checkout rather than from Pages, so that a schema and the files it
-describes are changed in one commit and checked together.
+"""Holds what this repository writes to the schemas of the PSPDX standard,
+fetched from where the standard publishes them, so the app is checked
+against the schemas every catalog and editor reads.
 
-    schema/*.json               valid Draft 2020-12 schemas
-    .pspdx                      against schema/pspdx-v1.json
-    app/util/self_manifest.h    the copy the EBOOT carries, the same
-    dev/mock-catalog            its catalog against schema/catalog-v1.json,
-                                the manifest of every entry against pspdx-v1
+    pspdx-v1.json, catalog-v1.json   valid Draft 2020-12 schemas
+    .pspdx                           against pspdx-v1.json
+    app/util/self_manifest.h         the copy the EBOOT carries, the same
+    dev/mock-catalog                 its catalog against catalog-v1.json,
+                                     the manifest of every entry against pspdx-v1
 
     python3 -m venv venv && venv/bin/pip install -r dev/requirements.txt
     venv/bin/python dev/check-schemas
 
-Nothing goes to the network: the mock is handed stand-in assets, and what it
+The two schemas come from https://chriopter.github.io/pspdx/schema/; nothing
+else goes to the network: the mock is handed stand-in assets, and what it
 plants lands in a temporary directory, not on any emulator's stick.
 """
-import contextlib, importlib.machinery, importlib.util, io, json, pathlib, re, sys, tempfile
+import contextlib, importlib.machinery, importlib.util, io, json, pathlib, re, sys, tempfile, urllib.request
 
 import jsonschema
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DRAFT = "https://json-schema.org/draft/2020-12/schema"
+SCHEMAS = "https://chriopter.github.io/pspdx/schema/"
 
 # jsonschema passes a format it has no checker for without a word, and the
 # checkers for these come from separate packages; a check that silently
@@ -35,16 +37,21 @@ FIXTURE = "_test_manifest"
 
 
 def validator(name):
-    path = ROOT / "schema" / name
-    schema = json.loads(path.read_text())
+    url = SCHEMAS + name
+    try:
+        with urllib.request.urlopen(url, timeout=30) as response:
+            schema = json.loads(response.read())
+    except (OSError, ValueError) as error:
+        sys.exit(f"cannot fetch {url}: {error}\n"
+                 "check-schemas reads the schemas the standard publishes; it needs the network")
     if schema.get("$schema") != DRAFT:
-        sys.exit(f"{path}: $schema is not {DRAFT}")
+        sys.exit(f"{url}: $schema is not {DRAFT}")
     cls = jsonschema.Draft202012Validator
     cls.check_schema(schema)
     missing = [f for f in FORMATS if f not in cls.FORMAT_CHECKER.checkers]
     if missing:
         sys.exit(f"no checker for format {', '.join(missing)}; install dev/requirements.txt")
-    print(f"ok  {path.relative_to(ROOT)} is a Draft 2020-12 schema")
+    print(f"ok  {url} is a Draft 2020-12 schema")
     return cls(schema, format_checker=cls.FORMAT_CHECKER)
 
 

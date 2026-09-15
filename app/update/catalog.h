@@ -12,7 +12,7 @@
    is the client itself: the one that cannot be removed while it is running,
    and the one whose record was written by a first start rather than by an
    install. The id is written once, here. */
-#define PSPDX_SELF_ID "io.github.chriopter.pspdx"
+#define PSPDX_SELF_ID "io.github.chriopter.pspdxapp"
 
 enum app_state { APP_UNKNOWN, APP_NOT_INSTALLED, APP_CURRENT, APP_UPDATE };
 

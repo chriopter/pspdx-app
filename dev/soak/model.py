@@ -75,7 +75,7 @@ NOT_INSTALLED, CURRENT, UPDATE = "none", "current", "update"
 
 # catalog.h: the one package the client will not delete, because it is the
 # one running.
-PSPDX_SELF_ID = "io.github.chriopter.pspdx"
+PSPDX_SELF_ID = "io.github.chriopter.pspdxapp"
 
 # main.c: enum choice, the five rows of the options menu in the order drawn.
 # main.c's enum choice: Run, the fetch row (Install, Update to, Reinstall),

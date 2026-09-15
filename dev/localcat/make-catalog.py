@@ -13,7 +13,7 @@ cat = json.load(urllib.request.urlopen(SRC + "catalog.json"))
 apps = cat["apps"]
 
 def current(a):
-    """An entry in the shape schema/catalog-v1.json gives it now, whichever
+    """An entry in the shape catalog-v1.json gives it now, whichever
     shape the published catalog is still in: a single release becomes the
     first of the releases, a category the one tag, a screenshot the first of
     the screenshots."""

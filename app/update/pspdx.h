@@ -25,7 +25,7 @@
    PSP/PSPDX/INSTALLED, <id>.state.json.bak the longest, well inside the 255
    characters a FAT name may have. */
 #define PSPDX_ID_SIZE 160
-/* The byte sizes fit the character limits of schema/pspdx-v1.json at four
+/* The byte sizes fit the character limits of pspdx-v1.json at four
    bytes a character. The description is checked and not kept here, since
    it is the one field of kilobytes and this lives on stacks; whoever shows
    it asks pspdx_description for it. */

@@ -1636,7 +1636,7 @@ def stick_orphan_and_self(world):
     this asserts, and the report says why it is worth looking at again."""
     ghost_id = "dev.pspdx.mock.98.ghost"
     ghost_dir = "PSPDXMock98Ghost"
-    self_id = "io.github.chriopter.pspdx"
+    self_id = "io.github.chriopter.pspdxapp"
     p = hand(world)
     browse(p, 5)
     install_app(p, pick(world, NOT_INSTALLED))

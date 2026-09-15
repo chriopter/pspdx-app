@@ -16,8 +16,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libcjson-dev zlib1g-dev libssl-dev
       - run: sh dev/tests/run
       # The same pinned validator pspdx-catalog checks with, against the
-      # schemas in this checkout: a schema and what it describes change in
-      # one commit and are checked together.
+      # schemas the standard publishes at chriopter.github.io/pspdx.
       - name: Check against the schemas
         run: |
           python3 -m venv "$RUNNER_TEMP/venv"

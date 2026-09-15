@@ -100,7 +100,7 @@ SLUGGED = "Pixel Pilot"
 
 # The longest a description may be, 2500 characters with its newlines, and
 # near it: paragraphs of letters beyond ASCII, for the details band to break
-# into lines once and scroll. schema/catalog-v1.json and the client both
+# into lines once and scroll. catalog-v1.json and the client both
 # count characters, not bytes, and in bytes this is longer.
 DESCRIPTIONS = {"Chronicles of the Dawnbringer Saga II": "\n\n".join([
     "The second part of the Dawnbringer saga picks up where the first one left "
@@ -169,7 +169,7 @@ ABSENT = ".mock-absent"
 
 # Summaries of every length: nothing at all, a few words, a line that fills
 # the row, and one of sixty characters, the most the format allows. None is
-# longer: schema/catalog-v1.json caps a summary there, the catalog builder
+# longer: catalog-v1.json caps a summary there, the catalog builder
 # cuts one there, and dev/check-schemas holds this list to the schema.
 SUMMARIES = [
     "",
@@ -300,7 +300,7 @@ def make(work, ms, base):
             version = LONG_TAGS[name][1:]
         rel, sha, size = package(site, entry_id, dirname, payload)
 
-        # The shape schema/catalog-v1.json gives an entry, which is what
+        # The shape catalog-v1.json gives an entry, which is what
         # update/catalog.c reads: the releases newest first, each a tag, when
         # it was published and a download. dev/tests/test_client.py feeds one
         # of these through that parser, so the two cannot drift apart

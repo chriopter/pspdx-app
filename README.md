@@ -4,7 +4,7 @@
 
 Install and update homebrew directly on your PlayStation Portable, using the [PSPDX standard](https://chriopter.github.io/pspdx/).
 
-**[→ Download PSPDX](https://github.com/chriopter/pspdx/releases/latest)**
+**[→ Download PSPDX](https://github.com/chriopter/pspdx-app/releases/latest)**
 
 <img width="480" alt="PSPDX starting, browsing the catalog, installing an update and two apps from the basket" src="assets/pspdx-app.webp" />
 
@@ -12,7 +12,7 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 
 Just install, start and search for homebrew! Updates are shown automatically. Needs ARK-5 for WPA2.
 
-Issues? [Tell us how it went](https://github.com/chriopter/pspdx/issues).
+Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 
 ## How it works
 
@@ -22,16 +22,7 @@ Issues? [Tell us how it went](https://github.com/chriopter/pspdx/issues).
 
 ## The PSPDX standard
 
-**[PSPDX standard →](https://chriopter.github.io/pspdx/)** · examples: [pspdx-demo](https://github.com/chriopter/pspdx-demo/blob/master/.pspdx) · [pspdx-catalog](https://github.com/chriopter/pspdx-catalog)
-
-The standard has two formats:
-
-- **`.pspdx`** → a small file in the root of your homebrew's repository. Add it, publish a release, done.
-- **`catalog.json`** → many apps in one file, with their releases and artwork. Anyone can publish one.
-
-- It lives on its own: a catalog is only a shortcut.
-- The magic: when you download a brew, your PSP saves the original `.pspdx` so it can get updates from the original repo.
-- Built to work 10 years forward, without another mirror going down.
+PSPDX uses the [PSPDX standard](https://chriopter.github.io/pspdx/) — its schemas and rules live in [chriopter/pspdx](https://github.com/chriopter/pspdx).
 
 <details>
 <summary><b>How PSPDX reads it</b> · ids, updates, lists</summary>
@@ -299,8 +290,8 @@ ms0:/
         ├── presets.seen                 # Presets already offered
         ├── INBOX/demo.pspdx             # Awaiting import
         ├── INSTALLED/
-        │   ├── io.github.chriopter.pspdx.pspdx
-        │   ├── io.github.chriopter.pspdx.state.json
+        │   ├── io.github.chriopter.pspdxapp.pspdx
+        │   ├── io.github.chriopter.pspdxapp.state.json
         │   ├── io.github.chriopter.pspcathedral.pspdx
         │   └── io.github.chriopter.pspcathedral.state.json
         ├── CACHE/
@@ -500,7 +491,8 @@ Both scripts take a start offset as their third argument.
 ## Links
 
 - [PSPDX Catalog](https://github.com/chriopter/pspdx-catalog) — the main catalog and its builder; [browse it](https://chriopter.github.io/pspdx-catalog/)
+- [PSPDX standard](https://github.com/chriopter/pspdx) — the `.pspdx` and `catalog.json` schemas; [read them](https://chriopter.github.io/pspdx/)
 - [Demo app](https://github.com/chriopter/pspdx-demo) — a complete homebrew with a `.pspdx`
-- [Releases](https://github.com/chriopter/pspdx/releases/latest) — `pspdx.zip`
+- [Releases](https://github.com/chriopter/pspdx-app/releases/latest) — `pspdx.zip`
 
 **Feedback is very welcome!**

@@ -1,6 +1,6 @@
 {
   "schema": "https://chriopter.github.io/pspdx/schema/pspdx-v1.json",
-  "source": "https://github.com/chriopter/pspdx",
+  "source": "https://github.com/chriopter/pspdx-app",
   "name": "PSPDX",
   "author": "chriopter",
   "summary": "Download, run and update homebrew on your PSP.",
