@@ -16,43 +16,31 @@ Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 
 ## How it works
 
-- **The app** → browses catalogs, installs the release ZIP, checks for updates at start
-- **The catalog** → many apps in one file, fetched in one request; [the main catalog](https://github.com/chriopter/pspdx-catalog) or your own
-- **No catalog?** → every installed app keeps its `.pspdx` and asks its own repository
+- **Catalogs:** PSPDX comes with the main catalog and a community list. Add your own in the gear tab.
+- **Updates:** at start, PSPDX fetches the catalogs and the `.pspdx` of any app no catalog lists.
+- **Memory:** every installed app's `.pspdx` stays on the Memory Stick.
 
-## The PSPDX standard
-
-PSPDX uses the [PSPDX standard](https://chriopter.github.io/pspdx/) — its schemas and rules live in [chriopter/pspdx](https://github.com/chriopter/pspdx).
+## Under the hood
 
 <details>
-<summary><b>How PSPDX reads it</b> · ids, updates, lists</summary>
+<summary><b>The PSPDX standard</b> · ids, updates, no .pspdx</summary>
 
-#### Derived, never written
+PSPDX reads the [PSPDX standard](https://chriopter.github.io/pspdx/): a `.pspdx` next to each app and `catalog.json` lists.
 
-- `id` → GitHub: `io.github.<owner>.<repo>`; elsewhere the host of `source` reversed, without `www.`, then the name; every part lowercased to `[a-z0-9]`; an `io.github.` id from anywhere but GitHub is refused
-- A catalog's own `id` is kept only when it already is one (lowercase `[a-z0-9]` parts joined by dots, at most 159 bytes, `io.github.` only as the derived one) and doesn't clash with what's installed; anything else → the derived id
-- `installdir` left out → `PSP/GAME/<repository name>` on GitHub, `PSP/GAME/<name>` elsewhere, cut to 32 allowed characters
-- Update → the SHA-256 of `releases[0]` differs from the installed ZIP's; dates and version strings are not compared
-- Readers ignore fields they don't know
+- **Catalogs:** one `catalog.json` request lists every app and shows which have updates.
+- **Downloads:** the ZIP comes straight from each app's release, never from the catalog.
+- **Without a catalog:** the saved `.pspdx` of an installed app leads back to its repository.
 
-#### Releases
+What PSPDX does on top:
 
-- One published release, one `EBOOT.PBP` inside its ZIP; no manifest edit per release
-- ZIP rule → one `.zip` on the release, or of several exactly one with `psp` in its name, any case; otherwise the app is left out with the reason
-- `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed, not installed yet
-- `size`, `sha256`, `eboot_md5` are never written by hand; the catalog computes them
-
-#### Pinning a release
-
-- No `release` → the newest GitHub release, with updates
-- `"release": {"tag": "v1.2"}` → exactly that release, prereleases too; no updates until someone edits the file; a pinned app's catalog `releases` is that one release
-- On GitHub → the tag must exist; `url`, if given, must be one of its assets, else the ZIP rule picks; `published_at` comes from GitHub, a value in the file is ignored
-- Outside GitHub → `url` and `published_at` are required
-
-#### No `.pspdx` in the repo
-
-- A catalog can still list the app → PSPDX installs from its entry; the repo's 404 is all the PSP needs to know
-- Updates keep coming from the catalog entry; the repo's own `.pspdx` wins as soon as it has one
+- **Ids:** GitHub → `io.github.<owner>.<repo>`; elsewhere the reversed host of `source` plus the name. A catalog's own `id` is kept only when it is well-formed and doesn't clash with an installed app.
+- **Folder:** without `installdir` → `PSP/GAME/<repository name>`, cut to 32 characters. An installed app keeps its folder.
+- **Updates:** the SHA-256 of `releases[0]` differs from the installed ZIP's. Versions and dates are not compared.
+- **ZIP rule:** one `.zip` on the release, or of several exactly the one with `psp` in its name; otherwise the app is left out with the reason.
+- **Pinned release:** `"release": {"tag": "v1.2"}` installs exactly that release, with no updates until the file changes.
+- **No `.pspdx` at the source:** the repository answers 404, and PSPDX installs from the catalog entry and keeps updating from the catalog. As soon as the author adds a `.pspdx`, that file counts.
+- **Types:** `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed, not installed yet.
+- **No `schema` field:** a `catalog.json` without one is read as v1.
 
 #### Text list
 
@@ -63,7 +51,7 @@ https://github.com/someone/project@v1.2
 ```
 
 - One repository URL per line; `@tag` pins a release
-- `cache` names an aggregated catalog, read first; repos it doesn't cover are asked directly
+- `cache` names a catalog, read first; repositories it doesn't cover are asked directly
 
 #### Checking a `.pspdx` in VS Code
 
@@ -74,8 +62,6 @@ https://github.com/someone/project@v1.2
 ```
 
 </details>
-
-## Under the hood
 
 <details>
 <summary><b>Sources</b> · catalogs, repositories, INBOX</summary>
@@ -490,9 +476,10 @@ Both scripts take a start offset as their third argument.
 
 ## Links
 
-- [PSPDX Catalog](https://github.com/chriopter/pspdx-catalog) — the main catalog and its builder; [browse it](https://chriopter.github.io/pspdx-catalog/)
-- [PSPDX standard](https://github.com/chriopter/pspdx) — the `.pspdx` and `catalog.json` schemas; [read them](https://chriopter.github.io/pspdx/)
-- [Demo app](https://github.com/chriopter/pspdx-demo) — a complete homebrew with a `.pspdx`
+- [PSPDX standard](https://github.com/chriopter/pspdx) — the `.pspdx` and `catalog.json` files PSPDX reads; [read the specification](https://chriopter.github.io/pspdx/)
+- [PSPDX Catalog](https://github.com/chriopter/pspdx-catalog) — the main catalog: rebuilds itself every hour and fetches the latest releases; [browse it](https://chriopter.github.io/pspdx-catalog/)
+- [Demo app](https://github.com/chriopter/pspdx-demo) — a minimal homebrew with its own `.pspdx`
+- [Abandoned demo](https://github.com/chriopter/pspdx-demo-abandoned) — a homebrew without a `.pspdx`, listed by the catalog
 - [Releases](https://github.com/chriopter/pspdx-app/releases/latest) — `pspdx.zip`
 
 **Feedback is very welcome!**
