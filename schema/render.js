@@ -70,6 +70,7 @@ function cond(c) {
     else if (v.const !== undefined) parts.push(`${code(k)} is ${code(v.const)}`);
     else if (v.not && v.not.pattern) parts.push(`${code(k)} does not match ${code(v.not.pattern)}`);
     else if (v.pattern) parts.push(`${code(k)} matches ${code(v.pattern)}`);
+    else if (v.required) parts.push(`${code(k)} has ${list(v.required)}`);
   }
   return parts.length ? parts.join(" and ") : code(c);
 }
