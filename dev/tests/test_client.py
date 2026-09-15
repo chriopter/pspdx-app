@@ -952,4 +952,104 @@ class ClientTests(unittest.TestCase):
   for release in (dict(tag='v1'),dict(tag='v1',url='https://archive.org/download/psp-blocks/blocks.zip'),dict(tag='v1',published_at='2024-12-20')):
    with self.subTest(outside=release):self.parse(dict(mirror,release=release),ok=False)
   (self.root/'raw.json').write_text(json.dumps(SPEC)[:-1]+', "release": {"tag": "v1", "tag": "v2"}}');self.assertNotEqual(self.run_client('parse','raw.json',ok=False).returncode,0)
+ # --- the small things before 0.7 ---
+ def test_a_catalog_that_names_no_schema_reads_past_what_it_does_not_know(self):
+  # No schema and fields no version reads, top-level and in an entry, a listed_by among them: read as v1, gzipped or not (an update, since the entry names no hash and a later date). A schema that is a list, an object or true is named, and not v1.
+  self.fixtures();catalog=self.catalog_app();del catalog['schema']
+  catalog.update(maintainer='someone',listed_by='https://lists.example.org/psp/');catalog['apps'][0].update(listed_by='https://lists.example.org/psp/',homepage={'any':1})
+  self.write('catalog.json',catalog);self.assertEqual(self.row(self.run_client('fetch').stdout)[1:4],['2','1','3'])
+  self.gzip_catalog();self.assertEqual(self.row(self.run_client('fetch').stdout)[1:4],['2','1','3']);(self.root/'catalog.json.gz').unlink()
+  for schema in ([],{},True):
+   with self.subTest(schema=schema):self.write('catalog.json',dict(catalog,schema=schema));self.assertEqual(self.row(self.run_client('fetch').stdout)[1],'3')
+ def test_a_catalog_id_is_kept_up_to_159_bytes_and_when_it_is_one(self):
+  self.fixtures();catalog=self.catalog_app();first=catalog['apps'][0]
+  longest='com.example.'+'a'*(159-len('com.example.'));self.assertEqual(len(longest),159)
+  for given,listed in [(longest,longest),(longest+'a','org.archive.blocks'),('de.wijsman.blocks','de.wijsman.blocks'),('com..example','org.archive.blocks'),('.com.example','org.archive.blocks'),
+                       ('com.example.','org.archive.blocks'),('Com.example','org.archive.blocks'),('com.exa_mple','org.archive.blocks'),('comexample','org.archive.blocks'),
+                       ('io.github.someone.blocks','org.archive.blocks'),('com.example.blöcks','org.archive.blocks')]:
+   with self.subTest(given=given):
+    self.write('catalog.json',dict(catalog,apps=[first,self.mirror(id=given)]));r=self.run_client('fetch',VERBOSE=1)
+    self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],[ID,listed],r.stderr)
+  # The longest names the files on the stick whole.
+  self.write('catalog.json',dict(catalog,apps=[first,self.mirror(id=longest)]))
+  r=self.run_client('get',longest,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
+  self.assertTrue((self.root/f'ms0:/PSP/PSPDX/INSTALLED/{longest}.state.json').exists());self.assertEqual(self.row(self.run_client('fetch').stdout,longest)[3],'2')
+ def test_a_release_date_at_the_edges_of_what_a_stick_counts(self):
+  # Seconds since 1970 in 32 bits: the first second after the epoch to the last one 2106 has. The epoch itself is a record's "no date", and is not taken.
+  self.fixtures();catalog=self.catalog_app();release=catalog['apps'][0]['releases'][0]
+  for published,version in [('1969-12-31T23:59:59Z','3'),('1970-01-01T00:00:00Z','3'),('1970-01-01','3'),('1970-01-01T00:00:01Z','2'),('1970-01-02','2'),
+                            ('2106-02-07T06:28:15Z','2'),('2106-02-07T06:28:16Z','3'),('2106-02-08','3'),('1970-01-01T00:00:01','3'),('1970-1-01','3'),('0000-01-01','3')]:
+   with self.subTest(published=published):
+    self.forget_latest();self.write('catalog.json',dict(catalog,apps=[dict(catalog['apps'][0],releases=[dict(release,published_at=published)])]));self.assertEqual(self.row(self.run_client('fetch').stdout)[1],version)
+ def test_an_empty_catalog_is_a_catalog_of_nothing(self):
+  (self.root/'ms0:/PSP/PSPDX').mkdir(parents=True);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
+  for catalog in (dict(schema='https://chriopter.github.io/pspdx/schema/catalog-v1.json',generated_at=NOW(),apps=[]),dict(generated_at=NOW(),apps=[]),dict(apps=[]),{},[]):
+   with self.subTest(catalog=catalog):self.write('catalog.json',catalog);r=self.run_client('fetch',ok=False,VERBOSE=1);self.assertEqual(r.stdout,'',r.stderr)
+  (self.root/'catalog.json').write_bytes(b'');self.assertEqual(self.run_client('fetch',ok=False).stdout,'')
+  # Installed, the app stays on the list with a catalog that names nothing.
+  self.fixtures();self.write('catalog.json',dict(generated_at=NOW(),apps=[]));self.assertIsNotNone(self.row(self.run_client('fetch',ok=False).stdout))
+ def test_text_from_an_entry_in_any_language_is_listed_and_saved_whole(self):
+  catalog=self.from_the_entry();name='Überschall 東京 🎮';description=('🎮'*2499)+'\n'
+  catalog['apps'][0].update(name=name,summary='Schnell — 速い',author='Zoë',description=description);self.write('catalog.json',catalog)
+  r=self.run_client('get',ID,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr)
+  self.assertEqual((self.saved()['name'],self.saved()['summary'],self.saved()['author'],self.saved()['description']),(name,'Schnell — 速い','Zoë',description))
+  catalog['apps'][0].update(description='🎮'*2501);self.write('catalog.json',catalog);self.assertIn('breaks the .pspdx rules (description)',self.run_client('fetch',VERBOSE=1).stderr)
+ def test_a_release_outside_github_from_the_list_to_an_update(self):
+  # A list, a source and a zip on three hosts, none of them GitHub: the id is the source's, the hash is the gate, another hash is the update, and GitHub is never asked.
+  (self.root/'ms0:/PSP/PSPDX').mkdir(parents=True);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://lists.example.com/psp/catalog.json\n');(self.root/'requests.log').write_text('')
+  package=(self.root/'new.zip').read_bytes();sha=hashlib.sha256(package).hexdigest();blocks='org.example.psp.blocks'
+  entry=dict(name='Blocks',source='https://psp.example.org/apps/blocks',installdir='PSP/GAME/Blocks',summary='Falling blocks',
+             releases=[dict(tag='v1',published_at='2026-01-02T00:00:00Z',size=len(package),sha256=sha,url='https://files.example.net/blocks/v1/download.zip')])
+  listing=lambda **change:self.write('catalog.json',dict(generated_at=NOW(),apps=[dict(entry,**change)]))
+  listing();r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split() for l in r.stdout.splitlines()],[[blocks,'1','1','1','0']],r.stderr)
+  r=self.run_client('get',blocks,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertEqual((self.root/'ms0:/PSP/GAME/Blocks/EBOOT.PBP').read_bytes(),b'new package')
+  self.assertEqual((self.state()[blocks]['source'],self.state()[blocks]['installed']['sha256'],self.saved(blocks)['source']),(entry['source'],sha,entry['source']))
+  for env in ({},dict(FORCE=1)):
+   with self.subTest(env=env):self.assertEqual(self.row(self.run_client('fetch',**env).stdout,blocks)[3],'2')
+  # Another tag over the same zip is not an update; another hash under the same tag is, and a download that does not hash to it is refused and changes nothing.
+  listing(releases=[dict(entry['releases'][0],tag='v1.0.1')]);self.assertEqual(self.row(self.run_client('fetch').stdout,blocks)[3],'2')
+  other=hashlib.sha256(b'other').hexdigest();listing(releases=[dict(entry['releases'][0],sha256=other)]);self.assertEqual(self.row(self.run_client('fetch').stdout,blocks)[3],'3')
+  r=self.run_client('get',blocks,ok=False,VERBOSE=1);self.assertNotEqual(r.stdout.strip(),'0');self.assertIn('sha256 MISMATCH',r.stderr)
+  self.assertEqual(self.state()[blocks]['installed']['sha256'],sha);self.assertEqual((self.root/'ms0:/PSP/GAME/Blocks/EBOOT.PBP').read_bytes(),b'new package')
+  # The real next zip, hashed right, installs over it and is current.
+  self.zip('new.zip',{'EBOOT.PBP':b'v2 package'});package=(self.root/'new.zip').read_bytes();sha2=hashlib.sha256(package).hexdigest()
+  listing(releases=[dict(tag='v2',published_at='2026-02-02T00:00:00Z',size=len(package),sha256=sha2,url='https://files.example.net/blocks/v2/download.zip')])
+  self.assertEqual(self.row(self.run_client('fetch').stdout,blocks)[1:4],['2','1','3'])
+  r=self.run_client('get',blocks,VERBOSE=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertEqual((self.root/'ms0:/PSP/GAME/Blocks/EBOOT.PBP').read_bytes(),b'v2 package')
+  self.assertEqual((self.state()[blocks]['installed']['version'],self.row(self.run_client('fetch',FORCE=1).stdout,blocks)[3]),('2','2'))
+  # With no list answering it is still the stick's, and still nobody at GitHub is asked.
+  self.assertIsNotNone(self.row(self.run_client('fetch',CATALOG_DOWN=1,FORCE=1,ok=False).stdout,blocks))
+  requests=set((self.root/'requests.log').read_text().splitlines());self.assertEqual([x for x in requests if 'github' in x],[])
+  self.assertEqual(requests,{'https://lists.example.com/psp/catalog.json','https://files.example.net/blocks/v1/download.zip','https://files.example.net/blocks/v2/download.zip'})
+  # Not installed: a zip over http, a source under github.io and an id claiming GitHub are each not what they say.
+  for gone in ('INSTALLED','CACHE'):shutil.rmtree(self.root/'ms0:/PSP/PSPDX'/gone)
+  shutil.rmtree(self.root/'ms0:/PSP/GAME')
+  listing(releases=[dict(entry['releases'][0],url='http://files.example.net/blocks/v1/download.zip')]);r=self.run_client('fetch',ok=False,VERBOSE=1);self.assertEqual(r.stdout,'')
+  self.assertIn('Blocks is from outside GitHub and its release cannot be installed as it stands; dropped',r.stderr)
+  listing(source='https://owner.github.io/blocks/');r=self.run_client('fetch',ok=False,VERBOSE=1);self.assertEqual(r.stdout,'');self.assertIn('which only a GitHub repository has; refused',r.stderr)
+  listing(id='io.github.owner.blocks');self.assertEqual(self.run_client('fetch').stdout.split()[0],blocks)
+ def test_a_pspdx_from_outside_github_that_pins_its_release(self):
+  # The file is read with its url and date; INBOX keeps it for a version that installs from outside GitHub, and never deletes it.
+  mirror=dict(schema=SCHEMA,source='https://psp.example.org/apps/blocks',name='Blocks',release=dict(tag='v1',url='https://files.example.net/blocks/v1/download.zip',published_at='2026-01-02T00:00:00Z'))
+  self.assertEqual(self.parse(mirror),'PSP/GAME/Blocks|homebrew|org.example.psp.blocks|')
+  for release in (dict(tag='v1'),dict(tag='v1',url=mirror['release']['url']),dict(tag='v1',published_at='2026-01-02'),dict(tag='v1',url='http://files.example.net/a.zip',published_at='2026-01-02')):
+   with self.subTest(release=release):self.parse(dict(mirror,release=release),ok=False)
+  self.fixtures();self.write('ms0:/PSP/PSPDX/INBOX/blocks.pspdx',mirror)
+  r=self.run_client('inbox',VERBOSE=1,FETCH_FIRST=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertIn('from outside GitHub',r.stderr)
+  self.run_client('inboxinstall');self.assertTrue((self.root/'ms0:/PSP/PSPDX/INBOX/blocks.pspdx').exists());self.assertNotIn('org.example.psp.blocks',self.state())
+ def test_a_stick_at_0_6_sees_0_7_as_an_update_of_itself(self):
+  # PSPDX's own record comes from its first start: rev 0 and the version built in. The same version is the release and notes its rev; another is an update; once noted, another zip is one too.
+  (self.root/'ms0:/PSP/PSPDX').mkdir(parents=True);(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
+  self_id='io.github.chriopter.pspdxapp';source='https://github.com/chriopter/pspdx-app'
+  release=lambda tag,day,sha:dict(tag=tag,published_at='2026-09-%02dT08:51:07Z'%day,size=3000000,sha256=sha,url=source+'/releases/download/%s/pspdx.zip'%tag)
+  entry=lambda *releases:dict(generated_at=NOW(),apps=[dict(id=self_id,name='PSPDX',author='chriopter',source=source,installdir='PSP/GAME/PSPDX',category='app',releases=list(releases))])
+  record=lambda version,rev:self.write(f'ms0:/PSP/PSPDX/INSTALLED/{self_id}.state.json',dict(source=source,installed=dict(installdir='PSP/GAME/PSPDX',version=version,published_at=rev)))
+  (a,b)=('62'*32,'7a'*32)
+  for version,state in [('0.6','3'),('0.7','2'),('0.7-3-gabc1234','2'),('0.70','3'),('dev','3')]:
+   with self.subTest(version=version):
+    record(version,0);self.write('catalog.json',entry(release('v0.7',15,b),release('v0.6',14,a)));self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[1:4],['0.7','1',state])
+    self.assertEqual(self.state()[self_id]['installed']['published_at']!=0,state=='2')
+  # A 0.6 that has already noted its release's rev: 0.7 is an update, 0.6 itself is not.
+  record('0.6',0);self.write('catalog.json',entry(release('v0.6',14,a)));self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[3],'2');self.assertNotEqual(self.state()[self_id]['installed']['published_at'],0)
+  self.write('catalog.json',entry(release('v0.7',15,b),release('v0.6',14,a)));self.assertEqual(self.row(self.run_client('fetch').stdout,self_id)[1:4],['0.7','1','3'])
 if __name__=='__main__':unittest.main()

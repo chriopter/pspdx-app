@@ -535,6 +535,12 @@ static int parse(struct catalog *catalog, const char *base) {
         copy_str(shot, sizeof(shot), cJSON_GetObjectItemCaseSensitive(media, "sound"));
         asset_url(base, shot, entry->sound, sizeof(entry->sound));
 
+        /* A GitHub entry whose release is no good is asked about at its
+           repository; away from GitHub the entry was the only word, so its
+           going is said. */
+        if (!github && entry->name[0] && known_type && !entry->has_release)
+            logline("catalog: %s is from outside GitHub and its release cannot be installed "
+                    "as it stands; dropped", entry->name);
         if (!entry->name[0] || !entry->has_release || !known_type)
             continue;
         /* Away from GitHub the entry is the app's whole word, and the install
