@@ -1,10 +1,14 @@
 #include "gui/wrap.h"
 
-/* The next character of UTF-8 after the one at s: one byte, and the
-   continuation bytes that belong to it. */
+/* The next character of UTF-8 after the one at s: its lead byte and as many
+   continuation bytes as that lead announces, and only those that are there.
+   A byte that leads nothing -- a stray continuation, a lead UTF-8 does not
+   have -- is a character of its own, so text that is not UTF-8 still makes
+   characters of four bytes at the most, and a line within its byte cap. */
 static const char *next_char(const char *s) {
-    s++;
-    while ((*s & 0xC0) == 0x80)
+    unsigned char c = (unsigned char)*s++;
+    int more = c >= 0xC2 && c < 0xE0 ? 1 : c >= 0xE0 && c < 0xF0 ? 2 : c >= 0xF0 && c < 0xF5 ? 3 : 0;
+    while (more-- > 0 && (*s & 0xC0) == 0x80)
         s++;
     return s;
 }

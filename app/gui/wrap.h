@@ -22,8 +22,10 @@ typedef float (*wrap_measure)(void *ctx, const char *text, size_t len);
    newline always ends a line, and an empty line stays one; otherwise a line
    ends at the last space that lets it fit, and the spaces it ended at are
    dropped. A word wider than the line on its own is cut between characters,
-   never inside one, and a line holds one character at least. The text is
-   UTF-8 and at most 65535 bytes. Returns the lines made. */
+   never inside one, and a line holds one character at least -- four bytes
+   at the most, past max_bytes only when max_bytes is smaller than that. The
+   text is UTF-8 and at most 65535 bytes; a byte that is not part of a whole
+   character counts as one of its own. Returns the lines made. */
 int wrap_text(const char *text, float width, size_t max_bytes, wrap_measure measure,
               void *ctx, struct wrap_line *lines, int max);
 

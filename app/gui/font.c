@@ -45,8 +45,8 @@ static const struct { float size; unsigned shadow; } STYLES[] = {
 
 struct measured {
     unsigned key;
-    int len;                /* -1 for an empty slot; also guards collisions */
-    int fit;                /* characters that fit within the clip width */
+    int len;                /* bytes; -1 for an empty slot; guards collisions */
+    int fit;                /* characters, not bytes, that fit within the clip */
     float width;            /* what those characters measure */
 };
 
@@ -69,6 +69,30 @@ static unsigned key_of(const char *text, int len, enum font_style style,
     return h;
 }
 
+/* The font reads UTF-8, and a length it is handed counts characters, not
+   bytes. They are counted here the way its decoder counts them: a byte it
+   skips -- a stray continuation, a lead of four bytes it has no room for --
+   counts for nothing, and a lead of two or three takes that many bytes,
+   whatever they are. A character whose bytes run into the end of len is
+   not counted at all, and neither is anything after it: the decoder would
+   read past the terminator for the bytes it lacks. */
+static int chars_of(const char *text, int len) {
+    int n = 0;
+    for (int i = 0; i < len;) {
+        unsigned char c = (unsigned char)text[i];
+        int k = c < 0x80 ? 1 : c < 0xC2 ? 0 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 0;
+        if (!k) {
+            i++;
+            continue;
+        }
+        for (int j = 1; j < k; j++)
+            if (i + j >= len || !text[i + j]) return n;
+        n++;
+        i += k;
+    }
+    return n;
+}
+
 /* clip < 0 means no limit. The font must already carry the style. */
 static const struct measured *measure(enum font_style style, const char *text,
                                       float clip) {
@@ -79,13 +103,14 @@ static const struct measured *measure(enum font_style style, const char *text,
         if (g_measured[i].key == key && g_measured[i].len == len)
             return &g_measured[i];
 
-    int fit = len;
-    float width = intraFontMeasureTextEx(g_font, text, len);
+    int chars = chars_of(text, len);
+    int fit = chars;
+    float width = intraFontMeasureTextEx(g_font, text, chars);
     if (clip >= 0.0f && width > clip) {
         /* Halve the range rather than drop one character at a time: the same
            last character that fits, a handful of measurements instead of one
            per character cut. */
-        int lo = 0, hi = len;                   /* lo fits, hi does not */
+        int lo = 0, hi = chars;                 /* lo fits, hi does not */
         float lo_width = 0.0f;
         while (hi - lo > 1) {
             int mid = (lo + hi) / 2;
@@ -131,7 +156,7 @@ static void use(enum font_style style, unsigned color) {
    dark, printed first so the face lies over it: the bevel the XMB gives its
    text, from two prints instead of a shadow map the font does not have. */
 static float shadowed(enum font_style style, float x, float y, unsigned color,
-                      const char *text, int len) {
+                      const char *text, int len) {       /* len in characters */
     /* intraFont takes its vertices out of the display list and never asks
        whether they fit: two per sprite of 24 bytes, up to three sprites for
        a character put together from pieces and one more for its shadow,
@@ -156,6 +181,12 @@ int font_init(void) {
     for (unsigned i = 0; i < sizeof(CANDIDATES) / sizeof(*CANDIDATES); i++) {
         g_font = intraFontLoad((CANDIDATES[i] ? CANDIDATES[i] : storage_path("PSP/PSPDX/DEBUG/font/ltn8.pgf")), INTRAFONT_CACHE_ALL);
         if (g_font) {
+            /* Every string this client draws is UTF-8 -- the catalog, the
+               .pspdx files, the stick's own names. Left at its default the
+               font reads Latin-1, and every byte of a letter past ASCII is
+               a glyph it lacks: an em dash or an e with an accent came out
+               as nothing, measured nothing, and the row closed up over it. */
+            intraFontSetEncoding(g_font, INTRAFONT_STRING_UTF8);
             logline("font: %s", (CANDIDATES[i] ? CANDIDATES[i] : storage_path("PSP/PSPDX/DEBUG/font/ltn8.pgf")));
             g_styled = -1;
             forget_measurements();
@@ -180,7 +211,7 @@ void font_shutdown(void) {
 float font_print(enum font_style style, float x, float y, unsigned color,
                  const char *text) {
     if (!g_font || !text) return x;
-    return shadowed(style, x, y, color, text, (int)strlen(text));
+    return shadowed(style, x, y, color, text, chars_of(text, (int)strlen(text)));
 }
 
 float font_printf(enum font_style style, float x, float y, unsigned color,
@@ -223,7 +254,8 @@ float font_print_scrolling(enum font_style style, float x, float y, float width,
     float offset = in < SCROLL_WAIT ? 0.0f
                  : in < SCROLL_WAIT + walk ? (in - SCROLL_WAIT) * SCROLL_SPEED : over;
     gfx_clip((int)x, (int)y - 24, (int)width + 1, 32);
-    float end = shadowed(style, x - offset, y, color, text, (int)strlen(text));
+    float end = shadowed(style, x - offset, y, color, text,
+                         chars_of(text, (int)strlen(text)));
     gfx_unclip();
     return end > x + width ? x + width : end;
 }

@@ -546,6 +546,21 @@ class ClientTests(unittest.TestCase):
   text=('Ein Absatz über Käse, Brötchen und ß. '*40+'\n\n')*2+'x'*300
   lines=self.wrap(text,48,most=3000);self.assertTrue(all(len(l)<=48 for l in lines))
   self.assertEqual(''.join(lines).replace(' ',''),text.replace(' ','').replace('\n',''))
+ def wrap_bytes(self,raw,width,max_bytes):
+  (self.root/'text.txt').write_bytes(raw)
+  e=dict(os.environ,ASAN_OPTIONS='detect_leaks=0')
+  r=subprocess.run([BIN,'wrap',str(width),str(max_bytes),'4096','text.txt'],cwd=self.root,env=e,capture_output=True)
+  self.assertNotIn(b'AddressSanitizer',r.stderr);self.assertNotIn(b'runtime error:',r.stderr);self.assertEqual(r.returncode,0)
+  return [l[1:-1].replace(b'\\\\',b'\\').replace(b'\\"',b'"') for l in r.stdout.split(b'\n') if l]
+ def test_text_that_is_not_utf8_still_breaks_within_the_byte_cap(self):
+  # A run of continuation bytes is as many characters of one byte, not one character of all of them: no line past its cap.
+  raw=b'a'+b'\x80'*600+b' \xe2\x80\x94\xc3\xa9 \xf0\x9f\x98\x80'+b'\xbf'*300+b'\xe2\x80'
+  lines=self.wrap_bytes(raw,1000,255)
+  self.assertTrue(all(0<len(l)<=255 for l in lines),[len(l) for l in lines])
+  self.assertEqual(b''.join(lines).replace(b' ',b''),raw.replace(b' ',b''))
+  # A whole letter is never cut, however small the cap: the four bytes of one stay one line.
+  lines=self.wrap_bytes('—é😀'.encode(),1000,2)
+  self.assertEqual(lines,['—'.encode(),'é'.encode(),'😀'.encode()])
  def test_tabs_come_from_known_tags_and_the_plugin_type(self):
   # A category decides the one tab; without one, the tags do; a category no tab has leaves All alone; the plugins are the type's.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]

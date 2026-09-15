@@ -1325,8 +1325,14 @@ static void draw_details(void) {
             continue;
         if (base - DETAIL_STEP > DETAIL_BOTTOM)
             break;
-        memcpy(line, g_detail_text + g_detail_lines[i].start, g_detail_lines[i].len);
-        line[g_detail_lines[i].len] = '\0';
+        /* wrap_text keeps a line within the bytes it was given; the buffer
+           does not take that on trust. A line cut here may end inside a
+           letter, which the font leaves out rather than reads past. */
+        size_t len = g_detail_lines[i].len;
+        if (len > DETAIL_LINE_BYTES)
+            len = DETAIL_LINE_BYTES;
+        memcpy(line, g_detail_text + g_detail_lines[i].start, len);
+        line[len] = '\0';
         font_print(FONT_META, DETAIL_X, base, g_dim, line);
     }
     gfx_unclip();
@@ -1344,6 +1350,8 @@ static void draw_details(void) {
 static float detail_width(void *ctx, const char *text, size_t len) {
     char line[DETAIL_LINE_BYTES + 1];
     (void)ctx;
+    if (len > DETAIL_LINE_BYTES)
+        len = DETAIL_LINE_BYTES;
     memcpy(line, text, len);
     line[len] = '\0';
     return font_width(FONT_META, line);

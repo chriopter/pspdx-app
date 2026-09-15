@@ -60,7 +60,7 @@ ROWS = [
     ("Rust Raytracer",                                            "demo",     0, "isv"),
     ("A Study in Bilinear Filtering and Fog",                     "demo",     1, "is"),
     ("Vector Field",                                              "demo",     2, "isv"),
-    ("Notes",                                                     "app",      0, "i"),
+    ("Notizen für Café und Straße",                               "app",      0, "i"),
     ("Memory Stick Inspector",                                    "app",      1, "isv"),
     ("Clock",                                                     "app",      2, "isv"),
     ("IRC",                                                       "app",      0, "sv"),
@@ -184,6 +184,11 @@ SUMMARIES = [
     "Fast.",
 ]
 
+# A name and a summary past ASCII, for the row, the card and Information:
+# letters of two bytes and a dash of three. The random pick is still drawn
+# above for it, so every other row keeps the summary it had.
+SUMMARY_OF = {"Notizen für Café und Straße": "Ein Blatt für jeden Tag — große Schrift, schön."}
+
 LICENSES = ["GPL-2.0", "MIT", "BSD-3-Clause", "Apache-2.0", "Zlib"]
 
 # Publication times count from a fixed point, so the dates look like the
@@ -197,7 +202,8 @@ def iso(seconds):
 
 
 def slug(name):
-    out = "".join(c for c in name if c.isalnum())
+    # ASCII only: an id and a folder take no other letters, and a name does.
+    out = "".join(c for c in name if c.isascii() and c.isalnum())
     return out[:16] or "App"
 
 
@@ -307,7 +313,7 @@ def make(work, ms, base):
             **({"tags": tags} if tags else {}),
             **({"category": CATEGORY[name][0]} if name in CATEGORY else {}),
             "author": AUTHORS[author],
-            "summary": SUMMARIES[rng.randrange(len(SUMMARIES))],
+            "summary": SUMMARY_OF.get(name, SUMMARIES[rng.randrange(len(SUMMARIES))]),
             "license": LICENSES[i % len(LICENSES)],
             **({"description": DESCRIPTIONS[name]} if name in DESCRIPTIONS else {}),
             **({"listed_by": LISTED[name]} if name in LISTED else {}),
