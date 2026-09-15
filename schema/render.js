@@ -75,9 +75,13 @@ function cond(c) {
   return parts.length ? parts.join(" and ") : code(c);
 }
 
+// A condition about the entry itself reads "it has …"; one about a field of
+// it already names the field, so it reads "its `release` has …".
+function subject(text) { return (text.startsWith("<code>") ? "its " : "it ") + text; }
+
 function rules(obj) {
   return (obj.allOf || []).map(r => r.if
-    ? `<li>If the entry ${cond(r.if)}, then it ${cond(r.then)}${r.else ? `; otherwise it ${cond(r.else)}` : ""}.</li>`
+    ? `<li>If the entry ${cond(r.if)}, then ${subject(cond(r.then))}${r.else ? `; otherwise ${subject(cond(r.else))}` : ""}.</li>`
     : `<li>${code(r)}</li>`).join("");
 }
 
