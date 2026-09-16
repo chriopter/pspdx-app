@@ -1860,10 +1860,6 @@ void shell_draw(const struct catalog *catalog, int cursor) {
        room the interface stands in while nobody is working it, which is
        where the XMB puts a game's picture too. */
     draw_backdrop();
-    /* The room a fifth darker than it draws itself, under everything that
-       is read: the words and the signs keep their white, the sky, the
-       water and its lights sit back. */
-    gfx_rect(0, 0, SCR_W, SCR_H, RGBA(0, 0, 0, 51));
     unsigned t1 = now_us();
     /* Left alone, the picture of the package under the cursor rises behind
        everything, over about two seconds; a key takes it down again in a
