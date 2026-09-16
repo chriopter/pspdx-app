@@ -170,18 +170,22 @@
 #define T_SET_FILES          "Manage Data"
 #define T_SET_RESET          "Reset"
 #define T_SET_INFO           "Information"
+#define T_SET_QUIRKS         "Quirks"
 #define T_NOTE_SOURCES       "View, add or delete the sources PSPDX reads apps from."
 #define T_NOTE_DIRECT        "Install an app from GitHub or from the INBOX folder."
 #define T_NOTE_FILES         "View the data PSPDX keeps on the Memory Stick."
 #define T_NOTE_RESET         "Reset PSPDX, or clear the cache and any failed install."
 #define T_NOTE_INFO          "View details about PSPDX and this system."
+#define T_NOTE_QUIRKS        "Switches for development: the frame rate, faked updates."
 
 #define T_SUB_DIRECT         "Direct install"
 #define T_SUB_RESET          "Reset"
+#define T_SUB_QUIRKS         "Quirks"
 #define T_SUB_FROM_GITHUB    "From GitHub"
 #define T_SUB_FROM_INBOX     "From INBOX folder"
 #define T_SUB_SWEEP          "Renew TLS Seed"
-#define T_SUB_FPS            "Show fps"                          /* a box beside it, ticked while on */
+#define T_SUB_FPS            "Show fps"                          /* a Quirks row, the tick mark after it while on */
+#define T_SUB_DEV            "Fake updates"                      /* a Quirks row: every installed package is said to have an update */
 #define T_SUB_CLEAR_CACHE    "Clear Cache"
 #define T_CACHE_CLEARED      "Cache cleared."
 #define T_CACHE_CLEAR_FAILED "Could not clear the cache."

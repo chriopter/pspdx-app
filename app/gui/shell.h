@@ -79,6 +79,12 @@ void shell_info(int open);
 /* The one setting the band offers: the frame rate in the bottom right
    corner, for the run. Toggled from the band, not saved. */
 void shell_toggle_fps(void);
+/* The other: fake updates for development. While on, every installed
+   package is said to have an update waiting, so the update path can be
+   walked without a release to walk it with. Not saved. */
+void shell_toggle_dev(void);
+int shell_dev_updates(void);
+int shell_show_fps(void);
 
 /* Idle: the package's own picture rises behind the interface, which stays
    where it is. Nothing is hidden by it. */

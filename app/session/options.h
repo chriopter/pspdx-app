@@ -13,7 +13,7 @@ void menu_open(int index);
 
 /* The popups under the gear: the two ways a .pspdx comes in directly, and
    the resets. */
-enum sub { SUB_NONE, SUB_ADD, SUB_RESET };
+enum sub { SUB_NONE, SUB_ADD, SUB_RESET, SUB_QUIRKS };
 void sub_open(enum sub which);
 
 /* Manage sources, the view the gear's first row opens in place of the

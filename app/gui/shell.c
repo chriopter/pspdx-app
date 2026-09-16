@@ -128,6 +128,8 @@ static float g_menu_slide;              /* 0 off the right edge, 1 in place */
 static int g_menu_leaving;              /* sliding out; done at 0 */
 static int g_info;
 static int g_show_fps;                  /* the rate in the corner, for the run */
+static int g_dev_updates;               /* the options may fake an update, for the run */
+int shell_show_fps(void) { return g_show_fps; }
 static int g_held;                      /* a direction is down this frame */
 
 void shell_hold(int held) { g_held = held; }
@@ -1028,7 +1030,7 @@ static void draw_panel(const struct app_entry *entry, float t) {
     draw_shade(PANEL_X + SHOT_W / 2, (CARD_TOP + CARD_BOTTOM) / 2, SHOT_W,
                CARD_BOTTOM - CARD_TOP);
 
-    static char line[64];
+    static char line[336];       /* two versions of 256 and the words between */
     static const struct app_entry *line_of;
     static enum app_state line_state;
     static int line_basket;
@@ -1422,6 +1424,7 @@ static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
     T_NOTE_FILES,
     T_NOTE_RESET,
     T_NOTE_INFO,
+    T_NOTE_QUIRKS,
 };
 
 /* Four rows at the foot leave the facts above them 18 pixels apart rather
@@ -1493,23 +1496,11 @@ static void draw_info(void) {
 
     band_rule(INFO_Y + 134, 160, 120);
     /* The seed is renewed from here, beside the entropy it reports: not a
-       setting, a fact with one thing to do about it. And one box to tick,
-       beside the frames it reports: the rate in the corner, for this run. */
-    float w = hint_width(MARK_SQUARE, T_SUB_SWEEP) + 24
-            + hint_width(MARK_TRIANGLE, T_SUB_FPS) + 14 + 24
-            + hint_width(MARK_CIRCLE, T_HINT_BACK);
+       setting, a fact with one thing to do about it. The switches for
+       development are under Quirks, the gear's last row. */
+    float w = hint_width(MARK_SQUARE, T_SUB_SWEEP) + 24 + hint_width(MARK_CIRCLE, T_HINT_BACK);
     float hx = draw_hint(SCR_W / 2 - w / 2, INFO_Y + 156, MARK_SQUARE, T_SUB_SWEEP, g_dim);
-    hx = draw_hint(hx + 24, INFO_Y + 156, MARK_TRIANGLE, T_SUB_FPS, g_dim);
-    /* The box: an outline, and the tick in it while the rate is shown. */
-    int bx = (int)hx + 5, by = INFO_Y + 156 - 9;
-    unsigned edge = faded(g_dim, 150);
-    gfx_rect(bx, by, 9, 1, edge);
-    gfx_rect(bx, by + 8, 9, 1, edge);
-    gfx_rect(bx, by, 1, 9, edge);
-    gfx_rect(bx + 8, by, 1, 9, edge);
-    if (g_show_fps)
-        mark_draw(MARK_TICK, bx + 4.5f, by + 4.5f, g_accent, MARK_PLAIN, 0, 0.0f);
-    draw_hint(hx + 14 + 24, INFO_Y + 156, MARK_CIRCLE, T_HINT_BACK, g_dim);
+    draw_hint(hx + 24, INFO_Y + 156, MARK_CIRCLE, T_HINT_BACK, g_dim);
 }
 
 /* --------------------------------------------------------------- details */
@@ -2018,6 +2009,8 @@ void shell_menu(const struct menu *menu) {
 void shell_rest(int resting) { g_resting = resting; }
 
 void shell_toggle_fps(void) { g_show_fps = !g_show_fps; }
+void shell_toggle_dev(void) { g_dev_updates = !g_dev_updates; }
+int shell_dev_updates(void) { return g_dev_updates; }
 
 void shell_info(int open) {
     if (open && !g_info) read_storage();

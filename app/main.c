@@ -610,7 +610,6 @@ int main(int argc, char *argv[]) {
                is the seed's, next to the entropy it reports. */
             if (pressed & (PSP_CTRL_CIRCLE | PSP_CTRL_CROSS)) shell_info(info = 0);
             else if (pressed & PSP_CTRL_SQUARE) { shell_info(info = 0); sweep_again(); }
-            else if (pressed & PSP_CTRL_TRIANGLE) shell_toggle_fps();
         } else if (details) {
             if (pressed & PSP_CTRL_CIRCLE) {
                 shell_details(0);
@@ -636,6 +635,7 @@ int main(int argc, char *argv[]) {
                 else if (which == 2) { files_names(files_name_of); files_view_open(); }
                 else if (which == 3) sub_open(SUB_RESET);
                 else if (which == 4) shell_info(info = 1);
+                else if (which == 5) sub_open(SUB_QUIRKS);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X is the one thing there is to do to the package: have
                    it, have the newer one, or start it -- each asked about

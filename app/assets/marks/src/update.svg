@@ -1,17 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
-  <!-- The turning arrows, in the family's manner: two arcs of a broken ring,
-       each ending in a solid head twice the width of the arc it finishes,
-       the second the first turned half around: Sony's update_plugin sign,
-       redrawn at the UMD's size. Arc radius 6.70, stroke 2.30, 130.00 degrees each,
-       heads 4.00 long. -->
+  <!-- The system's own turning arrows, from update_plugin's 24 px sign: two
+       arcs of a broken ring, each ending in a solid head twice the width of
+       the arc it finishes. The second is the first turned half around.
+       Drawn at 17 and scaled up by 1.13 into the 20 px cell, so the ring
+       spans 17 px like the signs beside it; the arc's stroke is thinned a
+       little first so it comes out at the family's 2 px. -->
   <defs>
     <g id="arm">
-      <path d="M4.87 5.69 A6.70 6.70 0 0 1 16.60 8.84" fill="none" stroke="#ffffff" stroke-width="2.30"/>
-      <path d="M14.33 9.24 L18.86 8.44 L17.29 12.78 Z" fill="#ffffff" stroke="#ffffff" stroke-width="0.5" stroke-linejoin="round"/>
+      <path d="M4.746 5.350 A4.9 4.9 0 0 1 13.326 7.649" fill="none"
+            stroke="#ffffff" stroke-width="1.85"/>
+      <path d="M13.831 10.506 L15.395 7.284 L11.257 8.014 Z" fill="#ffffff"
+            stroke="#ffffff" stroke-width="0.5" stroke-linejoin="round"/>
     </g>
   </defs>
-  <g transform="rotate(-45.00 10.00 10.00)">
+  <g transform="translate(10 10) scale(1.13) translate(-8.5 -8.5)">
     <use href="#arm"/>
-    <use href="#arm" transform="rotate(180 10.00 10.00)"/>
+    <use href="#arm" transform="rotate(180 8.5 8.5)"/>
   </g>
 </svg>

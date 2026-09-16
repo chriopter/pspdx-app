@@ -129,8 +129,55 @@ static void menu_close(void) {
    driven here. */
 static enum sub g_sub;
 
+/* Fake updates, on: every package on the stick that is current is said to
+   have a newer release waiting, the installed version with "-dev" on it,
+   so the update path can be walked -- the stick tab counts them, the
+   arrows turn, the rows say "Update to X-dev", and the fetch that follows
+   gets the release the catalog really has. Off: the same packages are
+   current again. A fetch of the catalog undoes it too. */
+static void fake_updates(int on) {
+    struct catalog *c = actions_catalog();
+    for (int i = 0; i < c->count; i++) {
+        struct app_entry *e = &c->apps[i];
+        size_t n = strlen(e->remote_version);
+        int faked = n > 4 && !strcmp(e->remote_version + n - 4, "-dev");
+        if (on && e->state == APP_CURRENT) {
+            char v[VERSION_SIZE];
+            snprintf(v, sizeof(v), "%.*s-dev", (int)sizeof(v) - 5, e->local_version);
+            snprintf(e->remote_version, sizeof(e->remote_version), "%s", v);
+            e->state = APP_UPDATE;
+        } else if (!on && faked) {
+            snprintf(e->remote_version, sizeof(e->remote_version), "%s", e->local_version);
+            e->state = APP_CURRENT;
+        }
+    }
+    view_tabs_refresh();
+}
+
+/* Quirks: the switches for development, each row a switch, the tick mark
+   after its words while it is on. X flips the row and the popup stays,
+   so several can be set in one visit. */
+static char g_quirk_text[2][40];
+
+static void quirks_build(void) {
+    snprintf(g_quirk_text[0], sizeof(g_quirk_text[0]), "%s%s", T_SUB_FPS,
+             shell_show_fps() ? "\x01" : "");
+    snprintf(g_quirk_text[1], sizeof(g_quirk_text[1]), "%s%s", T_SUB_DEV,
+             shell_dev_updates() ? "\x01" : "");
+    for (int i = 0; i < 2; i++) {
+        size_t n = strlen(g_quirk_text[i]);
+        if (n && g_quirk_text[i][n - 1] == '\x01' && n + 1 < sizeof(g_quirk_text[i])) {
+            g_quirk_text[i][n] = (char)(MARK_TICK + 1);
+            g_quirk_text[i][n + 1] = '\0';
+        }
+    }
+    g_menu.count = 2;
+    g_menu.item[0] = g_quirk_text[0];
+    g_menu.item[1] = g_quirk_text[1];
+}
+
 static void sub_push(void) {
-    g_menu.title = g_sub == SUB_ADD ? T_SUB_DIRECT : T_SUB_RESET;
+    g_menu.title = g_sub == SUB_ADD ? T_SUB_DIRECT : g_sub == SUB_QUIRKS ? T_SUB_QUIRKS : T_SUB_RESET;
     shell_menu(&g_menu);
 }
 
@@ -180,6 +227,8 @@ void sub_open(enum sub which) {
     if (which == SUB_ADD) {
         g_menu.item[g_menu.count++] = T_SUB_FROM_GITHUB;
         g_menu.item[g_menu.count++] = T_SUB_FROM_INBOX;
+    } else if (which == SUB_QUIRKS) {
+        quirks_build();
     } else {
         g_menu.item[g_menu.count++] = T_SUB_RESET_ALL;
         g_menu.item[g_menu.count++] = T_SUB_CLEAR_CACHE;
@@ -229,6 +278,14 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
         if (pressed & PSP_CTRL_DOWN) { g_menu.cursor = (g_menu.cursor + 1) % g_menu.count; sub_push(); cues_post(CUE_MOVE, 0); }
         else if (pressed & PSP_CTRL_UP) { g_menu.cursor = (g_menu.cursor + g_menu.count - 1) % g_menu.count; sub_push(); cues_post(CUE_MOVE, 0); }
         else if (pressed & PSP_CTRL_CIRCLE) sub_close();
+        else if ((pressed & PSP_CTRL_CROSS) && g_sub == SUB_QUIRKS) {
+            /* A switch flips and the popup stays, its tick with it. */
+            if (g_menu.cursor == 0) shell_toggle_fps();
+            else { shell_toggle_dev(); fake_updates(shell_dev_updates()); }
+            cues_post(CUE_MOVE, 0);
+            quirks_build();
+            sub_push();
+        }
         else if (pressed & PSP_CTRL_CROSS) {
             int chosen = g_menu.cursor;
             enum sub kind = g_sub;

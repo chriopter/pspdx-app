@@ -230,7 +230,7 @@ class ClientTests(unittest.TestCase):
  def test_view_tabs_come_and_go(self):
   # One app, installed with a newer one published: stick, Homebrew, the UMD, which has no rows, and the gear; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
   self.fixtures();r=self.run_client('view')
-  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 1 first 0 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 5 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
+  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 1 first 0 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 6 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
  def test_catalog_offline_fallback(self):
   self.fixtures();r=self.run_client('fetch');self.assertIn(ID+' 2 1',r.stdout)
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)
