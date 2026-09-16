@@ -16,6 +16,11 @@ int shell_init(void);
 
 /* One frame, paced at 60 Hz by the vblank wait inside. */
 void shell_draw(const struct catalog *catalog, int cursor);
+/* Whether a direction is being held this frame: while it is, the room
+   keeps the colour it has, and takes the colour of the row the cursor
+   ends on when the key is let go. Rows flying by under a held key would
+   otherwise each start a crossfade of their own. */
+void shell_hold(int held);
 
 /* The list it draws is the view -- the catalog filtered to the open tab --
    which is session/view.h's: a cursor here is a row of that. */

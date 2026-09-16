@@ -92,12 +92,13 @@ struct gfx_water_vertex {
 
 /* The palette is the lighting. gfx's ripple tiles hold a quantised normal per
    texel rather than a colour, and this turns all 256 of them into colours for
-   one light: deep where the water faces the eye, sky where it turns away, and
-   glint where it faces the light square on. A kilobyte a frame buys per-texel
-   reflection that no amount of geometry would. Directions are in the tile's
-   own space: x across, y away, z up. */
+   one light: deep where the water faces the eye, sky where it turns away --
+   the low sky near the horizon or the high sky toward the zenith, by where
+   the mirrored ray goes -- and glint where it faces the light square on. A
+   kilobyte a frame buys per-texel reflection that no amount of geometry
+   would. Directions are in the tile's own space: x across, y away, z up. */
 void gfx_water_light(float lx, float ly, float lz,
-                     unsigned deep, unsigned sky, unsigned glint);
+                     unsigned deep, unsigned sky, unsigned high, unsigned glint);
 
 /* Room for the whole surface and for the indices that cut it into strips,
    both kept from frame to frame: a crossing belongs to the strip above it
@@ -116,6 +117,11 @@ void gfx_water_begin(float du, float dv);
    is drawn twice, the step going out at (1 - f) of the light and the one
    coming in at f: call this with which = 0 and 1 before each pass. */
 void gfx_water_step(int which, int frame, float weight);
+/* The tile at another size, for a second layer drawn after begin(): 2 is
+   twice as many ripples across the same water. which in step() runs 0..3,
+   two copies of the palette for each layer, so a layer's palette is not
+   written over before the GE has read it. */
+void gfx_water_scale(float s);
 /* level is the mip level the strip is sampled at, 0 = the full tile: the
    GE would pick one per triangle from the triangle's shape, and a strip a
    pixel tall and the screen wide is the wrong shape to ask. */

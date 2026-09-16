@@ -539,6 +539,7 @@ int main(int argc, char *argv[]) {
             shell_details_scroll((pad.Ly - 128) / 127.0f);
         unsigned pressed = pad.Buttons & ~last_buttons;
         last_buttons = pad.Buttons;
+        shell_hold((pad.Buttons & (PSP_CTRL_UP | PSP_CTRL_DOWN)) != 0);
         pressed |= repeat(pad.Buttons & (PSP_CTRL_UP | PSP_CTRL_DOWN |
                                          PSP_CTRL_LEFT | PSP_CTRL_RIGHT |
                                          PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER));

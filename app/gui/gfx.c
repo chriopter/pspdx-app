@@ -53,7 +53,7 @@ static float g_normal[256][3];                  /* what each index stands for */
 /* The palette as lit, and two copies scaled for the two steps of the
    ripple that are on screen at once -- see gfx_water_step. */
 static unsigned char g_clut_lit[256][3];
-static unsigned __attribute__((aligned(16))) g_clut[2][256];
+static unsigned __attribute__((aligned(16))) g_clut[4][256];
 
 /* Vertex layouts. The GE reads the components in a fixed order -- texture,
    colour, position -- so the struct members have to be declared in that
@@ -487,7 +487,7 @@ static ScePspFVector3 g_sun = { 0.0f, SUN_UP, -0.954f };
 static float channel(float v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 
 void gfx_water_light(float lx, float ly, float lz,
-                     unsigned deep, unsigned sky, unsigned glint) {
+                     unsigned deep, unsigned sky, unsigned high, unsigned glint) {
     float k = 1.0f / sqrtf(lx * lx + ly * ly + lz * lz + 1e-6f);
     float sx = lx * k, sz = -ly * k;
     float sk = 1.0f / sqrtf(sx * sx + sz * sz + 1e-6f);
@@ -502,6 +502,7 @@ void gfx_water_light(float lx, float ly, float lz,
 
     float dr = deep & 0xFF, dg = deep >> 8 & 0xFF, db = deep >> 16 & 0xFF;
     float sr = sky & 0xFF, sg = sky >> 8 & 0xFF, sb = sky >> 16 & 0xFF;
+    float tr = high & 0xFF, tg = high >> 8 & 0xFF, tb = high >> 16 & 0xFF;
     float gr = glint & 0xFF, gg = glint >> 8 & 0xFF, gb = glint >> 16 & 0xFF;
 
     for (int i = 0; i < 256; i++) {
@@ -510,14 +511,24 @@ void gfx_water_light(float lx, float ly, float lz,
         if (face < 0.0f) face = 0.0f;
         float turn = 1.0f - face;
         float mirror = 0.08f + 0.70f * turn * turn * turn;
+        /* What the facet mirrors is not one sky but the piece of it the
+           eye's ray, bounced off the facet, goes up into: a facet leaning
+           away sends the ray out low, to the burn on the horizon, one
+           leaning toward the eye sends it high, into the dark of the
+           zenith. So the horizon's light lies on the water broken into
+           the ripples, and the near water is dark with the sky over it. */
+        float up = 2.0f * face * n[2] - EYE[2];
+        float t = (up - 0.05f) * (1.0f / 0.55f);
+        if (t < 0.0f) t = 0.0f; else if (t > 1.0f) t = 1.0f;
+        float kr = sr + (tr - sr) * t, kg = sg + (tg - sg) * t, kb = sb + (tb - sb) * t;
         float s = n[0] * hx + n[1] * hy + n[2] * hz;
         if (s < 0.0f) s = 0.0f;
         /* Broad rather than sharp: a sharp glint on a texel the perspective
            has stretched into a dash is a dash. */
         s *= s; s *= s;                                 /* the fourth power */
-        float r = dr + (sr - dr) * mirror + gr * s;
-        float g = dg + (sg - dg) * mirror + gg * s;
-        float b = db + (sb - db) * mirror + gb * s;
+        float r = dr + (kr - dr) * mirror + gr * s;
+        float g = dg + (kg - dg) * mirror + gg * s;
+        float b = db + (kb - db) * mirror + gb * s;
         g_clut_lit[i][0] = (unsigned char)channel(r);
         g_clut_lit[i][1] = (unsigned char)channel(g);
         g_clut_lit[i][2] = (unsigned char)channel(b);
@@ -627,13 +638,16 @@ void gfx_water_begin(float du, float dv) {
     additive();
 }
 
+void gfx_water_scale(float s) {
+    sceGuTexScale(s, s);
+}
 void gfx_water_step(int which, int frame, float weight) {
     if (!g_ripple) return;
     /* The step's share of the light goes into its own copy of the palette:
        the surface is drawn once per step and the two add up, so a step
        fading in and the one fading out cross without a seam. The GE reads
        the palette when the list runs, after both copies are written. */
-    unsigned *clut = g_clut[which & 1];
+    unsigned *clut = g_clut[which & 3];
     int w = (int)(weight * 256.0f + 0.5f);
     if (w < 0) w = 0; else if (w > 256) w = 256;
     for (int i = 0; i < 256; i++)
@@ -887,7 +901,7 @@ void gfx_unclip(void) {
 #define BLOOM_H 64
 #define BLOOM_A ((unsigned)(2 * FRAME_SIZE))            /* after the two frames */
 #define BLOOM_B (BLOOM_A + BLOOM_W * BLOOM_H * 4)
-#define BLOOM_FLOOR 0x70                                /* what is darker than this does not glow */
+#define BLOOM_FLOOR 0x9C                                /* what is darker than this does not glow: lights, not lit water */
 
 static void *vram_abs(unsigned rel) {
     return (void *)((unsigned)sceGeEdramGetAddr() + (rel & 0x001FFFFF));

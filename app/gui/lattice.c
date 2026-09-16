@@ -743,6 +743,24 @@ static float rsqrt(float x) {
    glint path down the middle for nothing -- the eye is where the eye is, so
    the facets that send the sun down the lens are the ones that lie between
    the viewer and the light. */
+/* Wind on the water: patches of rough and calm drifting slowly over the
+   surface, in the world's own units so they hold their size into the
+   distance. A rough patch throws more of the sky and the light back, a
+   calm one less; the border between them moves. Two slow sines across
+   and into the distance, multiplied, so the patches are patches and not
+   bands, and never the same twice. What it changes is the crossing's
+   alpha, which on an additive surface is how much of the lit water that
+   crossing puts into the room. Only ever less: the water at its
+   brightest is as bright as it should be already, and a patch that
+   pushed it past that showed the ripple for the picture it is. */
+static float g_time;
+#define WIND_AMP 0.16f
+static float wind_at(float wx, float wz) {
+    float a = fsin(wx * 1.9f + wz * 0.7f + g_time * 0.06f);
+    float b = fsin(wz * 0.45f - wx * 0.8f - g_time * 0.04f);
+    return 1.0f - WIND_AMP * (0.5f + 0.5f * a * b);
+}
+
 static void place_all(float swayx) {
     struct gfx_water_vertex *mesh = g_mesh;
     if (!mesh) return;
@@ -813,16 +831,18 @@ static void place_all(float swayx) {
             x[j] = SCR_W / 2.0f + wx * f;
             y[j] = sy;
 
-            unsigned color = flat;
+            float gust = alpha * wind_at(wx, wz);
+            if (gust > 255.0f) gust = 255.0f;
+            unsigned color = (flat & 0x00FFFFFFu) | (unsigned)(int)gust << 24;
             if (!plain) {
                 struct rgb vt = g_vt[i][j];
                 int lr = (int)(vt.r * dr), lg = (int)(vt.g * dg), lb = (int)(vt.b * db);
                 color = RGBA(lr > 255 ? 255 : lr, lg > 255 ? 255 : lg,
-                             lb > 255 ? 255 : lb, (int)alpha);
+                             lb > 255 ? 255 : lb, (int)gust);
             }
             if (w < 1.0f) {
                 dry = 1;
-                color = (color & 0x00FFFFFFu) | (unsigned)(int)(alpha * w) << 24;
+                color = (color & 0x00FFFFFFu) | (unsigned)(int)(gust * w) << 24;
             }
 
             p->u = g_ut[j];
@@ -1012,6 +1032,7 @@ float lattice_light_x(void) { return g_lightx; }
 
 void lattice_draw(float t, struct rgb tint) {
     float sway = fsin(t * 0.23f) * 0.06f;
+    g_time = t;
     step_water(t);
     /* The colour before the light: the palette below and every crossing's
        own share of it are both built out of what the front has done. */
@@ -1083,26 +1104,47 @@ void lattice_draw(float t, struct rgb tint) {
        room's: a crossing holding a dimmer one gets there by handing the GE
        its own share of it, and while there is only one colour on the water
        the two are the same colour and this is what it always was. */
+    /* Two skies for the palette: the low one, lit, that a facet leaning
+       away mirrors, and the high one, nearly the water's own dark, that a
+       facet leaning toward the eye mirrors. */
+    unsigned glint = rgb_pack(rgb_mix(rgb_mix(g_ref, RGB_WHITE, 0.9f), DEEP, 0.62f), 0);
     gfx_water_light(0.42f * fsin(t * 0.13f), 0.86f, 0.30f,
                     rgb_pack(rgb_mix(g_ref, DEEP, 0.86f), 0),
-                    rgb_pack(rgb_mix(g_ref, DEEP, 0.38f), 0),
-                    rgb_pack(rgb_mix(rgb_mix(g_ref, RGB_WHITE, 0.9f), DEEP, 0.62f), 0));
+                    rgb_pack(rgb_mix(g_ref, DEEP, 0.40f), 0),
+                    rgb_pack(rgb_mix(g_ref, DEEP, 0.84f), 0),
+                    glint);
     place_all(sway);
     gfx_water_ready();
-    /* Two and a half steps a second through the ripple's baked frames,
+    /* Not quite two steps a second through the ripple's baked frames,
        each one crossfaded into the next so nothing jumps: the four of them
-       are a cycle, and at seven a second the cycle was a shiver. */
-    float phase = t * 2.5f;
+       are a cycle, and at seven a second the cycle was a shiver, at two
+       and a half a hurry. */
+    float phase = t * 1.9f;
     int step = (int)phase;
     float f = phase - step;
     /* The tile is anchored to the world and creeps toward the viewer, which
        is the movement between the crossings that the swell is too coarse to
        carry; the sway of the room goes with it, since the surface is drawn
        where the sway put it. */
-    gfx_water_begin(sway * TILES + t * 0.05f, -t * 0.22f);
+    gfx_water_begin(sway * TILES + t * 0.04f, -t * 0.16f);
     gfx_water_step(0, step, 1.0f - f);
     draw_surface();
     gfx_water_step(1, step + 1, f);
+    draw_surface();
+    /* A second layer of ripples over the first: the same tile at twice the
+       frequency, creeping the other way and a little faster, holding
+       nothing but glint -- no deep, no sky -- so what it adds is a finer
+       sparkle riding on the swell, light from two scales of water at
+       once. Slow, and faint: a menu is a still room, and the second
+       scale is there to be noticed only by someone who looks. Its own
+       two copies of the palette. */
+    gfx_water_light(0.42f * fsin(t * 0.13f), 0.86f, 0.30f, 0, 0, 0,
+                    rgb_pack(rgb_mix(rgb_mix(g_ref, RGB_WHITE, 0.9f), DEEP, 0.87f), 0));
+    gfx_water_begin(-sway * TILES * 2.0f - t * 0.03f, -t * 0.09f);
+    gfx_water_scale(2.0f);
+    gfx_water_step(2, step + 1, 1.0f - f);
+    draw_surface();
+    gfx_water_step(3, step + 2, f);
     draw_surface();
     gfx_water_end();
 

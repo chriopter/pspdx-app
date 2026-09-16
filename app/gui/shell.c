@@ -128,6 +128,9 @@ static float g_menu_slide;              /* 0 off the right edge, 1 in place */
 static int g_menu_leaving;              /* sliding out; done at 0 */
 static int g_info;
 static int g_show_fps;                  /* the rate in the corner, for the run */
+static int g_held;                      /* a direction is down this frame */
+
+void shell_hold(int held) { g_held = held; }
 static const struct app_entry *g_details;   /* the package the band is about */
 /* What the band has to say under its facts -- the summary, a blank line and
    the description -- copied when it opens and broken into lines once then,
@@ -549,15 +552,27 @@ void draw_rows_light(int rows, float sel_y, float t) {
     draw_shade(LIST_X + LIST_W / 2, LIST_Y + rows * ITEM_H / 2, LIST_W, rows * ITEM_H);
 
     /* The selected row glows: a breathing light behind it and a thin
-       streak of light under it, nothing with a corner. */
+       streak of light under it, nothing with a corner. On the move from
+       one row to the next the streak draws itself in -- shorter, a
+       little taller and brighter, the way the glint in the gutter is a
+       thing with a body and not a ruler -- and lets go again as the light
+       settles. How fast it is going says how much. */
+    static float was = -1.0f, squeeze;
+    float speed = was < 0.0f ? 0.0f : fabsf(sel_y - was);
+    was = sel_y;
+    float want = speed * (1.0f / 5.0f);
+    if (want > 1.0f) want = 1.0f;
+    squeeze += (want - squeeze) * (want > squeeze ? 0.6f : 0.08f);
+
     float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
     float mid = sel_y + ITEM_H / 2 - 1;
     gfx_glow(LIST_X + 60, mid, LIST_W + 170, ITEM_H * 3.4f,
              rgb_pack(g_tint, (int)(130 * breathe)));
-    gfx_glow(LIST_X + 40, mid, LIST_W + 40, ITEM_H * 1.2f,
+    gfx_glow(LIST_X + 40, mid, (LIST_W + 40) * (1.0f - 0.3f * squeeze), ITEM_H * 1.2f,
              rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), (int)(70 * breathe)));
-    gfx_glow(LIST_X + LIST_W / 2, sel_y + ITEM_H - 3, LIST_W + 30, 10,
-             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 160));
+    gfx_glow(LIST_X + LIST_W / 2, sel_y + ITEM_H - 3,
+             (LIST_W + 30) * (1.0f - 0.75f * squeeze), 10 * (1.0f + 1.3f * squeeze),
+             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), (int)(160 + 80 * squeeze)));
 }
 
 /* Not a bar: the light on the horizon, come forward. While a list is
@@ -649,6 +664,18 @@ void draw_rows_bar(int count, float first, float t) {
     g_bar_mid = mid;
     float breathe = 0.8f + 0.2f * sinf(t * 2.2f);
 
+    /* What the row's light taught: on the move the glint draws itself in
+       -- shorter along the line, wider across it, brighter -- a bead with
+       a body riding the line rather than a ruler mark sliding, and lets
+       go into its streak again as it settles. Quick to gather, slow to
+       let go, from how fast it is going. */
+    static float was_mid = -1.0f, squeeze;
+    float speed = was_mid < 0.0f ? 0.0f : fabsf(mid - was_mid);
+    was_mid = mid;
+    float want = speed * (1.0f / 3.0f);
+    if (want > 1.0f) want = 1.0f;
+    squeeze += (want - squeeze) * (want > squeeze ? 0.6f : 0.08f);
+
     /* Nothing cuts it: its light runs out on its own at either end, into
        the sky over the list and toward the foot. */
     unsigned clear = rgb_pack(g_tint, 0);
@@ -666,15 +693,18 @@ void draw_rows_bar(int count, float first, float t) {
     float body = 0.010f * scale + 6;          /* 13 px far, 42 near */
     float tall = s < 0.6f ? 0.0f : (s - 0.6f) / 0.4f;
     float w = lerp(body * 1.4f, 10, tall), h = lerp(body * 0.8f, BAR_GLINT * 2.0f, tall);
+    w *= 1.0f + 0.6f * squeeze * tall;
+    h *= 1.0f - 0.3f * squeeze * tall;
     gfx_glow(sx, sy, w * 2.2f, h * 1.9f, rgb_pack(g_tint, (int)(120 * breathe * s)));
-    gfx_glow(sx, sy, w, h, rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.6f), (int)(150 * breathe * s)));
-    gfx_glow(sx, sy, w * 0.45f, h * 0.55f, rgb_pack(RGB_WHITE, (int)(140 * s)));
-    /* The streak on its line, once it is there. */
+    gfx_glow(sx, sy, w, h, rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.6f), (int)((150 + 60 * squeeze) * breathe * s)));
+    gfx_glow(sx, sy, w * 0.45f, h * 0.55f, rgb_pack(RGB_WHITE, (int)((140 + 80 * squeeze) * s)));
+    /* The streak on its line, once it is there: shorter on the move. */
     if (tall > 0.0f) {
         unsigned core = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.9f), (int)(250 * tall));
-        int half = (int)(BAR_GLINT / 2);
-        gfx_vgrad(x, (int)at, 1, half, clear, core);
-        gfx_vgrad(x, (int)at + half, 1, half, core, clear);
+        int half = (int)(BAR_GLINT * (1.0f - 0.3f * squeeze) / 2);
+        int from = (int)(mid - half);
+        gfx_vgrad(x, from, 1, half, clear, core);
+        gfx_vgrad(x, from + half, 1, half, core, clear);
     }
 }
 
@@ -1799,11 +1829,14 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     unsigned t0 = now_us();
 
     /* The room changes colour with the selection, but slowly: an eighth of
-       the way per frame is a crossfade, not a flash. */
+       the way per frame is a crossfade, not a flash. And not at all while
+       a direction is held down: the rows flying by keep the colour the
+       room has, and the one the cursor stops on gets its turn when the
+       key is let go. */
     static struct rgb target = { 80, 140, 255 };
     static int lit_for = -1;
     if (catalog->count <= 0) target = DEFAULT_TINT;
-    else if (cursor != lit_for) {
+    else if (cursor != lit_for && !g_held) {
         lit_for = cursor;
         target = draw_lot();
         /* The water is told the colour outright, so the front that runs
@@ -1827,6 +1860,10 @@ void shell_draw(const struct catalog *catalog, int cursor) {
        room the interface stands in while nobody is working it, which is
        where the XMB puts a game's picture too. */
     draw_backdrop();
+    /* The room a fifth darker than it draws itself, under everything that
+       is read: the words and the signs keep their white, the sky, the
+       water and its lights sit back. */
+    gfx_rect(0, 0, SCR_W, SCR_H, RGBA(0, 0, 0, 51));
     unsigned t1 = now_us();
     /* Left alone, the picture of the package under the cursor rises behind
        everything, over about two seconds; a key takes it down again in a
