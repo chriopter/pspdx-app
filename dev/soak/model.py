@@ -63,12 +63,13 @@ IDLE_MS = 10000
 
 # -------------------------------------------------------------------- tabs
 
-# shell.c: TAB_NAME / TAB_KEY, and the three tabs that are not categories.
-TAB_KEY = ("", "game", "demo", "app", "emulator", "plugin")
-TAB_ALL = 6
-TAB_GEAR = -3                   # the band about the session; always leftmost
+# view.h: the tabs, numbered. Homebrew is every entry published, whatever it
+# is tagged; the UMD tab has no rows yet.
+TAB_HOMEBREW = 0
+TAB_GEAR = -3                   # the band about the session; always last, at the right edge
 TAB_STICK = -2                  # what is installed, updates first
 TAB_BASKET = -1
+TAB_UMD = -4
 ROW_ACTION = -2
 
 NOT_INSTALLED, CURRENT, UPDATE = "none", "current", "update"
@@ -242,35 +243,28 @@ class Sim:
         return sum(1 for a in self.apps if a.state == UPDATE)
 
     def collect_tabs(self, keep):
-        """shell.c collect_tabs(): the gear first and always, the stick while
-        anything is installed, the basket while anything is in it, then the
-        categories that have something. A tab that has gone is answered with
-        All, not with whatever stands leftmost -- that is the band about the
-        session and not a list at all."""
+        """view.c collect_tabs(): the gear first and always, the stick while
+        anything is installed, the basket while anything is in it, then
+        Homebrew and the UMD, always. A tab that has gone is answered with
+        Homebrew, not with whatever stands leftmost -- that is the gear and
+        not a list of packages at all."""
         found = False
         self.tabs = []
         self.tab_at = 0
         if not self.apps:
             return False
-        self.tabs.append(TAB_GEAR)
         if any(a.state != NOT_INSTALLED for a in self.apps):
             self.tabs.append(TAB_STICK)
+        self.tabs += [TAB_HOMEBREW, TAB_UMD]
         if self.basket:
             self.tabs.append(TAB_BASKET)
-        for t in range(TAB_ALL):
-            has = not TAB_KEY[t]
-            if not has:
-                has = any(a.category == TAB_KEY[t] for a in self.apps)
-            if has:
-                self.tabs.append(t)
+        self.tabs.append(TAB_GEAR)
         for i, tab in enumerate(self.tabs):
             if tab == keep:
                 self.tab_at = i
                 found = True
         if not found:
-            for i, tab in enumerate(self.tabs):
-                if tab == 0:
-                    self.tab_at = i
+            self.tab_at = self.tabs.index(TAB_HOMEBREW)
         return found
 
     def build_view(self):
@@ -287,12 +281,12 @@ class Sim:
         for i, a in enumerate(self.apps):
             if tab == TAB_STICK:
                 take = a.state != NOT_INSTALLED
-            elif tab == TAB_GEAR:
+            elif tab in (TAB_GEAR, TAB_HOMEBREW):
                 take = True
             elif tab == TAB_BASKET:
                 take = i in self.basket
             else:
-                take = (not TAB_KEY[tab]) or a.category == TAB_KEY[tab]
+                take = False            # the UMD has nothing yet
             if take:
                 self.view.append(i)
         if tab == TAB_STICK:
@@ -573,10 +567,11 @@ class Sim:
         # info band is not among them, so the tabs still walk under it.
         modal = self.question is not None or self.menu_open or self.details
 
-        # The triggers and left/right walk the tabs, and the list starts
-        # again at the top. Walking onto the gear tab opens the band with
-        # its cursor on the first action; walking off it closes it.
-        if key in ("ltrigger", "rtrigger", "left", "right") and count > 0 and not modal:
+        # The triggers and left/right walk the tabs whenever there is a
+        # catalog, from the UMD tab's no rows too, and the list starts again
+        # at the top. Walking onto the gear tab opens the band with its
+        # cursor on the first action; walking off it closes it.
+        if key in ("ltrigger", "rtrigger", "left", "right") and self.apps and not modal:
             self.tab_move(1 if key in ("rtrigger", "right") else -1)
             self.cursor = 0
             count = self.view_count()

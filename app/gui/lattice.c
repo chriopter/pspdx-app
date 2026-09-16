@@ -998,6 +998,15 @@ static void source_at(float *sx, float *sy) {
     *sy = y0 + (y1 - y0) * fi;
 }
 
+/* The light on the horizon, and how much of it is the horizon's this
+   frame: the shell borrows it while a list is being read through, drawing
+   it forward as its own, and puts it back. */
+static float g_lightx = SCR_W / 2;
+static float g_horizon_keep = 1.0f;
+
+void lattice_horizon(float keep) { g_horizon_keep = keep; }
+float lattice_light_x(void) { return g_lightx; }
+
 void lattice_draw(float t, struct rgb tint) {
     float sway = fsin(t * 0.23f) * 0.06f;
     step_water(t);
@@ -1041,9 +1050,11 @@ void lattice_draw(float t, struct rgb tint) {
     /* The light is out past the far row, so the room sliding under it barely
        moves it. */
     float lightx = SCR_W / 2 + sway * (GFX_FOCAL / Z_FAR);
-    gfx_glow(lightx, GFX_HORIZON + 6, 760, 110, rgb_pack(tint, 110));
+    g_lightx = lightx;
+    /* Less of it while the shell has borrowed the light for the list. */
+    gfx_glow(lightx, GFX_HORIZON + 6, 760, 110, rgb_pack(tint, (int)(110 * g_horizon_keep)));
     gfx_glow(lightx, GFX_HORIZON + 2, 420, 30,
-             rgb_pack(rgb_mix(tint, RGB_WHITE, 0.6f), 120));
+             rgb_pack(rgb_mix(tint, RGB_WHITE, 0.6f), (int)(120 * g_horizon_keep)));
     /* The light's path on the water: the sun is a point on the horizon and
        the water is rough, so what comes back down the lens is a path that
        runs from under the light to the viewer, narrow at the far end and
@@ -1056,7 +1067,12 @@ void lattice_draw(float t, struct rgb tint) {
     gfx_glow(lightx, GFX_HORIZON + 34, 150, 90, rgb_pack(pathlit, 40));
     gfx_glow(lightx, GFX_HORIZON + 86, 330, 150, rgb_pack(pathlit, 38));
     gfx_glow(lightx, GFX_HORIZON + 160, 620, 190, rgb_pack(pathlit, 34));
-
+    /* The light the shell has carried forward stands over the water at
+       its own depth, and the water under it takes a path of its own: its
+       foot where perspective puts a point on the surface at that depth,
+       sized by the same perspective, so it is a spark far off and a pool
+       of light close in. Under the surface like the sun's path, so the
+       surface adds its own glints over it. */
     /* What the water is made of, for the palette: its own dark, the sky it
        mirrors, and what a facet turned square into the light sends back.
        Built from the brightest colour on the surface rather than from the

@@ -9,14 +9,13 @@
 
 /* ------------------------------------------------------------------ tabs */
 
-/* The browser shows one category at a time, chosen by the tabs across the
-   top. The view is the catalog filtered to the active tab, and a cursor
-   anywhere in this program is a row of the view rather than a catalog
-   index -- so there is one filter and no second copy of the entries.
+/* The browser shows one tab at a time, chosen by the signs across the top.
+   The view is the catalog filtered to the active tab, and a cursor anywhere
+   in this program is a row of the view rather than a catalog index -- so
+   there is one filter and no second copy of the entries.
 
    Called whenever the catalog has been rewritten: it works out which tabs
-   have anything in them, keeps the active category if it survived, and
-   builds the view. */
+   there are, keeps the active one if it survived, and builds the view. */
 void view_rebuild(const struct catalog *catalog);
 
 int view_count(void);
@@ -28,29 +27,29 @@ int view_row(int index);      /* catalog index -> view row, -1 if hidden */
    can start it from the top and fetch the card afresh exactly then. */
 unsigned view_generation(void);
 
-/* Two of the tabs are not categories: the updates waiting and the basket
-   this session has filled. Both stand to the left of All, both come and go
-   with what is in them, and both carry one row that is not a package but the
+/* The tabs, in the order they are shown and walked, left to right: the
+   stick, then Homebrew and the UMD -- what is published -- then the basket
+   and the gear at the far edge. The stick and the basket come and go with
+   what is in them, and both carry one row that is not a package but the
    whole tab as a thing to do. */
-enum view_tab_kind { VIEW_TAB_CATEGORY, VIEW_TAB_STICK, VIEW_TAB_BASKET,
-                      VIEW_TAB_GEAR };
+enum view_tab_kind { VIEW_TAB_HOMEBREW, VIEW_TAB_STICK, VIEW_TAB_BASKET,
+                     VIEW_TAB_GEAR, VIEW_TAB_UMD };
 enum view_tab_kind view_tab_kind(void);
 
-/* A tab is a number: an index into the categories, All first and then the
-   catalog's own words in the order they are shown, or one of three below
-   zero -- the stick, the basket and the gear -- so that a tab is either a
-   category or one of these, with nothing to keep in step. */
-#define TAB_ALL 6
+/* A tab is a number: Homebrew, everything the catalogs publish, at zero, and
+   the rest below it. */
+#define TAB_HOMEBREW  0
+#define TAB_BASKET  (-1)
 #define TAB_STICK   (-2)
 #define TAB_GEAR    (-3)
-#define TAB_BASKET  (-1)
+#define TAB_UMD     (-4)
+#define TAB_COUNT   5       /* all of them on screen at once */
 
 /* The tab that is open; the ones on screen, in their order, by position;
-   which position is the open one; and a category tab's word. */
+   and which position is the open one. */
 int view_tab_current(void);
 int view_tab_at(int i);
 int view_tab_active(void);
-const char *view_tab_name(int tab);
 
 /* How many packages on the stick have a newer one published: the updates
    tab's own label and the reason it exists at all. */
@@ -94,11 +93,11 @@ int view_basket_count(void);
 /* The tabs worked out again after something inside the catalog changed rather
    than the catalog itself: an install that was the last update takes the
    updates tab away, a basket emptied takes the basket tab. Returns 0 when the
-   tab that was active has gone -- the caller is then standing on All with a
-   cursor that means nothing, and puts it back at the top. */
+   tab that was active has gone -- the caller is then standing on Homebrew
+   with a cursor that means nothing, and puts it back at the top. */
 int view_tabs_refresh(void);
 
-/* How many tabs are on screen: one means there is nothing to switch. */
+/* How many tabs are on screen: none until there is a catalog. */
 int view_tab_count(void);
 
 /* L and R: one tab along, wrapping. The view follows; the caller resets

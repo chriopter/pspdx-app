@@ -30,8 +30,8 @@ void ask(enum question q, int of, const char *title, const char *line);
 /* 1 while a question stands over the browser. */
 int asking(void);
 
-/* The catalogs this console reads, as the popup under the gear last listed
-   them: the popup fills it, ASK_CATALOG's index points into it. */
+/* The catalogs this console reads, as Manage sources last listed them: the
+   view fills it, ASK_CATALOG's index points into it. */
 struct sources *question_sources(void);
 
 /* One frame's keys: the restart and the certificate doubt are put up first

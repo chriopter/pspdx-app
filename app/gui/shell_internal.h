@@ -19,6 +19,19 @@
 
 #define PANEL_X 232
 
+/* The list's rows, and where the package's icon sits in one; the gear's
+   rows and Manage sources' are measured the same. */
+#define ITEM_H 32
+/* The bundle's icon, 144x80 shown at a third: as tall as the row allows
+   with a little air, and the name starts after it. */
+#define ICON_W 43
+#define NAME_X (LIST_X + ICON_W + 9)
+#define VISIBLE ((FOOTER_Y - 6 - LIST_Y) / ITEM_H)
+
+/* The right column: as wide as the card, from where the card starts. */
+#define SHOT_W 224
+#define SHOT_Y 43
+
 #define INFO_Y 36
 #define INFO_H (FOOTER_Y - 6 - INFO_Y)
 
@@ -50,6 +63,22 @@ float draw_hint(float x, float base, enum mark m, const char *text, unsigned col
    too long for its room starts over each time it moves. One clock, keyed
    by the list and the row. */
 float hover_age(int list, int key);
+
+/* The list's floor and light: the soft shade under `rows` rows and the glow
+   of the selection, whose eased top is sel_y; and the scroll bar, for a list
+   of count rows scrolled to first, when they are more than fit. */
+void draw_rows_light(int rows, float sel_y, float t);
+void draw_rows_bar(int count, float first, float t);
+
+/* The gear's right column: a row's name, and under it what taking the row
+   comes to, over at most three lines, the name walking from age on when it
+   is wider than the column (0 keeps it still). Returns the lines the
+   sentence took. */
+int draw_setting_note(const char *title, const char *note, float age);
+
+/* 1 while the foot is free for a view's keys: no status line, and no
+   question, options or install standing over the screen. */
+int shell_footer_free(void);
 
 /* Prints text over at most `lines` lines of `width`, breaking at spaces,
    the last line clipped. Returns the lines used. */

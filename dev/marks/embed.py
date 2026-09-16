@@ -29,7 +29,7 @@ import zlib
 ORDER = [
     'cross', 'circle', 'triangle', 'square',
     'tick', 'update', 'basket', 'stick', 'play', 'download', 'info',
-    'all', 'games', 'demos', 'apps', 'emulators', 'plugins',
+    'store', 'umd',
     'start', 'select', 'l', 'r', 'home', 'gear',
 ]
 

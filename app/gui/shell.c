@@ -23,6 +23,7 @@
 #include "gui/shell.h"
 #include "gui/shell_internal.h"
 #include "gui/files_view.h"
+#include "gui/sources_view.h"
 #include "gui/font.h"
 #include "gui/gfx.h"
 #include "gui/icons.h"
@@ -41,17 +42,10 @@
    screen, FONT_BODY for the list and the summary, FONT_META for facts. */
 
 #define HEADER_H 32
-#define ITEM_H 32
-/* The bundle's icon, 144x80 shown at a third: as tall as the row allows
-   with a little air, and the name starts after it. */
-#define ICON_W 43
+/* ITEM_H, ICON_W, NAME_X, VISIBLE, SHOT_W and SHOT_Y are shell_internal.h's. */
 #define ICON_H 24
-#define NAME_X (LIST_X + ICON_W + 9)
-#define VISIBLE ((FOOTER_Y - 6 - LIST_Y) / ITEM_H)
 
-#define SHOT_W 224
 #define SHOT_H (SHOT_W * SCR_H / SCR_W)     /* the screen's own 480:272 */
-#define SHOT_Y 43
 #define REFLECT_H 18
 #define FILM_W 144                  /* an ICON1.PMF, as the firmware plays it */
 #define FILM_H 80
@@ -110,7 +104,8 @@ static void derive_palette(void) {
 
 static int g_last_cursor = -1;
 static float g_sel_y = LIST_Y;
-static int g_first;
+static int g_first;                     /* the row the list wants at the top */
+static float g_scroll;                  /* where it is, in pixels, on its way there */
 static int g_fade = 255;                /* black over everything at start */
 
 /* Install overlay, live only between shell_install_begin and _end. */
@@ -165,6 +160,7 @@ static void follow_view(void) {
     if (now == seen) return;
     seen = now;
     g_first = 0;
+    g_scroll = 0.0f;
     g_last_cursor = -1;
 }
 
@@ -224,10 +220,12 @@ void draw_shade(int cx, int cy, int w, int h) {
     gfx_shade(cx, cy, w * 1.6f, h * 1.8f, 170);
 }
 
-/* A tab that is a job rather than a category is a sign and a number -- the
-   turning arrows and how many wait, the basket and what is in it -- because
-   the sign is the same one the rows below it carry and a word would not be.
-   The number is built into a static, so it is read before the next call. */
+/* A tab is a sign, not a word: the word is said once, in the middle of the
+   header, for the tab that is open. The two that are jobs as well as lists
+   carry a number beside the sign -- the turning arrows and how many wait,
+   the basket and what is in it -- because the sign is the same one the rows
+   below it carry and a word would not be. The number is built into a
+   static, so it is read before the next call. */
 static const char *tab_count(int tab) {
     static char text[8];
     snprintf(text, sizeof(text), "%d",
@@ -235,31 +233,45 @@ static const char *tab_count(int tab) {
     return text;
 }
 
+static int tab_counted(int tab) {
+    return tab == TAB_BASKET || (tab == TAB_STICK && view_updates_waiting() > 0);
+}
+
 /* The stick's sign is the stick until something is waiting for it, and the
    update arrows with the count while something is. */
 static enum mark tab_mark(int tab) {
-    if (tab == TAB_GEAR) return MARK_GEAR;
-    if (tab == TAB_BASKET) return MARK_BASKET;
-    return view_updates_waiting() > 0 ? MARK_UPDATE : MARK_STICK;
+    switch (tab) {
+    case TAB_GEAR: return MARK_GEAR;
+    case TAB_BASKET: return MARK_BASKET;
+    case TAB_HOMEBREW: return MARK_STORE;
+    case TAB_UMD: return MARK_UMD;
+    default: return view_updates_waiting() > 0 ? MARK_UPDATE : MARK_STICK;
+    }
 }
 
 static float tab_width(int tab) {
-    if (tab >= 0) return mark_width(MARK_ALL + tab);
-    if (tab == TAB_GEAR) return mark_width(MARK_GEAR);
-    if (tab == TAB_STICK && view_updates_waiting() == 0) return mark_width(MARK_STICK);
-    return mark_width(tab_mark(tab)) + 5 + font_width(FONT_META, tab_count(tab));
+    float w = mark_width(tab_mark(tab));
+    return tab_counted(tab) ? w + 5 + font_width(FONT_META, tab_count(tab)) : w;
 }
 
-/* The tabs stand where they stand. The named ones start at a fixed
-   column and step right by a fixed gap, so All is always in the same
-   place whatever the count on the right says and however many tabs there
-   are; the two that come and go -- updates and the basket -- hang to the
-   left of that column, growing leftward, so their appearing never moves a
-   word the eye has learned the place of. The active one is lit rather
-   than boxed: a word in the text colour with the room's own light welling
-   up under it. */
-#define TAB_X 232.0f
+/* The tabs stand where they stand. The published ones -- Homebrew and the
+   UMD -- start at a fixed column over the panel and step right by a fixed
+   gap, so each is always in the same place. The stick hangs to the left of
+   that column and grows leftward with its count, so its coming and going
+   moves nothing. The gear stands at the right edge, as far in as the word
+   starts from the left, and the basket appears to the left of the gear
+   while it holds something, growing leftward too, a hair of light between
+   the two: nothing the eye has learned the place of ever moves. The
+   active one is lit rather than boxed: the sign in the text colour with
+   the room's own light welling up under it. */
+/* The column the published signs start at: where Homebrew's sign, the
+   first of them, stands with its middle on the middle of the screen, so
+   the header is symmetrical about it -- the stick to its left, the UMD to
+   its right, the word and the gear at the two edges. */
+#define TAB_X (SCR_W / 2.0f - tab_width(TAB_HOMEBREW) / 2.0f)
 #define TAB_GAP 16.0f
+
+static int tab_published(int tab) { return tab == TAB_HOMEBREW || tab == TAB_UMD; }
 
 static void draw_tab(int tab, int on, float x, float t) {
     float w = tab_width(tab);
@@ -268,50 +280,72 @@ static void draw_tab(int tab, int on, float x, float t) {
         gfx_glow(x + w / 2, 24, w + 8, 7,
                  rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.6f), 120));
     }
-    if (tab >= 0) {
-        /* A sign, not a word: the word is said once, at the head of the
-           list, for the tab that is open. */
-        mark_draw(MARK_ALL + tab, x + w / 2.0f, 16, on ? g_text : faded(g_dim, 150),
-                  on ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
-    } else {
-        enum mark m = tab_mark(tab);
-        unsigned c = m == MARK_UPDATE
-            ? faded(UPDATE_RGB, (int)((on ? 255 : 170) * update_pulse(t)))
-            : (on ? g_text : faded(g_dim, 150));
-        mark_draw(m, x + mark_width(m) / 2.0f, 16, c, on ? MARK_LIT : MARK_PLAIN,
-                  m == MARK_UPDATE ? UPDATE_RGB : rgb_pack(g_tint, 255), t);
-        if (m != MARK_STICK && m != MARK_GEAR)
-            font_print(FONT_META, x + mark_width(m) + 5, 21, on ? g_text : g_dim,
-                       tab_count(tab));
-    }
+    /* A sign, not a word: the word is said once, at the head of the list,
+       for the tab that is open. */
+    enum mark m = tab_mark(tab);
+    unsigned c = m == MARK_UPDATE
+        ? faded(UPDATE_RGB, (int)((on ? 255 : 170) * update_pulse(t)))
+        : (on ? g_text : faded(g_dim, 150));
+    mark_draw(m, x + mark_width(m) / 2.0f, 16, c, on ? MARK_LIT : MARK_PLAIN,
+              m == MARK_UPDATE ? UPDATE_RGB : rgb_pack(g_tint, 255), t);
+    if (tab_counted(tab))
+        font_print(FONT_META, x + mark_width(m) + 5, 21, on ? g_text : g_dim,
+                   tab_count(tab));
 }
 
-static void draw_tabs(float left, float right, float t) {
-    (void)left; (void)right;
+static void draw_tabs(float t) {
     int tabs = view_tab_count(), at = view_tab_active();
     if (tabs <= 1) return;
-    float x = TAB_X;
+    float x = TAB_X;    /* once: tab_width is asked for every sign otherwise */
     for (int i = 0; i < tabs; i++) {
-        if (view_tab_at(i) < 0) continue;
+        if (!tab_published(view_tab_at(i))) continue;
         draw_tab(view_tab_at(i), i == at, x, t);
         x += tab_width(view_tab_at(i)) + TAB_GAP;
     }
     x = TAB_X - TAB_GAP;
     for (int i = tabs - 1; i >= 0; i--) {
-        if (view_tab_at(i) >= 0) continue;
+        if (view_tab_at(i) != TAB_STICK) continue;
         x -= tab_width(view_tab_at(i));
         draw_tab(view_tab_at(i), i == at, x, t);
         x -= TAB_GAP;
     }
-    /* A hair between the console's own tabs and the catalog's: the gear
-       and the stick are about this machine, the rest about what is
-       published, and the eye should not read them as one row of the same
-       kind. Lit the way the header's rule is, brightest in its middle. */
-    unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 120);
-    unsigned clear = rgb_pack(g_tint, 0);
-    int sx = (int)(TAB_X - TAB_GAP / 2.0f);
-    gfx_vgrad(sx, 7, 1, 9, clear, bright);
-    gfx_vgrad(sx, 16, 1, 9, bright, clear);
+    /* The jobs at the right edge: the gear last, the basket before it.
+       Walked from the end so the gear takes the edge and the basket
+       hangs off it. */
+    x = SCR_W - LIST_X;
+    for (int i = tabs - 1; i >= 0; i--) {
+        int tab = view_tab_at(i);
+        if (tab != TAB_GEAR && tab != TAB_BASKET) continue;
+        if (tab == TAB_BASKET) {
+            /* A hair between the basket and the gear, there only while
+               the basket is: the basket is a job on packages, the gear
+               is not, and the eye should not read them as one row of
+               the same kind. Lit the way the header's rule is, brightest
+               in its middle. */
+            unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 120);
+            unsigned clear = rgb_pack(g_tint, 0);
+            int sx = (int)(x + TAB_GAP / 2.0f);
+            gfx_vgrad(sx, 7, 1, 9, clear, bright);
+            gfx_vgrad(sx, 16, 1, 9, bright, clear);
+        }
+        x -= tab_width(tab);
+        draw_tab(tab, i == at, x, t);
+        x -= TAB_GAP;
+    }
+}
+
+/* The open tab's word: what the list under it holds. A view standing over
+   the gear's list is named instead. */
+static const char *tab_word(int tab) {
+    if (files_view_shown()) return T_HEAD_FILES;
+    if (sources_view_shown()) return T_HEAD_SOURCES;
+    switch (tab) {
+    case TAB_GEAR: return T_HEAD_GEAR;
+    case TAB_STICK: return T_HEAD_STICK;
+    case TAB_BASKET: return T_HEAD_BASKET;
+    case TAB_UMD: return T_HEAD_UMD;
+    default: return T_HEAD_HOMEBREW;
+    }
 }
 
 static void draw_chrome(const struct catalog *catalog, float t) {
@@ -320,17 +354,21 @@ static void draw_chrome(const struct catalog *catalog, float t) {
     unsigned clear = rgb_pack(g_tint, 0);
     gfx_hgrad(0, HEADER_H, SCR_W / 2, 1, clear, bright);
     gfx_hgrad(SCR_W / 2, HEADER_H, SCR_W / 2, 1, bright, clear);
+    /* The rule burns in its middle the way the glint does on its line:
+       white at the heart, the room's light welling out flat along it. */
+    gfx_glow(SCR_W / 2.0f, HEADER_H + 0.5f, 300, 16,
+             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.6f), 110));
+    gfx_glow(SCR_W / 2.0f, HEADER_H + 0.5f, 120, 6,
+             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.9f), 170));
 
     /* The one word in the header is the name of what the list holds: the
-       open tab, said in words here and lit as a sign among the others on
-       the right. Nothing is counted; the list is there to be looked at. */
-    int tab = view_tab_current();
-    const char *title = files_view_shown() ? T_HEAD_FILES : tab == TAB_GEAR ? T_HEAD_GEAR
-                      : tab == TAB_STICK ? T_HEAD_STICK
-                      : tab == TAB_BASKET ? T_HEAD_BASKET : view_tab_name(tab);
+       open tab, said in words at the head of the list and lit as a sign
+       among the others to the right. Nothing is counted; the list is there
+       to be looked at. */
+    const char *title = tab_word(view_tab_current());
     gfx_glow(LIST_X + 24, 18, 110, 56, rgb_pack(g_tint, 80));
     font_print(FONT_H1, LIST_X, 23, g_text, title);
-    if (catalog->count > 0) draw_tabs(0, 0, t);
+    if (catalog->count > 0) draw_tabs(t);
 }
 
 /* ------------------------------------------------------------------- list */
@@ -419,40 +457,38 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
     if (cursor >= g_first + VISIBLE) g_first = cursor - VISIBLE + 1;
     if (g_first < 0) g_first = 0;
 
-    /* The bar chases the selection rather than jumping to it. A quarter of
-       the remaining distance per frame settles in about a fifth of a second
-       and never overshoots. */
-    float target = LIST_Y + (cursor - g_first) * ITEM_H;
+    /* The list slides to where the cursor wants it rather than jumping a
+       row, and the bar chases the selection over the sliding list: a
+       quarter of the remaining distance per frame settles in about a fifth
+       of a second, never overshoots, and the two arrive together. */
+    g_scroll += (g_first * ITEM_H - g_scroll) * 0.25f;
+    float target = LIST_Y + cursor * ITEM_H - g_scroll;
     g_sel_y += (target - g_sel_y) * 0.25f;
 
-    int rows = count < VISIBLE ? count : VISIBLE;
-    draw_shade(LIST_X + LIST_W / 2, LIST_Y + rows * ITEM_H / 2, LIST_W, rows * ITEM_H);
+    draw_rows_light(count < VISIBLE ? count : VISIBLE, g_sel_y, t);
 
-    /* The selected row glows: a breathing light behind it and a thin
-       streak of light under it, nothing with a corner. */
-    float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
-    float mid = g_sel_y + ITEM_H / 2 - 1;
-    gfx_glow(LIST_X + 60, mid, LIST_W + 170, ITEM_H * 3.4f,
-             rgb_pack(g_tint, (int)(130 * breathe)));
-    gfx_glow(LIST_X + 40, mid, LIST_W + 40, ITEM_H * 1.2f,
-             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), (int)(70 * breathe)));
-    gfx_glow(LIST_X + LIST_W / 2, g_sel_y + ITEM_H - 3, LIST_W + 30, 10,
-             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 160));
-
-    /* The icons module counts in catalog entries, so the rows on screen are
-       handed over as the entries they stand for -- and the action row stands
-       for none, so it asks for nothing. */
-    int wanted[VISIBLE], want_count = 0;
-    for (int i = g_first; i < count && i < g_first + VISIBLE; i++) {
+    /* The rows on screen while the list slides: one more than fit, the one
+       coming in under the edge. The icons module counts in catalog
+       entries, so the rows are handed over as the entries they stand for
+       -- and the action row stands for none, so it asks for nothing. */
+    int from = (int)(g_scroll / ITEM_H), to = from + VISIBLE + 1;
+    if (to > count) to = count;
+    int wanted[VISIBLE + 2], want_count = 0;
+    for (int i = from; i < to; i++) {
         int index = view_index(i);
         if (index >= 0) wanted[want_count++] = index;
     }
     icons_bind(catalog);
     if (icons_want(wanted, want_count)) preview_poke();
 
-    for (int i = g_first; i < count && i < g_first + VISIBLE; i++) {
-        int y = LIST_Y + (i - g_first) * ITEM_H;
+    for (int i = from; i < to; i++) {
+        int y = LIST_Y + (int)floorf(i * ITEM_H - g_scroll + 0.5f);
         int selected = i == cursor;
+        /* Cut at the list's edges, so a row sliding in or out goes under
+           them and not over the header or the foot. A scrolling name cuts
+           and uncuts on its own, which is why the cut is laid again for
+           every row. */
+        gfx_clip(0, LIST_Y, LIST_X + LIST_W + 8, VISIBLE * ITEM_H);
         int index = view_index(i);
         if (index == VIEW_ROW_ACTION) { draw_action_row(y, selected, t); continue; }
         if (index <= VIEW_ROW_SETTING) {
@@ -510,14 +546,144 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
                              selected ? g_text : g_dim, entry->name,
                              selected ? hover_age(0, index) : 0.0f);
     }
+    gfx_unclip();
 
-    if (count > VISIBLE) {
-        int track = FOOTER_Y - 6 - LIST_Y;
-        int knob = track * VISIBLE / count;
-        int at = track * g_first / count;
-        gfx_rect(LIST_X + LIST_W + 10, LIST_Y, 2, track, RGBA(255, 255, 255, 24));
-        gfx_rect(LIST_X + LIST_W + 10, LIST_Y + at, 2, knob, g_accent);
+    draw_rows_bar(count, g_scroll / ITEM_H, t);
+}
+
+void draw_rows_light(int rows, float sel_y, float t) {
+    draw_shade(LIST_X + LIST_W / 2, LIST_Y + rows * ITEM_H / 2, LIST_W, rows * ITEM_H);
+
+    /* The selected row glows: a breathing light behind it and a thin
+       streak of light under it, nothing with a corner. */
+    float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
+    float mid = sel_y + ITEM_H / 2 - 1;
+    gfx_glow(LIST_X + 60, mid, LIST_W + 170, ITEM_H * 3.4f,
+             rgb_pack(g_tint, (int)(130 * breathe)));
+    gfx_glow(LIST_X + 40, mid, LIST_W + 40, ITEM_H * 1.2f,
+             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), (int)(70 * breathe)));
+    gfx_glow(LIST_X + LIST_W / 2, sel_y + ITEM_H - 3, LIST_W + 30, 10,
+             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 160));
+}
+
+/* Not a bar: the light on the horizon, come forward. While a list is
+   being read through, the light burning at the back of the room leaves
+   the horizon and comes toward the viewer -- a point in the world, out
+   past the far row at first and then nearer, so that perspective gives
+   it its way: slow and small far off, then swinging up and in fast as it
+   arrives -- to stand over the gutter between the list and the card as a
+   glint on a hairline, a short streak of white with the room's light
+   welling out around it, breathing with the row's, riding from the top
+   of the line to the foot as the list goes by. The horizon keeps half
+   its burn, since the room is still lit from there. When the list has
+   rested a moment it goes back the way it came.
+   The glint says where in the list the eye is, not how much of the list
+   is on screen: a streak the size of the window would be most of the line
+   for a short list, and a bar again. first is the row at the top,
+   fractional while the list slides, so the glint slides with it. */
+#define BAR_HOLD 0.8f       /* seconds the light stays after the list stops */
+#define BAR_GLINT 30.0f     /* the streak, in pixels */
+#define BAR_FAR 20.0f       /* the horizon's depth: the lattice's far row */
+#define BAR_NEAR 1.15f      /* the nearest it comes, at the foot of the list */
+#define BAR_HOVER 0.040f    /* how high over the water it rides, in the world */
+#define BAR_EYE_Y (150.0f / GFX_FOCAL)      /* the lattice's own eye height */
+static float g_bar_m;       /* 0 on the horizon, 1 in the gutter, eased */
+static int g_bar_want;      /* where the list wants it this frame */
+static float g_bar_mid = LIST_Y + 60;   /* the glint's y, last drawn */
+
+static float lerp(float a, float b, float s) { return a + (b - a) * s; }
+
+/* Where the light stands when it is here: a fixed height over the water,
+   at the depth that puts it at the glint's height on the screen -- so
+   that its way in from the horizon is the way a thing comes nearer, and
+   reading down the list is reading it nearer still. A glint up by the
+   header is a light in the sky over the far water. */
+static float bar_depth(float mid) {
+    float d = mid - GFX_HORIZON;
+    if (d < 1.0f) d = 1.0f;
+    float z = (BAR_EYE_Y - BAR_HOVER) * GFX_FOCAL / d;
+    return z < BAR_NEAR ? BAR_NEAR : z > BAR_FAR ? BAR_FAR : z;
+}
+
+/* Where the light is at m along its way: a point in the world, projected.
+   Depth is walked in 1/z, which is how a thing moving evenly through the
+   world moves across the screen; across and up in the world, so the
+   screen path curves the way perspective curves it. */
+static void bar_light(float m, float *sx, float *sy, float *z) {
+    float s = m * m * (3.0f - 2.0f * m);
+    float x = (LIST_X + LIST_W + PANEL_X) / 2 + 0.5f;
+    float zt = bar_depth(g_bar_mid);
+    float inv = lerp(1.0f / BAR_FAR, 1.0f / zt, s);
+    *z = 1.0f / inv;
+    float scale = GFX_FOCAL * inv;
+    /* Up in the world is read off the screen: a point at depth z drawn at
+       sy stands (HORIZON - sy) * z / FOCAL over the eye's height. On the
+       water that is the water; over the horizon it is sky. */
+    float wx = lerp(0.0f, (x - SCR_W / 2.0f) * zt / GFX_FOCAL, s);
+    float wy = lerp(-2.0f * BAR_FAR / GFX_FOCAL, (GFX_HORIZON - g_bar_mid) * zt / GFX_FOCAL, s);
+    *sx = lerp(lattice_light_x(), SCR_W / 2.0f, s) + wx * scale;
+    *sy = GFX_HORIZON - wy * scale;
+}
+
+/* Before the water is drawn: where the light is this frame, and how much
+   of it the horizon keeps. Asked for every frame; a frame nobody asks in
+   -- another screen over the browser -- sends it home. */
+static void bar_settle(void) {
+    g_bar_m += ((g_bar_want ? 1.0f : 0.0f) - g_bar_m) * 0.10f;
+    if (g_bar_m < 0.002f) g_bar_m = 0.0f;
+    g_bar_want = 0;
+    float s = g_bar_m * g_bar_m * (3.0f - 2.0f * g_bar_m);
+    lattice_horizon(1.0f - 0.5f * s);
+}
+
+void draw_rows_bar(int count, float first, float t) {
+    static float shown = -1.0f, since = -100.0f;
+    if (count <= VISIBLE) { shown = -1.0f; return; }
+    if (shown < 0.0f) shown = first;             /* a list that has just come up: nothing moved yet */
+    if (fabsf(first - shown) > 0.001f) { shown = first; since = t; }
+    g_bar_want = t - since < BAR_HOLD;
+    if (g_bar_m <= 0.0f) return;
+    float s = g_bar_m * g_bar_m * (3.0f - 2.0f * g_bar_m);
+
+    int x = (LIST_X + LIST_W + PANEL_X) / 2;    /* midway across the gutter */
+    int top = LIST_Y, track = VISIBLE * ITEM_H;
+    float along = first / (count - VISIBLE);
+    if (along < 0) along = 0;
+    if (along > 1) along = 1;
+    float at = top + (track - BAR_GLINT) * along;
+    float mid = at + BAR_GLINT / 2;
+    g_bar_mid = mid;
+    float breathe = 0.8f + 0.2f * sinf(t * 2.2f);
+
+    /* Kept under the header's rule, where a cut is under a line already;
+       at the foot its light runs out on its own. */
+    gfx_clip(0, HEADER_H + 1, SCR_W, SCR_H - (HEADER_H + 1));
+    unsigned clear = rgb_pack(g_tint, 0);
+    unsigned faint = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.4f), (int)(60 * s));
+    gfx_vgrad(x, top, 1, track / 2, clear, faint);
+    gfx_vgrad(x, top + track / 2, 1, track - track / 2, faint, clear);
+
+    /* The light itself, where the world puts it, drawn the size the world
+       makes it: a body a little wider than tall far off -- the burn on the
+       horizon seen small -- growing as it nears, and in the last stretch
+       drawn out into the streak. */
+    float sx, sy, z;
+    bar_light(g_bar_m, &sx, &sy, &z);
+    float scale = GFX_FOCAL / z;
+    float body = 0.010f * scale + 6;          /* 13 px far, 42 near */
+    float tall = s < 0.6f ? 0.0f : (s - 0.6f) / 0.4f;
+    float w = lerp(body * 1.4f, 10, tall), h = lerp(body * 0.8f, BAR_GLINT * 2.0f, tall);
+    gfx_glow(sx, sy, w * 2.2f, h * 1.9f, rgb_pack(g_tint, (int)(120 * breathe * s)));
+    gfx_glow(sx, sy, w, h, rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.6f), (int)(150 * breathe * s)));
+    gfx_glow(sx, sy, w * 0.45f, h * 0.55f, rgb_pack(RGB_WHITE, (int)(140 * s)));
+    /* The streak on its line, once it is there. */
+    if (tall > 0.0f) {
+        unsigned core = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.9f), (int)(250 * tall));
+        int half = (int)(BAR_GLINT / 2);
+        gfx_vgrad(x, (int)at, 1, half, clear, core);
+        gfx_vgrad(x, (int)at + half, 1, half, core, clear);
     }
+    gfx_unclip();
 }
 
 /* ------------------------------------------------------------------ panel */
@@ -718,15 +884,60 @@ static void draw_picture(float t) {
     }
 }
 
+/* The card's text, under the picture: the summary, a blank line and the
+   description out of the catalog, broken into lines once per package, and
+   last, a little apart, where the package stands -- what is installed,
+   what waits, or what it would weigh to fetch. The name is not said again;
+   the lit row says it. The stick scrolls the column the way it scrolls
+   the band, and the water goes on following the stick underneath. The
+   copy is the card's own: a refetch may free the entry's text. */
+#define CARD_TOP (SHOT_Y + SHOT_H + 6)
+#define CARD_EDGE 12        /* pixels over which a line fades at either edge */
+#define CARD_BOTTOM (FOOTER_Y - 6)
+#define CARD_STEP 16
+#define CARD_FIRST (CARD_TOP + 13)      /* the first baseline */
+static const struct app_entry *g_card_of;
+static char g_card_text[DETAIL_TEXT];
+static struct wrap_line g_card_lines[DETAIL_LINES];
+static int g_card_count;
+static float g_card_scroll, g_card_max;
+static float detail_width(void *ctx, const char *text, size_t len);
+
+/* How much of a line at this baseline is shown: whole in the middle of
+   the card, going out over the last pixels at either edge, so a line
+   scrolling in or out dims rather than being cut through its letters. */
+static float card_edge(int base) {
+    float top = (float)(base - CARD_TOP - 1) / CARD_EDGE;
+    float bottom = (float)(CARD_BOTTOM - base + 8) / CARD_EDGE;
+    float f = top < bottom ? top : bottom;
+    return f > 1.0f ? 1.0f : f;
+}
+
+static int card_state_y(int y) {
+    return y + g_card_count * CARD_STEP + (g_card_count ? CARD_STEP / 2 : 0);
+}
+
+static void card_text(const struct app_entry *entry) {
+    if (entry == g_card_of) return;
+    g_card_of = entry;
+    const char *about = entry->description ? entry->description : "";
+    snprintf(g_card_text, sizeof(g_card_text), "%s%s%s", entry->summary,
+             entry->summary[0] && about[0] ? "\n\n" : "", about);
+    pspdx_utf8_mend(g_card_text);
+    g_card_count = wrap_text(g_card_text, SHOT_W, DETAIL_LINE_BYTES, detail_width,
+                             NULL, g_card_lines, DETAIL_LINES);
+    g_card_scroll = 0.0f;
+    /* Scrolled as far as the state line standing on the card's last
+       baseline. */
+    int last = card_state_y(CARD_FIRST);
+    g_card_max = last > CARD_BOTTOM - 4 ? (float)(last - (CARD_BOTTOM - 4)) : 0.0f;
+}
+
 static void draw_panel(const struct app_entry *entry, float t) {
     draw_picture(t);
-
-    /* Under the picture, the way the system does it under an icon: the
-       name, and one line saying where it stands -- what is installed, what
-       waits, or what it would weigh to fetch. The summary, dimmer, once and
-       clipped; a card is not a page. */
-    int y = SHOT_Y + SHOT_H + REFLECT_H + 16;
-    draw_shade(PANEL_X + SHOT_W / 2, y + 6, SHOT_W, 40);
+    card_text(entry);
+    draw_shade(PANEL_X + SHOT_W / 2, (CARD_TOP + CARD_BOTTOM) / 2, SHOT_W,
+               CARD_BOTTOM - CARD_TOP);
 
     static char line[64];
     static const struct app_entry *line_of;
@@ -762,20 +973,28 @@ static void draw_panel(const struct app_entry *entry, float t) {
         }
     }
     if (entry->state == APP_UPDATE) state_color = RGB(140, 255, 170);
-    /* The state on the name's own line, after it, the way the size stands
-       after a title in the system's lists; the summary under both. */
-    float nw = font_width(FONT_H1, entry->name), sw = font_width(FONT_META, line);
-    if (nw + 10 + sw <= SHOT_W) {
-        float x = font_print(FONT_H1, PANEL_X, y, g_text, entry->name);
-        font_print(FONT_META, x + 10, y, state_color, line);
-    } else {
-        /* A long name keeps its line whole; the state takes the next. */
-        font_print_clipped(FONT_H1, PANEL_X, y, SHOT_W, g_text, entry->name);
-        y += 20;
-        font_print_clipped(FONT_META, PANEL_X, y, SHOT_W, state_color, line);
+
+    /* The column moves as one when the stick scrolls, and stays inside
+       the card while it does: the lines made when the package came under
+       the cursor, only the ones in view, and the state at the foot. */
+    gfx_clip(PANEL_X - 4, CARD_TOP - 4, SHOT_W + 8, CARD_BOTTOM - CARD_TOP + 8);
+    int y = CARD_FIRST - (int)g_card_scroll;
+    char text[DETAIL_LINE_BYTES + 1];
+    for (int i = 0; i < g_card_count; i++) {
+        int base = y + i * CARD_STEP;
+        float f = card_edge(base);
+        if (f <= 0.0f) continue;
+        size_t len = g_card_lines[i].len;
+        if (len > DETAIL_LINE_BYTES) len = DETAIL_LINE_BYTES;
+        memcpy(text, g_card_text + g_card_lines[i].start, len);
+        text[len] = '\0';
+        font_print(FONT_META, PANEL_X, base, faded(g_dim, (int)(170 * f)), text);
     }
-    font_print_clipped(FONT_META, PANEL_X, y + 22, SHOT_W, faded(g_dim, 170),
-                       entry->summary);
+    int sy = card_state_y(y);
+    float f = card_edge(sy);
+    if (f > 0.0f)
+        font_print_clipped(FONT_META, PANEL_X, sy, SHOT_W, faded(state_color, (int)(255 * f)), line);
+    gfx_unclip();
 }
 
 /* --------------------------------------------------------------- overlays */
@@ -1374,20 +1593,29 @@ void shell_details(const struct app_entry *entry) {
     g_detail_max = g_detail_count && last > DETAIL_LAST ? (float)(last - DETAIL_LAST) : 0.0f;
 }
 
-void shell_details_scroll(float push) {
+/* The stick on a column of text, -1 pushed up to 1 pushed down. Past the
+   dead zone the speed rises with the square of the push: a little is a
+   line at reading pace, all the way is a page a second. */
+static void push_scroll(float *at, float max, float push) {
     float away = push < 0.0f ? -push : push;
-    if (!g_details || away < DETAIL_DEAD)
+    if (away < DETAIL_DEAD)
         return;
-    /* Past the dead zone the speed rises with the square of the push: a
-       little is a line at reading pace, all the way is a page a second. */
     float t = (away - DETAIL_DEAD) / (1.0f - DETAIL_DEAD);
     if (t > 1.0f)
         t = 1.0f;
-    g_detail_scroll += (push < 0.0f ? -1.0f : 1.0f) * t * t * DETAIL_SPEED;
-    if (g_detail_scroll > g_detail_max)
-        g_detail_scroll = g_detail_max;
-    if (g_detail_scroll < 0.0f)
-        g_detail_scroll = 0.0f;
+    *at += (push < 0.0f ? -1.0f : 1.0f) * t * t * DETAIL_SPEED;
+    if (*at > max)
+        *at = max;
+    if (*at < 0.0f)
+        *at = 0.0f;
+}
+
+void shell_details_scroll(float push) {
+    if (g_details) push_scroll(&g_detail_scroll, g_detail_max, push);
+}
+
+void shell_card_scroll(float push) {
+    if (g_card_of) push_scroll(&g_card_scroll, g_card_max, push);
 }
 
 /* ---------------------------------------------------------------- footer */
@@ -1415,27 +1643,41 @@ static void draw_footer(void) {
 
 /* ------------------------------------------------------------- water light */
 
-/* A light that crosses the water instead of the picture: one pass every
-   twelve seconds, lying on the surface at a fixed depth, so perspective gives
-   it its shape -- wide, flat, and the same height above the horizon all the
-   way across. It is placed the way everything else that stands on the water
-   is placed, by projecting a point of the world, and it fades in and out at
-   the two ends rather than sliding off an edge. */
-#define LIGHT_Z 2.2f
+/* Lights on the water instead of on the picture: three of them, each
+   lying on the surface at its own depth, so perspective gives it its shape
+   -- wide, flat, the same height above the horizon all the way across at
+   a given depth -- and each adrift on a slow loop of its own, across and
+   into the distance: out of the far haze toward the near water and back,
+   in the world's own units, so that perspective makes the paths too --
+   small and slow far out, wide and quick as one comes forward and slides
+   off the side. Sums of slow sines with unlike periods across and in
+   depth, so the loops never repeat to the eye and never jump; a minute or
+   two to a round. Placed the way everything that stands on the water is
+   placed, by projecting a point of the world, and faded at the two side
+   walls rather than cut off by them. */
 #define LIGHT_EYE_Y (150.0f / GFX_FOCAL)     /* the lattice's own eye height */
+#define LIGHT_NEAR 1.8f
+#define LIGHT_FAR 12.0f
 
 static void draw_water_light(float t) {
-    float cycle = fmodf(t, 12.0f) / 12.0f;
-    /* Far enough past both walls that the fade, not the edge, ends the pass. */
-    float wx = (cycle * 2.0f - 1.0f) * (SCR_W * 0.62f * LIGHT_Z / GFX_FOCAL);
-    float sx, sy;
-    gfx_water_project(wx, -LIGHT_EYE_Y, LIGHT_Z, &sx, &sy);
-    float scale = GFX_FOCAL / LIGHT_Z;
-    float fade = sinf(cycle * 3.1415927f);
-    fade *= fade;
     struct rgb lit = rgb_mix(g_tint, RGB_WHITE, 0.62f);
-    gfx_glow(sx, sy, scale * 0.95f, scale * 0.30f, rgb_pack(lit, (int)(95 * fade)));
-    gfx_glow(sx, sy, scale * 0.40f, scale * 0.11f, rgb_pack(RGB_WHITE, (int)(70 * fade)));
+    for (int i = 0; i < 3; i++) {
+        float ph = 0.7f + i * 2.4f;
+        float u = 0.5f + 0.5f * sinf(t * (0.041f + i * 0.011f) + ph);      /* 0 far .. 1 near */
+        float inv = 1.0f / LIGHT_FAR + (1.0f / LIGHT_NEAR - 1.0f / LIGHT_FAR) * u * u;
+        float z = 1.0f / inv;                                              /* far most of the time */
+        float wx = 1.0f * sinf(t * (0.027f + i * 0.008f) + ph * 1.7f)
+                 + 0.35f * sinf(t * (0.071f + i * 0.006f) + ph);
+        float sx, sy;
+        gfx_water_project(wx, -LIGHT_EYE_Y, z, &sx, &sy);
+        float scale = GFX_FOCAL / z;
+        float edge = 1.0f - (fabsf(sx - SCR_W / 2.0f) - 200.0f) / 120.0f;
+        if (edge > 1.0f) edge = 1.0f;
+        if (edge <= 0.0f) continue;
+        float fade = edge * (0.6f + 0.4f * sinf(t * 0.13f + ph));
+        gfx_glow(sx, sy, scale * 0.95f, scale * 0.30f, rgb_pack(lit, (int)(95 * fade)));
+        gfx_glow(sx, sy, scale * 0.40f, scale * 0.11f, rgb_pack(RGB_WHITE, (int)(70 * fade)));
+    }
 }
 
 /* ------------------------------------------------------------------ frame */
@@ -1455,12 +1697,16 @@ void shell_profile(char *out, int size) {
 
 /* The right half while the cursor is on a row under the gear: the row's
    name at the size the panel gives a package, and under it what taking the
-   row comes to. */
-static void draw_setting_panel(int n) {
+   row comes to. A name too long for the column walks, from age on. */
+int draw_setting_note(const char *title, const char *note, float age) {
     int y = SHOT_Y + 14;
     draw_shade(PANEL_X + SHOT_W / 2, y + 30, SHOT_W, 90);
-    font_print(FONT_H1, PANEL_X, y, g_text, view_setting(n));
-    draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 3, g_dim, SETTING_NOTE[n]);
+    font_print_scrolling(FONT_H1, PANEL_X, y, SHOT_W, g_text, title, age);
+    return draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 3, g_dim, note);
+}
+
+static void draw_setting_panel(int n) {
+    draw_setting_note(view_setting(n), SETTING_NOTE[n], 0.0f);
 }
 
 void shell_draw(const struct catalog *catalog, int cursor) {
@@ -1493,6 +1739,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     gfx_frame_begin(0xFF000000);
     gfx_vgrad(0, 0, SCR_W, SCR_H, rgb_pack(rgb_mix(NIGHT_TOP, g_tint, 0.05f), 255),
               rgb_pack(rgb_mix(NIGHT_BOTTOM, g_tint, 0.18f), 255));
+    bar_settle();
     lattice_draw(t, g_tint);
     draw_water_light(t);
     /* Over the water and under everything that is read: the picture is the
@@ -1513,6 +1760,13 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     draw_chrome(catalog, t);
     if (files_view_shown()) {
         files_view_draw(t);
+    } else if (sources_view_shown()) {
+        sources_view_draw(t);
+    } else if (catalog->count > 0 && view_tab_kind() == VIEW_TAB_UMD) {
+        /* The UMD tab has no rows yet, only the one line saying so, in the
+           middle of the room under the header. */
+        font_print(FONT_BODY, SCR_W / 2.0f - font_width(FONT_BODY, T_UMD_SOON) / 2.0f,
+                   (HEADER_H + SCR_H) / 2.0f + 5, g_text, T_UMD_SOON);
     } else if (catalog->count > 0 && view_count() > 0) {
         int rows = view_count();
         int index = view_index(cursor < rows ? cursor : 0);
@@ -1558,10 +1812,12 @@ void shell_draw(const struct catalog *catalog, int cursor) {
 }
 
 int shell_settled(void) {
+    float slide = g_scroll - g_first * ITEM_H;
     float target = LIST_Y + (g_cursor - g_first) * ITEM_H;
     float bar = g_sel_y - target;
     int picture_done = !g_catalog || g_catalog->count <= 0 || preview_settled();
-    return g_fade <= 0 && picture_done && bar > -1.0f && bar < 1.0f;
+    return g_fade <= 0 && picture_done && bar > -1.0f && bar < 1.0f
+        && slide > -1.0f && slide < 1.0f;
 }
 
 /* ------------------------------------------------------------- screenshot */
@@ -1602,6 +1858,12 @@ void shell_word(const char *word) {
 void shell_status(const char *text) {
     snprintf(g_status, sizeof(g_status), "%s", text ? text : "");
     pspdx_utf8_mend(g_status);
+}
+
+/* The foot is free for a view's keys while nothing else has it: no status
+   line, and no question, options or install standing over the screen. */
+int shell_footer_free(void) {
+    return !g_status[0] && !g_ask_title[0] && !g_menu && !g_menu_leaving && !g_installing;
 }
 
 void shell_ask(const char *title, const char *line) {

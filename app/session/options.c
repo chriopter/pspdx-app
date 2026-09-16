@@ -14,7 +14,9 @@
 #include "audio/cues.h"
 #include "gui/marks.h"
 #include "gui/shell.h"
+#include "gui/sources_view.h"
 #include "session/actions.h"
+#include "session/manage_sources.h"
 #include "session/options.h"
 #include "session/questions.h"
 #include "session/view.h"
@@ -123,46 +125,59 @@ static void menu_close(void) {
 }
 
 /* The two popups under the gear, in the same panel the options use: the
-   catalogs this console reads, one a row with "Add" last; and the two ways
-   a .pspdx comes in directly. Drawn by the shell, driven here. */
+   two ways a .pspdx comes in directly, and the resets. Drawn by the shell,
+   driven here. */
 static enum sub g_sub;
-static char g_sub_short[SOURCES_MAX][48];
-/* The row as the panel shows it: the short name, and after a source the
-   last fetch could not load, a note saying so. The question that deletes
-   the source names it by the short name alone. */
-static char g_sub_row[SOURCES_MAX][64];
 
 static void sub_push(void) {
-    g_menu.title = g_sub == SUB_CATALOGS ? T_SUB_SOURCES : g_sub == SUB_ADD ? T_SUB_DIRECT : T_SUB_RESET;
+    g_menu.title = g_sub == SUB_ADD ? T_SUB_DIRECT : T_SUB_RESET;
     shell_menu(&g_menu);
+}
+
+/* Manage sources: not a popup but a view in the list's place, with the
+   gear's two columns. The rows are session/manage_sources.c's, over the
+   list questions.c keeps, since the question that deletes a source points
+   into it and is answered after the key that asked it. */
+static struct manage_sources g_manage;
+static int g_manage_open;
+/* What the rows were built under: the loop's synced, and whether an action
+   since may have changed sources.txt. Either moving builds them again, so a
+   source added or deleted shows at once and how its fetch went once that
+   fetch is through. */
+static int g_manage_synced, g_manage_stale;
+
+static void manage_reload(void) {
+    sources_load(question_sources());
+    /* What the last fetch could not load is taken only once that fetch is
+       through; while one runs, the rows keep what the one before said. */
+    if (sync_done())
+        reach_take();
+    manage_build(&g_manage, question_sources());
+}
+
+void sources_open(void) {
+    g_manage.cursor = 0;
+    manage_reload();
+    /* The gear's row opens this only once a sync is through. */
+    g_manage_synced = 1;
+    g_manage_stale = 0;
+    g_manage_open = 1;
+    sources_view_set(&g_manage);
+}
+
+int sources_shown(void) {
+    return g_manage_open;
+}
+
+static void sources_close(void) {
+    g_manage_open = 0;
+    sources_view_set(NULL);
 }
 
 void sub_open(enum sub which) {
     g_sub = which;
     g_menu.count = 0;
-    if (which == SUB_CATALOGS) {
-        sources_load(question_sources());
-        /* The gear opens only once a sync is through, so what that fetch
-           could not load is settled and can be taken. */
-        if (sync_done())
-            reach_take();
-        for (int i = 0; i < question_sources()->count; i++) {
-            /* The scheme goes; every source has it, and the panel is narrow. */
-            const char *u = question_sources()->url[i];
-            if (!strncmp(u, "https://", 8)) u += 8;
-            snprintf(g_sub_short[i], sizeof(g_sub_short[i]), "%s", u);
-            if (reach_unreachable(question_sources()->url[i]))
-                snprintf(g_sub_row[i], sizeof(g_sub_row[i]), "%.47s\x02%s", g_sub_short[i],
-                         T_SOURCE_UNREACHABLE_NOTE);
-            else if (reach_offline_copy(question_sources()->url[i]))
-                snprintf(g_sub_row[i], sizeof(g_sub_row[i]), "%.47s\x02%s", g_sub_short[i],
-                         T_SOURCE_SAVED_NOTE);
-            else
-                snprintf(g_sub_row[i], sizeof(g_sub_row[i]), "%.47s", g_sub_short[i]);
-            g_menu.item[g_menu.count++] = g_sub_row[i];
-        }
-        g_menu.item[g_menu.count++] = T_SUB_ADD_SOURCE;
-    } else if (which == SUB_ADD) {
+    if (which == SUB_ADD) {
         g_menu.item[g_menu.count++] = T_SUB_FROM_GITHUB;
         g_menu.item[g_menu.count++] = T_SUB_FROM_INBOX;
     } else {
@@ -218,13 +233,7 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             int chosen = g_menu.cursor;
             enum sub kind = g_sub;
             sub_close();
-            if (kind == SUB_CATALOGS) {
-                if (chosen < question_sources()->count) {
-                    ask(ASK_CATALOG, chosen, T_SOURCE_DELETE_ASK, g_sub_short[chosen]);
-                } else if (*synced && type_source(0)) {
-                    refetch_now(*cursor, keep, keep_size, synced, refreshing);
-                }
-            } else if (kind == SUB_ADD) {
+            if (kind == SUB_ADD) {
                 if (chosen == 0 && *synced && type_source(1))
                     refetch_now(*cursor, keep, keep_size, synced, refreshing);
                 else if (chosen == 1 && *synced) ask_inbox();
@@ -283,6 +292,31 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
                 dump_diagnostics();
                 view_settled(cursor);
                 *count = view_count();
+            }
+        }
+    } else if (g_manage_open) {
+        if (g_manage_synced != *synced || g_manage_stale) {
+            g_manage_synced = *synced;
+            g_manage_stale = 0;
+            manage_reload();
+        }
+        /* A move takes the last result off the status line, as it does in
+           the list, so the keys at the foot come back. */
+        if (pressed & PSP_CTRL_DOWN) { manage_move(&g_manage, 1); shell_status(""); cues_post(CUE_MOVE, 0); }
+        else if (pressed & PSP_CTRL_UP) { manage_move(&g_manage, -1); shell_status(""); cues_post(CUE_MOVE, 0); }
+        else if (pressed & PSP_CTRL_CIRCLE) sources_close();
+        else if ((pressed & PSP_CTRL_CROSS) && *synced) {
+            /* Nothing is added or deleted while a fetch runs: the sources
+               it is reading are the ones it was started with. */
+            const struct manage_row *row = &g_manage.row[g_manage.cursor];
+            g_manage_stale = 1;
+            if (row->kind == MANAGE_ADD) {
+                if (type_source(0)) refetch_now(*cursor, keep, keep_size, synced, refreshing);
+            } else {
+                /* Named without the scheme; every source has it. */
+                const char *u = manage_url(&g_manage, g_manage.cursor);
+                if (!strncmp(u, "https://", 8)) u += 8;
+                ask(ASK_CATALOG, row->source, T_SOURCE_DELETE_ASK, u);
             }
         }
     } else return 0;

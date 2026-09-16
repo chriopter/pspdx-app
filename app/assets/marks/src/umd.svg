@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 17 17">
+  <!-- The UMD as the XMB draws it for the Game column, topmenu_icon/BH.png,
+       44 px: not a filled disc but an outline of the shell, a circle whose
+       lower half is squared off into a flat foot with round corners, and a
+       solid hub floating in the middle with clear space between hub and rim.
+       Sony's proportions kept: rim a fifteenth of the width, hub just over a
+       third, so at 15 px that is a 2 px rim, 3 px of air and a 5 px hub.
+       The rim sits on x=2 and x=15 so it is two whole pixels at the sides. -->
+  <path d="M2 8.5 A6.5 6.5 0 1 1 15 8.5 V13.5 A1.5 1.5 0 0 1 13.5 15 H3.5 A1.5 1.5 0 0 1 2 13.5 Z"
+        fill="none" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="8.5" cy="8.5" r="2.5" fill="#ffffff"/>
+</svg>

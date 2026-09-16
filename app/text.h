@@ -11,16 +11,14 @@
 
 /* ---------------------------------------------------------------- header */
 
-#define T_TAB_ALL            "All"
-#define T_TAB_GAMES          "Games"
-#define T_TAB_DEMOS          "Demos"
-#define T_TAB_APPS           "Apps"
-#define T_TAB_EMULATORS      "Emulators"
-#define T_TAB_PLUGINS        "Plugins"
 #define T_HEAD_GEAR          "PSPDX"
 #define T_HEAD_STICK         "Installed"
 #define T_HEAD_BASKET        "Basket"
+#define T_HEAD_HOMEBREW      "Browse Homebrews"
+#define T_HEAD_UMD           "Browse UMDs"
 #define T_HEAD_FILES         "Manage Data"
+#define T_HEAD_SOURCES       "Manage sources"
+#define T_UMD_SOON           "Coming soon"
 
 /* ------------------------------------------------------ waiting and status */
 
@@ -86,6 +84,7 @@
 #define T_HINT_ENTER         "Enter"
 #define T_HINT_BACK          "Back"
 #define T_HINT_CANCEL        "Cancel"
+#define T_HINT_DELETE        "Delete"
 
 /* --------------------------------------------------------------- questions */
 
@@ -166,23 +165,19 @@
 
 /* ------------------------------------------------------------------ gear */
 
-#define T_SET_SOURCES        "Add sources"
+#define T_SET_SOURCES        "Manage sources"
 #define T_SET_DIRECT         "Direct install"
 #define T_SET_FILES          "Manage Data"
 #define T_SET_RESET          "Reset"
 #define T_SET_INFO           "Information"
-#define T_NOTE_SOURCES       "Add or delete the catalogs PSPDX reads apps from."
+#define T_NOTE_SOURCES       "View, add or delete the sources PSPDX reads apps from."
 #define T_NOTE_DIRECT        "Install an app from GitHub or from the INBOX folder."
 #define T_NOTE_FILES         "View the data PSPDX keeps on the Memory Stick."
 #define T_NOTE_RESET         "Reset PSPDX, or clear the cache and any failed install."
 #define T_NOTE_INFO          "View details about PSPDX and this system."
 
-#define T_SUB_SOURCES        "Sources"
 #define T_SUB_DIRECT         "Direct install"
 #define T_SUB_RESET          "Reset"
-#define T_SUB_ADD_SOURCE     "Add source"
-#define T_SOURCE_UNREACHABLE_NOTE "unreachable"                /* after a source the last fetch could not load */
-#define T_SOURCE_SAVED_NOTE  "offline copy"                       /* after a source only its saved copy answered for */
 #define T_SUB_FROM_GITHUB    "From GitHub"
 #define T_SUB_FROM_INBOX     "From INBOX folder"
 #define T_SUB_SWEEP          "Renew TLS Seed"
@@ -191,6 +186,30 @@
 #define T_CACHE_CLEAR_FAILED "Could not clear the cache."
 #define T_SUB_RESET_ALL      "Reset PSPDX"
 #define T_SUB_DISCARD        "Clean Up Failed Installs"
+
+/* Manage sources: Add source at the top, then a row per source with how the
+   last fetch went under its name; on the right what the row is. */
+#define T_SUB_ADD_SOURCE     "Add source"
+#define T_SOURCE_APPS        "%d app%s"                           /* n, "s" */
+#define T_SOURCE_OFFLINE     "Offline copy, %d app%s"             /* n, "s" */
+#define T_SOURCE_UNREACHABLE "Unreachable"
+#define T_SOURCE_NOT_LOADED  "Not loaded yet"
+#define T_SOURCE_KIND_SITE   "Catalog site"
+#define T_SOURCE_KIND_JSON   "catalog.json"
+#define T_SOURCE_KIND_LIST   "Text list"
+#define T_SOURCE_KIND_REPO   "Repository"
+#define T_SOURCE_FACT_KIND   "Kind: %s"                           /* kind */
+#define T_SOURCE_FACT_APPS   "Apps: %d"                           /* n */
+#define T_SOURCE_FACT_LOADED "Loaded: %s"                         /* when */
+#define T_SOURCE_FACT_SAVED  "Loaded: saved copy"
+#define T_SOURCE_NOTE_ADD    "Enter the address of a catalog site, a catalog.json or a text list. Nothing is installed."
+#define T_SOURCE_NOTE_SITE   "A catalog site: its catalog.json, or its catalog.txt."
+#define T_SOURCE_NOTE_JSON   "A catalog file of apps and their releases."
+#define T_SOURCE_NOTE_LIST   "A list of GitHub repositories."
+#define T_SOURCE_NOTE_REPO   "A GitHub repository, listed as one app."
+#define T_SOURCE_NOTE_UNREACHABLE "Could not be loaded. Its apps are not shown."
+#define T_SOURCE_NOTE_OFFLINE "Could not be loaded. Its apps are from the saved copy."
+#define T_SOURCE_NOTE_KEEP   "Deleting it keeps installed apps."
 
 /* ------------------------------------------------------------ information */
 
@@ -248,7 +267,7 @@
 #define T_AREA_LOGS          "Logs"
 #define T_AREA_SEED          "Encryption seed"
 #define T_AREA_DEBUG         "Developer files"
-#define T_AREA_SOURCES_NOTE  "Where PSPDX looks for apps. Edit under Add sources."
+#define T_AREA_SOURCES_NOTE  "Where PSPDX looks for apps. Edit under Manage sources."
 #define T_AREA_INSTALLED_NOTE "What is installed and where it came from. One entry per app."
 #define T_AREA_INBOX_NOTE    ".pspdx files copied here are installed via Direct install."
 #define T_AREA_CACHE_NOTE    "Catalogs and previews already downloaded. Safe to delete."

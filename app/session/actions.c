@@ -218,7 +218,7 @@ void uninstall_app(int index) {
    catalog -- an install that was the last update waiting, a basket filled or
    emptied. The cursor stays on the package it was on for as long as that
    package is still shown; a tab that has gone out from under it puts it back
-   on All at the top, which is the only row that is certainly there. */
+   on Homebrew at the top, which is the only row that is certainly there. */
 void view_settled(int *cursor) {
     int at = view_index(*cursor);
     if (!view_tabs_refresh()) { *cursor = 0; return; }

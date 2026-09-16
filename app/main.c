@@ -249,7 +249,7 @@ static int wanted_settled(int *cursor) {
         shell_status(message);
         return -1;
     }
-    /* The tab that is open need not show it: All does, and is at most a
+    /* The tab that is open need not show it: Homebrew does, and is at most a
        ring of tabs away. */
     for (int n = view_tab_count(); n > 0 && view_row(found) < 0; n--)
         view_tab_move(1);
@@ -552,7 +552,11 @@ int main(int argc, char *argv[]) {
            is: a question that scrolls out from under its answer is a trap,
            up and down belong to the menu while one is open, and a tab
            changing under a band would change what the band is about. */
-        int modal = asking() || menu_shown() || popup_shown() || details || files_view_shown();
+        int modal = asking() || menu_shown() || popup_shown() || details || files_view_shown() ||
+                    sources_shown();
+        /* The same hand over the browser scrolls what the card says about
+           the package under the cursor. */
+        if (!modal) shell_card_scroll((pad.Ly - 128) / 127.0f);
 
         /* Twenty-five seconds without a key and the picture of the package under
            the cursor rises behind the interface, which stays where it is
@@ -573,11 +577,11 @@ int main(int argc, char *argv[]) {
         }
 
         /* The triggers and left/right walk the tabs, and the list under
-           them starts again at the top. The leftmost tab is the band about
-           the session: walking onto it opens the band, walking off it
-           closes it, so the band is left the way any tab is. */
+           them starts again at the top. They walk whenever there is a
+           catalog, not only while there are rows: the UMD tab has none and
+           is left the way any tab is. */
         unsigned tabs = PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_LEFT | PSP_CTRL_RIGHT;
-        if ((pressed & tabs) && count > 0 && !modal) {
+        if ((pressed & tabs) && shown()->count > 0 && !modal) {
             view_tab_move(pressed & (PSP_CTRL_RTRIGGER | PSP_CTRL_RIGHT) ? 1 : -1);
             cues_post(CUE_MOVE, cursor = 0);
             count = view_count();
@@ -625,7 +629,7 @@ int main(int argc, char *argv[]) {
                    buffer, so the media thread steps aside for the length of
                    it, as it does for an install. */
                 int which = VIEW_ROW_SETTING - at;
-                if (which == 0 && synced) sub_open(SUB_CATALOGS);
+                if (which == 0 && synced) sources_open();
                 else if (which == 1 && synced) sub_open(SUB_ADD);
                 else if (which == 2) { files_names(files_name_of); files_view_open(); }
                 else if (which == 3) sub_open(SUB_RESET);

@@ -83,6 +83,9 @@ void shell_details(const struct app_entry *entry);
    a frame: what the band has to say scrolls, faster the further it is
    pushed, and a hand resting near the centre moves nothing. */
 void shell_details_scroll(float push);
+/* The same stick over the browser: what the card says about the package
+   under the cursor scrolls, the summary and the description. */
+void shell_card_scroll(float push);
 
 /* Install progress, drawn over the browser. The two middle ones match the
    callback types install() expects.

@@ -56,11 +56,8 @@ import scenarios                                        # noqa: E402
 from model import (TAB_GEAR, TAB_STICK, TAB_BASKET, NOT_INSTALLED,  # noqa: E402
                    CURRENT, UPDATE, INSTALL_MS, REMOVE_MS)
 
-# shell.c's tab values: 0 is All, 1 to 5 the categories, and the three that
-# are not categories are negative. model.TAB_ALL is the *count* of category
-# tabs and not one of them, which is worth naming once here rather than
-# tripping over.
-TAB_EVERYTHING = 0
+# view.h's tab for every entry published: Homebrew.
+TAB_EVERYTHING = model.TAB_HOMEBREW
 
 GAP_NAV = scenarios.GAP_NAV
 GAP_ACT = scenarios.GAP_ACT
@@ -668,7 +665,7 @@ def storm_refresh_basket(world):
     want = pick(world, NOT_INSTALLED, 5)
     p = hand(world)
     for index in want:
-        if not p.goto_app(index, prefer_category=True):
+        if not p.goto_app(index, prefer_homebrew=True):
             raise SystemExit("edge: cannot reach a basket row")
         if not p.basket_here():
             raise SystemExit("edge: square did not fill the basket")
@@ -1000,7 +997,7 @@ def net_offline_start(world):
     starts at the *failed* sync, which is when the client loads it.
 
     Each X is followed by a circle, because the X's that come after the
-    catalog has arrived land on row 0 of All, which is an installed package:
+    catalog has arrived land on row 0 of Homebrew, an installed package:
     X there is the options menu on Run, and a second X would be Run. Circle
     closes whatever the X opened, and does nothing on the Offline screen."""
     p = hand(world)
@@ -1041,7 +1038,7 @@ def net_catalog_truncated(world):
     """The catalog itself cut off mid-body. Nothing is parsed from half a
     JSON document, and the retry after the fault is lifted must work. The
     circle after each X is for the same reason as in net_offline_start:
-    row 0 of All is installed, and X twice there would be Run."""
+    row 0 of Homebrew is installed, and X twice there would be Run."""
     p = hand(world)
     for _ in range(4):
         p.key("cross", 8000)

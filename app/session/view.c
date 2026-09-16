@@ -11,36 +11,17 @@
 
 #include "session/view.h"
 
-/* The tabs, in the order they are shown. The first takes everything; the
-   rest match a tag, in the singular the format spells it in -- a tab holds
-   many, an app is one -- except the plugins, which is a type rather than a
-   tag. A tag no tab has leaves its app in All alone. */
-static const char *const TAB_NAME[] = {
-    T_TAB_ALL, T_TAB_GAMES, T_TAB_DEMOS, T_TAB_APPS, T_TAB_EMULATORS, T_TAB_PLUGINS
-};
-static const char *const TAB_KEY[] = {
-    "", "game", "demo", "app", "emulator", "plugin"
-};
-#define TAB_ALL 6
-
-/* Two tabs are not categories and are named by a sign rather than a word:
-   the stick -- what is installed, with whatever newer is waiting for it at
-   the top, and the sign turning into the update arrows while anything is --
-   and the basket this session has filled. They are numbered below zero so
-   that a tab is either an index into TAB_NAME or one of these, with nothing
-   to keep in step, and they stand to the left of All because what is one's
-   own comes before what is merely there to browse. */
-#define TAB_STICK   (-2)
-/* And, leftmost, where the system's own shell keeps its settings: the band
-   about this session -- what it is connected to, what it is standing on --
-   and the two things that can be done about either. Reached the way a tab
-   is, so that it needs no key of its own. */
-#define TAB_GEAR    (-3)
-#define TAB_BASKET  (-1)
-
-static int g_tab[TAB_ALL + 3];          /* which of them have anything */
+/* The tabs on screen, in the order they are shown. Leftmost, where the
+   system's own shell keeps its settings, the gear: rows about this session
+   and what can be done to it, reached the way a tab is so that they need no
+   key of their own. Then the stick -- what is installed, with whatever newer
+   is waiting for it at the top -- and the basket this session has filled,
+   each only while it holds anything, because what is one's own comes before
+   what is merely there to browse. Then Homebrew, every entry the catalogs
+   publish whatever its type or tags, and the UMD, which holds nothing yet. */
+static int g_tab[TAB_COUNT];
 static int g_tabs;
-static int g_tab_at;                    /* index into g_tab, not into TAB_NAME */
+static int g_tab_at;                    /* index into g_tab */
 static const struct catalog *g_view_of;
 static unsigned char g_view[MAX_APPS];
 static int g_view_count;                /* packages; the action row is extra */
@@ -82,17 +63,6 @@ int view_updates_waiting(void) {
     return n;
 }
 
-/* Whether an app stands in a category tab. The plugins hold what is a
-   plugin, whatever it is tagged. An app that names its category stands in
-   that tab alone, and in none but All when no tab has its word; one that
-   names none stands in every tab whose word is among its tags. */
-static int in_tab(const struct app_entry *app, int tab) {
-    if (!TAB_KEY[tab][0]) return 1;
-    if (!strcmp(TAB_KEY[tab], "plugin")) return !strcmp(app->type, "plugin");
-    if (app->category[0]) return !strcmp(app->category, TAB_KEY[tab]);
-    return pspdx_has_tag(app->tags, TAB_KEY[tab]);
-}
-
 /* restart is for a view whose rows now stand for other packages than they
    did: the list goes back to the top and the card is told to fetch afresh.
    A view merely rebuilt under the same tab keeps where it was scrolled to. */
@@ -103,10 +73,10 @@ static void build_view(int restart) {
     if (!g_view_of || g_tabs <= 0) return;
     for (int i = 0; i < g_view_of->count; i++) {
         int take;
-        if (tab == TAB_STICK) take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
-        else if (tab == TAB_GEAR) take = 0;     /* its rows are not packages */
+        if (tab == TAB_HOMEBREW) take = 1;
+        else if (tab == TAB_STICK) take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_BASKET) take = view_basket_has(i);
-        else take = in_tab(&g_view_of->apps[i], tab);
+        else take = 0;      /* the gear's rows are not packages; the UMD has none */
         if (take) g_view[g_view_count++] = (unsigned char)i;
     }
     /* On the stick, what has something waiting for it stands first, in the
@@ -121,7 +91,7 @@ static void build_view(int restart) {
             }
         memcpy(g_view, sorted, (size_t)n);
     }
-    /* A tab that is a job rather than a category carries the job itself at
+    /* A tab that is a job as well as a list carries the job itself at
        the top, above the packages it would be done to -- the stick only
        while there is a job on it. */
     g_view_action = tab == TAB_BASKET || tab == TAB_STICK;
@@ -129,8 +99,8 @@ static void build_view(int restart) {
     g_generation++;
 }
 
-/* Which tabs have anything in them, in the order they are shown, and where
-   the one named by keep ended up. Returns 0 if keep did not survive. */
+/* Which tabs there are, in the order they are shown, and where the one named
+   by keep ended up. Returns 0 if keep did not survive. */
 static int collect_tabs(int keep) {
     int found = 0;
     g_tabs = 0;
@@ -139,23 +109,19 @@ static int collect_tabs(int keep) {
     int installed = 0;
     for (int i = 0; i < g_view_of->count; i++)
         if (g_view_of->apps[i].state != APP_NOT_INSTALLED) installed = 1;
-    g_tab[g_tabs++] = TAB_GEAR;
     if (installed) g_tab[g_tabs++] = TAB_STICK;
+    g_tab[g_tabs++] = TAB_HOMEBREW;
+    g_tab[g_tabs++] = TAB_UMD;
     if (g_basket_n > 0) g_tab[g_tabs++] = TAB_BASKET;
-    for (int t = 0; t < TAB_ALL; t++) {
-        int has = !TAB_KEY[t][0];
-        for (int i = 0; !has && i < g_view_of->count; i++)
-            has = in_tab(&g_view_of->apps[i], t);
-        if (has) g_tab[g_tabs++] = t;
-    }
+    g_tab[g_tabs++] = TAB_GEAR;
     for (int i = 0; i < g_tabs; i++)
         if (g_tab[i] == keep) { g_tab_at = i; found = 1; }
     /* A tab that has gone -- the last thing taken out of the basket -- is
-       answered with All, not with whatever stands leftmost, which is the
-       band about the session and not a list at all. */
+       answered with Homebrew, the one the basket was filled from, not with
+       whatever stands first. */
     if (!found)
         for (int i = 0; i < g_tabs; i++)
-            if (g_tab[i] == 0) g_tab_at = i;
+            if (g_tab[i] == TAB_HOMEBREW) g_tab_at = i;
     return found;
 }
 
@@ -202,7 +168,8 @@ enum view_tab_kind view_tab_kind(void) {
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
     return tab == TAB_GEAR ? VIEW_TAB_GEAR
          : tab == TAB_STICK ? VIEW_TAB_STICK
-         : tab == TAB_BASKET ? VIEW_TAB_BASKET : VIEW_TAB_CATEGORY;
+         : tab == TAB_BASKET ? VIEW_TAB_BASKET
+         : tab == TAB_UMD ? VIEW_TAB_UMD : VIEW_TAB_HOMEBREW;
 }
 
 void view_action_plan(struct view_plan *plan) {
@@ -238,13 +205,9 @@ void view_tab_move(int step) {
 
 /* The tab that is open, and the ones on screen in their order: what the
    header names and the row of signs draws. */
-int view_tab_current(void) { return g_tabs ? g_tab[g_tab_at] : 0; }
-int view_tab_at(int i) { return i >= 0 && i < g_tabs ? g_tab[i] : 0; }
+int view_tab_current(void) { return g_tabs ? g_tab[g_tab_at] : TAB_HOMEBREW; }
+int view_tab_at(int i) { return i >= 0 && i < g_tabs ? g_tab[i] : TAB_HOMEBREW; }
 int view_tab_active(void) { return g_tab_at; }
-
-const char *view_tab_name(int tab) {
-    return tab >= 0 && tab < TAB_ALL ? TAB_NAME[tab] : "";
-}
 
 int view_basket_count(void) { return g_basket_n; }
 

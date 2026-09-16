@@ -228,9 +228,9 @@ class ClientTests(unittest.TestCase):
   self.write('catalog.json',dict(schema='https://chriopter.github.io/pspdx/schema/catalog-v1.json',generated_at=NOW(),apps=[app]));self.write('release.json',dict(tag_name='v3',published_at='2026-09-12T00:00:00Z',assets=[dict(name='download.zip',size=size,browser_download_url='https://github.com/test/demo/releases/download/v2/download.zip')]))
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
  def test_view_tabs_come_and_go(self):
-  # One app, installed with a newer one published: gear, stick, All and its category; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
+  # One app, installed with a newer one published: stick, Homebrew, the UMD, which has no rows, and the gear; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
   self.fixtures();r=self.run_client('view')
-  self.assertEqual(r.stdout.splitlines(),['tabs 4: -3 -2 0 2','tab 0 kind 0 rows 1 first 0 plan 0 0','tab 2 kind 0 rows 1 first 0 plan 0 0','tab -3 kind 3 rows 5 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
+  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 1 first 0 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 5 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
  def test_catalog_offline_fallback(self):
   self.fixtures();r=self.run_client('fetch');self.assertIn(ID+' 2 1',r.stdout)
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)
@@ -308,6 +308,21 @@ class ClientTests(unittest.TestCase):
   r=self.run_client('reach',DOWN_HOST='down.example.org',THEN_UP=1);first,again=r.stdout.split('--\n')
   self.assertEqual(first.splitlines(),[ID,'https://example.com/catalog.json ok',down+' unreachable'])
   self.assertEqual(again.splitlines(),[ID,'https://example.com/catalog.json ok',down+' ok'])
+ def test_manage_sources_says_how_each_source_loaded(self):
+  # Manage sources: Add source on top, then each source with its status line, and on the right its URL, a sentence, its kind, its apps and when it loaded. A catalog that answers only from its saved copy says so; one that does not answer has no apps and no time.
+  self.fixtures();down='https://down.example.org/pspdx/'
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n'+down+'\n')
+  lines=self.run_client('manage',DOWN_HOST='down.example.org').stdout.splitlines()
+  self.assertEqual(lines[0],'Add source |  |  | Enter the address of a catalog site, a catalog.json or a text list. Nothing is installed.')
+  self.assertEqual(lines[1],'example.com | 1 app | https://example.com/catalog.json | A catalog file of apps and their releases. Deleting it keeps installed apps.')
+  self.assertEqual(lines[2:4],['  Kind: catalog.json','  Apps: 1'])
+  self.assertRegex(lines[4],r'^  Loaded: \d{4}-\d\d-\d\d \d\d:\d\d UTC$')
+  self.assertEqual(lines[5:],['down.example.org | Unreachable | '+down+' | Could not be loaded. Its apps are not shown. Deleting it keeps installed apps.','  Kind: Catalog site','up from the top: 2'])
+  lines=self.run_client('manage',CATALOG_DOWN=1,DOWN_HOST='down.example.org').stdout.splitlines()
+  self.assertEqual(lines[1:4],['example.com | Offline copy, 1 app | https://example.com/catalog.json | Could not be loaded. Its apps are from the saved copy. Deleting it keeps installed apps.','  Kind: catalog.json','  Apps: 1'])
+  self.assertEqual(lines[4],'  Loaded: saved copy')
+  (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://github.com/test/demo\n')
+  self.assertEqual(self.run_client('manage').stdout.splitlines()[1].split(' | ')[:2],['test/demo','1 app'])
  def test_embedded_presets_match_the_file(self):
   import re
   root=pathlib.Path(__file__).resolve().parents[2]
@@ -610,18 +625,18 @@ class ClientTests(unittest.TestCase):
   # A whole letter is never cut, however small the cap: the four bytes of one stay one line.
   lines=self.wrap_bytes('—é😀'.encode(),1000,2)
   self.assertEqual(lines,['—'.encode(),'é'.encode(),'😀'.encode()])
- def test_tabs_come_from_known_tags_and_the_plugin_type(self):
-  # A category decides the one tab; without one, the tags do; a category no tab has leaves All alone; the plugins are the type's.
+ def test_one_tab_holds_everything_published(self):
+  # No tab per category: whatever an entry is tagged and whatever category or type it names, it stands in Homebrew, the one tab for what is published, a plugin too; the tabs stay the stick, Homebrew, the empty UMD and the gear.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]
-  for tags,kind,tabs,category in ((['Jeu','games','Game'],None,'-3 -2 0',None),([],None,'-3 -2 0',None),(None,None,'-3 -2 0',None),(['game','demo','emulator'],None,'-3 -2 0 1 2 4',None),(['plugin'],None,'-3 -2 0',None),(['game'],'plugin','-3 -2 0 1 5',None),
-                                  (['puzzle'],None,'-3 -2 0 1','game'),(['game','demo'],None,'-3 -2 0 4','emulator'),(['game'],None,'-3 -2 0','Puzzle'),(['game'],None,'-3 -2 0','Game'),(['demo'],'plugin','-3 -2 0 3 5','app')):
+  for tags,kind,category in ((['Jeu','games','Game'],None,None),([],None,None),(None,None,None),(['game','demo','emulator'],None,None),(['plugin'],None,None),(['game'],'plugin',None),
+                             (['puzzle'],None,'game'),(['game','demo'],None,'emulator'),(['game'],None,'Puzzle'),(['game'],None,'Game'),(['demo'],'plugin','app')):
    with self.subTest(tags=tags,kind=kind,category=category):
     a={k:v for k,v in app.items() if k!='tags'}
     if tags is not None:a['tags']=tags
     if category is not None:a['category']=category
     if kind:a['type']=kind;a.pop('installdir')
     self.write('catalog.json',dict(catalog,apps=[a]))
-    self.assertEqual(self.run_client('view').stdout.splitlines()[0],'tabs %d: %s'%(len(tabs.split()),tabs))
+    self.assertEqual(self.run_client('view').stdout.splitlines()[:3],['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 1 first 0 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0'])
  def gzip_catalog(self,data=None,cut=0,flip=False):
   raw=(self.root/'catalog.json').read_bytes() if data is None else json.dumps(data).encode()
   packed=bytearray(gzip.compress(raw))

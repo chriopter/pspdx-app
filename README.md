@@ -72,14 +72,14 @@ https://github.com/someone/project@v1.2
 
 | Source | Added through | Result |
 |---|---|---|
-| Catalog site URL, `catalog.json` or text list | **Add sources** | Browse all listed apps |
+| Catalog site URL, `catalog.json` or text list | **Manage sources** | Browse all listed apps |
 | GitHub URL or `owner/repo` | **Direct install** | Add the repository as a source and install its app; without a `.pspdx` it installs from its latest release, named after the repository |
 | `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct install** | Validate and install the selected files; for a repository without its own `.pspdx` your file is the app |
 
 - Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://wijsman.de/psp-homebrew-database/`
 - Presets ship as `PSP/GAME/PSPDX/presets.txt`, same lines as `sources.txt`; the EBOOT carries a copy for a stick without one
 - Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
-- A source that does not load is marked *unreachable* in the gear's list of catalogs, one served only from its saved copy *offline copy*; the rest load as usual
+- **Manage sources** lists each source with its address, kind, apps and when it last loaded; one that does not load is marked *unreachable*, one served only from its saved copy *offline copy*; the rest load as usual
 - A line ending in `.pspdx`, left from an older version, is skipped with a line in the log
 - Sources are validated before they land in `PSP/PSPDX/sources.txt`
 - Adding a catalog installs nothing; Direct install and INBOX do
@@ -196,6 +196,8 @@ flowchart TD
 #### Keys
 
 **×** install, confirm · **△** options · **○** back · **□** basket · **START** run · **L/R** or **←/→** tabs
+
+Tabs, as signs to the right, the open one named at the head of the list: **Memory Stick** installed, update arrows and a count while updates wait → **Browse Homebrews** everything published → **Browse UMDs** coming soon → **basket** while it holds something → | → **gear** settings at the right edge; Homebrew, the UMD and the gear keep their place, the stick and the basket hang off them and come and go
 
 **△** → **Information**: version, author, licence, tags, size, id, last check, then summary and description; the **analog stick** scrolls, **○** back
 

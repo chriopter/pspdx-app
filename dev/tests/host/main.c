@@ -1,5 +1,6 @@
 #include "install/state.h"
 #include "pspiofilemgr.h"
+#include "session/manage_sources.h"
 #include "session/view.h"
 #include "update/catalog.h"
 #include "update/inbox.h"
@@ -239,6 +240,28 @@ int main(int argc, char **argv) {
                        : reach_offline_copy(s.url[i]) ? "offline copy"
                                                       : "ok");
         }
+        return 0;
+    }
+    if (!strcmp(argv[1], "manage")) {
+        /* Manage sources after a fetch: each row's name and status line,
+           then what the right column says about it, the facts indented. */
+        catalog_fetch(&catalog);
+        reach_take();
+        struct sources s;
+        struct manage_sources m;
+        sources_load(&s);
+        memset(&m, 0, sizeof(m));
+        manage_build(&m, &s);
+        for (int i = 0; i < m.count; i++) {
+            char note[256], facts[3][MANAGE_FACT];
+            manage_note(&m, i, note, sizeof(note));
+            printf("%s | %s | %s | %s\n", manage_title(&m, i), m.row[i].status,
+                   manage_url(&m, i), note);
+            int n = manage_facts(&m, i, facts, 3);
+            for (int k = 0; k < n; k++) printf("  %s\n", facts[k]);
+        }
+        manage_move(&m, -1);
+        printf("up from the top: %d\n", m.cursor);
         return 0;
     }
     if (!strcmp(argv[1], "presets")) {

@@ -9,7 +9,7 @@ cc -g -O1 -fsanitize=address,undefined -Wno-deprecated-declarations \
   "$HERE/host/io.c" "$HERE/host/main.c" \
   "$APP/util/storage.c" "$APP/install/state.c" "$APP/install/install.c" \
   "$APP/install/zipread.c" "$APP/update/sources.c" "$APP/update/presets.c" "$APP/update/reach.c" "$APP/update/pspdx.c" \
-  "$APP/update/catalog.c" "$APP/update/gunzip.c" "$APP/update/inbox.c" "$APP/session/view.c" "$APP/gui/wrap.c" \
+  "$APP/update/catalog.c" "$APP/update/gunzip.c" "$APP/update/inbox.c" "$APP/session/view.c" "$APP/session/manage_sources.c" "$APP/gui/wrap.c" \
   -lcjson -lz -lcrypto -o "$TEST_WORK/client"
 cc -g -O1 -fsanitize=address,undefined -I"$HERE/host" -I"$APP" \
   "$HERE/host/image.c" "$APP/gui/image.c" $(pkg-config --cflags --libs libpng) -o "$TEST_WORK/image"

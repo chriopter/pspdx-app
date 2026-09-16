@@ -1665,10 +1665,12 @@ int catalog_fetch(struct catalog *catalog) {
     reach_reset();
     int answered = 0;
     for (int i = 0; i < sources.count; i++) {
-        if (fetch_source(catalog, i + 1, sources.url[i]) >= 0) {
+        int taken = fetch_source(catalog, i + 1, sources.url[i]);
+        if (taken >= 0) {
             answered++;
             if (g_took_saved)
                 reach_saved(sources.url[i]);
+            reach_loaded(sources.url[i], taken, g_took_saved ? 0 : (unsigned)time(NULL));
         } else {
             reach_failed(sources.url[i]);
         }

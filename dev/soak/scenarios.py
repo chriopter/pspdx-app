@@ -20,7 +20,7 @@ scratch as a check that the two agree.
 import argparse
 import random
 
-from model import (TAB_KEY, TAB_ALL, TAB_GEAR, TAB_STICK, TAB_BASKET,
+from model import (TAB_HOMEBREW, TAB_GEAR, TAB_STICK, TAB_BASKET,
                    ROW_ACTION, NOT_INSTALLED, CURRENT, UPDATE, PSPDX_SELF_ID,
                    CHOICE_RUN, CHOICE_GET, CHOICE_DELETE, CHOICE_COUNT,
                    INSTALL_MS, REMOVE_MS, REFRESH_MS, IDLE_MS,
@@ -153,14 +153,13 @@ class Planner:
             self.key(name)
         return self.sim.cursor == row
 
-    def goto_app(self, index, prefer_category=False):
-        """Onto the row that stands for one catalog entry, switching tabs if
-        the entry is not under the one showing. The gear tab shows every
-        entry but lets none of them be reached, so it counts as not
-        showing."""
-        if prefer_category or self.sim.info or self.sim.view_row(index) < 0:
-            tab = TAB_KEY.index(self.sim.apps[index].category)
-            if not self.goto_tab(tab):
+    def goto_app(self, index, prefer_homebrew=False):
+        """Onto the row that stands for one catalog entry, switching to
+        Homebrew, where every entry stands, if it is not under the tab
+        showing. The gear tab shows every entry but lets none of them be
+        reached, so it counts as not showing."""
+        if prefer_homebrew or self.sim.info or self.sim.view_row(index) < 0:
+            if not self.goto_tab(TAB_HOMEBREW):
                 if self.sim.info or self.sim.view_row(index) < 0:
                     return False
         row = self.sim.view_row(index)
@@ -293,7 +292,7 @@ def installer(p):
             continue
         if not p.room(8, GAP_ACT * 2 + INSTALL_MS):
             return
-        if not p.goto_app(index, prefer_category=p.rng.random() < 0.5):
+        if not p.goto_app(index, prefer_homebrew=p.rng.random() < 0.5):
             continue
         p.install_here()
 
@@ -341,14 +340,14 @@ def remover(p):
             continue
         if not p.room(10, GAP_ACT * 3 + GAP_NAV * 2 + REMOVE_MS):
             return
-        if not p.goto_app(index, prefer_category=p.rng.random() < 0.5):
+        if not p.goto_app(index, prefer_homebrew=p.rng.random() < 0.5):
             continue
         p.remove_here()
 
 
 def shopper(p):
-    """Four to six rows set aside with square, gathered from the category
-    tabs, then the basket tab and Download all."""
+    """Four to six rows set aside with square, gathered from Homebrew, then
+    the basket tab and Download all."""
     want = list(range(len(p.sim.apps)))
     p.rng.shuffle(want)
     picked = 0
@@ -359,7 +358,7 @@ def shopper(p):
             break
         if index in p.sim.basket:
             continue
-        if not p.goto_app(index, prefer_category=True):
+        if not p.goto_app(index, prefer_homebrew=True):
             continue
         if p.basket_here():
             picked += 1
@@ -383,7 +382,7 @@ def reinstaller(p):
             continue
         if not p.room(9, GAP_ACT * 2 + GAP_NAV + INSTALL_MS):
             return
-        if not p.goto_app(index, prefer_category=p.rng.random() < 0.5):
+        if not p.goto_app(index, prefer_homebrew=p.rng.random() < 0.5):
             continue
         p.reinstall_here()
 

@@ -25,6 +25,11 @@ void lattice_touch(float x);
 void lattice_stir(float x, float y);
 
 void lattice_draw(float t, struct rgb tint);
+/* The light burning on the horizon: where it is, across, and how much of it
+   the horizon keeps this frame, 0 to 1. The shell takes the rest, to draw
+   the same light somewhere nearer, and gives it back. */
+float lattice_light_x(void);
+void lattice_horizon(float keep);
 
 /* A picture lying in the water: what is on the card, drawn again on the
    surface below it. px and pw are the card's left edge and its width in
