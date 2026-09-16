@@ -30,6 +30,9 @@ void lattice_draw(float t, struct rgb tint);
    the same light somewhere nearer, and gives it back. */
 float lattice_light_x(void);
 void lattice_horizon(float keep);
+/* How far the room is swaying this frame, the slow lean the water is drawn
+   with: what a thing standing in the room turns with. */
+float lattice_sway(void);
 
 /* A picture lying in the water: what is on the card, drawn again on the
    surface below it. px and pw are the card's left edge and its width in

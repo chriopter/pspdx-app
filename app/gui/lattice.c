@@ -1003,6 +1003,9 @@ static void source_at(float *sx, float *sy) {
    it forward as its own, and puts it back. */
 static float g_lightx = SCR_W / 2;
 static float g_horizon_keep = 1.0f;
+static float g_sway;                    /* the room's, this frame */
+
+float lattice_sway(void) { return g_sway; }
 
 void lattice_horizon(float keep) { g_horizon_keep = keep; }
 float lattice_light_x(void) { return g_lightx; }
@@ -1051,6 +1054,7 @@ void lattice_draw(float t, struct rgb tint) {
        moves it. */
     float lightx = SCR_W / 2 + sway * (GFX_FOCAL / Z_FAR);
     g_lightx = lightx;
+    g_sway = sway;
     /* Less of it while the shell has borrowed the light for the list. */
     gfx_glow(lightx, GFX_HORIZON + 6, 760, 110, rgb_pack(tint, (int)(110 * g_horizon_keep)));
     gfx_glow(lightx, GFX_HORIZON + 2, 420, 30,

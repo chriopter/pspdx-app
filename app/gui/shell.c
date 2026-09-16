@@ -772,16 +772,71 @@ static void draw_backdrop(void) {
                      RGBA(255, 255, 255, alpha * (int)(255.0f * g_rest) / 255));
 }
 
+/* A new picture comes onto the card turned a little away, and swings to
+   face the viewer as it fades in: a card being set down, not a slide
+   changing. 1 the moment it arrives, eased to 0. */
+static float g_card_swing;
+
+/* What colour the picture on the card is, on the whole: sampled off its
+   texture on a coarse grid -- a still once, a film every few frames -- and
+   eased, so that the light the card throws into the room is the picture's
+   own and follows a film as it plays. */
+static struct rgb g_card_light = { 255, 255, 255 };
+
+static struct rgb texture_average(const struct gfx_texture *t) {
+    struct rgb sum = { 0, 0, 0 };
+    if (!t || !t->pixels || t->w < 2 || t->h < 2) return g_tint;
+    const unsigned *px = t->pixels;
+    int n = 0;
+    for (int j = 1; j < 12; j++)
+        for (int i = 1; i < 16; i++) {
+            unsigned c = px[(t->h * j / 12) * t->tw + t->w * i / 16];
+            sum.r += (float)(c & 0xFF);
+            sum.g += (float)((c >> 8) & 0xFF);
+            sum.b += (float)((c >> 16) & 0xFF);
+            n++;
+        }
+    sum.r /= n; sum.g /= n; sum.b /= n;
+    return sum;
+}
+
+static void card_light_follow(const struct gfx_texture *still, const struct gfx_texture *film) {
+    static const struct gfx_texture *was;
+    static unsigned frame;
+    const struct gfx_texture *on = film ? film : still;
+    frame++;
+    if (on && (on != was || (film && frame % 4 == 0))) {
+        was = on;
+        struct rgb a = texture_average(on);
+        /* A film is mostly dark; the light it throws is its colour, not its
+           darkness. Lifted toward white by a third, and never darker than
+           the room's own tint would be. */
+        a = rgb_mix(a, RGB_WHITE, 0.33f);
+        float lift = 0.5f + 0.5f * (a.r + a.g + a.b) / 765.0f;
+        g_card_light = rgb_mix(g_card_light, rgb_mix(g_tint, a, 0.7f * lift + 0.3f), 0.08f);
+    } else if (!on) {
+        g_card_light = rgb_mix(g_card_light, g_tint, 0.08f);
+    }
+}
+
 static void draw_picture(float t) {
-    /* The card stands still: a picture that drifts is a picture that is
-       hard to look at. What moves is the light over it. */
+    /* The card keeps its place: a picture that drifts is a picture that is
+       hard to look at. But it is a plane in the room, not a window in the
+       glass: it leans back a hair, turns with the room's own slow sway,
+       and swings in when its picture changes, and the perspective of all
+       three is what says there is a room. */
+    g_card_swing *= 0.86f;
     struct gfx_card card;
-    card.cx = PANEL_X + SHOT_W / 2;
+    /* A hair of parallax: the card, being in the room, moves a little
+       with the room's sway, against the water far behind it; the words
+       around it, being on the glass, do not. Under three pixels over half
+       a minute, which the eye reads as depth and not as drift. */
+    card.cx = PANEL_X + SHOT_W / 2 + lattice_sway() * 45.0f;
     card.cy = SHOT_Y + SHOT_H / 2;
     card.w = SHOT_W;
     card.h = SHOT_H;
-    card.yaw = 0.0f;
-    card.pitch = 0.0f;
+    card.yaw = lattice_sway() * 0.9f + 0.35f * g_card_swing;
+    card.pitch = 0.035f + 0.015f * sinf(t * 0.31f);
     /* A picture, not lettering: it gets the frame and the shadow. */
     card.bare = 0;
     /* No mirrored strip under the card: what the picture is reflected in is
@@ -793,12 +848,21 @@ static void draw_picture(float t) {
        surface to lie on. */
     card.gloss = -1.0f;
 
-    /* Backlit: the light sits behind the picture and leaks out around it. */
-    gfx_glow(card.cx, card.cy, SHOT_W + 130, SHOT_H + 120, rgb_pack(g_tint, 100));
-
     int still_alpha, film_alpha;
     const struct gfx_texture *still = preview_still(&still_alpha);
     const struct gfx_texture *film = preview_film(&film_alpha);
+    card_light_follow(still, film);
+    /* Backlit, by the picture: the light sits behind the picture, is the
+       picture's own colour, and leaks out around it -- close and bright,
+       and wide and faint over the water and the words below, so the room
+       is lit by what is playing. */
+    gfx_glow(card.cx, card.cy, SHOT_W + 130, SHOT_H + 120, rgb_pack(g_card_light, 100));
+    gfx_glow(card.cx, card.cy + 50, SHOT_W + 260, SHOT_H + 230, rgb_pack(g_card_light, 45));
+    /* Its shadow on the water: a soft dark under its foot, shifted the way
+       it is turned, so it hangs over the surface rather than lying on the
+       glass. Before the reflection, which lies over the shadow the way a
+       reflection does. */
+    gfx_shade(card.cx + card.yaw * 70.0f, SHOT_Y + SHOT_H + 12, SHOT_W * 0.92f, 30, 120);
     enum preview_state picture = preview_state();
     /* The film at the size it was made. An ICON1.PMF is 144 by 80, which is
        what the XMB plays and what its author framed; across the card's width
@@ -919,6 +983,7 @@ static int card_state_y(int y) {
 
 static void card_text(const struct app_entry *entry) {
     if (entry == g_card_of) return;
+    if (g_card_of) g_card_swing = 1.0f;     /* not on the first, which fades up from nothing */
     g_card_of = entry;
     const char *about = entry->description ? entry->description : "";
     snprintf(g_card_text, sizeof(g_card_text), "%s%s%s", entry->summary,
@@ -934,8 +999,8 @@ static void card_text(const struct app_entry *entry) {
 }
 
 static void draw_panel(const struct app_entry *entry, float t) {
-    draw_picture(t);
     card_text(entry);
+    draw_picture(t);
     draw_shade(PANEL_X + SHOT_W / 2, (CARD_TOP + CARD_BOTTOM) / 2, SHOT_W,
                CARD_BOTTOM - CARD_TOP);
 
