@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- Installed: what has come down onto the stick. An arrow coming down
+       into a tray, the tray a rim like the UMD's shell with the inside
+       dark, the arrow solid but slim, 2.6 of shaft and a small head, the one bright thing, its tip just inside.
+       Rim 1.5, the tray the disc's width; spans 1.3 to 17.7. Even-odd. -->
+  <path fill="#ffffff" fill-rule="evenodd" d="M2.00 10.30 V17.70 H18.00 V10.30 H16.50 V16.20 H3.50 V10.30 Z M8.70 2.60 L11.30 2.60 L11.30 8.80 L13.80 8.80 L10.00 13.00 L6.20 8.80 L8.70 8.80 Z"/>
+</svg>

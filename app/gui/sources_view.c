@@ -75,7 +75,7 @@ static void draw_row(const struct manage_row *r, int i, int y, int selected, flo
         mark_draw(MARK_TICK, gx, gy, selected ? g_accent : faded(g_dim, 150),
                   selected ? MARK_PLAIN : MARK_DIM, 0, t);
     else if (r->state == MANAGE_OFFLINE)
-        mark_draw(MARK_STICK, gx, gy, selected ? g_text : faded(g_dim, 170),
+        mark_draw(MARK_INSTALLED, gx, gy, selected ? g_text : faded(g_dim, 170),
                   selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     /* Two lines, the way the action row is: the name, and under it how the
        last fetch went. */

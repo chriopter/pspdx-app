@@ -1,8 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13">
-  <!-- Set aside for later: a basket, which is a trapezium and a handle and
-       nothing else once it is eleven pixels tall. -->
-  <g fill="none" stroke="#ffffff" stroke-linejoin="round" stroke-linecap="round">
-    <path d="M4.5 5.6 V4.2 A2.0 2.0 0 0 1 8.5 4.2 V5.6" stroke-width="1.5"/>
-    <path d="M2 5.5 H11 L9.8 11 H3.2 Z" stroke-width="1.8"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- The basket: a shopping cart, drawn as a rim with the inside dark and
+       its two wheels bright. What is set aside to install rides in it.
+       The body a deep trapezoid on a slanting post off the handle, rim
+       1.6; the wheels solid dots, heavy the way the UMD's hub is. Spans
+       2.4 to 18 tall, 1.6 to 18.3 wide. -->
+  <path fill="none" stroke="#ffffff" stroke-width="1.60" stroke-linejoin="round"
+        d="M1.60 3.20 H4.30 L6.60 13.70 H16.30 L18.30 6.00 H4.93"/>
+  <path fill="#ffffff" d="M8.00 14.20 a1.90 1.90 0 1 1 -0.01 0 Z M15.00 14.20 a1.90 1.90 0 1 1 -0.01 0 Z"/>
 </svg>

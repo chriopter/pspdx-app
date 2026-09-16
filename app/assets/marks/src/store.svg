@@ -1,9 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 17 17">
-  <!-- Homebrew, the tab for everything published: the shelf, four tiles in
-       a square, which is how a launcher says "all of them". Two shop fronts
-       were tried at this size first: three scallops on the awning made a
-       castle, two made a pair of goggles. Four filled squares read at any
-       size, and next to the basket's outline and the UMD's rings this is
-       the only sign that is a grid. -->
-  <path fill="#ffffff" d="M2 2 H7.5 V7.5 H2 Z M9.5 2 H15 V7.5 H9.5 Z M2 9.5 H7.5 V15 H2 Z M9.5 9.5 H15 V15 H9.5 Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- The store: a hand basket, drawn as a rim like the UMD's shell with the
+       inside dark and the handle bright over it. Stood up to the UMD's
+       height: the body ten deep and sixteen wide, the handle a wide bow
+       of five radius over it, so the whole spans 2 to 17.8 as the disc
+       does. Rim 1.6. Even-odd. -->
+  <path fill="#ffffff" fill-rule="evenodd" d="M2.00 7.80 H18.00 L16.10 17.80 H3.90 Z M3.92 9.40 H16.08 L14.78 16.20 H5.22 Z M5.00 7.80 V7.00 A5.00 5.00 0 0 1 15.00 7.00 V7.80 H13.40 V7.00 A3.40 3.40 0 0 0 6.60 7.00 V7.80 Z"/>
 </svg>

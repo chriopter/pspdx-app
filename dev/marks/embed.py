@@ -28,7 +28,7 @@ import zlib
 # two in step but this comment, so if a mark is added it goes in both.
 ORDER = [
     'cross', 'circle', 'triangle', 'square',
-    'tick', 'update', 'basket', 'stick', 'play', 'download', 'info',
+    'tick', 'update', 'basket', 'installed', 'play', 'download', 'info',
     'store', 'umd',
     'start', 'select', 'l', 'r', 'home', 'gear',
 ]

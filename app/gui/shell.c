@@ -249,13 +249,13 @@ static enum mark tab_mark(int tab) {
     case TAB_BASKET: return MARK_BASKET;
     case TAB_HOMEBREW: return MARK_STORE;
     case TAB_UMD: return MARK_UMD;
-    default: return view_updates_waiting() > 0 ? MARK_UPDATE : MARK_STICK;
+    default: return view_updates_waiting() > 0 ? MARK_UPDATE : MARK_INSTALLED;
     }
 }
 
 static float tab_width(int tab) {
     float w = mark_width(tab_mark(tab));
-    return tab_counted(tab) ? w + 5 + font_width(FONT_META, tab_count(tab)) : w;
+    return tab_counted(tab) ? w + 6 + font_width(FONT_BODY, tab_count(tab)) : w;
 }
 
 /* The tabs stand where they stand. The published ones -- Homebrew and the
@@ -292,8 +292,10 @@ static void draw_tab(int tab, int on, float x, float t) {
         : (on ? g_text : faded(g_dim, 150));
     mark_draw(m, x + mark_width(m) / 2.0f, 16, c, on ? MARK_LIT : MARK_PLAIN,
               m == MARK_UPDATE ? UPDATE_RGB : rgb_pack(g_tint, 255), t);
+    /* The count in the body face, its baseline set so the digits stand as
+       tall as the sign beside them and centred on its middle. */
     if (tab_counted(tab))
-        font_print(FONT_META, x + mark_width(m) + 5, 21, on ? g_text : g_dim,
+        font_print(FONT_BODY, x + mark_width(m) + 6, 20, on ? g_text : g_dim,
                    tab_count(tab));
 }
 
@@ -423,7 +425,7 @@ static void draw_action_row(int y, int selected, float t) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[VIEW_SETTINGS] = {
-        MARK_DOWNLOAD, MARK_BASKET, MARK_STICK, MARK_UPDATE, MARK_INFO,
+        MARK_DOWNLOAD, MARK_BASKET, MARK_INSTALLED, MARK_UPDATE, MARK_INFO,
     };
     float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     enum mark m = (enum mark)SIGN[n];
