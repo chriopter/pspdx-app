@@ -127,6 +127,7 @@ static struct menu g_menu_gone;         /* its last rows, while it slides out */
 static float g_menu_slide;              /* 0 off the right edge, 1 in place */
 static int g_menu_leaving;              /* sliding out; done at 0 */
 static int g_info;
+static int g_show_fps;                  /* the rate in the corner, for the run */
 static const struct app_entry *g_details;   /* the package the band is about */
 /* What the band has to say under its facts -- the summary, a blank line and
    the description -- copied when it opens and broken into lines once then,
@@ -1460,10 +1461,23 @@ static void draw_info(void) {
 
     band_rule(INFO_Y + 134, 160, 120);
     /* The seed is renewed from here, beside the entropy it reports: not a
-       setting, a fact with one thing to do about it. */
-    float w = hint_width(MARK_SQUARE, T_SUB_SWEEP) + 24 + hint_width(MARK_CIRCLE, T_HINT_BACK);
+       setting, a fact with one thing to do about it. And one box to tick,
+       beside the frames it reports: the rate in the corner, for this run. */
+    float w = hint_width(MARK_SQUARE, T_SUB_SWEEP) + 24
+            + hint_width(MARK_TRIANGLE, T_SUB_FPS) + 14 + 24
+            + hint_width(MARK_CIRCLE, T_HINT_BACK);
     float hx = draw_hint(SCR_W / 2 - w / 2, INFO_Y + 156, MARK_SQUARE, T_SUB_SWEEP, g_dim);
-    draw_hint(hx + 24, INFO_Y + 156, MARK_CIRCLE, T_HINT_BACK, g_dim);
+    hx = draw_hint(hx + 24, INFO_Y + 156, MARK_TRIANGLE, T_SUB_FPS, g_dim);
+    /* The box: an outline, and the tick in it while the rate is shown. */
+    int bx = (int)hx + 5, by = INFO_Y + 156 - 9;
+    unsigned edge = faded(g_dim, 150);
+    gfx_rect(bx, by, 9, 1, edge);
+    gfx_rect(bx, by + 8, 9, 1, edge);
+    gfx_rect(bx, by, 1, 9, edge);
+    gfx_rect(bx + 8, by, 1, 9, edge);
+    if (g_show_fps)
+        mark_draw(MARK_TICK, bx + 4.5f, by + 4.5f, g_accent, MARK_PLAIN, 0, 0.0f);
+    draw_hint(hx + 14 + 24, INFO_Y + 156, MARK_CIRCLE, T_HINT_BACK, g_dim);
 }
 
 /* --------------------------------------------------------------- details */
@@ -1676,6 +1690,17 @@ void shell_card_scroll(float push) {
 
 /* ---------------------------------------------------------------- footer */
 
+/* The frame rate in the bottom right corner, while asked for: a number
+   and nothing else, over whatever is there. */
+static void draw_fps(void) {
+    if (!g_show_fps) return;
+    char text[16];
+    snprintf(text, sizeof(text), "%d fps",
+             g_frame_us > 0.0f ? (int)(1000000.0f / g_frame_us + 0.5f) : 0);
+    font_print(FONT_META, SCR_W - LIST_X - font_width(FONT_META, text), FOOTER_BASE,
+               g_dim, text);
+}
+
 static void draw_footer(void) {
     /* The system's own screens carry no legend: the keys are the keys, and
        a strip that names them names nothing. What the strip is for is the
@@ -1844,6 +1869,12 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     if (g_ask_title[0]) draw_ask();
     draw_footer();
     gfx_veil(256);
+    /* Everything lit bleeds into the room: last, over the letters too, the
+       way the system's own screen glows, and under the fade. */
+    gfx_bloom(150);
+    /* After the bloom, so the number stays crisp, and over the footer's
+       strip rather than under it. */
+    draw_fps();
     if (g_fade > 0) {
         gfx_rect(0, 0, SCR_W, SCR_H, RGBA(0, 0, 0, g_fade));
         g_fade -= 7;
@@ -1950,6 +1981,8 @@ void shell_menu(const struct menu *menu) {
 }
 
 void shell_rest(int resting) { g_resting = resting; }
+
+void shell_toggle_fps(void) { g_show_fps = !g_show_fps; }
 
 void shell_info(int open) {
     if (open && !g_info) read_storage();

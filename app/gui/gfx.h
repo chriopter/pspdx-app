@@ -211,6 +211,11 @@ void gfx_card_draw(const struct gfx_texture *t, const struct gfx_card *c);
 void gfx_clip(int x, int y, int w, int h);
 void gfx_unclip(void);
 
+/* Bloom over the frame as drawn so far: everything brighter than a floor
+   bleeds softly into what is around it, strength 0..255. Inside a frame,
+   after the last thing that should glow. */
+void gfx_bloom(int strength);
+
 int gfx_bake_begin(int w, int h);
 void gfx_bake_end(struct gfx_texture *into);
 

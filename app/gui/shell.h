@@ -71,6 +71,9 @@ void shell_menu(const struct menu *menu);
 /* The band of facts about the session, which the last row under the gear
    opens. It says and does nothing else; O closes it. */
 void shell_info(int open);
+/* The one setting the band offers: the frame rate in the bottom right
+   corner, for the run. Toggled from the band, not saved. */
+void shell_toggle_fps(void);
 
 /* Idle: the package's own picture rises behind the interface, which stays
    where it is. Nothing is hidden by it. */

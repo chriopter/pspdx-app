@@ -609,6 +609,7 @@ int main(int argc, char *argv[]) {
                is the seed's, next to the entropy it reports. */
             if (pressed & (PSP_CTRL_CIRCLE | PSP_CTRL_CROSS)) shell_info(info = 0);
             else if (pressed & PSP_CTRL_SQUARE) { shell_info(info = 0); sweep_again(); }
+            else if (pressed & PSP_CTRL_TRIANGLE) shell_toggle_fps();
         } else if (details) {
             if (pressed & PSP_CTRL_CIRCLE) {
                 shell_details(0);

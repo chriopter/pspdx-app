@@ -863,6 +863,138 @@ void gfx_unclip(void) {
     sceGuScissor(0, 0, SCR_W, SCR_H);
 }
 
+/* ------------------------------------------------------------------ bloom */
+
+/* Bloom, the way the era did it without a pixel shader. The frame, drawn,
+   is read back as a texture -- the GE reads its own draw buffer as readily
+   as anything else in VRAM -- and drawn small, which is the first blur; a
+   subtraction takes the dark out of it, so only what is brighter than the
+   threshold is left; a few additive passes a texel apart spread what is
+   left; and the small picture is added back over the frame at full size,
+   the stretch being the last blur. So every light on the screen bleeds
+   into the room around it, the lit sign, the glints, a bright film, the
+   letters, without any of them asking to. Two 128x64 targets in the VRAM
+   the two frames leave free.
+
+   Always on. What it costs: one read of the 480x272 frame at a quarter
+   size, one flat quad, sixteen quads of 128x64 for the blur, and one
+   quad back over the screen -- about a millisecond of the GE's sixteen
+   a frame, measured on the emulator at a steady 60 with the water and
+   the film playing under it. Should the hardware ever come up short, the
+   spread passes are the first thing to halve: two instead of four costs
+   a little softness and nothing else. */
+#define BLOOM_W 128
+#define BLOOM_H 64
+#define BLOOM_A ((unsigned)(2 * FRAME_SIZE))            /* after the two frames */
+#define BLOOM_B (BLOOM_A + BLOOM_W * BLOOM_H * 4)
+#define BLOOM_FLOOR 0x70                                /* what is darker than this does not glow */
+
+static void *vram_abs(unsigned rel) {
+    return (void *)((unsigned)sceGeEdramGetAddr() + (rel & 0x001FFFFF));
+}
+
+/* Where the GE draws next: a small target, or the frame again. */
+static void bloom_target(unsigned rel, int w, int h) {
+    sceGuDrawBufferList(GU_PSM_8888, (void *)rel, w);
+    sceGuOffset(2048 - w / 2, 2048 - h / 2);
+    sceGuViewport(2048, 2048, w, h);
+    sceGuScissor(0, 0, w, h);
+}
+
+/* A picture in VRAM as the texture: the frame, or one of the small ones. */
+static void bloom_source(unsigned rel, int tw, int th, int stride) {
+    sceGuTexFlush();
+    sceGuTexSync();
+    sceGuEnable(GU_TEXTURE_2D);
+    sceGuTexMode(GU_PSM_8888, 0, 0, GU_FALSE);
+    sceGuTexImage(0, tw, th, stride, vram_abs(rel));
+    sceGuTexFunc(GU_TFX_MODULATE, GU_TCC_RGB);
+    sceGuTexFilter(GU_LINEAR, GU_LINEAR);
+    sceGuTexWrap(GU_CLAMP, GU_CLAMP);
+    sceGuTexScale(1.0f, 1.0f);
+    sceGuTexOffset(0.0f, 0.0f);
+}
+
+/* The source's (u0,v0)-(u1,v1), in texels, over the target's (x0,y0)-(x1,y1),
+   modulated by one colour. */
+static void bloom_quad(float u0, float v0, float u1, float v1,
+                       float x0, float y0, float x1, float y1, unsigned color) {
+    struct v3t *v = sceGuGetMemory(2 * sizeof(struct v3t));
+    if (!v) return;
+    v[0].u = u0; v[0].v = v0; v[0].color = color; v[0].x = x0; v[0].y = y0; v[0].z = 0;
+    v[1].u = u1; v[1].v = v1; v[1].color = color; v[1].x = x1; v[1].y = y1; v[1].z = 0;
+    sceGuDrawArray(GU_SPRITES,
+                   GU_TEXTURE_32BITF | GU_COLOR_8888 | GU_VERTEX_32BITF | GU_TRANSFORM_2D,
+                   2, 0, v);
+}
+
+/* One blur pass along one axis: from into to, four taps a quarter each at
+   -1.5, -0.5, 0.5 and 1.5 texels times step, the first written and the
+   rest added. Half-texel offsets make the bilinear filter average two
+   texels a tap, so the four taps are a smooth tent over six texels with
+   no gap in it -- taps a whole texel apart leave a comb, and a comb
+   stretched to the screen is a row of dashes beside every light. */
+static void bloom_spread(unsigned from, unsigned to, float dx, float dy, float step) {
+    bloom_target(to, BLOOM_W, BLOOM_H);
+    bloom_source(from, BLOOM_W, BLOOM_H, BLOOM_W);
+    const float at[4] = { -1.5f, -0.5f, 0.5f, 1.5f };
+    for (int i = 0; i < 4; i++) {
+        float ox = dx * at[i] * step, oy = dy * at[i] * step;
+        if (i == 0) sceGuDisable(GU_BLEND);
+        else {
+            sceGuEnable(GU_BLEND);
+            sceGuBlendFunc(GU_ADD, GU_FIX, GU_FIX, 0xFFFFFFFF, 0xFFFFFFFF);
+        }
+        bloom_quad(ox, oy, BLOOM_W + ox, BLOOM_H + oy,
+                   0, 0, BLOOM_W, BLOOM_H, 0xFF404040);
+    }
+}
+
+void gfx_bloom(int strength) {
+    if (strength <= 0 || !g_in_frame) return;
+    flush_batch();
+    sceGuDisable(GU_DEPTH_TEST);
+    sceGuDisable(GU_LIGHTING);
+
+    /* Down: the frame into A, a quarter the size each way. */
+    bloom_target(BLOOM_A, BLOOM_W, BLOOM_H);
+    bloom_source((unsigned)g_draw, BUF_W, BUF_W, BUF_W);
+    sceGuDisable(GU_BLEND);
+    bloom_quad(0, 0, SCR_W, SCR_H, 0, 0, BLOOM_W, BLOOM_H, 0xFFFFFFFF);
+
+    /* The floor: what is darker than it is taken down to nothing. */
+    sceGuDisable(GU_TEXTURE_2D);
+    sceGuEnable(GU_BLEND);
+    sceGuBlendFunc(GU_REVERSE_SUBTRACT, GU_FIX, GU_FIX, 0xFFFFFFFF, 0xFFFFFFFF);
+    {
+        struct vcol *v = sceGuGetMemory(2 * sizeof(struct vcol));
+        if (v) {
+            unsigned floor = 0xFF000000u | (BLOOM_FLOOR << 16) | (BLOOM_FLOOR << 8) | BLOOM_FLOOR;
+            v[0].color = floor; v[0].x = 0;       v[0].y = 0;       v[0].z = 0;
+            v[1].color = floor; v[1].x = BLOOM_W; v[1].y = BLOOM_H; v[1].z = 0;
+            sceGuDrawArray(GU_SPRITES, GU_COLOR_8888 | GU_VERTEX_16BIT | GU_TRANSFORM_2D, 2, 0, v);
+        }
+    }
+
+    /* Spread: across, then down, then both again twice as wide. */
+    bloom_spread(BLOOM_A, BLOOM_B, 1, 0, 1.0f);
+    bloom_spread(BLOOM_B, BLOOM_A, 0, 1, 1.0f);
+    bloom_spread(BLOOM_A, BLOOM_B, 1, 0, 2.0f);
+    bloom_spread(BLOOM_B, BLOOM_A, 0, 1, 2.0f);
+
+    /* Back over the frame, added, stretched to the screen. */
+    bloom_target((unsigned)g_draw, SCR_W, SCR_H);
+    sceGuDrawBufferList(GU_PSM_8888, g_draw, BUF_W);
+    bloom_source(BLOOM_A, BLOOM_W, BLOOM_H, BLOOM_W);
+    sceGuEnable(GU_BLEND);
+    sceGuBlendFunc(GU_ADD, GU_FIX, GU_FIX, 0xFFFFFFFF, 0xFFFFFFFF);
+    unsigned k = strength > 255 ? 255 : (unsigned)strength;
+    bloom_quad(0, 0, BLOOM_W, BLOOM_H, 0, 0, SCR_W, SCR_H, 0xFF000000u | (k << 16) | (k << 8) | k);
+
+    sceGuColor(0xFFFFFFFF);
+    flat_state();
+}
+
 /* ------------------------------------------------------------------- bake */
 
 static int g_bake_w, g_bake_h, g_baking;

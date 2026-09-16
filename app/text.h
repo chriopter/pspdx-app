@@ -181,6 +181,7 @@
 #define T_SUB_FROM_GITHUB    "From GitHub"
 #define T_SUB_FROM_INBOX     "From INBOX folder"
 #define T_SUB_SWEEP          "Renew TLS Seed"
+#define T_SUB_FPS            "Show fps"                          /* a box beside it, ticked while on */
 #define T_SUB_CLEAR_CACHE    "Clear Cache"
 #define T_CACHE_CLEARED      "Cache cleared."
 #define T_CACHE_CLEAR_FAILED "Could not clear the cache."
