@@ -15,7 +15,7 @@
 
 #define LIST_X 16
 #define LIST_W 200
-#define LIST_Y 44
+#define LIST_Y 52       /* a clear breath under the header's rule */
 
 #define PANEL_X 232
 
@@ -30,7 +30,7 @@
 
 /* The right column: as wide as the card, from where the card starts. */
 #define SHOT_W 224
-#define SHOT_Y 43
+#define SHOT_Y 51
 
 #define INFO_Y 36
 #define INFO_H (FOOTER_Y - 6 - INFO_Y)

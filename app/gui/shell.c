@@ -349,17 +349,10 @@ static const char *tab_word(int tab) {
 }
 
 static void draw_chrome(const struct catalog *catalog, float t) {
+    /* No rule under the header: the room's own sky is what the word and
+       the signs stand in, and a breath of light from the top edge is all
+       that says where the header is. The lists start a clear way below. */
     gfx_vgrad(0, 0, SCR_W, HEADER_H, RGBA(255, 255, 255, 14), RGBA(255, 255, 255, 0));
-    unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 150);
-    unsigned clear = rgb_pack(g_tint, 0);
-    gfx_hgrad(0, HEADER_H, SCR_W / 2, 1, clear, bright);
-    gfx_hgrad(SCR_W / 2, HEADER_H, SCR_W / 2, 1, bright, clear);
-    /* The rule burns in its middle the way the glint does on its line:
-       white at the heart, the room's light welling out flat along it. */
-    gfx_glow(SCR_W / 2.0f, HEADER_H + 0.5f, 300, 16,
-             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.6f), 110));
-    gfx_glow(SCR_W / 2.0f, HEADER_H + 0.5f, 120, 6,
-             rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.9f), 170));
 
     /* The one word in the header is the name of what the list holds: the
        open tab, said in words at the head of the list and lit as a sign
@@ -655,9 +648,8 @@ void draw_rows_bar(int count, float first, float t) {
     g_bar_mid = mid;
     float breathe = 0.8f + 0.2f * sinf(t * 2.2f);
 
-    /* Kept under the header's rule, where a cut is under a line already;
-       at the foot its light runs out on its own. */
-    gfx_clip(0, HEADER_H + 1, SCR_W, SCR_H - (HEADER_H + 1));
+    /* Nothing cuts it: its light runs out on its own at either end, into
+       the sky over the list and toward the foot. */
     unsigned clear = rgb_pack(g_tint, 0);
     unsigned faint = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.4f), (int)(60 * s));
     gfx_vgrad(x, top, 1, track / 2, clear, faint);
@@ -683,7 +675,6 @@ void draw_rows_bar(int count, float first, float t) {
         gfx_vgrad(x, (int)at, 1, half, clear, core);
         gfx_vgrad(x, (int)at + half, 1, half, core, clear);
     }
-    gfx_unclip();
 }
 
 /* ------------------------------------------------------------------ panel */

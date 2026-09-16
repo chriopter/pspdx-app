@@ -910,12 +910,24 @@ void gfx_card_draw(const struct gfx_texture *t, const struct gfx_card *cc) {
     card_matrices(c);
     flat_state();
 
-    /* Frame: a hair wider than the picture, black. */
+    /* Frame: a hair wider than the picture, black. Around it a feather,
+       a strip a pixel and a half wide going from the frame's black to
+       nothing: the GE draws no edge smoothly, and a card turned a little
+       has a staircase down every side, so the edge is not left to the
+       polygon -- the frame's own edge is hidden under the feather's inner
+       side, and the feather's outer side, being transparent, has no
+       staircase to show. The corners are covered by running the top and
+       bottom strips the feather's width past the sides. */
     float f = c->bare ? 0.0f : 1.5f * PX;
-    if (!c->bare)
-        card_quad(-hw - f, hh + f, hw + f, -hh - f, -0.002f,
-                  gfx_veiled(RGBA(0, 0, 0, 200)), gfx_veiled(RGBA(0, 0, 0, 200)),
-                  gfx_veiled(RGBA(0, 0, 0, 200)), gfx_veiled(RGBA(0, 0, 0, 200)));
+    if (!c->bare) {
+        unsigned ink = gfx_veiled(RGBA(0, 0, 0, 200)), none = RGBA(0, 0, 0, 0);
+        float r = 1.5f * PX;
+        card_quad(-hw - f, hh + f, hw + f, -hh - f, -0.002f, ink, ink, ink, ink);
+        card_quad(-hw - f - r, hh + f + r, hw + f + r, hh + f, -0.002f, none, ink, none, ink);          /* top */
+        card_quad(-hw - f - r, -hh - f, hw + f + r, -hh - f - r, -0.002f, ink, none, ink, none);        /* bottom */
+        card_quad(-hw - f - r, hh + f, -hw - f, -hh - f, -0.002f, none, none, ink, ink);                /* left */
+        card_quad(hw + f, hh + f, hw + f + r, -hh - f, -0.002f, ink, ink, none, none);                  /* right */
+    }
 
     if (t && t->pixels) {
         float u1 = (float)t->w / t->tw, v1 = (float)t->h / t->th;

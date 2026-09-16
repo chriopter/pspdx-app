@@ -197,7 +197,7 @@ flowchart TD
 
 **×** install, confirm · **△** options · **○** back · **□** basket · **START** run · **L/R** or **←/→** tabs
 
-Tabs, as signs to the right, the open one named at the head of the list: **Memory Stick** installed, update arrows and a count while updates wait → **Browse Homebrews** everything published → **Browse UMDs** coming soon → **basket** while it holds something → | → **gear** settings at the right edge; Homebrew, the UMD and the gear keep their place, the stick and the basket hang off them and come and go
+Tabs, as signs to the right, the open one named at the head of the list: **Memory Stick** installed, update arrows and a count while updates wait → **Homebrews** everything published → **UMDs** coming soon → **basket** while it holds something → | → **gear** settings at the right edge; Homebrew, the UMD and the gear keep their place, the stick and the basket hang off them and come and go
 
 **△** → **Information**: version, author, licence, tags, size, id, last check, then summary and description; the **analog stick** scrolls, **○** back
 
