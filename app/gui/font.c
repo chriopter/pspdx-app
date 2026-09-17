@@ -29,12 +29,14 @@ static intraFont *g_font;
    rows a step under, and nothing smaller than the XMB's smallest line. */
 static const struct { float size; unsigned shadow; } STYLES[] = {
     [FONT_DISPLAY] = { 1.35f, 0x00000000 },
-    [FONT_H1]   = { 1.00f, 0xA0000000 },
+    [FONT_H1]   = { 1.20f, 0xA0000000 },
     /* The XMB's two sizes, measured off its own screen (6.60, a Go): a
        menu item stands 11 px from cap to baseline with an x-height of 8,
        and everything else -- the line under an item, a column's label, a
        button's word, an options row -- 9 with an x-height of 7. ltn8 at
-       1.0 is that second size exactly, and 1.2 is the first. */
+       1.0 is that second size exactly, and 1.2 is the first. So: the rows
+       of a list, a heading and a dialog's lines at 1.2; the facts, the
+       explanations, the hints and the options rows at 1.0. */
     [FONT_TITLE] = { 1.20f, 0x80000000 },
     [FONT_BODY] = { 1.00f, 0x80000000 },
     [FONT_META] = { 1.00f, 0x70000000 },

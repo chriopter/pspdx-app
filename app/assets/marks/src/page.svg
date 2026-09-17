@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13">
+  <!-- A sheet with a turned corner: one file. -->
+  <g fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M3 1.5 H8 L10.5 4 V11.5 H3 Z"/>
+    <path d="M8 1.5 V4 H10.5"/>
+  </g>
+</svg>

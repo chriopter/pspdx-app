@@ -86,6 +86,11 @@ void shell_toggle_dev(void);
 int shell_dev_updates(void);
 int shell_show_fps(void);
 
+/* The next frame without the room's motion -- no water, no stars, no
+   backdrop, no bloom: what the shell draws under the firmware's keyboard,
+   whose own threads want the CPU. One frame; the caller says it again. */
+void shell_light_frame(void);
+
 /* Idle: the package's own picture rises behind the interface, which stays
    where it is. Nothing is hidden by it. */
 void shell_rest(int resting);
@@ -97,6 +102,8 @@ void shell_details(const struct app_entry *entry);
    a frame: what the band has to say scrolls, faster the further it is
    pushed, and a hand resting near the centre moves nothing. */
 void shell_details_scroll(float push);
+/* Up and down on the page: the text a line at a time. */
+void shell_details_step(int lines);
 /* The same stick over the browser: what the card says about the package
    under the cursor scrolls, the summary and the description. */
 void shell_card_scroll(float push);

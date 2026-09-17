@@ -191,8 +191,8 @@ static unsigned repeat(unsigned held) {
     static unsigned was, since, fired;
     unsigned now = now_ms();
     if (held != was) { was = held; since = now; fired = 0; return 0; }
-    if (!held || now - since < 330) return 0;
-    unsigned along = now - since - 330;
+    if (!held || now - since < 500) return 0;
+    unsigned along = now - since - 500;
     unsigned interval = along < 800 ? 110 : along < 2000 ? 65 : 40;
     if (now - fired < interval) return 0;
     fired = now;
@@ -233,6 +233,10 @@ static unsigned keys_pressed(void) {
    that the keyboard can be photographed. */
 static void osk_draw(void *ctx) {
     int cursor = *(const int *)ctx;
+    /* The keyboard's own threads draw over the frame and want the CPU:
+       under it the shell draws a still room, no water, no stars, no
+       backdrop, or the keyboard answers a key a second late. */
+    shell_light_frame();
     shell_draw(shown(), cursor);
     if (keys_pressed() & KEY_SHOT) {
         gfx_screenshot(storage_path("PSP/PSPDX/DEBUG/PSPDX1.BMP"));
@@ -402,7 +406,8 @@ int main(int argc, char *argv[]) {
     int automatic = -1;
     int info = 0;                       /* the band of facts, over the list */
     int resting = 0;                    /* idle: the picture behind the shell */
-    int details = 0;                    /* the band about one package */
+    int details = 0;                    /* the page about one package */
+    int details_of = -1;                /* which package the page is about */
     unsigned idle_since = now_ms();     /* the last time a key was down */
     unsigned last_frame_ms = now_ms();  /* to notice the loop having been away */
     unsigned shell_since = now_ms();
@@ -560,7 +565,15 @@ int main(int argc, char *argv[]) {
         }
 
         SceCtrlData pad;
-        sceCtrlReadBufferPositive(&pad, 1);
+        int read = sceCtrlReadBufferPositive(&pad, 1);
+        /* A read that fails is logged once per failure, not once per frame:
+           the one thing a report of the console not answering its keys is
+           checked against. */
+        static int read_seen = 1;
+        if (read != read_seen) {
+            logline("pad: read %d buttons %08x", read, pad.Buttons);
+            read_seen = read;
+        }
         /* The stick is a hand in the water, whenever it is off centre. */
         lattice_stir((pad.Lx - 128) / 127.0f, (pad.Ly - 128) / 127.0f);
         /* In the band about one package the same hand scrolls what it has
@@ -574,7 +587,7 @@ int main(int argc, char *argv[]) {
                                          PSP_CTRL_LEFT | PSP_CTRL_RIGHT |
                                          PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER));
         if (synced) pressed |= keys_pressed();
-        if (pressed & PSP_CTRL_SELECT) {
+        if ((pressed & PSP_CTRL_SELECT) && !info) {
             options_fps_runtime_toggle();
             cues_post(CUE_MOVE, 0);
             logline("graphics: SELECT -> %d fps (session only)", gfx_target_fps());
@@ -615,7 +628,9 @@ int main(int argc, char *argv[]) {
         /* The triggers and left/right walk the tabs, and the list under
            them starts again at the top. They walk whenever there is a
            catalog, not only while there are rows: the UMD tab has none and
-           is left the way any tab is. */
+           is left the way any tab is. Left and right do the same as the
+           triggers here, so a hand on the pad alone can cross the tabs --
+           there is nothing sideways in a list for them to mean instead. */
         unsigned tabs = PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_LEFT | PSP_CTRL_RIGHT;
         if ((pressed & tabs) && shown()->count > 0 && !modal) {
             view_tab_move(pressed & (PSP_CTRL_RTRIGGER | PSP_CTRL_RIGHT) ? 1 : -1);
@@ -639,12 +654,26 @@ int main(int argc, char *argv[]) {
         } else if (files_view_shown() && !popup_shown()) {
             files_view_keys(pressed, &pad);
         } else if (options_handle(pressed, &cursor, &count, keep, sizeof(keep), &synced, &refreshing, &details)) {
-            /* The options or a popup stood: the same. */
+            /* The options or a popup stood: the same. Information taken
+               there opens the page about the row the options were about. */
+            if (details && menu_details_index() >= 0) details_of = menu_details_index();
         } else if (info) {
-            /* The band says what the session is; the one thing to do in it
-               is the seed's, next to the entropy it reports. */
+            /* The band says what the session is and does nothing else --
+               except that SELECT held on it for a second opens Quirks, the
+               switches for development, which have no row of their own. */
+            static unsigned select_since;
+            static int select_held, select_fired;
+            if (pad.Buttons & PSP_CTRL_SELECT) {
+                if (!select_held) { select_held = 1; select_fired = 0; select_since = now_ms(); }
+                else if (!select_fired && now_ms() - select_since >= 1000) {
+                    select_fired = 1;
+                    shell_info(info = 0);
+                    sub_open(SUB_QUIRKS);
+                }
+            } else {
+                select_held = 0;
+            }
             if (pressed & (PSP_CTRL_CIRCLE | PSP_CTRL_CROSS)) shell_info(info = 0);
-            else if (pressed & PSP_CTRL_SQUARE) { shell_info(info = 0); sweep_again(); }
         } else if (details) {
             if (pressed & PSP_CTRL_CIRCLE) {
                 shell_details(0);
@@ -652,10 +681,56 @@ int main(int argc, char *argv[]) {
                 /* Information was read out of the options, so closing it
                    goes back there, on the row it was opened from. */
                 menu_return();
+            } else if ((pressed & PSP_CTRL_CROSS) && details_of >= 0) {
+                /* On the page X is the one thing to do to the package:
+                   have it, have the newer one, or start it, each asked
+                   about first. */
+                const struct app_entry *e = &catalog.apps[details_of];
+                if (e->state == APP_NOT_INSTALLED || e->state == APP_UPDATE)
+                    ask_install(details_of);
+                else {
+                    char title[64];
+                    snprintf(title, sizeof(title), T_RUN_ASK, e->name);
+                    ask(ASK_RUN, details_of, title, T_RUN_LINE);
+                }
+            } else if ((pressed & PSP_CTRL_TRIANGLE) && details_of >= 0) {
+                menu_open(details_of);
+            } else if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) {
+                /* The pad reads the page too, a line at a time, so a hand
+                   that never touches the stick is not left with a page
+                   that seems not to answer. */
+                shell_details_step(pressed & PSP_CTRL_DOWN ? 1 : -1);
+            } else if ((pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT | PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && count > 0) {
+                /* Left and right turn the page to the neighbouring package
+                   in the list, skipping the rows that are not packages,
+                   and the cursor under the page follows. */
+                int step = pressed & (PSP_CTRL_RIGHT | PSP_CTRL_RTRIGGER) ? 1 : -1;
+                for (int tries = 0; tries < count; tries++) {
+                    cursor = (cursor + step + count) % count;
+                    int at = view_index(cursor);
+                    if (at >= 0) {
+                        shell_details(&catalog.apps[at]);
+                        details_of = at;
+                        cues_post(CUE_MOVE, cursor);
+                        break;
+                    }
+                }
             }
         } else if (count > 0) {
             int at = view_index(cursor);
-            if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_SETTING) {
+            if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_CATEGORY && at > VIEW_ROW_SETTING) {
+                /* A category row narrows the store to what stands in it;
+                   O opens the store back up, on the row it was narrowed
+                   from. */
+                view_category_open(VIEW_ROW_CATEGORY - at);
+                cues_post(CUE_MOVE, cursor = 0);
+                count = view_count();
+            } else if ((pressed & PSP_CTRL_CIRCLE) && view_category_open_at() >= 0) {
+                int was = view_category_open_at();
+                view_category_close();
+                cues_post(CUE_MOVE, cursor = was);
+                count = view_count();
+            } else if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_SETTING) {
                 /* A row under the gear does what it says. The three that
                    fetch all end in the same place: the list gives way to
                    the word and the status line and comes back with what is
@@ -665,18 +740,15 @@ int main(int argc, char *argv[]) {
                    buffer, so the media thread steps aside for the length of
                    it, as it does for an install. */
                 int which = VIEW_ROW_SETTING - at;
-                if (which == 0 && synced) sources_open();
-                else if (which == 1 && synced) sub_open(SUB_ADD);
+                if (which == 0) { options_fps_toggle_saved(); cues_post(CUE_MOVE, cursor); }
+                else if (which == 1 && synced) sources_open();
                 else if (which == 2) { files_names(files_name_of); files_view_open(); }
                 else if (which == 3) sub_open(SUB_RESET);
                 else if (which == 4) shell_info(info = 1);
-                else if (which == 5) sub_open(SUB_GRAPHICS);
-                else if (which == 6) sub_open(SUB_QUIRKS);
             } else if (pressed & PSP_CTRL_CROSS) {
-                /* X is the one thing there is to do to the package: have
-                   it, have the newer one, or start it -- each asked about
-                   first. The options, with the same things and the rest,
-                   are on triangle. */
+                /* X opens the package's page; the job rows do their job.
+                   The options, with the same things and the rest, are on
+                   triangle. */
                 if (at == VIEW_ROW_ACTION) {
                     struct view_plan plan;
                     view_action_plan(&plan);
@@ -685,13 +757,14 @@ int main(int argc, char *argv[]) {
                             refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
                     } else ask_all();
                 }
-                else if (at >= 0 && (catalog.apps[at].state == APP_NOT_INSTALLED ||
-                                     catalog.apps[at].state == APP_UPDATE))
-                    ask_install(at);
                 else if (at >= 0) {
-                    char title[64];
-                    snprintf(title, sizeof(title), T_RUN_ASK, catalog.apps[at].name);
-                    ask(ASK_RUN, at, title, T_RUN_LINE);
+                    /* A package opens as a page: the list goes off to the
+                       left and the page comes in from the right, the way
+                       the system's own screens follow one another. The
+                       things to do to the package are on the page. */
+                    shell_details(&catalog.apps[at]);
+                    details = 1;
+                    details_of = at;
                 }
             }
             if ((pressed & PSP_CTRL_TRIANGLE) && at >= 0) menu_open(at);

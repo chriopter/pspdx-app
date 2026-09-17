@@ -25,6 +25,8 @@ static void name_of(const char *url, char *out, size_t size) {
     snprintf(out, size, "%.*s", (int)strcspn(h, "/"), h);
 }
 
+static const char *kind_name(enum source_kind k);
+
 void manage_build(struct manage_sources *m, const struct sources *s) {
     m->sources = s;
     m->count = 0;
@@ -34,12 +36,19 @@ void manage_build(struct manage_sources *m, const struct sources *s) {
     add->source = -1;
     add->apps = -1;
     snprintf(add->name, sizeof(add->name), "%s", T_SUB_ADD_SOURCE);
+    struct manage_row *direct = &m->row[m->count++];
+    memset(direct, 0, sizeof(*direct));
+    direct->kind = MANAGE_DIRECT;
+    direct->source = -1;
+    direct->apps = -1;
+    snprintf(direct->name, sizeof(direct->name), "%s", T_SET_DIRECT);
     for (int i = 0; i < s->count && m->count < MANAGE_ROWS; i++) {
         const char *url = s->url[i];
         struct manage_row *r = &m->row[m->count++];
         memset(r, 0, sizeof(*r));
         r->kind = MANAGE_SOURCE;
         r->source = i;
+        r->skind = sources_kind(url);
         r->apps = reach_apps(url);
         r->loaded_at = reach_loaded_at(url);
         r->state = reach_unreachable(url)    ? MANAGE_UNREACHABLE
@@ -47,15 +56,21 @@ void manage_build(struct manage_sources *m, const struct sources *s) {
                  : r->apps >= 0              ? MANAGE_OK
                                              : MANAGE_NOT_LOADED;
         name_of(url, r->name, sizeof(r->name));
+        /* What kind of source it is comes first on the row -- a catalog
+           site, a catalog file, a text list, one repository -- since the
+           list holds several kinds and a name alone does not say which. */
         const char *s_apps = r->apps == 1 ? "" : "s";
+        const char *kind = kind_name(sources_kind(url));
+        char rest[48];
         if (r->state == MANAGE_UNREACHABLE)
-            snprintf(r->status, sizeof(r->status), "%s", T_SOURCE_UNREACHABLE);
+            snprintf(rest, sizeof(rest), "%s", T_SOURCE_UNREACHABLE);
         else if (r->state == MANAGE_OFFLINE)
-            snprintf(r->status, sizeof(r->status), T_SOURCE_OFFLINE, r->apps, s_apps);
+            snprintf(rest, sizeof(rest), T_SOURCE_OFFLINE, r->apps, s_apps);
         else if (r->state == MANAGE_OK)
-            snprintf(r->status, sizeof(r->status), T_SOURCE_APPS, r->apps, s_apps);
+            snprintf(rest, sizeof(rest), T_SOURCE_APPS, r->apps, s_apps);
         else
-            snprintf(r->status, sizeof(r->status), "%s", T_SOURCE_NOT_LOADED);
+            snprintf(rest, sizeof(rest), "%s", T_SOURCE_NOT_LOADED);
+        snprintf(r->status, sizeof(r->status), "%s, %s", kind, rest);
     }
     if (m->cursor >= m->count) m->cursor = m->count - 1;
     if (m->cursor < 0) m->cursor = 0;
@@ -94,6 +109,7 @@ void manage_note(const struct manage_sources *m, int row, char *out, size_t size
     if (!size) return;
     if (!r) { out[0] = '\0'; return; }
     if (r->kind == MANAGE_ADD) { snprintf(out, size, "%s", T_SOURCE_NOTE_ADD); return; }
+    if (r->kind == MANAGE_DIRECT) { snprintf(out, size, "%s", T_NOTE_DIRECT); return; }
     /* What went wrong, when something did, says more than what it is: the
        kind is among the facts under it anyway. */
     const char *first = r->state == MANAGE_UNREACHABLE ? T_SOURCE_NOTE_UNREACHABLE

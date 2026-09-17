@@ -31,6 +31,10 @@ void sources_open(void);
 /* 1 while the options or a popup stand over the browser; 1 while Manage
    sources stands in its place. */
 int menu_shown(void);
+/* The gear's first row: the frame-rate mode flipped and remembered. */
+void options_fps_toggle_saved(void);
+/* Which package the page opened from the menu is about, -1 for none. */
+int menu_details_index(void);
 int popup_shown(void);
 int sources_shown(void);
 

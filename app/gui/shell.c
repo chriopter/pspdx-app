@@ -136,13 +136,20 @@ static int g_menu_leaving;              /* sliding out; done at 0 */
 static int g_info;
 /* On while performance work is active; Quirks can still hide it. The overlay
    is drawn once per frame and never writes to the log or Memory Stick. */
-static int g_show_fps = 1;
+static int g_show_fps = 0;
+static int g_light;                     /* this frame without the room's motion */
+void shell_light_frame(void) { g_light = 1; }
 static int g_dev_updates;               /* the options may fake an update, for the run */
 int shell_show_fps(void) { return g_show_fps; }
 static int g_held;                      /* a direction is down this frame */
 
 void shell_hold(int held) { g_held = held; }
-static const struct app_entry *g_details;   /* the package the band is about */
+static const struct app_entry *g_details;   /* the package the page is about */
+/* The page slides in from the right and the browser goes off to the left
+   to make room: 0 the browser in place, 1 the page in its place; the
+   browser's columns are drawn g_page_dx to the left of where they stand. */
+static float g_page, g_page_dx;
+static int g_page_leaving;
 /* What the band has to say under its facts -- the summary, a blank line and
    the description -- copied when it opens and broken into lines once then,
    since measuring kilobytes of text is no work for a frame. The copy is the
@@ -290,11 +297,15 @@ static float tab_width(int tab) {
 
 static int tab_published(int tab) { return tab == TAB_HOMEBREW || tab == TAB_UMD; }
 
+/* The signs stand on the header word's own middle: its capitals run from
+   14 to 25, so their centre is where a sign's centre goes. */
+#define TAB_Y 20
+
 static void draw_tab(int tab, int on, float x, float t) {
     float w = tab_width(tab);
     if (on) {
-        gfx_glow(x + w / 2, 17, w + 30, 30, rgb_pack(g_tint, 110));
-        gfx_glow(x + w / 2, 24, w + 8, 7,
+        gfx_glow(x + w / 2, TAB_Y + 1, w + 30, 30, rgb_pack(g_tint, 110));
+        gfx_glow(x + w / 2, TAB_Y + 8, w + 8, 7,
                  rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.6f), 120));
     }
     /* A sign, not a word: the word is said once, at the head of the list,
@@ -303,12 +314,12 @@ static void draw_tab(int tab, int on, float x, float t) {
     unsigned c = m == MARK_UPDATE
         ? faded(UPDATE_RGB, (int)((on ? 255 : 170) * update_pulse(t)))
         : (on ? g_text : faded(g_dim, 150));
-    mark_draw(m, x + mark_width(m) / 2.0f, 16, c, on ? MARK_LIT : MARK_PLAIN,
+    mark_draw(m, x + mark_width(m) / 2.0f, TAB_Y, c, on ? MARK_LIT : MARK_PLAIN,
               m == MARK_UPDATE ? UPDATE_RGB : rgb_pack(g_tint, 255), t);
-    /* The count in the body face, its baseline set so the digits stand as
-       tall as the sign beside them and centred on its middle. */
+    /* The count in the body face, its baseline set so the digits stand
+       centred on the sign's middle. */
     if (tab_counted(tab))
-        font_print(FONT_BODY, x + mark_width(m) + 6, 20, on ? g_text : g_dim,
+        font_print(FONT_BODY, x + mark_width(m) + 6, TAB_Y + 4, on ? g_text : g_dim,
                    tab_count(tab));
 }
 
@@ -344,8 +355,8 @@ static void draw_tabs(float t) {
             unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 120);
             unsigned clear = rgb_pack(g_tint, 0);
             int sx = (int)(x + TAB_GAP / 2.0f);
-            gfx_vgrad(sx, 7, 1, 9, clear, bright);
-            gfx_vgrad(sx, 16, 1, 9, bright, clear);
+            gfx_vgrad(sx, TAB_Y - 9, 1, 9, clear, bright);
+            gfx_vgrad(sx, TAB_Y, 1, 9, bright, clear);
         }
         x -= tab_width(tab);
         draw_tab(tab, i == at, x, t);
@@ -355,9 +366,20 @@ static void draw_tabs(float t) {
 
 /* The open tab's word: what the list under it holds. A view standing over
    the gear's list is named instead. */
+/* A category as the store writes it: the catalogs' word, its first letter
+   raised, since it heads a list or names a row. */
+static const char *category_word(int n) {
+    static char word[PSPDX_CATEGORY_SIZE];
+    snprintf(word, sizeof(word), "%s", view_category(n));
+    if (word[0] >= 'a' && word[0] <= 'z') word[0] -= 'a' - 'A';
+    return word;
+}
+
 static const char *tab_word(int tab) {
     if (files_view_shown()) return T_HEAD_FILES;
     if (sources_view_shown()) return T_HEAD_SOURCES;
+    if (tab == TAB_HOMEBREW && view_category_open_at() >= 0)
+        return category_word(view_category_open_at());
     switch (tab) {
     case TAB_GEAR: return T_HEAD_GEAR;
     case TAB_STICK: return T_HEAD_STICK;
@@ -375,11 +397,10 @@ static void draw_chrome(const struct catalog *catalog, float t) {
 
     /* The one word in the header is the name of what the list holds: the
        open tab, said in words at the head of the list and lit as a sign
-       among the others to the right. Nothing is counted; the list is there
-       to be looked at. */
-    const char *title = tab_word(view_tab_current());
-    gfx_glow(LIST_X + 24, 18, 110, 56, rgb_pack(g_tint, 80));
-    font_print(FONT_H1, LIST_X, 23, g_text, title);
+       among the others to the right, at the size the XMB gives a menu
+       item and with nothing behind it but the room. Nothing is counted;
+       the list is there to be looked at. */
+    font_print(FONT_TITLE, LIST_X, 25, g_text, tab_word(view_tab_current()));
     if (catalog->count > 0) draw_tabs(t);
 }
 
@@ -390,36 +411,23 @@ static void draw_chrome(const struct catalog *catalog, float t) {
    Both are wanted in the list and again in the panel, so they are made in one
    place. */
 static const char *action_title(void) {
+    static char title[32];
     if (view_tab_kind() != VIEW_TAB_STICK) return T_DOWNLOAD_ALL;
-    return view_updates_waiting() > 0 ? T_UPDATE_ALL : T_CHECK;
+    int waiting = view_updates_waiting();
+    if (waiting <= 0) return T_NO_UPDATES;
+    /* The row says what stands: how many, not what to do about them. */
+    snprintf(title, sizeof(title), T_UPDATES, waiting, waiting == 1 ? "" : "s");
+    return title;
 }
 
-/* "3 apps, 61.5 MB" -- or, when nothing in the tab has a release with a
-   size, what is in the way instead. */
-static const char *action_line(void) {
-    static char line[48];
-    struct view_plan plan;
-    char size[24];
-    view_action_plan(&plan);
-    if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_STICK)
-        snprintf(line, sizeof(line), T_ALL_CURRENT);
-    else if (plan.apps <= 0)
-        snprintf(line, sizeof(line), T_NO_RELEASES);
-    else {
-        size_mb(plan.bytes, size, sizeof(size));
-        snprintf(line, sizeof(line), T_PLAN_LINE, plan.apps,
-                 plan.apps == 1 ? "" : "s", size);
-    }
-    return line;
-}
-
-/* The row the tab itself sits on. Two lines rather than one: at this width
-   the heading and the tally do not fit on a line together in the list's own
-   face, and stacked they read as a heading with its tally under it, which is
-   what they are. Where a package would have its icon, the tab's own sign. */
+/* The row the tab itself sits on: one line, the way every row of the
+   system's own lists is one line. What the job comes to is said in the
+   panel beside it, not crammed under the heading. Where a package would
+   have its icon, the tab's own sign. */
 static void draw_action_row(int y, int selected, float t) {
     int updates = view_tab_kind() == VIEW_TAB_STICK;
-    float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
+    float dx = g_page_dx;
+    float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     if (updates)
         mark_draw(MARK_UPDATE, gx, gy,
                   faded(UPDATE_RGB, (int)((selected ? 255 : 170) * update_pulse(t))),
@@ -428,9 +436,17 @@ static void draw_action_row(int y, int selected, float t) {
         mark_draw(MARK_BASKET, gx, gy, selected ? g_text : g_dim,
                   selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     int w = LIST_X + LIST_W - NAME_X;
-    font_print_clipped(FONT_BODY, NAME_X, y + 12, w, selected ? g_text : g_dim,
-                       action_title());
-    font_print_clipped(FONT_META, NAME_X, y + 26, w, g_dim, action_line());
+    /* At the item size the heading can be wider than the column; it walks
+       the way a long name does once the cursor rests on it. */
+    font_print_scrolling(FONT_TITLE, NAME_X + dx, y + 21, w, selected ? g_text : g_dim,
+                         action_title(), selected ? hover_age(0, VIEW_ROW_ACTION) : 0.0f);
+}
+
+/* The gear's first row is a switch and reads as the side it is on; the
+   rest are what the view names them. */
+static const char *setting_word(int n) {
+    if (n == 0) return gfx_fps_cap30() ? T_SUB_FPS30 : T_SUB_FPS60;
+    return view_setting(n);
 }
 
 /* A row under the gear: a word and, where the word is about something that
@@ -438,15 +454,63 @@ static void draw_action_row(int y, int selected, float t) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[VIEW_SETTINGS] = {
-        MARK_DOWNLOAD, MARK_BASKET, MARK_INSTALLED, MARK_UPDATE, MARK_INFO,
-        MARK_GEAR, MARK_TRIANGLE,
+        MARK_GEAR, MARK_DOWNLOAD, MARK_INSTALLED, MARK_UPDATE, MARK_INFO,
     };
-    float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
+    float dx = g_page_dx;
+    float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     enum mark m = (enum mark)SIGN[n];
     mark_draw(m, gx, gy, selected ? g_text : faded(g_dim, 170),
               selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
-    font_print_clipped(FONT_BODY, NAME_X, y + 21, LIST_X + LIST_W - NAME_X,
-                       selected ? g_text : g_dim, view_setting(n));
+    font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, LIST_X + LIST_W - NAME_X,
+                       selected ? g_text : g_dim, setting_word(n));
+}
+
+/* A category at the head of the store: the store's own sign where a
+   package has its icon, the word, and at the row's end how many packages
+   stand in it. */
+static void draw_category_row(int n, int y, int selected, float t) {
+    float dx = g_page_dx;
+    float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
+    const char *word = view_category(n);
+    enum mark sign = !strcmp(word, "game") ? MARK_GAMES
+                   : !strcmp(word, "demo") ? MARK_DEMOS
+                   : !strcmp(word, "app")  ? MARK_APPS : MARK_STORE;
+    mark_draw(sign, gx, gy, selected ? g_text : faded(g_dim, 170),
+              selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+    char count[16];
+    snprintf(count, sizeof(count), "%d", view_category_apps(n));
+    float cw = font_width(FONT_META, count);
+    float right = LIST_X + LIST_W - 8 + dx;
+    font_print(FONT_META, right - cw, y + 21, faded(g_dim, selected ? 230 : 150), count);
+    font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, right - cw - 8 - (NAME_X + dx),
+                       selected ? g_text : g_dim, category_word(n));
+}
+
+/* The right column while the cursor is on a category: the word, and under
+   it how many packages it holds and which, as far as three lines go. */
+static void draw_category_panel(int n) {
+    char note[256];
+    int apps = view_category_apps(n);
+    size_t at = (size_t)snprintf(note, sizeof(note), T_CATEGORY_NOTE, apps, apps == 1 ? "" : "s");
+    int named = 0;
+    for (int i = 0; g_catalog && i < g_catalog->count && at < sizeof(note) - 1; i++) {
+        const struct app_entry *e = &g_catalog->apps[i];
+        if (!e->category[0]) continue;
+        /* The same test the view makes, letter for letter, case aside. */
+        const char *a = e->category, *b = view_category(n);
+        int same = 1;
+        for (; *a && *b; a++, b++) {
+            char x = *a, y = *b;
+            if (x >= 'A' && x <= 'Z') x += 'a' - 'A';
+            if (y >= 'A' && y <= 'Z') y += 'a' - 'A';
+            if (x != y) { same = 0; break; }
+        }
+        if (!same || *a || *b) continue;
+        at += (size_t)snprintf(note + at, sizeof(note) - at, "%s%s", named ? ", " : "", e->name);
+        named++;
+    }
+    if (at >= sizeof(note) - 1) pspdx_utf8_mend(note);
+    draw_setting_note(category_word(n), note, 0.0f);
 }
 
 /* How long the cursor has sat on what it sits on: the scrolling of a line
@@ -466,6 +530,9 @@ float hover_age(int list, int key) {
 
 static void draw_list(const struct catalog *catalog, int cursor, float t) {
     int count = view_count();
+    float dx = g_page_dx;
+    int clip_w = LIST_X + LIST_W + 8 + (int)dx;
+    if (clip_w <= 0) return;            /* gone off the left edge under the page */
     if (cursor < g_first) g_first = cursor;
     if (cursor >= g_first + VISIBLE) g_first = cursor - VISIBLE + 1;
     if (g_first < 0) g_first = 0;
@@ -501,11 +568,15 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
            them and not over the header or the foot. A scrolling name cuts
            and uncuts on its own, which is why the cut is laid again for
            every row. */
-        gfx_clip(0, LIST_Y, LIST_X + LIST_W + 8, VISIBLE * ITEM_H);
+        gfx_clip(0, LIST_Y, clip_w, VISIBLE * ITEM_H);
         int index = view_index(i);
         if (index == VIEW_ROW_ACTION) { draw_action_row(y, selected, t); continue; }
         if (index <= VIEW_ROW_SETTING) {
             draw_setting_row(VIEW_ROW_SETTING - index, y, selected, t);
+            continue;
+        }
+        if (index <= VIEW_ROW_CATEGORY) {
+            draw_category_row(VIEW_ROW_CATEGORY - index, y, selected, t);
             continue;
         }
         if (index < 0) continue;
@@ -516,17 +587,17 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
         const struct gfx_texture *icon = icons_get(index);
         int iy = y + (ITEM_H - ICON_H) / 2;
         if (icon)
-            gfx_texture_draw(icon, LIST_X, iy, ICON_W, ICON_H,
+            gfx_texture_draw(icon, LIST_X + (int)dx, iy, ICON_W, ICON_H,
                              selected ? RGB(255, 255, 255) : RGB(150, 150, 150));
         else
-            gfx_rect(LIST_X, iy, ICON_W, ICON_H, RGBA(255, 255, 255, selected ? 24 : 12));
+            gfx_rect(LIST_X + (int)dx, iy, ICON_W, ICON_H, RGBA(255, 255, 255, selected ? 24 : 12));
 
         /* Marks, not words, at the end of the row, read from the outside in:
            where the package stands -- the line ticked off when it is on the
            stick, the system's turning arrows when a newer one waits, nothing
            for the rest -- and then, inside that, the basket if this session
            has set the package aside. */
-        float mx = LIST_X + LIST_W - 8, my = y + ITEM_H / 2 - 1;
+        float mx = LIST_X + LIST_W - 8 + dx, my = y + ITEM_H / 2 - 1;
         int name_w = LIST_X + LIST_W - NAME_X;
         /* Two marks, read from the outside in: the update arrows where a
            newer package waits, the tick where the package is on the stick.
@@ -555,7 +626,7 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
             name_w -= 22;
         }
 
-        font_print_scrolling(FONT_TITLE, NAME_X, y + 21, name_w,
+        font_print_scrolling(FONT_TITLE, NAME_X + dx, y + 21, name_w,
                              selected ? g_text : g_dim, entry->name,
                              selected ? hover_age(0, index) : 0.0f);
     }
@@ -565,7 +636,12 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
 }
 
 void draw_rows_light(int rows, float sel_y, float t) {
-    draw_shade(LIST_X + LIST_W / 2, LIST_Y + rows * ITEM_H / 2, LIST_W, rows * ITEM_H);
+    draw_rows_light_of(rows, ITEM_H, sel_y, t);
+}
+
+void draw_rows_light_of(int rows, int row_h, float sel_y, float t) {
+    float dx = g_page_dx;
+    draw_shade(LIST_X + LIST_W / 2 + dx, LIST_Y + rows * row_h / 2, LIST_W, rows * row_h);
 
     /* The selected row glows: a breathing light behind it and a thin
        streak of light under it, nothing with a corner. On the move from
@@ -581,12 +657,12 @@ void draw_rows_light(int rows, float sel_y, float t) {
     squeeze += (want - squeeze) * (want > squeeze ? 0.6f : 0.08f);
 
     float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
-    float mid = sel_y + ITEM_H / 2 - 1;
-    gfx_glow(LIST_X + 60, mid, LIST_W + 170, ITEM_H * 3.4f,
+    float mid = sel_y + row_h / 2 - 1;
+    gfx_glow(LIST_X + 60 + dx, mid, LIST_W + 170, row_h * 3.4f,
              rgb_pack(g_tint, (int)(130 * breathe)));
-    gfx_glow(LIST_X + 40, mid, (LIST_W + 40) * (1.0f - 0.3f * squeeze), ITEM_H * 1.2f,
+    gfx_glow(LIST_X + 40 + dx, mid, (LIST_W + 40) * (1.0f - 0.3f * squeeze), row_h * 1.2f,
              rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), (int)(70 * breathe)));
-    gfx_glow(LIST_X + LIST_W / 2, sel_y + ITEM_H - 3,
+    gfx_glow(LIST_X + LIST_W / 2 + dx, sel_y + row_h - 3,
              (LIST_W + 30) * (1.0f - 0.75f * squeeze), 10 * (1.0f + 1.3f * squeeze),
              rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), (int)(160 + 80 * squeeze)));
 }
@@ -672,7 +748,7 @@ void draw_rows_bar(int count, float first, float t) {
     if (g_bar_m <= 0.0f) return;
     float s = g_bar_m * g_bar_m * (3.0f - 2.0f * g_bar_m);
 
-    int x = (LIST_X + LIST_W + PANEL_X) / 2;    /* midway across the gutter */
+    int x = (LIST_X + LIST_W + PANEL_X) / 2 + (int)g_page_dx;    /* midway across the gutter */
     int top = LIST_Y, track = VISIBLE * ITEM_H;
     float along = first / (count - VISIBLE);
     if (along < 0) along = 0;
@@ -746,11 +822,12 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
 
     font_print(FONT_H1, PANEL_X, y, g_text, action_title());
     if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_STICK) {
-        int lines = draw_wrapped(FONT_META, PANEL_X, y + 20, SHOT_W, 17, 2, g_dim, T_CHECK_NOTE);
-        /* The row has two keys, and the panel names them the way the footer
-           does, with the key's own mark rather than a word for it; what the
-           two do is said under them. */
-        float base = y + 20 + 17 * lines + 14;
+        /* The heading already says nothing waits; what is left to say is
+           how to look again. The row has two keys, and the panel names
+           them the way the footer does, with the key's own mark rather
+           than a word for it; what the two do is said under them. */
+        int lines = draw_wrapped(FONT_META, PANEL_X, y + 21, SHOT_W, 17, 2, g_dim, T_CHECK_NOTE);
+        float base = y + 21 + 17 * lines + 14;
         draw_hint(PANEL_X, base, MARK_CROSS, T_QUICK_CHECK, g_dim);
         draw_hint(PANEL_X, base + 18, MARK_SQUARE, T_FULL_CHECK, g_dim);
         draw_wrapped(FONT_META, PANEL_X, base + 40, SHOT_W, 17, 3, g_dim, T_CHECK_EXPLAIN);
@@ -876,12 +953,15 @@ static void draw_picture(float t) {
        with the room's sway, against the water far behind it; the words
        around it, being on the glass, do not. Under three pixels over half
        a minute, which the eye reads as depth and not as drift. */
-    card.cx = PANEL_X + SHOT_W / 2 + lattice_sway() * 45.0f;
+    /* Flat and still: a picture that leans or drifts gets a staircase
+       down every edge, and a film of 144 by 80 wants its pixels one to
+       one. The shadow under it is what says it stands in the room. */
+    card.cx = (float)(int)(PANEL_X + SHOT_W / 2 + g_page_dx);
     card.cy = SHOT_Y + SHOT_H / 2;
     card.w = SHOT_W;
     card.h = SHOT_H;
-    card.yaw = lattice_sway() * 0.9f + 0.35f * g_card_swing;
-    card.pitch = 0.035f + 0.015f * sinf(t * 0.31f);
+    card.yaw = 0.0f;
+    card.pitch = 0.0f;
     /* A picture, not lettering: it gets the frame and the shadow. */
     card.bare = 0;
     /* No mirrored strip under the card: what the picture is reflected in is
@@ -958,24 +1038,15 @@ static void draw_picture(float t) {
             lattice_mirror(film, film_alpha, card.cx - fw / 2,
                            SHOT_Y + SHOT_H, fw, fh);
         if (still && !only_film) {
-            struct gfx_card plate = card;
-            plate.w = sw;
-            plate.h = sh;
-            plate.bare = 1;
-            plate.alpha = still_alpha;
-            gfx_card_draw(still, &plate);
+            gfx_texture_vram_drop(still);
+            gfx_texture_draw(still, (int)(card.cx - sw / 2), (int)(card.cy - sh / 2),
+                             (int)sw, (int)sh, RGBA(255, 255, 255, still_alpha));
         }
         if (film) {
-            /* Plain: the film's own pixels and nothing around them. A frame
-               and a shadow the size of the clip, inside the space the card
-               keeps, read as a box in a box; the XMB puts the film on the
-               screen, not in a picture frame. */
-            struct gfx_card screen = card;
-            screen.w = fw;
-            screen.h = fh;
-            screen.bare = 1;
-            screen.alpha = film_alpha;
-            gfx_card_draw(film, &screen);
+            /* Plain: the film's own pixels, one to one, and nothing around
+               them; the XMB puts the film on the screen, not in a frame. */
+            gfx_texture_draw(film, (int)(card.cx - fw / 2), (int)(card.cy - fh / 2),
+                             (int)fw, (int)fh, RGBA(255, 255, 255, film_alpha));
         }
     } else {
         /* Nothing on the card yet. What is coming is almost always the
@@ -1010,6 +1081,7 @@ static void draw_picture(float t) {
 #define CARD_STEP 17
 #define CARD_FIRST (CARD_TOP + 13)      /* the first baseline */
 static const struct app_entry *g_card_of;
+static int g_card_chip_rows;            /* rows of chips over the text */
 static char g_card_text[DETAIL_TEXT];
 static struct wrap_line g_card_lines[DETAIL_LINES];
 static int g_card_count;
@@ -1026,14 +1098,67 @@ static float card_edge(int base) {
     return f > 1.0f ? 1.0f : f;
 }
 
+/* The category and the tags as chips: each word on a small plate, the
+   category first and lit a little, the rest in the room's grey, wrapped
+   to the column. Drawn at a baseline with an alpha, or only measured
+   for their rows. The words are what the catalogs wrote; an app names
+   at most one category and eight tags, so the loop is short. */
+#define CHIP_H 15
+#define CHIP_PAD 5
+#define CHIP_GAP 5
+#define CHIP_STEP 19
+static int draw_chips(const struct app_entry *e, float x, int base, float width,
+                      int draw, int alpha) {
+    int rows = 0;
+    float cx = x;
+    char word[24 * 4 + 1];
+    const char *p = e->tags;
+    int category = e->category[0] != '\0';
+    for (;;) {
+        size_t n = 0;
+        int lit = category;
+        if (category) {
+            snprintf(word, sizeof(word), "%s", e->category);
+            category = 0;
+        } else {
+            if (!*p) break;
+            while (*p && *p != '\n' && n < sizeof(word) - 1) word[n++] = *p++;
+            word[n] = '\0';
+            while (*p == '\n') p++;
+            if (!word[0]) continue;
+        }
+        float w = font_width(FONT_META, word) + 2 * CHIP_PAD;
+        if (cx + w > x + width && cx > x) {
+            cx = x;
+            rows++;
+        }
+        if (rows == 0) rows = 1;
+        if (draw) {
+            int y = base + (rows - 1) * CHIP_STEP;
+            unsigned plate = lit ? rgb_pack(g_tint, 70 * alpha / 255)
+                                 : RGBA(255, 255, 255, 22 * alpha / 255);
+            gfx_rect((int)cx, y - 11, (int)(w + 0.5f), CHIP_H, plate);
+            font_print(FONT_META, cx + CHIP_PAD, y, faded(lit ? g_text : g_dim, alpha), word);
+        }
+        cx += w + CHIP_GAP;
+    }
+    return rows;
+}
+
+/* How far the text stands under the chips: their rows and a breath. */
+static int card_chip_off(void) {
+    return g_card_chip_rows ? g_card_chip_rows * CHIP_STEP + 3 : 0;
+}
+
 static int card_state_y(int y) {
-    return y + g_card_count * CARD_STEP + (g_card_count ? CARD_STEP / 2 : 0);
+    return y + card_chip_off() + g_card_count * CARD_STEP + (g_card_count ? CARD_STEP / 2 : 0);
 }
 
 static void card_text(const struct app_entry *entry) {
     if (entry == g_card_of) return;
     if (g_card_of) g_card_swing = 1.0f;     /* not on the first, which fades up from nothing */
     g_card_of = entry;
+    g_card_chip_rows = draw_chips(entry, 0, 0, SHOT_W, 0, 0);
     const char *about = entry->description ? entry->description : "";
     snprintf(g_card_text, sizeof(g_card_text), "%s%s%s", entry->summary,
              entry->summary[0] && about[0] ? "\n\n" : "", about);
@@ -1047,18 +1172,15 @@ static void card_text(const struct app_entry *entry) {
     g_card_max = last > CARD_BOTTOM - 4 ? (float)(last - (CARD_BOTTOM - 4)) : 0.0f;
 }
 
-static void draw_panel(const struct app_entry *entry, float t) {
-    card_text(entry);
-    draw_picture(t);
-    draw_shade(PANEL_X + SHOT_W / 2, (CARD_TOP + CARD_BOTTOM) / 2, SHOT_W,
-               CARD_BOTTOM - CARD_TOP);
-
+/* Where the package stands, in one line: what is installed, what waits,
+   or what it would weigh to fetch. Made once per package and state. */
+static const char *state_line(const struct app_entry *entry, unsigned *color) {
     static char line[336];       /* two versions of 256 and the words between */
     static const struct app_entry *line_of;
     static enum app_state line_state;
     static int line_basket;
     int in_basket = view_basket_has((int)(entry - g_catalog->apps));
-    unsigned state_color = g_dim;
+    *color = entry->state == APP_UPDATE ? RGB(140, 255, 170) : g_dim;
     if (entry != line_of || entry->state != line_state || in_basket != line_basket) {
         line_of = entry;
         line_state = entry->state;
@@ -1086,13 +1208,30 @@ static void draw_panel(const struct app_entry *entry, float t) {
             break;
         }
     }
-    if (entry->state == APP_UPDATE) state_color = RGB(140, 255, 170);
+    return line;
+}
+
+static void draw_panel(const struct app_entry *entry, float t) {
+    card_text(entry);
+    draw_picture(t);
+    draw_shade(PANEL_X + SHOT_W / 2 + g_page_dx, (CARD_TOP + CARD_BOTTOM) / 2, SHOT_W,
+               CARD_BOTTOM - CARD_TOP);
+    unsigned state_color;
+    const char *line = state_line(entry, &state_color);
 
     /* The column moves as one when the stick scrolls, and stays inside
        the card while it does: the lines made when the package came under
        the cursor, only the ones in view, and the state at the foot. */
-    gfx_clip(PANEL_X - 4, CARD_TOP - 4, SHOT_W + 8, CARD_BOTTOM - CARD_TOP + 8);
+    float dx = g_page_dx;
+    gfx_clip(PANEL_X - 4 + (int)dx, CARD_TOP - 4, SHOT_W + 8, CARD_BOTTOM - CARD_TOP + 8);
     int y = CARD_FIRST - (int)g_card_scroll;
+    /* The chips first, under the picture: what the package is, in the
+       catalogs' own words, before what it says about itself. */
+    if (g_card_chip_rows) {
+        float f = card_edge(y);
+        if (f > 0.0f) draw_chips(entry, PANEL_X + dx, y, SHOT_W, 1, (int)(255 * f));
+    }
+    y += card_chip_off();
     char text[DETAIL_LINE_BYTES + 1];
     for (int i = 0; i < g_card_count; i++) {
         int base = y + i * CARD_STEP;
@@ -1102,12 +1241,12 @@ static void draw_panel(const struct app_entry *entry, float t) {
         if (len > DETAIL_LINE_BYTES) len = DETAIL_LINE_BYTES;
         memcpy(text, g_card_text + g_card_lines[i].start, len);
         text[len] = '\0';
-        font_print(FONT_META, PANEL_X, base, faded(g_dim, (int)(170 * f)), text);
+        font_print(FONT_META, PANEL_X + dx, base, faded(g_dim, (int)(170 * f)), text);
     }
-    int sy = card_state_y(y);
+    int sy = card_state_y(y - card_chip_off());
     float f = card_edge(sy);
     if (f > 0.0f)
-        font_print_clipped(FONT_META, PANEL_X, sy, SHOT_W, faded(state_color, (int)(255 * f)), line);
+        font_print_clipped(FONT_META, PANEL_X + dx, sy, SHOT_W, faded(state_color, (int)(255 * f)), line);
     gfx_unclip();
 }
 
@@ -1213,15 +1352,15 @@ static int break_lines(enum font_style style, const char *text, float width,
    band grown by a row for every line past the first. */
 static void draw_ask(void) {
     char lines[3][128];
-    int n = break_lines(FONT_META, g_ask_line, SCR_W - 80, lines, 3);
-    int h = BAND_H + 17 * (n - 1), y = (SCR_H - h) / 2;
+    int n = break_lines(FONT_TITLE, g_ask_line, SCR_W - 80, lines, 3);
+    int h = BAND_H + 20 * (n - 1), y = (SCR_H - h) / 2;
     draw_band(y, h);
-    float w = font_width(FONT_BODY, g_ask_title);
-    font_print_clipped(FONT_BODY, SCR_W / 2 - w / 2, y + 44, SCR_W - 40,
+    float w = font_width(FONT_TITLE, g_ask_title);
+    font_print_clipped(FONT_TITLE, SCR_W / 2 - w / 2, y + 44, SCR_W - 40,
                        g_text, g_ask_title);
     for (int i = 0; i < n; i++) {
-        w = font_width(FONT_META, lines[i]);
-        font_print(FONT_META, SCR_W / 2 - w / 2, y + 68 + 17 * i, g_dim, lines[i]);
+        w = font_width(FONT_TITLE, lines[i]);
+        font_print(FONT_TITLE, SCR_W / 2 - w / 2, y + 68 + 20 * i, g_dim, lines[i]);
     }
     draw_answers(y + h - 22, T_YES, T_NO);
 }
@@ -1261,7 +1400,7 @@ static void draw_menu(void) {
     gfx_vgrad((int)x0, SCR_H / 2, 1, SCR_H / 2, bright, clear);
 
     float left = x0 + 18, right = x0 + MENU_W - 16;
-    font_print_clipped(FONT_BODY, left, 34, right - left, g_text, m->title);
+    font_print_clipped(FONT_TITLE, left, 34, right - left, g_text, m->title);
     gfx_hgrad((int)left, 44, MENU_W - 34, 1, bright, clear);
 
     unsigned grey = rgb_pack(rgb_mix(NIGHT_BOTTOM, RGB_WHITE, 0.32f), 255);
@@ -1323,7 +1462,7 @@ static void draw_install(void) {
     draw_band(BAND_Y, BAND_H);
 
     int bar_x = 60, bar_w = SCR_W - 120, bar_y = BAND_Y + 84;
-    font_print_clipped(FONT_BODY, bar_x, BAND_Y + 44, bar_w, g_text, g_install_name);
+    font_print_clipped(FONT_TITLE, bar_x, BAND_Y + 44, bar_w, g_text, g_install_name);
     font_print(FONT_META, bar_x, BAND_Y + 68, g_dim, g_install_phase);
 
     /* Three pixels of line, not a trough with a fill: the bar is the same
@@ -1443,13 +1582,11 @@ static void read_storage(void) {
 /* What each row does, said on the right while the cursor is on it: the
    list names the thing, the panel says what it comes to. */
 static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
+    T_NOTE_GRAPHICS,
     T_NOTE_SOURCES,
-    T_NOTE_DIRECT,
     T_NOTE_FILES,
     T_NOTE_RESET,
     T_NOTE_INFO,
-    T_NOTE_GRAPHICS,
-    T_NOTE_QUIRKS,
 };
 
 /* Four rows at the foot leave the facts above them 18 pixels apart rather
@@ -1520,11 +1657,11 @@ static void draw_info(void) {
     }
 
     band_rule(INFO_Y + 134, 160, 120);
-    /* The seed is renewed from here, beside the entropy it reports: not a
-       setting, a fact with one thing to do about it. The switches for
-       development are under Quirks, the gear's last row. */
-    float w = hint_width(MARK_SQUARE, T_SUB_SWEEP) + 24 + hint_width(MARK_CIRCLE, T_HINT_BACK);
-    float hx = draw_hint(SCR_W / 2 - w / 2, INFO_Y + 156, MARK_SQUARE, T_SUB_SWEEP, g_dim);
+    /* The way out, and the one thing to know: the switches for
+       development, and the seed's renewal beside them, are under SELECT
+       held on this band for a second. */
+    float w = hint_width(MARK_SELECT, T_HINT_QUIRKS) + 24 + hint_width(MARK_CIRCLE, T_HINT_BACK);
+    float hx = draw_hint(SCR_W / 2 - w / 2, INFO_Y + 156, MARK_SELECT, T_HINT_QUIRKS, g_dim);
     draw_hint(hx + 24, INFO_Y + 156, MARK_CIRCLE, T_HINT_BACK, g_dim);
 }
 
@@ -1563,17 +1700,20 @@ int draw_wrapped(enum font_style style, float x, float y, float width,
     return used ? used : 1;
 }
 
-/* Where the band's scrolling part stands: under the name's rule, down to
-   the band's foot, facts from DETAIL_Y and the text DETAIL_TEXT_Y below
-   them, a line every DETAIL_STEP, the last of them no lower than
-   DETAIL_LAST once scrolled to the end. */
-#define DETAIL_TOP (INFO_Y + 38)
-#define DETAIL_BOTTOM (INFO_Y + INFO_H)
-#define DETAIL_Y (INFO_Y + 56)
-#define DETAIL_TEXT_Y 134
+/* The page about one package, under the header, in two columns: on the
+   left the picture at the column's width with the facts and the chips
+   under it, on the right the name and everything the package says about
+   itself, a line every DETAIL_STEP, scrolled by the stick. */
+#define PAGE_LEFT_X LIST_X
+#define PAGE_LEFT_W 200
+#define PAGE_RIGHT_X PANEL_X
+#define PAGE_RIGHT_W SHOT_W
+#define PAGE_TOP LIST_Y
+#define PAGE_BOTTOM (FOOTER_Y - 6)
+#define PAGE_PIC_H (PAGE_LEFT_W * SCR_H / SCR_W)   /* the screen's own shape at the column's width */
+#define PAGE_CHIP_Y (PAGE_TOP + 37)     /* the chips' first baseline, under the name */
 #define DETAIL_STEP 17
-#define DETAIL_LAST (DETAIL_BOTTOM - 4)
-#define DETAIL_X 40
+static int g_detail_text_top;           /* the first baseline of the text, under the chips */
 /* The stick rests a little off centre on most PSPs: under this nothing
    moves. At a full push the text moves this many pixels a frame. */
 #define DETAIL_DEAD 0.2f
@@ -1586,80 +1726,99 @@ static void draw_more(int cx, int y, int up, unsigned color) {
         gfx_rect(cx - i, up ? y + i : y + 3 - i, 2 * i + 1, 1, color);
 }
 
-/* Everything the catalog says about the one package, in the band the rest
-   of the questions are asked in: the card is for looking, this is for
-   reading. */
+/* Everything the catalog says about the one package, as a page in the
+   browser's place: the card is for looking, this is for reading. */
 static void draw_details(void) {
     const struct app_entry *e = g_details;
+    float ease = g_page * g_page * (3.0f - 2.0f * g_page);
+    float px = SCR_W * (1.0f - ease);
+    float lx = px + PAGE_LEFT_X, rx = px + PAGE_RIGHT_X;
     /* Room for two versions of 64 characters: the row is cut to its width
        when it is drawn, not here in the middle of a letter. */
     char value[2 * VERSION_SIZE + 32], size[24];
-    draw_band(INFO_Y, INFO_H);
 
-    float w = font_width(FONT_BODY, e->name);
-    font_print_clipped(FONT_BODY, SCR_W / 2 - w / 2, INFO_Y + 24, SCR_W - 40,
-                       g_text, e->name);
-    band_rule(INFO_Y + 34, 150, 110);
+    draw_shade(lx + PAGE_LEFT_W / 2.0f, (PAGE_TOP + PAGE_BOTTOM) / 2.0f,
+               PAGE_LEFT_W + 24, PAGE_BOTTOM - PAGE_TOP);
+    draw_shade(rx + PAGE_RIGHT_W / 2.0f, (PAGE_TOP + PAGE_BOTTOM) / 2.0f,
+               PAGE_RIGHT_W + 24, PAGE_BOTTOM - PAGE_TOP);
 
-    /* Under the name everything moves as one when the stick scrolls, and
-       stays inside the band while it does. */
-    gfx_clip(0, DETAIL_TOP, SCR_W, DETAIL_BOTTOM - DETAIL_TOP);
-    int y = DETAIL_Y - (int)g_detail_scroll;
+    /* The picture: whatever the card holds for this package, the film
+       over the still, at the column's width -- a film at the size it was
+       made, since the XMB never blows one up either. Backlit the way the
+       card is. */
+    int still_alpha, film_alpha;
+    const struct gfx_texture *still = preview_still(&still_alpha);
+    const struct gfx_texture *film = preview_film(&film_alpha);
+    struct { float cx, cy; } card;
+    card.cx = lx + PAGE_LEFT_W / 2.0f;
+    card.cy = PAGE_TOP + PAGE_PIC_H / 2.0f;
+    gfx_glow(card.cx, card.cy, PAGE_LEFT_W + 90, PAGE_PIC_H + 80, rgb_pack(g_card_light, 90));
+    const struct gfx_texture *shown = film ? film : still;
+    if (shown) {
+        /* Flat, on the glass: the page is for reading, and a picture that
+           leans with the room under a column of facts is one more thing
+           moving. Drawn from system RAM, whichever mode the frame is in. */
+        float fit = (float)PAGE_LEFT_W / shown->w;
+        if (shown->h * fit > PAGE_PIC_H) fit = (float)PAGE_PIC_H / shown->h;
+        if (film && fit > 1.0f) fit = 1.0f;
+        int w = (int)(shown->w * fit), h = (int)(shown->h * fit);
+        gfx_texture_vram_drop(shown);
+        gfx_texture_draw(shown, (int)(card.cx - w / 2), (int)(card.cy - h / 2), w, h,
+                         RGBA(255, 255, 255, film ? 255 : still_alpha));
+    } else {
+        gfx_rect((int)(card.cx - FILM_W / 2), (int)(card.cy - FILM_H / 2), FILM_W, FILM_H,
+                 RGBA(255, 255, 255, 12));
+        const char *note = preview_state() == PREVIEW_LOADING ? T_CARD_LOADING
+                         : preview_state() == PREVIEW_MISSING ? T_CARD_NO_PICTURE : "";
+        font_print(FONT_META, card.cx - font_width(FONT_META, note) / 2, card.cy + 4, g_dim, note);
+    }
+
+    /* The facts under it, a line each, then what the package is in the
+       catalogs' own words. */
+    int y = PAGE_TOP + PAGE_PIC_H + 24;
+    float label_end = lx + 58, value_x = lx + 66, clip = PAGE_LEFT_W - 66;
     if (catalog_new_build(e))
         snprintf(value, sizeof(value), T_DETAIL_REBUILD, e->local_version);
     else if (e->state == APP_UPDATE)
-        snprintf(value, sizeof(value), T_DETAIL_UPDATE,
-                 e->local_version, e->remote_version);
+        snprintf(value, sizeof(value), T_DETAIL_UPDATE, e->local_version, e->remote_version);
     else if (e->state != APP_NOT_INSTALLED)
         snprintf(value, sizeof(value), T_DETAIL_INSTALLED, e->local_version);
     else if (e->has_release)
         snprintf(value, sizeof(value), "%s", e->release.version);
     else
         snprintf(value, sizeof(value), T_UNKNOWN);
-    fact(y, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_VERSION, value);
-    fact(y + 20, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_AUTHOR, e->author);
-    fact(y + 40, FACT_LABEL, FACT_VALUE, 140, T_DETAIL_LICENSE, e->license);
-    /* The tags on one line, a comma between them: eight of 24 characters of
-       up to four bytes each and seven separators of two, so all of them fit
-       and the row is cut to its width where it is drawn, between letters.
-       Were one ever to overflow, no half of a letter is left at the end. */
-    char tags[PSPDX_TAGS * 24 * 4 + (PSPDX_TAGS - 1) * 2 + 1];
-    size_t t = 0;
-    for (const char *p = e->tags; *p; p++) {
-        if (*p == '\n' && t + 2 < sizeof(tags)) {
-            tags[t++] = ',';
-            tags[t++] = ' ';
-        } else if (*p != '\n' && t + 1 < sizeof(tags)) {
-            tags[t++] = *p;
-        } else {
-            break;
-        }
-    }
-    tags[t] = '\0';
-    pspdx_utf8_mend(tags);
-    /* An app with no tags has no row for them, rather than a label alone. */
-    if (tags[0])
-        fact(y + 40, FACT_LABEL2, FACT_VALUE2, 110, T_DETAIL_TAGS, tags);
+    fact(y, label_end, value_x, clip, T_DETAIL_VERSION, value);
+    y += DETAIL_STEP;
+    fact(y, label_end, value_x, clip, T_DETAIL_AUTHOR, e->author);
+    y += DETAIL_STEP;
+    fact(y, label_end, value_x, clip, T_DETAIL_LICENSE, e->license);
+    y += DETAIL_STEP;
     if (e->has_release && e->release.size) {
         size_mb(e->release.size, size, sizeof(size));
-        fact(y + 60, FACT_LABEL, FACT_VALUE, 140, T_DETAIL_SIZE, size);
+        fact(y, label_end, value_x, clip, T_DETAIL_SIZE, size);
+        y += DETAIL_STEP;
     }
-    fact(y + 80, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30, T_DETAIL_ID, e->id);
 
-    if(e->release.checked_at){
-        time_t checked=e->release.checked_at;struct tm *date=gmtime(&checked);
-        char when[24]=T_UNKNOWN;if(date)strftime(when,sizeof(when),"%Y-%m-%d %H:%M UTC",date);
-        snprintf(value,sizeof(value),"%s%s",e->fresh?"":T_DETAIL_SAVED,when);
-    }else snprintf(value,sizeof(value),"%s",e->fresh?T_DETAIL_THIS_SESSION:T_UNKNOWN);
-    fact(y+100,FACT_LABEL,FACT_VALUE,SCR_W-FACT_VALUE-30,T_DETAIL_CHECKED,value);
-    band_rule(y + 116, 160, 120);
-    /* The lines made when the band opened, only the ones in view. */
+    /* The name over the text, on its rule, the way the XMB heads a list;
+       under it what the package is, in the catalogs' own words. */
+    font_print_clipped(FONT_TITLE, rx, PAGE_TOP + 12, PAGE_RIGHT_W, g_text, e->name);
+    unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 150);
+    unsigned clear = rgb_pack(g_tint, 0);
+    gfx_hgrad((int)rx, PAGE_TOP + 20, PAGE_RIGHT_W, 1, bright, clear);
+    draw_chips(e, rx, PAGE_CHIP_Y, PAGE_RIGHT_W, 1, 255);
+    int text_top = g_detail_text_top;
+
+    /* The text moves as one when the stick scrolls, and stays in its
+       column while it does: the lines made when the page opened, only
+       the ones in view. */
+    gfx_clip((int)rx - 4, text_top - 13, PAGE_RIGHT_W + 8, PAGE_BOTTOM - text_top + 17);
+    int ty = text_top - (int)g_detail_scroll;
     char line[DETAIL_LINE_BYTES + 1];
     for (int i = 0; i < g_detail_count; i++) {
-        int base = y + DETAIL_TEXT_Y + i * DETAIL_STEP;
-        if (base + 4 < DETAIL_TOP)
+        int base = ty + i * DETAIL_STEP;
+        if (base + 4 < text_top - 13)
             continue;
-        if (base - DETAIL_STEP > DETAIL_BOTTOM)
+        if (base - DETAIL_STEP > PAGE_BOTTOM)
             break;
         /* wrap_text keeps a line within the bytes it was given; the buffer
            does not take that on trust. A line cut here may end inside a
@@ -1669,16 +1828,16 @@ static void draw_details(void) {
             len = DETAIL_LINE_BYTES;
         memcpy(line, g_detail_text + g_detail_lines[i].start, len);
         line[len] = '\0';
-        font_print(FONT_META, DETAIL_X, base, g_dim, line);
+        font_print(FONT_META, rx, base, g_dim, line);
     }
     gfx_unclip();
-    /* More above, more below: a small point at the band's edge, quiet
+    /* More above, more below: a small point at the column's edge, quiet
        enough to be found only by an eye looking for it. */
     unsigned more = faded(g_dim, 200);
     if (g_detail_scroll >= 1.0f)
-        draw_more(SCR_W - 24, DETAIL_TOP + 4, 1, more);
+        draw_more((int)(rx + PAGE_RIGHT_W - 6), text_top - 10, 1, more);
     if (g_detail_scroll + 1.0f <= g_detail_max)
-        draw_more(SCR_W - 24, DETAIL_BOTTOM - 8, 0, more);
+        draw_more((int)(rx + PAGE_RIGHT_W - 6), PAGE_BOTTOM - 6, 0, more);
 }
 
 /* How wide a line of the band's text is: the measure wrap_text asks, which
@@ -1694,21 +1853,29 @@ static float detail_width(void *ctx, const char *text, size_t len) {
 }
 
 void shell_details(const struct app_entry *entry) {
-    g_details = entry;
-    if (!entry)
+    if (!entry) {
+        /* The page slides out and the browser comes back; the page is
+           still drawn, from its last words, until it is gone. */
+        if (g_details) g_page_leaving = 1;
         return;
+    }
+    g_details = entry;
+    g_page_leaving = 0;
     /* The summary, then the description a blank line below it, either one
        alone when the other is missing; broken into lines here, once. */
     const char *about = entry->description ? entry->description : "";
     snprintf(g_detail_text, sizeof(g_detail_text), "%s%s%s", entry->summary,
              entry->summary[0] && about[0] ? "\n\n" : "", about);
     pspdx_utf8_mend(g_detail_text);
-    g_detail_count = wrap_text(g_detail_text, SCR_W - 2 * DETAIL_X, DETAIL_LINE_BYTES,
+    g_detail_count = wrap_text(g_detail_text, PAGE_RIGHT_W, DETAIL_LINE_BYTES,
                                detail_width, NULL, g_detail_lines, DETAIL_LINES);
     g_detail_scroll = 0.0f;
-    /* Scrolled as far as the last line standing on the band's last baseline. */
-    int last = DETAIL_Y + DETAIL_TEXT_Y + (g_detail_count - 1) * DETAIL_STEP;
-    g_detail_max = g_detail_count && last > DETAIL_LAST ? (float)(last - DETAIL_LAST) : 0.0f;
+    /* The text starts under the chips, however many rows they take. */
+    int chip_rows = draw_chips(entry, 0, 0, PAGE_RIGHT_W, 0, 0);
+    g_detail_text_top = PAGE_CHIP_Y + 3 + (chip_rows ? chip_rows * CHIP_STEP + 2 : 0);
+    /* Scrolled as far as the last line standing on the column's last baseline. */
+    int last = g_detail_text_top + (g_detail_count - 1) * DETAIL_STEP;
+    g_detail_max = g_detail_count && last > PAGE_BOTTOM - 4 ? (float)(last - (PAGE_BOTTOM - 4)) : 0.0f;
 }
 
 /* The stick on a column of text, -1 pushed up to 1 pushed down. Past the
@@ -1730,6 +1897,13 @@ static void push_scroll(float *at, float max, float push) {
 
 void shell_details_scroll(float push) {
     if (g_details) push_scroll(&g_detail_scroll, g_detail_max, push);
+}
+
+void shell_details_step(int lines) {
+    if (!g_details) return;
+    g_detail_scroll += lines * DETAIL_STEP;
+    if (g_detail_scroll > g_detail_max) g_detail_scroll = g_detail_max;
+    if (g_detail_scroll < 0.0f) g_detail_scroll = 0.0f;
 }
 
 void shell_card_scroll(float push) {
@@ -1767,7 +1941,16 @@ static void draw_footer(void) {
     gfx_vgrad(0, FOOTER_Y, SCR_W, SCR_H - FOOTER_Y, RGBA(0, 0, 0, 120),
               RGBA(0, 0, 0, 200));
     if (g_details) {
-        draw_hint(LIST_X, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
+        /* The page names its keys, since X does the one thing there is to
+           do to the package and that thing changes with its state. */
+        const struct app_entry *e = g_details;
+        float x = LIST_X;
+        const char *word = e->state == APP_UPDATE ? T_HINT_UPDATE
+                         : e->state == APP_NOT_INSTALLED ? T_MENU_INSTALL : T_MENU_RUN;
+        if (!(e->state == APP_NOT_INSTALLED && e->unsupported))
+            x = draw_hint(x, FOOTER_BASE, MARK_CROSS, word, g_dim);
+        x = draw_hint(x, FOOTER_BASE, MARK_TRIANGLE, T_HINT_OPTIONS, g_dim);
+        draw_hint(x, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
     } else {
         font_print_clipped(FONT_META, LIST_X, FOOTER_BASE, SCR_W - 2 * LIST_X,
                            g_accent, g_status);
@@ -1839,7 +2022,7 @@ int draw_setting_note(const char *title, const char *note, float age) {
 }
 
 static void draw_setting_panel(int n) {
-    draw_setting_note(view_setting(n), SETTING_NOTE[n], 0.0f);
+    draw_setting_note(setting_word(n), SETTING_NOTE[n], 0.0f);
 }
 
 void shell_draw(const struct catalog *catalog, int cursor) {
@@ -1880,6 +2063,21 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     g_tint = rgb_mix(g_tint, target, tint_ease);
     derive_palette();
 
+    /* The page on its way in or out, eased in real time so it takes the
+       same path at 30 and 60 FPS; the browser goes off to the left by the
+       same amount, and comes back when the page is gone. */
+    float page_goal = g_details && !g_page_leaving ? 1.0f : 0.0f;
+    float page_ease = 0.16f * g_dt * 60.0f;
+    if (page_ease > 0.8f) page_ease = 0.8f;
+    g_page += (page_goal - g_page) * page_ease;
+    if (g_page_leaving && g_page < 0.01f) {
+        g_page = 0.0f;
+        g_page_leaving = 0;
+        g_details = 0;
+    }
+    if (g_details && !g_page_leaving && g_page > 0.995f) g_page = 1.0f;
+    g_page_dx = -SCR_W * g_page * g_page * (3.0f - 2.0f * g_page);
+
     /* The word for the wait is baked between frames, once per word. */
     if (catalog->count <= 0 && g_status[0]) title_prepare(g_word, g_tint);
 
@@ -1887,12 +2085,14 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     gfx_vgrad(0, 0, SCR_W, SCR_H, rgb_pack(rgb_mix(NIGHT_TOP, g_tint, 0.05f), 255),
               rgb_pack(rgb_mix(NIGHT_BOTTOM, g_tint, 0.18f), 255));
     bar_settle();
-    lattice_draw(t, g_tint);
-    if (gfx_fps_cap30()) draw_water_light(t);
-    /* Over the water and under everything that is read: the picture is the
-       room the interface stands in while nobody is working it, which is
-       where the XMB puts a game's picture too. */
-    draw_backdrop();
+    if (!g_light) {
+        lattice_draw(t, g_tint);
+        if (gfx_fps_cap30()) draw_water_light(t);
+        /* Over the water and under everything that is read: the picture is
+           the room the interface stands in while nobody is working it,
+           which is where the XMB puts a game's picture too. */
+        draw_backdrop();
+    }
     unsigned t1 = now_us();
     /* Left alone, the picture of the package under the cursor rises behind
        everything, over about two seconds; a key takes it down again in a
@@ -1902,8 +2102,13 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     if (g_rest > 1.0f) g_rest = 1.0f;
     /* And as the picture comes up the interface goes: left alone for long
        enough, what is on the screen is the package's own picture and
-       nothing over it, until a key brings the rows back in a few frames. */
-    gfx_veil((int)(256.0f * (1.0f - g_rest)));
+       nothing over it, until a key brings the rows back in a few frames.
+       Only where a picture does come up: at 60 Hz there is none, and an
+       interface that fades from an empty room reads as a crash, not as
+       rest. */
+    int backdrop_alpha = 0;
+    int backdrop = gfx_fps_cap30() && preview_still(&backdrop_alpha) && backdrop_alpha > 0;
+    gfx_veil(backdrop ? (int)(256.0f * (1.0f - g_rest)) : 256);
     draw_chrome(catalog, t);
     if (files_view_shown()) {
         files_view_draw(t);
@@ -1912,7 +2117,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     } else if (catalog->count > 0 && view_tab_kind() == VIEW_TAB_UMD) {
         /* The UMD tab has no rows yet, only the one line saying so, in the
            middle of the room under the header. */
-        font_print(FONT_BODY, SCR_W / 2.0f - font_width(FONT_BODY, T_UMD_SOON) / 2.0f,
+        font_print(FONT_TITLE, SCR_W / 2.0f - font_width(FONT_TITLE, T_UMD_SOON) / 2.0f,
                    (HEADER_H + SCR_H) / 2.0f + 5, g_text, T_UMD_SOON);
     } else if (catalog->count > 0 && view_count() > 0) {
         int rows = view_count();
@@ -1927,9 +2132,12 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         int menu_active = g_menu || g_menu_leaving;
         int suppress_panel = menu_active
                            && (!gfx_fps_cap30() || menu_left <= PANEL_X);
+        /* Nor while the browser is off the left edge under the page. */
+        if (g_page_dx <= -(SCR_W - 20)) suppress_panel = 1;
         if (!suppress_panel) {
             if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
             else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
+            else if (index <= VIEW_ROW_CATEGORY) draw_category_panel(VIEW_ROW_CATEGORY - index);
             else if (index >= 0) draw_panel(&catalog->apps[index], t);
         }
     } else if (g_status[0]) {
@@ -1948,7 +2156,8 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     gfx_veil(256);
     /* Everything lit bleeds into the room: last, over the letters too, the
        way the system's own screen glows, and under the fade. */
-    gfx_bloom(PSPDX_BLOOM ? 150 : 0);
+    gfx_bloom(PSPDX_BLOOM && !g_light ? 150 : 0);
+    g_light = 0;
     /* After the bloom, so the number stays crisp, and over the footer's
        strip rather than under it. */
     draw_fps();

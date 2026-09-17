@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13">
+  <!-- Three lines: a list. -->
+  <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round">
+    <path d="M2.5 3.5 H10.5"/>
+    <path d="M2.5 6.5 H10.5"/>
+    <path d="M2.5 9.5 H10.5"/>
+  </g>
+</svg>

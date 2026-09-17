@@ -55,6 +55,19 @@ int view_tab_active(void);
    tab's own label and the reason it exists at all. */
 int view_updates_waiting(void);
 
+/* Under the store, before the packages, the categories the catalogs name:
+   one row each, with how many packages stand in it. Taking one narrows the
+   store to that category until O opens it back up. view_index() answers
+   VIEW_ROW_CATEGORY minus the category's number for such a row. */
+#define VIEW_ROW_CATEGORY (-50)
+#define VIEW_CATEGORIES 32
+int view_category_count(void);              /* rows on the open store */
+const char *view_category(int n);           /* the word, as the catalogs write it */
+int view_category_apps(int n);              /* packages in it */
+int view_category_open_at(void);            /* the one the store is narrowed to, -1 if none */
+void view_category_open(int n);
+void view_category_close(void);
+
 /* That row. view_index() answers VIEW_ROW_ACTION for it, which is
    below zero like the no-such-row answer, so anything that only ever wanted
    a package goes on being right by asking for one. */
@@ -64,7 +77,7 @@ int view_updates_waiting(void);
    do to itself: view_index() answers VIEW_ROW_SETTING minus the
    row's number for them, so the one list draws and walks both kinds. */
 #define VIEW_ROW_SETTING (-100)
-#define VIEW_SETTINGS 7
+#define VIEW_SETTINGS 5
 
 /* The word on a row under the gear. */
 const char *view_setting(int n);

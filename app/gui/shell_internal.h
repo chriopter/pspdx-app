@@ -13,11 +13,14 @@
 #define FOOTER_Y 252
 #define FOOTER_BASE (FOOTER_Y + 11)     /* the hints' baseline, clear of the edge */
 
+/* Two columns of one width, the screen's middle in the gutter between
+   them and the same margin at either wall: 16, 216 of list, a gutter of
+   32 astride 240, 216 of card, 16. */
 #define LIST_X 16
-#define LIST_W 200
+#define LIST_W 216
 #define LIST_Y 52       /* a clear breath under the header's rule */
 
-#define PANEL_X 232
+#define PANEL_X 248
 
 /* The list's rows, and where the package's icon sits in one; the gear's
    rows and Manage sources' are measured the same. */
@@ -29,7 +32,7 @@
 #define VISIBLE ((FOOTER_Y - 6 - LIST_Y) / ITEM_H)
 
 /* The right column: as wide as the card, from where the card starts. */
-#define SHOT_W 224
+#define SHOT_W 216
 #define SHOT_Y 51
 
 #define INFO_Y 36
@@ -68,6 +71,7 @@ float hover_age(int list, int key);
    of the selection, whose eased top is sel_y; and the scroll bar, for a list
    of count rows scrolled to first, when they are more than fit. */
 void draw_rows_light(int rows, float sel_y, float t);
+void draw_rows_light_of(int rows, int row_h, float sel_y, float t);
 void draw_rows_bar(int count, float first, float t);
 
 /* The gear's right column: a row's name, and under it what taking the row

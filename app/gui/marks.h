@@ -20,6 +20,8 @@ enum mark {
     MARK_TICK, MARK_UPDATE, MARK_BASKET, MARK_INSTALLED, MARK_PLAY,
     MARK_DOWNLOAD, MARK_INFO,
     MARK_STORE, MARK_UMD,
+    MARK_GAMES, MARK_DEMOS, MARK_APPS,         /* the store's three categories */
+    MARK_PLUS, MARK_PAGE, MARK_LIST, MARK_GLOBE, /* adding a source, and the kinds of one */
     MARK_START, MARK_SELECT, MARK_L, MARK_R, MARK_HOME, MARK_GEAR,
     MARK_COUNT
 };

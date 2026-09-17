@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13">
+  <!-- A plus: two strokes, the width of a face button's. -->
+  <g fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round">
+    <path d="M6.5 2.2 V10.8"/>
+    <path d="M2.2 6.5 H10.8"/>
+  </g>
+</svg>

@@ -12,9 +12,9 @@
    the host tests read what the console shows. gui/sources_view.c draws it;
    session/options.c walks it. */
 
-#define MANAGE_ROWS (SOURCES_MAX + 1)
+#define MANAGE_ROWS (SOURCES_MAX + 2)
 
-enum manage_kind { MANAGE_ADD, MANAGE_SOURCE };
+enum manage_kind { MANAGE_ADD, MANAGE_DIRECT, MANAGE_SOURCE };
 
 /* How the last fetch went: not fetched since the line was added, loaded,
    served from its saved copy only, or not loaded at all. */
@@ -22,12 +22,13 @@ enum manage_state { MANAGE_NOT_LOADED, MANAGE_OK, MANAGE_OFFLINE, MANAGE_UNREACH
 
 struct manage_row {
     enum manage_kind kind;
-    int source;                 /* index into the sources, -1 for Add source */
+    int source;                 /* index into the sources, -1 for the two jobs */
+    enum source_kind skind;     /* what kind of source, for MANAGE_SOURCE */
     enum manage_state state;
     int apps;                   /* apps it brought, -1 when unknown */
     unsigned loaded_at;         /* unix seconds, 0 when not loaded live */
     char name[64];              /* the host, or owner/repo */
-    char status[48];            /* the line under the name */
+    char status[64];            /* the kind and the line under the name */
 };
 
 struct manage_sources {

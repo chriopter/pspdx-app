@@ -29,6 +29,10 @@ trap 'rm -rf "$tmp"' EXIT
 pad=3           # pixels of room around the shadow
 sigma=1.1       # blur, in final pixels
 scale=4         # rendered this much larger, blurred, then scaled back
+# The sources are drawn at the XMB's list-icon size; the shell's type is
+# the XMB's item size, a fifth larger, and the marks stand beside that
+# type, so they are rasterised a fifth larger too, off the same vectors.
+size=${MARK_SIZE:-1.2}
 
 for path in "$src"/*.svg; do
     name=$(basename "$path" .svg)
@@ -38,6 +42,8 @@ for path in "$src"/*.svg; do
     w=$(sed -n 's/.*<svg[^>]* width="\([0-9.]*\)".*/\1/p' "$path" | head -1)
     h=$(sed -n 's/.*<svg[^>]* height="\([0-9.]*\)".*/\1/p' "$path" | head -1)
     [ -n "$w" ] && [ -n "$h" ] || { echo "$name: no size in the svg" >&2; exit 1; }
+    w=$(awk "BEGIN { printf \"%d\", $w * $size + 0.5 }")
+    h=$(awk "BEGIN { printf \"%d\", $h * $size + 0.5 }")
 
     # White with the coverage in the alpha. The alpha is taken out and put
     # back rather than trusted as it comes: a resampled RGBA PNG can carry

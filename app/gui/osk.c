@@ -1,4 +1,5 @@
 #include <pspkernel.h>
+#include <psppower.h>
 #include <psputility.h>
 #include <stdio.h>
 #include <string.h>
@@ -106,9 +107,19 @@ int osk_read(const char *title, const char *initial, char *out, size_t size) {
     }
     g_open = 1;
     g_seen = 0;
+    int cpu_before = scePowerGetCpuClockFrequencyInt();
     gfx_frame_overlay(overlay);
     while (g_open) g_draw(g_draw_ctx);
     gfx_frame_overlay(NULL);
+    /* The dialog is the firmware's, and the firmware runs at its own
+       clock: the console can come back from it at 222 MHz, and everything
+       after the keyboard then crawls. Put the clock back where main set
+       it, and say so once when it had moved. */
+    int cpu_after = scePowerGetCpuClockFrequencyInt();
+    if (cpu_after != cpu_before || cpu_after < 333) {
+        logline("osk: cpu %d -> %d MHz, set back to 333", cpu_before, cpu_after);
+        scePowerSetClockFrequency(333, 333, 166);
+    }
 
     out[0] = '\0';
     if (g_data.result == PSP_UTILITY_OSK_RESULT_CANCELLED) {

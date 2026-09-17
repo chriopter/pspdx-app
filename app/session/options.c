@@ -68,7 +68,8 @@ static struct menu g_menu;
 /* The rows the panel is handed: the shown choices, in order. */
 static int g_row[CHOICE_COUNT];
 static char g_menu_title[48];
-static int g_menu_open, g_menu_of, g_details_from_menu;
+static int g_menu_open, g_menu_of, g_details_from_menu, g_details_index = -1;
+int menu_details_index(void) { return g_details_index; }
 
 /* The keys that do a row's thing without the menu, named at the row: the
    menu is where they are learned. */
@@ -88,6 +89,7 @@ static int row_of(enum choice c) {
 }
 
 void menu_open(int index) {
+    g_details_index = -1;
     const struct app_entry *entry = &actions_catalog()->apps[index];
     int installed = entry->state != APP_NOT_INSTALLED;
     snprintf(g_menu_title, sizeof(g_menu_title), "%s", entry->name);
@@ -199,9 +201,10 @@ static void tick_text(char *out, size_t size, const char *label, int ticked) {
 static void quirks_build(void) {
     tick_text(g_quirk_text[0], sizeof(g_quirk_text[0]), T_SUB_FPS, shell_show_fps());
     tick_text(g_quirk_text[1], sizeof(g_quirk_text[1]), T_SUB_DEV, shell_dev_updates());
-    g_menu.count = 2;
+    g_menu.count = 3;
     g_menu.item[0] = g_quirk_text[0];
     g_menu.item[1] = g_quirk_text[1];
+    g_menu.item[2] = T_SUB_SWEEP;
 }
 
 static void graphics_build(void) {
@@ -212,6 +215,13 @@ static void graphics_build(void) {
     g_menu.count = 2;
     g_menu.item[0] = g_graphics_text[0];
     g_menu.item[1] = g_graphics_text[1];
+}
+
+void options_fps_toggle_saved(void) {
+    int cap30 = !gfx_fps_cap30();
+    gfx_set_fps_cap30(cap30);
+    g_settings_fps_cap30 = cap30;
+    g_settings_dirty = 1;
 }
 
 void options_fps_runtime_toggle(void) {
@@ -330,6 +340,11 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
         if (pressed & PSP_CTRL_DOWN) { g_menu.cursor = (g_menu.cursor + 1) % g_menu.count; sub_push(); cues_post(CUE_MOVE, 0); }
         else if (pressed & PSP_CTRL_UP) { g_menu.cursor = (g_menu.cursor + g_menu.count - 1) % g_menu.count; sub_push(); cues_post(CUE_MOVE, 0); }
         else if (pressed & PSP_CTRL_CIRCLE) sub_close();
+        else if ((pressed & PSP_CTRL_CROSS) && g_sub == SUB_QUIRKS && g_menu.cursor == 2) {
+            /* The seed's renewal: the popup goes, the sweep runs. */
+            sub_close();
+            sweep_again();
+        }
         else if ((pressed & PSP_CTRL_CROSS) && g_sub == SUB_QUIRKS) {
             /* A switch flips and the popup stays, its tick with it. */
             if (g_menu.cursor == 0) shell_toggle_fps();
@@ -409,6 +424,7 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
                 shell_details(&actions_catalog()->apps[index]);
                 *details = 1;
                 g_details_from_menu = 1;
+                g_details_index = index;
             } else {
                 install_app(index, 0, 0, 0);
                 dump_diagnostics();
@@ -434,6 +450,8 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             g_manage_stale = 1;
             if (row->kind == MANAGE_ADD) {
                 if (type_source(0)) refetch_now(*cursor, keep, keep_size, synced, refreshing);
+            } else if (row->kind == MANAGE_DIRECT) {
+                sub_open(SUB_ADD);
             } else {
                 /* Named without the scheme; every source has it. */
                 const char *u = manage_url(&g_manage, g_manage.cursor);

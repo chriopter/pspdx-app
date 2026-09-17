@@ -230,7 +230,7 @@ class ClientTests(unittest.TestCase):
  def test_view_tabs_come_and_go(self):
   # One app, installed with a newer one published: stick, Homebrew, the UMD, which has no rows, and the gear; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
   self.fixtures();r=self.run_client('view')
-  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 1 first 0 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 7 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
+  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 4 first -50 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 5 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
  def test_catalog_offline_fallback(self):
   self.fixtures();r=self.run_client('fetch');self.assertIn(ID+' 2 1',r.stdout)
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)
@@ -314,15 +314,16 @@ class ClientTests(unittest.TestCase):
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n'+down+'\n')
   lines=self.run_client('manage',DOWN_HOST='down.example.org').stdout.splitlines()
   self.assertEqual(lines[0],'Add source |  |  | Enter the address of a catalog site, a catalog.json or a text list. Nothing is installed.')
-  self.assertEqual(lines[1],'example.com | 1 app | https://example.com/catalog.json | A catalog file of apps and their releases. Deleting it keeps installed apps.')
-  self.assertEqual(lines[2:4],['  Kind: catalog.json','  Apps: 1'])
-  self.assertRegex(lines[4],r'^  Loaded: \d{4}-\d\d-\d\d \d\d:\d\d UTC$')
-  self.assertEqual(lines[5:],['down.example.org | Unreachable | '+down+' | Could not be loaded. Its apps are not shown. Deleting it keeps installed apps.','  Kind: Catalog site','up from the top: 2'])
+  self.assertEqual(lines[1],'Direct install |  |  | Install an app from GitHub or from the INBOX folder.')
+  self.assertEqual(lines[2],'example.com | catalog.json, 1 app | https://example.com/catalog.json | A catalog file of apps and their releases. Deleting it keeps installed apps.')
+  self.assertEqual(lines[3:5],['  Kind: catalog.json','  Apps: 1'])
+  self.assertRegex(lines[5],r'^  Loaded: \d{4}-\d\d-\d\d \d\d:\d\d UTC$')
+  self.assertEqual(lines[6:],['down.example.org | Catalog site, unreachable | '+down+' | Could not be loaded. Its apps are not shown. Deleting it keeps installed apps.','  Kind: Catalog site','up from the top: 3'])
   lines=self.run_client('manage',CATALOG_DOWN=1,DOWN_HOST='down.example.org').stdout.splitlines()
-  self.assertEqual(lines[1:4],['example.com | Offline copy, 1 app | https://example.com/catalog.json | Could not be loaded. Its apps are from the saved copy. Deleting it keeps installed apps.','  Kind: catalog.json','  Apps: 1'])
-  self.assertEqual(lines[4],'  Loaded: saved copy')
+  self.assertEqual(lines[2:5],['example.com | catalog.json, offline copy, 1 app | https://example.com/catalog.json | Could not be loaded. Its apps are from the saved copy. Deleting it keeps installed apps.','  Kind: catalog.json','  Apps: 1'])
+  self.assertEqual(lines[5],'  Loaded: saved copy')
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://github.com/test/demo\n')
-  self.assertEqual(self.run_client('manage').stdout.splitlines()[1].split(' | ')[:2],['test/demo','1 app'])
+  self.assertEqual(self.run_client('manage').stdout.splitlines()[2].split(' | ')[:2],['test/demo','Repository, 1 app'])
  def test_embedded_presets_match_the_file(self):
   import re
   root=pathlib.Path(__file__).resolve().parents[2]
@@ -626,7 +627,7 @@ class ClientTests(unittest.TestCase):
   lines=self.wrap_bytes('—é😀'.encode(),1000,2)
   self.assertEqual(lines,['—'.encode(),'é'.encode(),'😀'.encode()])
  def test_one_tab_holds_everything_published(self):
-  # No tab per category: whatever an entry is tagged and whatever category or type it names, it stands in Homebrew, the one tab for what is published, a plugin too; the tabs stay the stick, Homebrew, the empty UMD and the gear.
+  # No tab per category: whatever an entry is tagged and whatever category or type it names, it stands in Homebrew, the one tab for what is published, a plugin too; the tabs stay the stick, Homebrew, the empty UMD and the gear. Homebrew opens with the three category rows the console has words for, before the package, whatever the entry names.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]
   for tags,kind,category in ((['Jeu','games','Game'],None,None),([],None,None),(None,None,None),(['game','demo','emulator'],None,None),(['plugin'],None,None),(['game'],'plugin',None),
                              (['puzzle'],None,'game'),(['game','demo'],None,'emulator'),(['game'],None,'Puzzle'),(['game'],None,'Game'),(['demo'],'plugin','app')):
@@ -636,7 +637,8 @@ class ClientTests(unittest.TestCase):
     if category is not None:a['category']=category
     if kind:a['type']=kind;a.pop('installdir')
     self.write('catalog.json',dict(catalog,apps=[a]))
-    self.assertEqual(self.run_client('view').stdout.splitlines()[:3],['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 1 first 0 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0'])
+    # The store opens with its three category rows -- game, demo, app -- whatever the entry names, the package below them.
+    self.assertEqual(self.run_client('view').stdout.splitlines()[:3],['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 4 first -50 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0'])
  def gzip_catalog(self,data=None,cut=0,flip=False):
   raw=(self.root/'catalog.json').read_bytes() if data is None else json.dumps(data).encode()
   packed=bytearray(gzip.compress(raw))

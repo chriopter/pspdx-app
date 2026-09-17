@@ -134,7 +134,7 @@ void files_view_draw(float t) {
                      rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 140));
         }
         float dw = r->detail[0] ? font_width(FONT_META, r->detail) : 0.0f;
-        font_print_scrolling(FONT_BODY, LIST_X, y + 18, LIST_W - dw - 14,
+        font_print_scrolling(FONT_TITLE, LIST_X, y + 18, LIST_W - dw - 14,
                              selected ? g_text : g_dim, r->name,
                              selected ? hover_age(1, v->level * 1000 + i) : 0.0f);
         if (r->detail[0])
@@ -234,8 +234,8 @@ static void draw_raw_band(void) {
     const struct file_view *v = g_files;
     draw_band(INFO_Y, INFO_H);
     int x = 40, w = SCR_W - 80, y = INFO_Y + 14;
-    font_print_clipped(FONT_BODY, x, y + 12, w, g_text, v->head);
-    font_print_clipped(FONT_META, x, y + 26, w, faded(g_dim, 170), v->path);
+    font_print_clipped(FONT_TITLE, x, y + 12, w, g_text, v->head);
+    font_print_clipped(FONT_META, x, y + 27, w, faded(g_dim, 170), v->path);
     band_rule(y + 34, 200, 120);
     y += 44;
     int room = (INFO_Y + INFO_H - 22 - y) / RAW_STEP;

@@ -7,6 +7,7 @@
  * main.c walks it.
  */
 
+#include <stdio.h>
 #include <string.h>
 
 #include "session/view.h"
@@ -66,6 +67,71 @@ int view_updates_waiting(void) {
 /* restart is for a view whose rows now stand for other packages than they
    did: the list goes back to the top and the card is told to fetch afresh.
    A view merely rebuilt under the same tab keeps where it was scrolled to. */
+/* The categories the catalogs name, in the order they are first met,
+   each with its count: the rows the store opens with. A category is a
+   word an author chose, so two spellings of one word are one category
+   only when they agree letter for letter, case aside. */
+static char g_cat[VIEW_CATEGORIES][PSPDX_CATEGORY_SIZE];
+static int g_cat_apps[VIEW_CATEGORIES];
+static int g_cats;
+static int g_cat_open = -1;
+
+static int same_word(const char *a, const char *b) {
+    for (; *a && *b; a++, b++) {
+        unsigned char x = (unsigned char)*a, y = (unsigned char)*b;
+        if (x >= 'A' && x <= 'Z') x += 'a' - 'A';
+        if (y >= 'A' && y <= 'Z') y += 'a' - 'A';
+        if (x != y) return 0;
+    }
+    return *a == *b;
+}
+
+static int category_of(const struct app_entry *entry) {
+    if (!entry->category[0]) return -1;
+    for (int c = 0; c < g_cats; c++)
+        if (same_word(g_cat[c], entry->category)) return c;
+    return -1;
+}
+
+/* The rows the store opens with, for now: the three groups the standard
+   names as the console's own, in this order, whatever else the catalogs
+   write. A package in another category stands in the list below them and
+   under no row. */
+static const char *const STORE_CATEGORIES[] = { "game", "demo", "app" };
+
+static void collect_categories(void) {
+    g_cats = 0;
+    memset(g_cat_apps, 0, sizeof(g_cat_apps));
+    for (size_t c = 0; c < sizeof(STORE_CATEGORIES) / sizeof(*STORE_CATEGORIES); c++)
+        snprintf(g_cat[g_cats++], sizeof(g_cat[0]), "%s", STORE_CATEGORIES[c]);
+    if (!g_view_of) return;
+    for (int i = 0; i < g_view_of->count; i++) {
+        int c = category_of(&g_view_of->apps[i]);
+        if (c >= 0) g_cat_apps[c]++;
+    }
+    if (g_cat_open >= g_cats) g_cat_open = -1;
+}
+
+int view_category_count(void) {
+    int tab = g_tabs ? g_tab[g_tab_at] : 0;
+    return tab == TAB_HOMEBREW && g_cat_open < 0 ? g_cats : 0;
+}
+const char *view_category(int n) { return n >= 0 && n < g_cats ? g_cat[n] : ""; }
+int view_category_apps(int n) { return n >= 0 && n < g_cats ? g_cat_apps[n] : 0; }
+int view_category_open_at(void) { return g_cat_open; }
+
+static void build_view(int restart);
+void view_category_open(int n) {
+    if (n < 0 || n >= g_cats) return;
+    g_cat_open = n;
+    build_view(1);
+}
+void view_category_close(void) {
+    if (g_cat_open < 0) return;
+    g_cat_open = -1;
+    build_view(1);
+}
+
 static void build_view(int restart) {
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
     g_view_count = 0;
@@ -73,7 +139,8 @@ static void build_view(int restart) {
     if (!g_view_of || g_tabs <= 0) return;
     for (int i = 0; i < g_view_of->count; i++) {
         int take;
-        if (tab == TAB_HOMEBREW) take = 1;
+        if (tab == TAB_HOMEBREW)
+            take = g_cat_open < 0 || category_of(&g_view_of->apps[i]) == g_cat_open;
         else if (tab == TAB_STICK) take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_BASKET) take = view_basket_has(i);
         else take = 0;      /* the gear's rows are not packages; the UMD has none */
@@ -132,6 +199,8 @@ void view_rebuild(const struct catalog *catalog) {
        old one was. Nothing is carried across. */
     view_basket_clear();
     g_view_of = catalog;
+    g_cat_open = -1;
+    collect_categories();
     collect_tabs(was);
     build_view(1);
 }
@@ -145,7 +214,7 @@ int view_tabs_refresh(void) {
 
 int view_count(void) {
     if (g_tabs && g_tab[g_tab_at] == TAB_GEAR) return VIEW_SETTINGS;
-    return g_view_count + g_view_action;
+    return view_category_count() + g_view_count + g_view_action;
 }
 
 static int view_action(int row) { return g_view_action && row == 0; }
@@ -153,6 +222,9 @@ static int view_action(int row) { return g_view_action && row == 0; }
 int view_index(int row) {
     if (g_tabs && g_tab[g_tab_at] == TAB_GEAR)
         return row >= 0 && row < VIEW_SETTINGS ? VIEW_ROW_SETTING - row : -1;
+    int cats = view_category_count();
+    if (row >= 0 && row < cats) return VIEW_ROW_CATEGORY - row;
+    row -= cats;
     if (view_action(row)) return VIEW_ROW_ACTION;
     row -= g_view_action;
     return row >= 0 && row < g_view_count ? g_view[row] : -1;
@@ -160,7 +232,7 @@ int view_index(int row) {
 
 int view_row(int index) {
     for (int row = 0; row < g_view_count; row++)
-        if (g_view[row] == index) return row + g_view_action;
+        if (g_view[row] == index) return row + g_view_action + view_category_count();
     return -1;
 }
 
@@ -199,6 +271,9 @@ int view_tab_count(void) { return g_tabs; }
 void view_tab_move(int step) {
     if (g_tabs <= 1) return;
     g_tab_at = (g_tab_at + step + g_tabs) % g_tabs;
+    /* Leaving the store opens it back up: a category is a place inside
+       the store, not a state the other tabs know about. */
+    g_cat_open = -1;
     build_view(1);
 }
 
@@ -217,13 +292,11 @@ unsigned view_generation(void) { return g_generation; }
    the band that says what it is. A row here is read and taken the way a
    package's row is, because at this depth nothing is deeper. */
 static const char *const SETTING[VIEW_SETTINGS] = {
+    T_SET_GRAPHICS,             /* named by the mode that is on; see below */
     T_SET_SOURCES,
-    T_SET_DIRECT,
     T_SET_FILES,
     T_SET_RESET,
     T_SET_INFO,
-    T_SET_GRAPHICS,
-    T_SET_QUIRKS,
 };
 
 const char *view_setting(int n) {

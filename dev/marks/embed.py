@@ -30,6 +30,8 @@ ORDER = [
     'cross', 'circle', 'triangle', 'square',
     'tick', 'update', 'basket', 'installed', 'play', 'download', 'info',
     'store', 'umd',
+    'games', 'demos', 'apps',
+    'plus', 'page', 'list', 'globe',
     'start', 'select', 'l', 'r', 'home', 'gear',
 ]
 

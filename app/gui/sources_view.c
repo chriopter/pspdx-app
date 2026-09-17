@@ -20,7 +20,7 @@ void sources_view_set(const struct manage_sources *m) {
        the bar already on its row. */
     if (m && !g_m) {
         g_first = 0;
-        g_sel_y = LIST_Y + m->cursor * ITEM_H;
+        g_sel_y = LIST_Y + m->cursor * 40;
     }
     g_m = m;
 }
@@ -59,44 +59,49 @@ static void break_url(const char *url) {
     }
 }
 
+/* The rows are taller than the list's: a source carries its name and a
+   line under it, and the two want air between them. */
+#define SRC_ROW_H 40
+#define SRC_VISIBLE ((FOOTER_Y - 6 - LIST_Y) / SRC_ROW_H)
+
 static void draw_row(const struct manage_row *r, int i, int y, int selected, float t) {
-    float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
+    float gx = LIST_X + ICON_W / 2.0f, gy = y + SRC_ROW_H / 2.0f;
     int w = LIST_X + LIST_W - NAME_X;
-    if (r->kind == MANAGE_ADD) {
-        /* The job, one line, with the sign the gear's Sources row carries. */
-        mark_draw(MARK_DOWNLOAD, gx, gy, selected ? g_text : faded(g_dim, 170),
+    if (r->kind != MANAGE_SOURCE) {
+        /* The two jobs, one line each: a plus for a source to be added,
+           the arrow onto the floor for one package to be fetched. */
+        mark_draw(r->kind == MANAGE_ADD ? MARK_PLUS : MARK_DOWNLOAD, gx, gy,
+                  selected ? g_text : faded(g_dim, 170),
                   selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
-        font_print_clipped(FONT_BODY, NAME_X, y + 21, w, selected ? g_text : g_dim, r->name);
+        font_print_clipped(FONT_TITLE, NAME_X, y + 25, w, selected ? g_text : g_dim, r->name);
         return;
     }
-    /* A source's sign is how it stands: ticked off when it loaded, the stick
-       when only its saved copy answered, nothing when it did not load. */
-    if (r->state == MANAGE_OK)
-        mark_draw(MARK_TICK, gx, gy, selected ? g_accent : faded(g_dim, 150),
-                  selected ? MARK_PLAIN : MARK_DIM, 0, t);
-    else if (r->state == MANAGE_OFFLINE)
-        mark_draw(MARK_INSTALLED, gx, gy, selected ? g_text : faded(g_dim, 170),
-                  selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
-    /* Two lines, the way the action row is: the name, and under it how the
+    /* A source's sign is what kind of source it is: a site out on the
+       network, a catalog file, a text list, one repository. */
+    enum mark sign = r->skind == SOURCE_REPO ? MARK_HOME
+                   : r->skind == SOURCE_LIST ? MARK_LIST
+                   : r->skind == SOURCE_CATALOG ? MARK_PAGE : MARK_GLOBE;
+    mark_draw(sign, gx, gy, selected ? g_text : faded(g_dim, 170),
+              selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+    /* Two lines with air between them: the name, and under it how the
        last fetch went. */
-    font_print_scrolling(FONT_BODY, NAME_X, y + 12, w, selected ? g_text : g_dim, r->name,
+    font_print_scrolling(FONT_TITLE, NAME_X, y + 17, w, selected ? g_text : g_dim, r->name,
                          selected ? hover_age(3, i) : 0.0f);
-    font_print_clipped(FONT_META, NAME_X, y + 26, w, g_dim, r->status);
+    font_print_clipped(FONT_META, NAME_X, y + 33, w, g_dim, r->status);
 }
 
 void sources_view_draw(float t) {
     const struct manage_sources *m = g_m;
     int count = m->count, cursor = m->cursor;
     if (cursor < g_first) g_first = cursor;
-    if (cursor >= g_first + VISIBLE) g_first = cursor - VISIBLE + 1;
+    if (cursor >= g_first + SRC_VISIBLE) g_first = cursor - SRC_VISIBLE + 1;
     if (g_first < 0) g_first = 0;
-    float target = LIST_Y + (cursor - g_first) * ITEM_H;
+    float target = LIST_Y + (cursor - g_first) * SRC_ROW_H;
     g_sel_y += (target - g_sel_y) * 0.25f;
 
-    draw_rows_light(count < VISIBLE ? count : VISIBLE, g_sel_y, t);
-    for (int i = g_first; i < count && i < g_first + VISIBLE; i++)
-        draw_row(&m->row[i], i, LIST_Y + (i - g_first) * ITEM_H, i == cursor, t);
-    draw_rows_bar(count, (float)g_first, t);
+    draw_rows_light_of(count < SRC_VISIBLE ? count : SRC_VISIBLE, SRC_ROW_H, g_sel_y, t);
+    for (int i = g_first; i < count && i < g_first + SRC_VISIBLE; i++)
+        draw_row(&m->row[i], i, LIST_Y + (i - g_first) * SRC_ROW_H, i == cursor, t);
 
     /* The right column is the gear's: the row's name and what it is. Under
        a source, where it is and how the last fetch went, as facts. */

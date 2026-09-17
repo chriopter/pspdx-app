@@ -41,9 +41,9 @@
 /* ---------------------------------------------------------------- the list */
 
 #define T_DOWNLOAD_ALL       "Download all"
-#define T_UPDATE_ALL         "Update all"
-#define T_CHECK              "Check for updates"
-#define T_ALL_CURRENT        "All up to date"
+#define T_UPDATES            "%d update%s"                        /* n, "s": the stick's job row */
+#define T_NO_UPDATES         "No updates"
+#define T_ALL_CURRENT        "Up to date"
 #define T_NO_RELEASES        "No releases available"
 #define T_PLAN_LINE          "%d app%s, %s"                       /* n, "s", size */
 #define T_PLAN_SIZE          "%s, about %s"                       /* size, time */
@@ -51,10 +51,10 @@
 #define T_AND_MORE           "and %d more"                        /* n */
 
 /* The check row's panel: two keys, and what each of them does. */
-#define T_CHECK_NOTE         "Finds newer versions of your apps."
+#define T_CHECK_NOTE         "Looks for newer versions."
 #define T_QUICK_CHECK        "Quick check"
 #define T_FULL_CHECK         "Full check"
-#define T_CHECK_EXPLAIN      "Quick check reads the catalog. Full check asks GitHub about each app and takes longer."
+#define T_CHECK_EXPLAIN      "Quick reads the catalog. Full asks GitHub per app, slower."
 
 /* The card under the picture. */
 #define T_PANEL_UPDATE       "Update to %s   %s"                  /* version, size */
@@ -82,6 +82,9 @@
 #define T_MENU_INFO          "Information"
 
 #define T_HINT_ENTER         "Enter"
+#define T_HINT_OPTIONS       "Options"
+#define T_HINT_QUIRKS        "Hold for Quirks"
+#define T_HINT_UPDATE        "Update"
 #define T_HINT_BACK          "Back"
 #define T_HINT_CANCEL        "Cancel"
 #define T_HINT_DELETE        "Delete"
@@ -171,14 +174,12 @@
 #define T_SET_RESET          "Reset"
 #define T_SET_INFO           "Information"
 #define T_SET_GRAPHICS       "Graphic Settings"
-#define T_SET_QUIRKS         "Quirks"
 #define T_NOTE_SOURCES       "View, add or delete the sources PSPDX reads apps from."
 #define T_NOTE_DIRECT        "Install an app from GitHub or from the INBOX folder."
 #define T_NOTE_FILES         "View the data PSPDX keeps on the Memory Stick."
 #define T_NOTE_RESET         "Reset PSPDX, or clear the cache and any failed install."
 #define T_NOTE_INFO          "View details about PSPDX and this system."
-#define T_NOTE_GRAPHICS      "Choose a steady 30 FPS or the smoother 60 FPS mode."
-#define T_NOTE_QUIRKS        "Switches for development: the frame counter and faked updates."
+#define T_NOTE_GRAPHICS      "Switches between the steady 30 FPS and the smoother 60 FPS mode."
 
 #define T_SUB_DIRECT         "Direct install"
 #define T_SUB_RESET          "Reset"
@@ -189,8 +190,8 @@
 #define T_SUB_SWEEP          "Renew TLS Seed"
 #define T_SUB_FPS            "Show fps"                          /* a Quirks row, the tick mark after it while on */
 #define T_SUB_DEV            "Fake updates"                      /* a Quirks row: every installed package is said to have an update */
-#define T_SUB_FPS30          "30 FPS"
-#define T_SUB_FPS60          "60 FPS"
+#define T_SUB_FPS30          "Baked UI (30fps)"
+#define T_SUB_FPS60          "Merciful UI (60fps)"
 #define T_SUB_CLEAR_CACHE    "Clear Cache"
 #define T_CACHE_CLEARED      "Cache cleared."
 #define T_CACHE_CLEAR_FAILED "Could not clear the cache."
@@ -201,9 +202,9 @@
    last fetch went under its name; on the right what the row is. */
 #define T_SUB_ADD_SOURCE     "Add source"
 #define T_SOURCE_APPS        "%d app%s"                           /* n, "s" */
-#define T_SOURCE_OFFLINE     "Offline copy, %d app%s"             /* n, "s" */
-#define T_SOURCE_UNREACHABLE "Unreachable"
-#define T_SOURCE_NOT_LOADED  "Not loaded yet"
+#define T_SOURCE_OFFLINE     "offline copy, %d app%s"             /* n, "s"; after the kind */
+#define T_SOURCE_UNREACHABLE "unreachable"
+#define T_SOURCE_NOT_LOADED  "not loaded yet"
 #define T_SOURCE_KIND_SITE   "Catalog site"
 #define T_SOURCE_KIND_JSON   "catalog.json"
 #define T_SOURCE_KIND_LIST   "Text list"
@@ -240,6 +241,8 @@
 #define T_DETAIL_AUTHOR      "Author"
 #define T_DETAIL_LICENSE     "License"
 #define T_DETAIL_TAGS        "Tags"
+#define T_DETAIL_CATEGORY    "Category"
+#define T_CATEGORY_NOTE      "%d app%s in this category: "   /* n, "s"; the names follow */
 #define T_DETAIL_SIZE        "Size"
 #define T_DETAIL_ID          "ID"
 #define T_DETAIL_CHECKED     "Last checked"
