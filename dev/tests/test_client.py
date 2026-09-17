@@ -230,7 +230,7 @@ class ClientTests(unittest.TestCase):
  def test_view_tabs_come_and_go(self):
   # One app, installed with a newer one published: stick, Homebrew, the UMD, which has no rows, and the gear; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
   self.fixtures();r=self.run_client('view')
-  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 4 first -50 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 5 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
+  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 4 first -50 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 4 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
  def test_catalog_offline_fallback(self):
   self.fixtures();r=self.run_client('fetch');self.assertIn(ID+' 2 1',r.stdout)
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)
@@ -309,18 +309,18 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(first.splitlines(),[ID,'https://example.com/catalog.json ok',down+' unreachable'])
   self.assertEqual(again.splitlines(),[ID,'https://example.com/catalog.json ok',down+' ok'])
  def test_manage_sources_says_how_each_source_loaded(self):
-  # Manage sources: Add source on top, then each source with its status line, and on the right its URL, a sentence, its kind, its apps and when it loaded. A catalog that answers only from its saved copy says so; one that does not answer has no apps and no time.
+  # Sources: Add Source on top, then each source with its status line, and on the right its URL, a sentence, its kind, its apps and when it loaded. A catalog that answers only from its saved copy says so; one that does not answer has no apps and no time.
   self.fixtures();down='https://down.example.org/pspdx/'
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n'+down+'\n')
   lines=self.run_client('manage',DOWN_HOST='down.example.org').stdout.splitlines()
-  self.assertEqual(lines[0],'Add source |  |  | Enter the address of a catalog site, a catalog.json or a text list. Nothing is installed.')
-  self.assertEqual(lines[1],'Direct install |  |  | Install an app from GitHub or from the INBOX folder.')
-  self.assertEqual(lines[2],'example.com | catalog.json, 1 app | https://example.com/catalog.json | A catalog file of apps and their releases. Deleting it keeps installed apps.')
+  self.assertEqual(lines[0],'Add Source |  |  | Adds a catalog site, a catalog.json or a text list.')
+  self.assertEqual(lines[1],'Direct Install |  |  | Installs an app from GitHub or from the INBOX folder.')
+  self.assertEqual(lines[2],'example.com | catalog.json, 1 app | https://example.com/catalog.json | Catalog file. Deleting it does not delete installed apps.')
   self.assertEqual(lines[3:5],['  Kind: catalog.json','  Apps: 1'])
   self.assertRegex(lines[5],r'^  Loaded: \d{4}-\d\d-\d\d \d\d:\d\d UTC$')
-  self.assertEqual(lines[6:],['down.example.org | Catalog site, unreachable | '+down+' | Could not be loaded. Its apps are not shown. Deleting it keeps installed apps.','  Kind: Catalog site','up from the top: 3'])
+  self.assertEqual(lines[6:],['down.example.org | Catalog site, unreachable | '+down+' | Could not be loaded. Its apps are not displayed. Deleting it does not delete installed apps.','  Kind: Catalog site','up from the top: 3'])
   lines=self.run_client('manage',CATALOG_DOWN=1,DOWN_HOST='down.example.org').stdout.splitlines()
-  self.assertEqual(lines[2:5],['example.com | catalog.json, offline copy, 1 app | https://example.com/catalog.json | Could not be loaded. Its apps are from the saved copy. Deleting it keeps installed apps.','  Kind: catalog.json','  Apps: 1'])
+  self.assertEqual(lines[2:5],['example.com | catalog.json, offline copy, 1 app | https://example.com/catalog.json | Could not be loaded. The saved copy is displayed. Deleting it does not delete installed apps.','  Kind: catalog.json','  Apps: 1'])
   self.assertEqual(lines[5],'  Loaded: saved copy')
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://github.com/test/demo\n')
   self.assertEqual(self.run_client('manage').stdout.splitlines()[2].split(' | ')[:2],['test/demo','Repository, 1 app'])
@@ -1378,7 +1378,7 @@ class ClientTests(unittest.TestCase):
   r=self.run_client('fetch',FORCE=1,VERBOSE=1,URL_MAP=self.root/'map');self.assertIn('GitHub did not answer',r.stderr);self.assertNotIn('has no release',r.stderr)
   self.assertEqual(self.state()[ID]['installed'],before);self.assertEqual(self.state()[ID]['latest']['checked_from'],SPEC['source'])
   (self.root/'requests.log').write_text('');self.run_client('fetch',URL_MAP=self.root/'map');self.assertNotIn('api.github.com',(self.root/'requests.log').read_text())
-  # Direct install says so, as it says a repository with no release.
+  # Direct Install says so, as it says a repository with no release.
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('');r=self.run_client('add','test/demo',ok=False,URL_MAP=self.root/'map');self.assertIn('refused -5',r.stderr)
   (self.root/'map').write_text('api.github.com - 404\n');r=self.run_client('add','test/demo',ok=False,URL_MAP=self.root/'map');self.assertIn('refused -2',r.stderr)
  def test_a_404_from_another_host_is_not_a_missing_pspdx(self):
@@ -1400,7 +1400,7 @@ class ClientTests(unittest.TestCase):
   self.fixtures();self.run_client('fetch')
   self.assertIn('https://example.com/catalog.json offline copy',self.run_client('reach',CATALOG_DOWN=1).stdout.splitlines())
   self.assertIn('https://example.com/catalog.json ok',self.run_client('reach').stdout.splitlines())
- # --- INBOX and Direct install (0.7 megatest) ---
+ # --- INBOX and Direct Install (0.7 megatest) ---
  def test_an_inbox_file_for_a_repository_without_a_pspdx_is_the_app(self):
   # The repository answers 404: the user's file installs, is kept, and the release is asked at GitHub by it, now and at a check with no catalog.
   self.fixtures();self.run_client('remove');catalog=self.catalog_app();(self.root/'manifest.json').unlink();sources=self.root/'ms0:/PSP/PSPDX/sources.txt';sources.write_text('')

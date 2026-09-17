@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- Sources: a globe at the size of the signs in the header, the
+       basket's rim of 1.6. The ring, the equator, the meridian. -->
+  <g fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round">
+    <circle cx="10" cy="10" r="7.6"/>
+    <path d="M2.4 10 H17.6"/>
+    <ellipse cx="10" cy="10" rx="3.3" ry="7.6"/>
+  </g>
+</svg>

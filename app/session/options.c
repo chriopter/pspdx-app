@@ -16,7 +16,9 @@
 #include "gui/gfx.h"
 #include "gui/marks.h"
 #include "gui/shell.h"
+#include "gui/files_view.h"
 #include "gui/sources_view.h"
+#include "gui/system_view.h"
 #include "session/actions.h"
 #include "session/manage_sources.h"
 #include "session/options.h"
@@ -136,6 +138,7 @@ void menu_open(int index) {
         if (!g_choice_shown[i]) continue;
         g_row[g_menu.count] = i;
         g_menu.item[g_menu.count] = g_choice_text[i];
+        g_menu.value[g_menu.count] = NULL;
         g_menu.on[g_menu.count] = g_choice_on[i];
         g_menu.key[g_menu.count] = g_choice_key[i];
         g_menu.count++;
@@ -152,9 +155,8 @@ static void menu_close(void) {
     shell_menu(NULL);
 }
 
-/* The two popups under the gear, in the same panel the options use: the
-   two ways a .pspdx comes in directly, and the resets. Drawn by the shell,
-   driven here. */
+/* The one popup under the gear, in the same panel the options use: the
+   two ways a .pspdx comes in directly. Drawn by the shell, driven here. */
 static enum sub g_sub;
 
 /* Fake updates, on: every package on the stick that is current is said to
@@ -182,40 +184,7 @@ static void fake_updates(int on) {
     view_tabs_refresh();
 }
 
-/* Quirks: the switches for development, each row a switch, the tick mark
-   after its words while it is on. X flips the row and the popup stays,
-   so several can be set in one visit. */
-static char g_quirk_text[2][40];
-static char g_graphics_text[2][40];
 static void sub_push(void);
-
-static void tick_text(char *out, size_t size, const char *label, int ticked) {
-    snprintf(out, size, "%s%s", label, ticked ? "\x01" : "");
-    size_t n = strlen(out);
-    if (n && out[n - 1] == '\x01' && n + 1 < size) {
-        out[n] = (char)(MARK_TICK + 1);
-        out[n + 1] = '\0';
-    }
-}
-
-static void quirks_build(void) {
-    tick_text(g_quirk_text[0], sizeof(g_quirk_text[0]), T_SUB_FPS, shell_show_fps());
-    tick_text(g_quirk_text[1], sizeof(g_quirk_text[1]), T_SUB_DEV, shell_dev_updates());
-    g_menu.count = 3;
-    g_menu.item[0] = g_quirk_text[0];
-    g_menu.item[1] = g_quirk_text[1];
-    g_menu.item[2] = T_SUB_SWEEP;
-}
-
-static void graphics_build(void) {
-    tick_text(g_graphics_text[0], sizeof(g_graphics_text[0]), T_SUB_FPS30,
-              gfx_fps_cap30());
-    tick_text(g_graphics_text[1], sizeof(g_graphics_text[1]), T_SUB_FPS60,
-              !gfx_fps_cap30());
-    g_menu.count = 2;
-    g_menu.item[0] = g_graphics_text[0];
-    g_menu.item[1] = g_graphics_text[1];
-}
 
 void options_fps_toggle_saved(void) {
     int cap30 = !gfx_fps_cap30();
@@ -228,20 +197,14 @@ void options_fps_runtime_toggle(void) {
     /* SELECT is a session preview. It deliberately changes only gfx's live
        mode; the value loaded from or chosen for settings remains untouched. */
     gfx_set_fps_cap30(!gfx_fps_cap30());
-    if (g_sub == SUB_GRAPHICS) {
-        graphics_build();
-        sub_push();
-    }
 }
 
 static void sub_push(void) {
-    g_menu.title = g_sub == SUB_ADD ? T_SUB_DIRECT
-                 : g_sub == SUB_QUIRKS ? T_SUB_QUIRKS
-                 : g_sub == SUB_GRAPHICS ? T_SUB_GRAPHICS : T_SUB_RESET;
+    g_menu.title = T_SUB_DIRECT;
     shell_menu(&g_menu);
 }
 
-/* Manage sources: not a popup but a view in the list's place, with the
+/* Sources: not a popup but a view in the list's place, with the
    gear's two columns. The rows are session/manage_sources.c's, over the
    list questions.c keeps, since the question that deletes a source points
    into it and is answered after the key that asked it. */
@@ -284,25 +247,31 @@ static void sources_close(void) {
 void sub_open(enum sub which) {
     g_sub = which;
     g_menu.count = 0;
-    if (which == SUB_ADD) {
-        g_menu.item[g_menu.count++] = T_SUB_FROM_GITHUB;
-        g_menu.item[g_menu.count++] = T_SUB_FROM_INBOX;
-    } else if (which == SUB_QUIRKS) {
-        quirks_build();
-    } else if (which == SUB_GRAPHICS) {
-        graphics_build();
-    } else {
-        g_menu.item[g_menu.count++] = T_SUB_RESET_ALL;
-        g_menu.item[g_menu.count++] = T_SUB_CLEAR_CACHE;
-    }
-    for (int i = 0; i < g_menu.count; i++) { g_menu.on[i] = 1; g_menu.key[i] = -1; }
-    g_menu.cursor = which == SUB_GRAPHICS && !gfx_fps_cap30() ? 1 : 0;
+    g_menu.item[g_menu.count++] = T_SUB_FROM_GITHUB;
+    g_menu.item[g_menu.count++] = T_SUB_FROM_INBOX;
+    for (int i = 0; i < g_menu.count; i++) { g_menu.on[i] = 1; g_menu.key[i] = -1; g_menu.value[i] = NULL; }
+    g_menu.cursor = 0;
     sub_push();
 }
 
 static void sub_close(void) {
     g_sub = SUB_NONE;
     shell_menu(NULL);
+}
+
+void system_open(void) {
+    system_view_open();
+}
+
+int gear_view_shown(void) {
+    return g_manage_open || system_view_shown() || files_view_shown() || shell_info_shown();
+}
+
+void gear_views_close(void) {
+    if (g_manage_open) sources_close();
+    system_view_close();
+    files_view_close();
+    shell_info(0);
 }
 
 /* A greyed row is stepped over rather than landed on: the cursor only ever
@@ -340,47 +309,12 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
         if (pressed & PSP_CTRL_DOWN) { g_menu.cursor = (g_menu.cursor + 1) % g_menu.count; sub_push(); cues_post(CUE_MOVE, 0); }
         else if (pressed & PSP_CTRL_UP) { g_menu.cursor = (g_menu.cursor + g_menu.count - 1) % g_menu.count; sub_push(); cues_post(CUE_MOVE, 0); }
         else if (pressed & PSP_CTRL_CIRCLE) sub_close();
-        else if ((pressed & PSP_CTRL_CROSS) && g_sub == SUB_QUIRKS && g_menu.cursor == 2) {
-            /* The seed's renewal: the popup goes, the sweep runs. */
-            sub_close();
-            sweep_again();
-        }
-        else if ((pressed & PSP_CTRL_CROSS) && g_sub == SUB_QUIRKS) {
-            /* A switch flips and the popup stays, its tick with it. */
-            if (g_menu.cursor == 0) shell_toggle_fps();
-            else { shell_toggle_dev(); fake_updates(shell_dev_updates()); }
-            cues_post(CUE_MOVE, 0);
-            quirks_build();
-            sub_push();
-        }
-        else if ((pressed & PSP_CTRL_CROSS) && g_sub == SUB_GRAPHICS) {
-            int cap30 = g_menu.cursor == 0;
-            if (cap30 != gfx_fps_cap30()) {
-                gfx_set_fps_cap30(cap30);
-            }
-            if (cap30 != g_settings_fps_cap30) {
-                g_settings_fps_cap30 = cap30;
-                g_settings_dirty = 1;
-            }
-            cues_post(CUE_MOVE, 0);
-            graphics_build();
-            sub_push();
-        }
         else if (pressed & PSP_CTRL_CROSS) {
             int chosen = g_menu.cursor;
-            enum sub kind = g_sub;
             sub_close();
-            if (kind == SUB_ADD) {
-                if (chosen == 0 && *synced && type_source(1))
-                    refetch_now(*cursor, keep, keep_size, synced, refreshing);
-                else if (chosen == 1 && *synced) ask_inbox();
-            } else {
-                if (chosen == 0) {
-                    ask(ASK_RESET, -1, T_RESET_ASK, T_RESET_LINE);
-                } else {
-                    ask(ASK_DISCARD, -1, T_DISCARD_ASK, T_DISCARD_LINE);
-                }
-            }
+            if (chosen == 0 && *synced && type_source(1))
+                refetch_now(*cursor, keep, keep_size, synced, refreshing);
+            else if (chosen == 1 && *synced) ask_inbox();
         }
     } else if (g_menu_open) {
         /* The keys the menu names work from inside it too, so that what
@@ -431,6 +365,27 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
                 view_settled(cursor);
                 *count = view_count();
             }
+        }
+    } else if (system_view_shown()) {
+        int row = system_view_cursor();
+        if (pressed & PSP_CTRL_DOWN) { system_view_move(1); cues_post(CUE_MOVE, 0); }
+        else if (pressed & PSP_CTRL_UP) { system_view_move(-1); cues_post(CUE_MOVE, 0); }
+        else if (pressed & PSP_CTRL_CIRCLE) system_view_close();
+        else if ((pressed & PSP_CTRL_CROSS) && row == SYS_SWEEP) {
+            /* The seed's renewal: the sweep runs over the view, which is
+               there again after. */
+            sweep_again();
+        }
+        else if ((pressed & PSP_CTRL_CROSS) && row == SYS_RESET) {
+            ask(ASK_RESET, -1, T_RESET_ASK, T_RESET_LINE);
+        }
+        else if (pressed & PSP_CTRL_CROSS) {
+            /* A value or a switch flips and the view stays, its value or
+               tick with it. The frame rate is the one that is remembered. */
+            if (row == SYS_FRAME_RATE) options_fps_toggle_saved();
+            else if (row == SYS_SHOW_FPS) shell_toggle_fps();
+            else { shell_toggle_dev(); fake_updates(shell_dev_updates()); }
+            cues_post(CUE_MOVE, 0);
         }
     } else if (g_manage_open) {
         if (g_manage_synced != *synced || g_manage_stale) {

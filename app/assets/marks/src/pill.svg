@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- A switch's pill, empty, at the size of the signs in the header: the
+       knob is its own mark, drawn where the switch stands, and slides
+       from one end to the other. Rim 1.6. -->
+  <rect x="1.6" y="5.4" width="16.8" height="9.2" rx="4.6" fill="none"
+        stroke="#ffffff" stroke-width="1.6"/>
+</svg>

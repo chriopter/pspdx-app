@@ -1,6 +1,6 @@
 #include "text.h"
 /*
- * Manage sources, with nothing of the GE in it: the rows the view draws and
+ * Sources, with nothing of the GE in it: the rows the view draws and
  * the words its right column says. What a row leads to is
  * session/options.c's.
  */

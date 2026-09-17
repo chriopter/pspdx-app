@@ -23,7 +23,7 @@
 #define PANEL_X 248
 
 /* The list's rows, and where the package's icon sits in one; the gear's
-   rows and Manage sources' are measured the same. */
+   rows and Sources' are measured the same. */
 #define ITEM_H 32
 /* The bundle's icon, 144x80 shown at a third: as tall as the row allows
    with a little air, and the name starts after it. */
@@ -35,7 +35,7 @@
 #define SHOT_W 216
 #define SHOT_Y 51
 
-#define INFO_Y 36
+#define INFO_Y 44
 #define INFO_H (FOOTER_Y - 6 - INFO_Y)
 
 /* The palette of the current frame, derived from the eased tint once per

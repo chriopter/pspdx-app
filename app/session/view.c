@@ -292,11 +292,10 @@ unsigned view_generation(void) { return g_generation; }
    the band that says what it is. A row here is read and taken the way a
    package's row is, because at this depth nothing is deeper. */
 static const char *const SETTING[VIEW_SETTINGS] = {
-    T_SET_GRAPHICS,             /* named by the mode that is on; see below */
     T_SET_SOURCES,
+    T_SET_SYSTEM,
     T_SET_FILES,
-    T_SET_RESET,
-    T_SET_INFO,
+    T_SET_ABOUT,
 };
 
 const char *view_setting(int n) {

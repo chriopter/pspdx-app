@@ -44,7 +44,7 @@ static char *next_line(char **at) {
 }
 
 /* The sources a list names, in its order. A line has to be what sources.txt
-   takes -- an https URL of a sane length -- and what Add source would take;
+   takes -- an https URL of a sane length -- and what Add Source would take;
    anything else is said and passed over, never the end of the start. */
 static int parse(const char *text, const char *from, struct preset_list *out) {
     static char copy[LIST_MAX + 1];

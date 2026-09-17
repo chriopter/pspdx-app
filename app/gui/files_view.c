@@ -38,7 +38,17 @@ void files_view_open(void) {
 
 int files_view_shown(void) { return g_files != NULL; }
 
-static void files_view_close(void) {
+int files_view_action(void) { return g_files && files_action(g_files); }
+
+void files_view_refresh(void) {
+    if (!g_files) return;
+    /* Back at the top, on the action row: what was cleared is the top's
+       to show, in the sizes at the rows' ends. */
+    files_open(&g_view);
+}
+
+void files_view_close(void) {
+    if (!g_files) return;
     g_files = NULL;
     /* The browser closing gives the card back its entry, at once. */
     if (g_file_shown[0]) { g_file_shown[0] = '\0'; shell_reshow_card(); }
@@ -50,6 +60,10 @@ static void files_view_close(void) {
    are laid out at a fixed width, since a record is one long line of JSON
    with nothing to break at; everything else is a line a row. */
 #define FILE_ROW_H 26
+/* The action at the foot of the areas stands a step under them, a line of
+   the room's light in the step, the way Sources parts its jobs from the
+   user's list. */
+#define FILE_STEP 10
 static void draw_raw_band(void);
 #define FILE_TEXT_COLS 40
 #define FILE_TEXT_STEP 16
@@ -126,6 +140,14 @@ void files_view_draw(float t) {
         int y = top + (i - v->first) * FILE_ROW_H;
         const struct file_row *r = &v->row[i];
         int selected = i == v->cursor;
+        if (files_row_is_action(v, i)) {
+            y += FILE_STEP;
+            unsigned faint = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 150);
+            unsigned clear = rgb_pack(g_tint, 0);
+            int cx = LIST_X + LIST_W / 2, half = LIST_W / 2, ry = y - FILE_STEP / 2 - 1;
+            gfx_hgrad(cx - half, ry, half, 1, clear, faint);
+            gfx_hgrad(cx, ry, half, 1, faint, clear);
+        }
         if (selected) {
             float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
             gfx_glow(LIST_X + 60, y + FILE_ROW_H / 2, LIST_W + 120, FILE_ROW_H * 2.2f,
@@ -218,7 +240,8 @@ void files_view_draw(float t) {
     /* The keys at the foot: into a row, back out, and the page keys over
        the lines when there are more than fit. */
     float hx = LIST_X;
-    if (v->deeper) hx = draw_hint(hx, FOOTER_BASE, MARK_CROSS, T_HINT_OPEN, g_dim);
+    if (files_action(v)) hx = draw_hint(hx, FOOTER_BASE, MARK_CROSS, T_HINT_CLEAR, g_dim);
+    else if (v->deeper) hx = draw_hint(hx, FOOTER_BASE, MARK_CROSS, T_HINT_OPEN, g_dim);
     if (v->band) { draw_raw_band(); return; }
     hx = draw_hint(hx, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
     if (files_rows(v, FILE_TEXT_COLS) > room) draw_hint(hx, FOOTER_BASE, MARK_L, T_HINT_SCROLL, g_dim);

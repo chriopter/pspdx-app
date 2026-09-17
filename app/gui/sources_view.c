@@ -1,6 +1,6 @@
 #include "text.h"
 /*
- * Manage sources, drawn: the gear's two columns, with the sources in the
+ * Sources, drawn: the gear's two columns, with the sources in the
  * list and what the selected one is on the right. The rows and their words
  * are session/manage_sources.c's; the room and its chrome are shell.c's.
  */
@@ -11,6 +11,12 @@
 #include "gui/shell_internal.h"
 #include "gui/sources_view.h"
 
+/* The rows are the gear's: one line each, what a source is and how its
+   last fetch went stands on the right, not under the name twice. */
+#define SRC_ROW_H ITEM_H
+#define SRC_STEP 10
+#define SRC_VISIBLE ((FOOTER_Y - 6 - LIST_Y - SRC_STEP) / SRC_ROW_H)
+
 static const struct manage_sources *g_m;
 static float g_sel_y = LIST_Y;
 static int g_first;
@@ -20,7 +26,7 @@ void sources_view_set(const struct manage_sources *m) {
        the bar already on its row. */
     if (m && !g_m) {
         g_first = 0;
-        g_sel_y = LIST_Y + m->cursor * 40;
+        g_sel_y = LIST_Y + m->cursor * SRC_ROW_H;
     }
     g_m = m;
 }
@@ -59,10 +65,6 @@ static void break_url(const char *url) {
     }
 }
 
-/* The rows are taller than the list's: a source carries its name and a
-   line under it, and the two want air between them. */
-#define SRC_ROW_H 40
-#define SRC_VISIBLE ((FOOTER_Y - 6 - LIST_Y) / SRC_ROW_H)
 
 static void draw_row(const struct manage_row *r, int i, int y, int selected, float t) {
     float gx = LIST_X + ICON_W / 2.0f, gy = y + SRC_ROW_H / 2.0f;
@@ -73,7 +75,7 @@ static void draw_row(const struct manage_row *r, int i, int y, int selected, flo
         mark_draw(r->kind == MANAGE_ADD ? MARK_PLUS : MARK_DOWNLOAD, gx, gy,
                   selected ? g_text : faded(g_dim, 170),
                   selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
-        font_print_clipped(FONT_TITLE, NAME_X, y + 25, w, selected ? g_text : g_dim, r->name);
+        font_print_clipped(FONT_TITLE, NAME_X, y + 21, w, selected ? g_text : g_dim, r->name);
         return;
     }
     /* A source's sign is what kind of source it is: a site out on the
@@ -83,11 +85,8 @@ static void draw_row(const struct manage_row *r, int i, int y, int selected, flo
                    : r->skind == SOURCE_CATALOG ? MARK_PAGE : MARK_GLOBE;
     mark_draw(sign, gx, gy, selected ? g_text : faded(g_dim, 170),
               selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
-    /* Two lines with air between them: the name, and under it how the
-       last fetch went. */
-    font_print_scrolling(FONT_TITLE, NAME_X, y + 17, w, selected ? g_text : g_dim, r->name,
+    font_print_scrolling(FONT_TITLE, NAME_X, y + 21, w, selected ? g_text : g_dim, r->name,
                          selected ? hover_age(3, i) : 0.0f);
-    font_print_clipped(FONT_META, NAME_X, y + 33, w, g_dim, r->status);
 }
 
 void sources_view_draw(float t) {
@@ -96,12 +95,28 @@ void sources_view_draw(float t) {
     if (cursor < g_first) g_first = cursor;
     if (cursor >= g_first + SRC_VISIBLE) g_first = cursor - SRC_VISIBLE + 1;
     if (g_first < 0) g_first = 0;
-    float target = LIST_Y + (cursor - g_first) * SRC_ROW_H;
+    /* The sources stand a step under the two jobs, with a line of the
+       room's light in the step, fading out to either side the way the
+       bands' rules do: what stands under it is the user's list, and what
+       stands over it is done to that list. */
+    int jobs = 0;
+    while (jobs < count && m->row[jobs].kind != MANAGE_SOURCE) jobs++;
+    int step = jobs > 0 && jobs < count ? SRC_STEP : 0;
+    float target = LIST_Y + (cursor - g_first) * SRC_ROW_H + (cursor >= jobs ? step : 0);
     g_sel_y += (target - g_sel_y) * 0.25f;
 
     draw_rows_light_of(count < SRC_VISIBLE ? count : SRC_VISIBLE, SRC_ROW_H, g_sel_y, t);
-    for (int i = g_first; i < count && i < g_first + SRC_VISIBLE; i++)
-        draw_row(&m->row[i], i, LIST_Y + (i - g_first) * SRC_ROW_H, i == cursor, t);
+    for (int i = g_first; i < count && i < g_first + SRC_VISIBLE; i++) {
+        int y = LIST_Y + (i - g_first) * SRC_ROW_H + (i >= jobs ? step : 0);
+        if (i == jobs && step && i > g_first) {
+            unsigned faint = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 150);
+            unsigned clear = rgb_pack(g_tint, 0);
+            int cx = LIST_X + LIST_W / 2, half = LIST_W / 2, ry = y - step / 2;
+            gfx_hgrad(cx - half, ry, half, 1, clear, faint);
+            gfx_hgrad(cx, ry, half, 1, faint, clear);
+        }
+        draw_row(&m->row[i], i, y, i == cursor, t);
+    }
 
     /* The right column is the gear's: the row's name and what it is. Under
        a source, where it is and how the last fetch went, as facts. */
@@ -122,7 +137,7 @@ void sources_view_draw(float t) {
             font_print_clipped(FONT_META, PANEL_X, y + 4, SHOT_W, g_dim, facts[i]);
     }
 
-    /* The keys at the foot, the way Manage Data has them, unless the status
+    /* The keys at the foot, the way Data has them, unless the status
        line has something to say there or a question stands with its own. */
     if (shell_footer_free()) {
         float hx = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS,

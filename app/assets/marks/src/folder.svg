@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- Data: a folder, the tab on the left of the lid, at the size of the
+       signs in the header, the basket's rim of 1.6. -->
+  <path d="M2.4 5.6 Q2.4 4.2 3.8 4.2 H7.6 L9.6 6.2 H16.2 Q17.6 6.2 17.6 7.6 V14.4 Q17.6 15.8 16.2 15.8 H3.8 Q2.4 15.8 2.4 14.4 Z"
+        fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/>
+</svg>

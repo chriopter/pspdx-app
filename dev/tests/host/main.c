@@ -243,7 +243,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (!strcmp(argv[1], "manage")) {
-        /* Manage sources after a fetch: each row's name and status line,
+        /* Sources after a fetch: each row's name and status line,
            then what the right column says about it, the facts indented. */
         catalog_fetch(&catalog);
         reach_take();

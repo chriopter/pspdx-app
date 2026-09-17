@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- Options: three sliders, a knob on each at its own place, at the
+       size of the signs in the header, the basket's rim of 1.6. -->
+  <g fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round">
+    <path d="M2.6 5.0 H17.4"/>
+    <path d="M2.6 10.0 H17.4"/>
+    <path d="M2.6 15.0 H17.4"/>
+  </g>
+  <g fill="#ffffff">
+    <circle cx="13.2" cy="5.0" r="2.2"/>
+    <circle cx="6.8" cy="10.0" r="2.2"/>
+    <circle cx="11.0" cy="15.0" r="2.2"/>
+  </g>
+</svg>

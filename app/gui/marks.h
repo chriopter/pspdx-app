@@ -23,6 +23,8 @@ enum mark {
     MARK_GAMES, MARK_DEMOS, MARK_APPS,         /* the store's three categories */
     MARK_PLUS, MARK_PAGE, MARK_LIST, MARK_GLOBE, /* adding a source, and the kinds of one */
     MARK_START, MARK_SELECT, MARK_L, MARK_R, MARK_HOME, MARK_GEAR,
+    MARK_WORLD, MARK_SLIDERS, MARK_FOLDER,     /* the gear's rows: Sources, Options, Data, at the header's size */
+    MARK_PILL, MARK_KNOB, MARK_KEY, MARK_RESTORE, /* Options' rows: a switch in two parts, the seed, the way back */
     MARK_COUNT
 };
 

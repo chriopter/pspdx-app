@@ -39,7 +39,7 @@ What PSPDX does on top:
 - **Updates:** the SHA-256 of `releases[0]` differs from the installed ZIP's. Versions and dates are not compared.
 - **ZIP rule:** one `.zip` on the release, or of several exactly the one with `psp` in its name; otherwise the app is left out with the reason.
 - **Pinned release:** `"release": {"tag": "v1.2"}` installs exactly that release, with no updates until the file changes.
-- **No `.pspdx` at the source:** GitHub's own 404 (not one after a redirect elsewhere). PSPDX installs from the catalog entry, your INBOX file or, typed into Direct install, the repository's name. A live catalog keeps it updated; without one the latest release is asked at GitHub by the saved `.pspdx`, same ZIP rule and SHA-256. As soon as the author adds a `.pspdx`, that file counts.
+- **No `.pspdx` at the source:** GitHub's own 404 (not one after a redirect elsewhere). PSPDX installs from the catalog entry, your INBOX file or, typed into Direct Install, the repository's name. A live catalog keeps it updated; without one the latest release is asked at GitHub by the saved `.pspdx`, same ZIP rule and SHA-256. As soon as the author adds a `.pspdx`, that file counts.
 - **Catalog text:** CR LF and tabs in `description` and `summary` are read as meant; an entry with a NUL in its text is dropped, and a `sha256` of zeros is no hash.
 - **Types:** `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed, not installed yet.
 - **`schema` field:** a `catalog.json` is read as v1 unless it names another PSPDX catalog version (`catalog-v2.json`); none, a relative path to a copy, or any other value is read as v1 and noted in the log.
@@ -72,17 +72,17 @@ https://github.com/someone/project@v1.2
 
 | Source | Added through | Result |
 |---|---|---|
-| Catalog site URL, `catalog.json` or text list | **Manage sources** | Browse all listed apps |
-| GitHub URL or `owner/repo` | **Direct install** | Add the repository as a source and install its app; without a `.pspdx` it installs from its latest release, named after the repository |
-| `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct install** | Validate and install the selected files; for a repository without its own `.pspdx` your file is the app |
+| Catalog site URL, `catalog.json` or text list | **Sources** | Browse all listed apps |
+| GitHub URL or `owner/repo` | **Direct Install** | Add the repository as a source and install its app; without a `.pspdx` it installs from its latest release, named after the repository |
+| `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct Install** | Validate and install the selected files; for a repository without its own `.pspdx` your file is the app |
 
 - Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://wijsman.de/psp-homebrew-database/`
 - Presets ship as `PSP/GAME/PSPDX/presets.txt`, same lines as `sources.txt`; the EBOOT carries a copy for a stick without one
 - Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
-- **Manage sources** lists each source with its address, kind, apps and when it last loaded; one that does not load is marked *unreachable*, one served only from its saved copy *offline copy*; the rest load as usual
+- **Sources** lists each source with its address, kind, apps and when it last loaded; one that does not load is marked *unreachable*, one served only from its saved copy *offline copy*; the rest load as usual
 - A line ending in `.pspdx`, left from an older version, is skipped with a line in the log
 - Sources are validated before they land in `PSP/PSPDX/sources.txt`
-- Adding a catalog installs nothing; Direct install and INBOX do
+- Adding a catalog installs nothing; Direct Install and INBOX do
 - Removing a source keeps installed apps, their manifests and state
 
 #### Presets
@@ -113,11 +113,11 @@ A site with only `catalog.txt` works without a builder.
 
 ```mermaid
 flowchart TD
-  pick(["× on an app, an INBOX file, or Direct install"]) --> github{"Source on GitHub?"}
+  pick(["× on an app, an INBOX file, or Direct Install"]) --> github{"Source on GitHub?"}
   github -- "no" --> outside["Only from a catalog entry<br>the ZIP must match its SHA-256<br>an INBOX file waits"]
   github -- "yes" --> pspdx{".pspdx at<br>raw.githubusercontent.com"}
   pspdx -- "200" --> own["The repository's own .pspdx wins"]
-  pspdx -- "GitHub's 404" --> stand["The catalog entry, your INBOX file,<br>or the repository name from Direct install"]
+  pspdx -- "GitHub's 404" --> stand["The catalog entry, your INBOX file,<br>or the repository name from Direct Install"]
   pspdx -- "no answer, 404 elsewhere" --> later(["Not installed, try again later"])
   own --> release{"Release: the catalog's,<br>a pinned tag, or GitHub's latest"}
   stand --> release
@@ -179,8 +179,8 @@ flowchart TD
 - A check against a maintained catalog is one request and no API call
 - An app without `.pspdx` is asked by the saved one: GitHub's 404 on raw.githubusercontent.com, then the API
 - A pinned release (`"release": {"tag": ...}`) is current until its file changes; the newest `.pspdx` GitHub answers with is saved
-- A repository added by **Direct install** is a source: its `.pspdx` and one API call at every start; an app from INBOX is asked every six hours
-- Rate limit or 5xx: the record stands, the check counts as asked, and **Direct install** says GitHub didn't answer
+- A repository added by **Direct Install** is a source: its `.pspdx` and one API call at every start; an app from INBOX is asked every six hours
+- Rate limit or 5xx: the record stands, the check counts as asked, and **Direct Install** says GitHub didn't answer
 - Catalog older than 24 h: the status line names its host
 - Nothing is topped up from GitHub: a `.pspdx` without author is by the account in its URL, a missing summary or licence stays empty
 
@@ -424,7 +424,7 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 | `app/main.c` | Startup and the frame loop: the pad, the tabs and the cursor, the sync coming back, calls into `session/`, and the rig's hooks (scripted keys, screenshots, the film, the cipher benchmark) |
 | `app/text.h` | Every word the screen shows, in one place |
 | `app/gui/` | Browser, rendering, icons, previews and firmware keyboard |
-| `app/gui/files_view.c` | Manage Data on screen: the two columns, the raw band, its keys, and the film or sound handed to the media thread |
+| `app/gui/files_view.c` | Data on screen: the two columns, the raw band, its keys, and the film or sound handed to the media thread |
 | `app/session/view.c` | The browser's model, with nothing of the drawing in it: the tabs, the catalog filtered to the open one, the basket, what the action row would fetch, the gear's rows |
 | `app/session/actions.c` | What the session does: installs, one or a run of them, removing, launching, fetching the catalog again, the sweep, the cache and the reset |
 | `app/session/questions.c` | The questions that stand before those: put into words, and answered from the pad, X doing the thing and O leaving it |
@@ -435,7 +435,7 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 | [`app/lib/pspkit-https/`](https://github.com/chriopter/pspkit-https) | HTTPS, the entropy pool and the sweep's stick step, as a submodule |
 | `app/audio/`, `app/video/` | Audio and video playback |
 | `app/util/` | Storage paths, PBP access and runtime helpers |
-| `app/util/files.c` | What Manage Data reads off the stick: sources, installs, INBOX, the client's own files, filled into the view `gui/files_view.c` draws |
+| `app/util/files.c` | What Data reads off the stick: sources, installs, INBOX, the client's own files, filled into the view `gui/files_view.c` draws |
 | `dev/tests/` | Host tests: the parsers, the records and the installer, with power cuts |
 | `dev/` | Developing PSPDX: `start`, `release`, the mock catalog, the emulator settings, and the generators (`marks/`, `render-music.c`, `sweep-trace.py`) |
 | `dev/rig` | The rig: one emulator run with scripted keys, leaving the log and screenshots |

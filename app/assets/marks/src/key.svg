@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- A key: the bow a ring, the blade a line with one tooth, at the
+       size of the signs in the header. The seed a connection is made
+       under. -->
+  <g fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="6.2" cy="13.6" r="3.6"/>
+    <path d="M8.8 11.0 L16.6 3.2"/>
+    <path d="M13.8 6.0 L16.2 8.4"/>
+  </g>
+</svg>

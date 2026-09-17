@@ -39,7 +39,9 @@ static struct sources g_sources;
 static const char *(*g_name_of)(const char *id);
 
 void files_names(const char *(*name_of)(const char *id)) { g_name_of = name_of; }
-static int g_area_of[FILES_MAX];        /* which area a row on the top stands for, -1 the group */
+static int g_area_of[FILES_MAX];        /* which area a row on the top stands for, -1 the group, -2 Clear Cache */
+#define ROW_GROUP (-1)
+#define ROW_CLEAR (-2)
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -223,9 +225,11 @@ static void read_text(struct file_view *v, const char *rel, int tail, int pretty
 
 /* ------------------------------------------------------------- the areas */
 
-/* The rows of the top: the three a person came for, then everything PSPDX
-   keeps for itself as one row, since five rows of housekeeping would bury
-   the three. Inside the group the five stand as rows of their own. */
+/* The rows of the top: the three areas a person came for, then everything
+   PSPDX keeps for itself as one row, since five rows of housekeeping would
+   bury the three, and last -- under a line, since it is a thing to do and
+   not a place to look -- Clear Cache. Inside the group the five stand as
+   rows of their own. */
 #define A_SYSTEM_FIRST A_CACHE
 
 static void area_row(struct file_view *v, int a) {
@@ -268,15 +272,40 @@ static void fill_areas(struct file_view *v) {
     }
     for (int a = 0; a < A_SYSTEM_FIRST; a++) area_row(v, a);
     struct file_row *r = &v->row[v->count];
-    g_area_of[v->count++] = -1;
+    g_area_of[v->count++] = ROW_GROUP;
     snprintf(r->name, sizeof(r->name), "%s", T_AREA_SYSTEM);
     r->detail[0] = '\0';
+    struct file_row *clear = &v->row[v->count];
+    g_area_of[v->count++] = ROW_CLEAR;
+    snprintf(clear->name, sizeof(clear->name), "%s", T_SUB_CLEAR_CACHE);
+    clear->detail[0] = '\0';
+}
+
+/* Where an area's row stands on the top. */
+static int top_row_of(int a) {
+    return a;
 }
 
 /* What the right column says for the area under the cursor, before it is
    entered: what it is for, and a glance at what is in it. */
 static void describe_area(struct file_view *v) {
     int a = g_area_of[v->cursor];
+    if (a == ROW_CLEAR) {
+        /* What the action comes to, and how much it would take with it. */
+        snprintf(v->head, sizeof(v->head), "%s", T_SUB_CLEAR_CACHE);
+        snprintf(v->note, sizeof(v->note), "%s", T_DISCARD_LINE);
+        clear_text(v);
+        at_path(v, "CACHE");
+        unsigned bytes = 0;
+        char size[24];
+        count_dir("CACHE/catalogs", &bytes);
+        count_dir("CACHE/media", &bytes);
+        size_text(bytes, size, sizeof(size));
+        put(v, "%s: %s", T_AREA_CACHE, size);
+        int n = count_dir("TMP", NULL);
+        put(v, "%s: %s", T_AREA_PENDING, n ? "1" : T_FILES_NONE);
+        return;
+    }
     if (a < 0) {
         snprintf(v->head, sizeof(v->head), "%s", T_AREA_SYSTEM);
         snprintf(v->note, sizeof(v->note), "%s", T_AREA_SYSTEM_NOTE);
@@ -480,8 +509,17 @@ static int listing_areas(const struct file_view *v) {
     return v->level == 0 || (v->group && v->level == 1);
 }
 
+int files_action(const struct file_view *v) {
+    return files_row_is_action(v, v->cursor);
+}
+
+int files_row_is_action(const struct file_view *v, int i) {
+    return v->level == 0 && i >= 0 && i < v->count && g_area_of[i] == ROW_CLEAR;
+}
+
 static void describe(struct file_view *v) {
-    v->deeper = v->count > 0 && (listing_areas(v) || v->row[v->cursor].name[strlen(v->row[v->cursor].name) - 1] != '/');
+    v->deeper = v->count > 0 && !files_action(v) &&
+                (listing_areas(v) || v->row[v->cursor].name[strlen(v->row[v->cursor].name) - 1] != '/');
     if (v->count == 0) {
         snprintf(v->head, sizeof(v->head), "%s", AREA[v->area].name);
         snprintf(v->note, sizeof(v->note), "%s", AREA[v->area].note);
@@ -537,6 +575,7 @@ int files_enter(struct file_view *v) {
     if (v->count == 0) return 0;
     if (listing_areas(v)) {
         int a = g_area_of[v->cursor];
+        if (a == ROW_CLEAR) return 0;
         if (a < 0) {
             /* Into the group: its areas as rows, one level down. */
             v->group = 1;
@@ -641,7 +680,7 @@ int files_back(struct file_view *v) {
         v->level = 0;
         v->group = 0;
         fill_areas(v);
-        v->cursor = was;
+        v->cursor = top_row_of(was);
         v->first = 0;
         settle(v);
         return 1;

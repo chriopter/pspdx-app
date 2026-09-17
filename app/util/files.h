@@ -58,6 +58,12 @@ void files_scroll(struct file_view *v, int lines, int rows, int room);
    into, 0 when the row is as deep as it goes. */
 int files_enter(struct file_view *v);
 
+/* 1 while the cursor is on the one action among the areas, Clear Cache:
+   X there is the caller's to ask about and do, not a level to go into. */
+int files_action(const struct file_view *v);
+/* 1 when row i is that action: drawn under a line, apart from the areas. */
+int files_row_is_action(const struct file_view *v, int i);
+
 /* The bytes of what the row stands for, as they are, without the layout a
    record or a picture is otherwise given. Returns 0 when the row stands for
    nothing that has bytes. */

@@ -17,6 +17,7 @@
 #include "audio/audio.h"
 #include "audio/cues.h"
 #include "gui/entropy_screen.h"
+#include "gui/files_view.h"
 #include "gui/gfx.h"
 #include "gui/osk.h"
 #include "gui/preview.h"
@@ -439,6 +440,7 @@ void clear_cache(void) {
         bad = 1;
     preview_resume();
     shell_status(bad ? T_CACHE_CLEAR_FAILED : T_CACHE_CLEARED);
+    files_view_refresh();
 }
 
 /* Back to the first start: everything this client keeps on the stick goes,

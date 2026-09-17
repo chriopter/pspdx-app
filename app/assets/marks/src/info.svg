@@ -1,6 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13">
-  <!-- A lower-case i with a round tittle, so it cannot be read as an l. -->
-  <circle cx="6.5" cy="2.6" r="1.15" fill="#ffffff"/>
-  <path d="M6.5 5.6 V10.8" fill="none" stroke="#ffffff" stroke-width="2.3"
-        stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- About: a disc with a lower-case i cut out of it, the way the settings
+       disc has its wrench. The tittle round, so it cannot be read as an l;
+       the stem 2.6 wide with rounded ends, like the wrench's handle. Disc
+       radius 8, the UMD's size. Even-odd. -->
+  <path fill="#ffffff" fill-rule="evenodd" d="M 2.00 10.00 A 8.00 8.00 0 1 1 18.00 10.00 A 8.00 8.00 0 1 1 2.00 10.00 Z M 10.00 4.30 A 1.55 1.55 0 1 1 10.00 7.40 A 1.55 1.55 0 1 1 10.00 4.30 Z M 8.70 9.50 Q 8.70 8.60 9.60 8.60 H 10.40 Q 11.30 8.60 11.30 9.50 V 14.70 Q 11.30 15.60 10.40 15.60 H 9.60 Q 8.70 15.60 8.70 14.70 Z"/>
 </svg>

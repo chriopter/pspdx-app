@@ -548,6 +548,9 @@ int main(int argc, char *argv[]) {
                     view_settled(&cursor);
                 }
                 keys_load();
+                /* Files names an app by the catalog's word for it, once
+                   there is a catalog to ask. */
+                files_names(files_name_of);
                 g_keys_since = now_ms();
                 record_start();
                 int bench = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.BENCH"), PSP_O_RDONLY, 0777);
@@ -601,8 +604,17 @@ int main(int argc, char *argv[]) {
            is: a question that scrolls out from under its answer is a trap,
            up and down belong to the menu while one is open, and a tab
            changing under a band would change what the band is about. */
-        int modal = asking() || menu_shown() || popup_shown() || details || files_view_shown() ||
-                    sources_shown();
+        int modal = asking() || menu_shown() || popup_shown() || details || gear_view_shown();
+        /* The triggers cross the tabs from inside the gear's views too:
+           Sources, Options, Data or About is left where it is and the next
+           tab comes up, as the system's own columns are left from any
+           depth. Only a question, a popup or the options hold them. */
+        if ((pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && gear_view_shown() &&
+            !asking() && !menu_shown() && !popup_shown() && shown()->count > 0) {
+            gear_views_close();
+            info = 0;
+            modal = 0;
+        }
         /* The same hand over the browser scrolls what the card says about
            the package under the cursor. */
         if (!modal) shell_card_scroll((pad.Ly - 128) / 127.0f);
@@ -652,27 +664,17 @@ int main(int argc, char *argv[]) {
         if (questions_handle(pressed, &cursor, &count, keep, sizeof(keep), &synced, &refreshing)) {
             /* A question stood: the keys were its. */
         } else if (files_view_shown() && !popup_shown()) {
-            files_view_keys(pressed, &pad);
+            /* The one action among the areas: the cache asked about, then
+               cleared by the answer; the rest of the keys are the view's. */
+            if ((pressed & PSP_CTRL_CROSS) && files_view_action())
+                ask(ASK_DISCARD, -1, T_DISCARD_ASK, T_DISCARD_LINE);
+            else files_view_keys(pressed, &pad);
         } else if (options_handle(pressed, &cursor, &count, keep, sizeof(keep), &synced, &refreshing, &details)) {
             /* The options or a popup stood: the same. Information taken
                there opens the page about the row the options were about. */
             if (details && menu_details_index() >= 0) details_of = menu_details_index();
         } else if (info) {
-            /* The band says what the session is and does nothing else --
-               except that SELECT held on it for a second opens Quirks, the
-               switches for development, which have no row of their own. */
-            static unsigned select_since;
-            static int select_held, select_fired;
-            if (pad.Buttons & PSP_CTRL_SELECT) {
-                if (!select_held) { select_held = 1; select_fired = 0; select_since = now_ms(); }
-                else if (!select_fired && now_ms() - select_since >= 1000) {
-                    select_fired = 1;
-                    shell_info(info = 0);
-                    sub_open(SUB_QUIRKS);
-                }
-            } else {
-                select_held = 0;
-            }
+            /* The band says what the session is and does nothing else. */
             if (pressed & (PSP_CTRL_CIRCLE | PSP_CTRL_CROSS)) shell_info(info = 0);
         } else if (details) {
             if (pressed & PSP_CTRL_CIRCLE) {
@@ -731,20 +733,15 @@ int main(int argc, char *argv[]) {
                 cues_post(CUE_MOVE, cursor = was);
                 count = view_count();
             } else if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_SETTING) {
-                /* A row under the gear does what it says. The three that
-                   fetch all end in the same place: the list gives way to
-                   the word and the status line and comes back with what is
-                   now published, the cursor on the package it was on if
-                   that package is still there. The sync thread and the
-                   media thread share the one HTTPS stack and the one asset
-                   buffer, so the media thread steps aside for the length of
-                   it, as it does for an install. */
+                /* A row under the gear does what it says: Sources, Options
+                   and Data are views in the list's place, About the band.
+                   Sources waits for a sync, since what it lists is what
+                   the last fetch read. */
                 int which = VIEW_ROW_SETTING - at;
-                if (which == 0) { options_fps_toggle_saved(); cues_post(CUE_MOVE, cursor); }
-                else if (which == 1 && synced) sources_open();
-                else if (which == 2) { files_names(files_name_of); files_view_open(); }
-                else if (which == 3) sub_open(SUB_RESET);
-                else if (which == 4) shell_info(info = 1);
+                if (which == 0 && synced) sources_open();
+                else if (which == 1) system_open();
+                else if (which == 2) files_view_open();
+                else if (which == 3) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X opens the package's page; the job rows do their job.
                    The options, with the same things and the rest, are on

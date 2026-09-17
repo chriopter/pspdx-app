@@ -67,6 +67,9 @@ void shell_ask(const char *title, const char *line);
 struct menu {
     const char *title;
     const char *item[MENU_ROWS];
+    /* What a row is set to, at the row's end: "30 FPS" after Frame Rate.
+       NULL on every row that is not a value. */
+    const char *value[MENU_ROWS];
     unsigned char on[MENU_ROWS];
     signed char key[MENU_ROWS];
     int count, cursor;
@@ -76,12 +79,13 @@ void shell_menu(const struct menu *menu);
 /* The band of facts about the session, which the last row under the gear
    opens. It says and does nothing else; O closes it. */
 void shell_info(int open);
-/* The one setting the band offers: the frame rate in the bottom right
-   corner, for the run. Toggled from the band, not saved. */
+int shell_info_shown(void);
+/* The frame counter in the bottom right corner, for the run. Toggled
+   under Settings, not saved. */
 void shell_toggle_fps(void);
-/* The other: fake updates for development. While on, every installed
-   package is said to have an update waiting, so the update path can be
-   walked without a release to walk it with. Not saved. */
+/* Fake updates, for development, under Settings too. While on, every
+   installed package is said to have an update waiting, so the update path
+   can be walked without a release to walk it with. Not saved. */
 void shell_toggle_dev(void);
 int shell_dev_updates(void);
 int shell_show_fps(void);

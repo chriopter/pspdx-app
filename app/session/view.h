@@ -77,7 +77,7 @@ void view_category_close(void);
    do to itself: view_index() answers VIEW_ROW_SETTING minus the
    row's number for them, so the one list draws and walks both kinds. */
 #define VIEW_ROW_SETTING (-100)
-#define VIEW_SETTINGS 5
+#define VIEW_SETTINGS 4
 
 /* The word on a row under the gear. */
 const char *view_setting(int n);

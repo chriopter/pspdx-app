@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- An arrow turning back the way it came: three quarters of a ring,
+       anticlockwise, with a head at its start, at the size of the signs
+       in the header. Back to how it was. -->
+  <path d="M5.4 6.2 A6.4 6.4 0 1 1 4.6 12.8" fill="none" stroke="#ffffff"
+        stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M2.8 3.2 L3.2 8.6 L8.6 8.2 Z" fill="#ffffff" stroke="#ffffff"
+        stroke-width="0.8" stroke-linejoin="round"/>
+</svg>

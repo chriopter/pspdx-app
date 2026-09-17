@@ -16,8 +16,10 @@
 #define T_HEAD_BASKET        "Basket"
 #define T_HEAD_HOMEBREW      "Homebrews"
 #define T_HEAD_UMD           "UMDs"
-#define T_HEAD_FILES         "Manage Data"
-#define T_HEAD_SOURCES       "Manage sources"
+#define T_HEAD_FILES         "Data"
+#define T_HEAD_SYSTEM        "Options"
+#define T_HEAD_ABOUT         "About"
+#define T_HEAD_SOURCES       "Sources"
 #define T_UMD_SOON           "Coming soon"
 
 /* ------------------------------------------------------ waiting and status */
@@ -51,10 +53,10 @@
 #define T_AND_MORE           "and %d more"                        /* n */
 
 /* The check row's panel: two keys, and what each of them does. */
-#define T_CHECK_NOTE         "Looks for newer versions."
+#define T_CHECK_NOTE         "Checks for updates."
 #define T_QUICK_CHECK        "Quick check"
 #define T_FULL_CHECK         "Full check"
-#define T_CHECK_EXPLAIN      "Quick reads the catalog. Full asks GitHub per app, slower."
+#define T_CHECK_EXPLAIN      "Quick checks the catalog. Full checks each app on GitHub."
 
 /* The card under the picture. */
 #define T_PANEL_UPDATE       "Update to %s   %s"                  /* version, size */
@@ -83,7 +85,6 @@
 
 #define T_HINT_ENTER         "Enter"
 #define T_HINT_OPTIONS       "Options"
-#define T_HINT_QUIRKS        "Hold for Quirks"
 #define T_HINT_UPDATE        "Update"
 #define T_HINT_BACK          "Back"
 #define T_HINT_CANCEL        "Cancel"
@@ -120,7 +121,7 @@
 #define T_TRUST_EXPIRED      "The security certificate of %s has expired. The connection cannot be verified."
 #define T_TRUST_ISSUER       "The security certificate of %s is not from a known issuer. The connection cannot be verified."
 #define T_TRUST_DECLINED     "Not connected."
-#define T_RESET_ASK          "Do you want to reset PSPDX?"
+#define T_RESET_ASK          "Do you want to restore the default settings?"
 #define T_RESET_LINE         "All PSPDX data is deleted. Installed apps are not deleted."
 #define T_DISCARD_ASK        "Do you want to clear the cache?"
 #define T_DISCARD_LINE       "Downloaded catalogs, previews and any failed install are deleted. Installed apps are not changed."
@@ -149,7 +150,7 @@
 #define T_START_REFUSED      "Could not start the app."
 #define T_SELF_DELETE        "PSPDX cannot delete itself."
 
-/* Direct install and sources. */
+/* Direct Install and sources. */
 #define T_OSK_GITHUB         "Enter GitHub owner/repository"
 #define T_OSK_SOURCE         "Enter source URL"
 #define T_BAD_ADDRESS        "The address is not valid."
@@ -168,39 +169,53 @@
 
 /* ------------------------------------------------------------------ gear */
 
-#define T_SET_SOURCES        "Manage sources"
-#define T_SET_DIRECT         "Direct install"
-#define T_SET_FILES          "Manage Data"
-#define T_SET_RESET          "Reset"
-#define T_SET_INFO           "Information"
-#define T_SET_GRAPHICS       "Graphic Settings"
-#define T_NOTE_SOURCES       "View, add or delete the sources PSPDX reads apps from."
-#define T_NOTE_DIRECT        "Install an app from GitHub or from the INBOX folder."
-#define T_NOTE_FILES         "View the data PSPDX keeps on the Memory Stick."
-#define T_NOTE_RESET         "Reset PSPDX, or clear the cache and any failed install."
-#define T_NOTE_INFO          "View details about PSPDX and this system."
-#define T_NOTE_GRAPHICS      "Switches between the steady 30 FPS and the smoother 60 FPS mode."
+/* The four rows under the gear, the way the system names its own: a noun
+   each, and on the right what taking the row comes to. */
+#define T_SET_SOURCES        "Sources"
+#define T_SET_SYSTEM         "Options"
+#define T_SET_FILES          "Data"
+#define T_SET_ABOUT          "About"
+#define T_SET_DIRECT         "Direct Install"
+#define T_NOTE_SOURCES       "Manages the catalogs apps are listed from."
+#define T_NOTE_SYSTEM        "Adjusts display, testing and default settings."
+#define T_NOTE_FILES         "Displays the data saved on the Memory Stick."
+#define T_NOTE_ABOUT         "Displays version and system information."
+#define T_NOTE_DIRECT        "Installs an app from GitHub or from the INBOX folder."
 
-#define T_SUB_DIRECT         "Direct install"
-#define T_SUB_RESET          "Reset"
-#define T_SUB_QUIRKS         "Quirks"
-#define T_SUB_GRAPHICS       "Graphic Settings"
+#define T_SUB_DIRECT         "Direct Install"
 #define T_SUB_FROM_GITHUB    "From GitHub"
-#define T_SUB_FROM_INBOX     "From INBOX folder"
-#define T_SUB_SWEEP          "Renew TLS Seed"
-#define T_SUB_FPS            "Show fps"                          /* a Quirks row, the tick mark after it while on */
-#define T_SUB_DEV            "Fake updates"                      /* a Quirks row: every installed package is said to have an update */
-#define T_SUB_FPS30          "Baked UI (30fps)"
-#define T_SUB_FPS60          "Merciful UI (60fps)"
+#define T_SUB_FROM_INBOX     "From INBOX Folder"
+/* Options: a value row first, the value at the row's end; then the
+   switches, the tick mark after each while it is on; the seed's renewal;
+   and last the one that takes everything back. On the right, what each
+   comes to. */
+#define T_SYS_BAKED          "Baked UI"                        /* the row's word at 30 FPS */
+#define T_SYS_MERCY          "Mercy UI"                        /* the row's word at 60 FPS */
+#define T_VALUE_FPS30        "30 FPS"
+#define T_VALUE_FPS60        "60 FPS"
+#define T_SYS_FPS            "Show FPS"
+#define T_SYS_DEV            "Fake Updates"                      /* every installed package is said to have an update */
+#define T_SYS_SWEEP          "Renew TLS Seed"
+#define T_SYS_RESET_ALL      "Restore Defaults"
+#define T_SYS_FRAME_RATE_NOTE "Switches between baked UI at 30 FPS and performance UI at 60 FPS."
+#define T_SYS_FPS_NOTE       "Displays the frame rate on screen."
+#define T_SYS_DEV_NOTE       "Testing option to simulate updates for installed apps."
+#define T_SYS_SWEEP_NOTE     "Generates a new seed for secure connections."
+#define T_SYS_RESET_NOTE     "Restores all settings to their defaults. Installed apps are not deleted."
+#define T_HINT_CHANGE        "Change"
+#define T_HINT_TOGGLE        "Toggle"
+#define T_HINT_RUN           "Run"
+#define T_HINT_RESTORE       "Restore"
+#define T_HINT_UI_MODE       "UI Mode"                          /* SELECT: the frame rate for this run */
+#define T_HINT_TABS          "Tabs"
+/* Data: the one action at the top of the areas. */
 #define T_SUB_CLEAR_CACHE    "Clear Cache"
 #define T_CACHE_CLEARED      "Cache cleared."
 #define T_CACHE_CLEAR_FAILED "Could not clear the cache."
-#define T_SUB_RESET_ALL      "Reset PSPDX"
-#define T_SUB_DISCARD        "Clean Up Failed Installs"
 
-/* Manage sources: Add source at the top, then a row per source with how the
+/* Sources: Add Source at the top, then a row per source with how the
    last fetch went under its name; on the right what the row is. */
-#define T_SUB_ADD_SOURCE     "Add source"
+#define T_SUB_ADD_SOURCE     "Add Source"
 #define T_SOURCE_APPS        "%d app%s"                           /* n, "s" */
 #define T_SOURCE_OFFLINE     "offline copy, %d app%s"             /* n, "s"; after the kind */
 #define T_SOURCE_UNREACHABLE "unreachable"
@@ -213,14 +228,14 @@
 #define T_SOURCE_FACT_APPS   "Apps: %d"                           /* n */
 #define T_SOURCE_FACT_LOADED "Loaded: %s"                         /* when */
 #define T_SOURCE_FACT_SAVED  "Loaded: saved copy"
-#define T_SOURCE_NOTE_ADD    "Enter the address of a catalog site, a catalog.json or a text list. Nothing is installed."
-#define T_SOURCE_NOTE_SITE   "A catalog site: its catalog.json, or its catalog.txt."
-#define T_SOURCE_NOTE_JSON   "A catalog file of apps and their releases."
-#define T_SOURCE_NOTE_LIST   "A list of GitHub repositories."
-#define T_SOURCE_NOTE_REPO   "A GitHub repository, listed as one app."
-#define T_SOURCE_NOTE_UNREACHABLE "Could not be loaded. Its apps are not shown."
-#define T_SOURCE_NOTE_OFFLINE "Could not be loaded. Its apps are from the saved copy."
-#define T_SOURCE_NOTE_KEEP   "Deleting it keeps installed apps."
+#define T_SOURCE_NOTE_ADD    "Adds a catalog site, a catalog.json or a text list."
+#define T_SOURCE_NOTE_SITE   "Catalog site."
+#define T_SOURCE_NOTE_JSON   "Catalog file."
+#define T_SOURCE_NOTE_LIST   "List of GitHub repositories."
+#define T_SOURCE_NOTE_REPO   "GitHub repository."
+#define T_SOURCE_NOTE_UNREACHABLE "Could not be loaded. Its apps are not displayed."
+#define T_SOURCE_NOTE_OFFLINE "Could not be loaded. The saved copy is displayed."
+#define T_SOURCE_NOTE_KEEP   "Deleting it does not delete installed apps."
 
 /* ------------------------------------------------------------ information */
 
@@ -265,13 +280,14 @@
 #define T_FILES_N            "%d"                                 /* count */
 #define T_FILES_NONE         "none"
 #define T_HINT_OPEN          "Open"
+#define T_HINT_CLEAR         "Clear"
 #define T_HINT_SCROLL        "Scroll"
 #define T_HINT_OPEN_RAW      "Open"
 #define T_HINT_STICK_SCROLL  "Scroll"
 
 /* The areas, in the order a person asks about them. */
 #define T_AREA_SYSTEM        "System"
-#define T_AREA_SYSTEM_NOTE   "Cache, logs and other files PSPDX keeps for itself."
+#define T_AREA_SYSTEM_NOTE   "Cache, logs and other system files."
 #define T_AREA_SOURCES       "Sources"
 #define T_AREA_INSTALLED     "Installed apps"
 #define T_AREA_INBOX         "Inbox"
@@ -280,13 +296,13 @@
 #define T_AREA_LOGS          "Logs"
 #define T_AREA_SEED          "Encryption seed"
 #define T_AREA_DEBUG         "Developer files"
-#define T_AREA_SOURCES_NOTE  "Where PSPDX looks for apps. Edit under Manage sources."
-#define T_AREA_INSTALLED_NOTE "What is installed and where it came from. One entry per app."
-#define T_AREA_INBOX_NOTE    ".pspdx files copied here are installed via Direct install."
-#define T_AREA_CACHE_NOTE    "Catalogs and previews already downloaded. Safe to delete."
-#define T_AREA_PENDING_NOTE  "Used only while an install is running. Empty means nothing is stuck."
-#define T_AREA_LOGS_NOTE     "What PSPDX did, for troubleshooting."
-#define T_AREA_SEED_NOTE     "The random seed for secure connections. Never shown."
+#define T_AREA_SOURCES_NOTE  "The catalogs apps are listed from. Edit under Sources."
+#define T_AREA_INSTALLED_NOTE "Records of installed apps and their origin."
+#define T_AREA_INBOX_NOTE    ".pspdx files placed here can be installed via Direct Install."
+#define T_AREA_CACHE_NOTE    "Downloaded catalogs and previews. Can be deleted."
+#define T_AREA_PENDING_NOTE  "Temporary files of an installation in progress."
+#define T_AREA_LOGS_NOTE     "Logs for troubleshooting."
+#define T_AREA_SEED_NOTE     "Seed for secure connections. Not displayed."
 #define T_AREA_DEBUG_NOTE    "Screenshots and test files for development."
 #define T_KIND_CATALOG       "Catalog"
 #define T_CACHE_ICON         "Icon of %s"                         /* app */

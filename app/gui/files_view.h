@@ -10,12 +10,22 @@
    util/files.c, which reads the stick; this draws it, takes its keys, and
    hands a film or a sound to the media thread while a row stands for one. */
 
-/* Up, on the areas. The gear row opens it; O at the top closes it. */
+/* Up, on the areas. The gear row opens it; O at the top closes it, and
+   a trigger leaving the gear's tab closes it from outside. */
 void files_view_open(void);
+void files_view_close(void);
 
 /* 1 while the browser is on screen, when the room is its and the list's
    keys are not read. */
 int files_view_shown(void);
+
+/* 1 while the cursor is on Clear Cache at the top: X there is the loop's
+   to ask about. */
+int files_view_action(void);
+
+/* The rows read off the stick again, where the browser is up: called once
+   the cache is cleared, so the sizes say what is there now. */
+void files_view_refresh(void);
 
 /* The two columns, or the band over them, drawn where the shell draws the
    list. */

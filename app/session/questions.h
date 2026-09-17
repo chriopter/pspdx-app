@@ -30,7 +30,7 @@ void ask(enum question q, int of, const char *title, const char *line);
 /* 1 while a question stands over the browser. */
 int asking(void);
 
-/* The catalogs this console reads, as Manage sources last listed them: the
+/* The catalogs this console reads, as Sources last listed them: the
    view fills it, ASK_CATALOG's index points into it. */
 struct sources *question_sources(void);
 

@@ -24,6 +24,7 @@
 #include "gui/shell_internal.h"
 #include "gui/files_view.h"
 #include "gui/sources_view.h"
+#include "gui/system_view.h"
 #include "gui/font.h"
 #include "gui/gfx.h"
 #include "gui/icons.h"
@@ -59,13 +60,11 @@
 
 /* ------------------------------------------------------------------ colour */
 
-/* Every selection lights the room a colour drawn by lot: a hue at full
-   saturation, always at least a third of the wheel from the last one, so
-   the change is a change. The lot is a plain generator seeded by the clock
-   and has nothing to do with the entropy pool. */
-static unsigned g_lot;
-static float g_hue = 0.58f;
-
+/* Each tab lights the room its own colour, the way the system's own
+   columns each have a look: the stick green, the store blue, the UMDs
+   amber, the basket teal, the gear violet. A hue at full saturation,
+   softened the way the lot used to soften its draw. The colour changes
+   with the tab and with nothing else. */
 static struct rgb hue_rgb(float h) {
     h -= (float)(int)h;
     float x = h * 6.0f;
@@ -82,18 +81,16 @@ static struct rgb hue_rgb(float h) {
     }
 }
 
-static struct rgb draw_lot(void) {
-    if (!g_lot) g_lot = now_us() | 1;
-    g_lot = g_lot * 1664525u + 1013904223u;
-    /* A third to two thirds of the wheel away, either direction. */
-    float step = 0.33f + 0.34f * ((g_lot >> 8) & 0xFFFF) / 65536.0f;
-    g_hue += step;
-    g_hue -= (float)(int)g_hue;
-    /* Not the yellows: water lit yellow is mud. The band from orange-yellow
-       to yellow-green is stepped over. */
-    if (g_hue > 0.10f && g_hue < 0.22f) g_hue += 0.12f;
-    /* Softened a little: pure spectral colours read as a warning light. */
-    return rgb_mix(hue_rgb(g_hue), RGB_WHITE, 0.18f);
+static struct rgb tab_tint(int tab) {
+    float hue;
+    switch (tab) {
+    case TAB_STICK:  hue = 0.36f; break;    /* green */
+    case TAB_UMD:    hue = 0.07f; break;    /* amber */
+    case TAB_BASKET: hue = 0.50f; break;    /* teal */
+    case TAB_GEAR:   hue = 0.80f; break;    /* violet */
+    default:         return DEFAULT_TINT;   /* the store: the room's own blue */
+    }
+    return rgb_mix(hue_rgb(hue), RGB_WHITE, 0.18f);
 }
 
 /* The palette of the current frame, derived from the eased tint once per
@@ -111,7 +108,7 @@ static void derive_palette(void) {
 
 static int g_last_cursor = -1;
 static float g_sel_y = LIST_Y;
-static int g_first;                     /* the row the list wants at the top */
+static int g_first;                     /* the slot the list wants at the top */
 static float g_scroll;                  /* where it is, in pixels, on its way there */
 static int g_fade = 255;                /* black over everything at start */
 
@@ -378,6 +375,8 @@ static const char *category_word(int n) {
 static const char *tab_word(int tab) {
     if (files_view_shown()) return T_HEAD_FILES;
     if (sources_view_shown()) return T_HEAD_SOURCES;
+    if (system_view_shown()) return T_HEAD_SYSTEM;
+    if (g_info) return T_HEAD_ABOUT;
     if (tab == TAB_HOMEBREW && view_category_open_at() >= 0)
         return category_word(view_category_open_at());
     switch (tab) {
@@ -442,10 +441,7 @@ static void draw_action_row(int y, int selected, float t) {
                          action_title(), selected ? hover_age(0, VIEW_ROW_ACTION) : 0.0f);
 }
 
-/* The gear's first row is a switch and reads as the side it is on; the
-   rest are what the view names them. */
 static const char *setting_word(int n) {
-    if (n == 0) return gfx_fps_cap30() ? T_SUB_FPS30 : T_SUB_FPS60;
     return view_setting(n);
 }
 
@@ -454,7 +450,7 @@ static const char *setting_word(int n) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[VIEW_SETTINGS] = {
-        MARK_GEAR, MARK_DOWNLOAD, MARK_INSTALLED, MARK_UPDATE, MARK_INFO,
+        MARK_WORLD, MARK_SLIDERS, MARK_FOLDER, MARK_INFO,
     };
     float dx = g_page_dx;
     float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
@@ -1423,6 +1419,14 @@ static void draw_menu(void) {
                       MARK_PLAIN, 0, 0);
             room -= mark_width(k) + 10;
         }
+        /* A value row says what it is set to at the row's end, in the
+           row's own colour: the value is the row's, the way the system's
+           own settings read. */
+        if (m->value[i]) {
+            float w = font_width(FONT_BODY, m->value[i]);
+            font_print(FONT_BODY, left + room - w, y, color, m->value[i]);
+            room -= w + 8;
+        }
         /* A row can carry a note after the byte 2 -- a source the last
            fetch could not load says so -- drawn at the row's end in the
            keys' colour, for the same reason: it is about the row. */
@@ -1499,12 +1503,15 @@ static void draw_install(void) {
     }
 }
 
-/* -------------------------------------------------------------- info band */
+/* -------------------------------------------------------------- about */
 
-/* Labels end and values begin at the same places all the way down, so the
-   rows read as a column of facts and not as a page of sentences. The two
-   that need the room -- where the catalog is and what was negotiated with it
-   -- have the band to themselves; the short ones pair up. */
+
+/* About: the facts about this build and this run in a band over the room.
+   Labels end and values begin at the same places all the way down, so the
+   rows read as a column of facts and not as a page of sentences. The four
+   that need the room -- the build, where the catalog is, what was
+   negotiated with it, the frames -- have the band to themselves; the short
+   ones pair up under them. */
 #define FACT_LABEL 150
 #define FACT_VALUE 166
 #define FACT_LABEL2 330
@@ -1579,20 +1586,17 @@ static void read_storage(void) {
     if (all) g_storage_used = 1.0f - (float)((double)left / (double)all);
 }
 
+
+
+
 /* What each row does, said on the right while the cursor is on it: the
    list names the thing, the panel says what it comes to. */
 static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
-    T_NOTE_GRAPHICS,
     T_NOTE_SOURCES,
+    T_NOTE_SYSTEM,
     T_NOTE_FILES,
-    T_NOTE_RESET,
-    T_NOTE_INFO,
+    T_NOTE_ABOUT,
 };
-
-/* Four rows at the foot leave the facts above them 18 pixels apart rather
-   than 24, which the small face reads at without touching. */
-#define ACTION_Y (INFO_Y + 148)
-#define ACTION_H 18
 
 static void draw_info(void) {
     draw_band(INFO_Y, INFO_H);
@@ -1603,11 +1607,11 @@ static void draw_info(void) {
 
     /* Which build this is, above the rest: the one fact the band states about
        itself rather than about the run. */
-    fact(INFO_Y + 18, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
+    fact(INFO_Y + 16, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
          T_INFO_PSPDX, PSPDX_VERSION);
 
     url_host(catalog_url(), value, sizeof(value));
-    fact(INFO_Y + 36, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
+    fact(INFO_Y + 34, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
          T_INFO_CATALOG, value);
 
     if (tls.cipher[0]) {
@@ -1617,29 +1621,32 @@ static void draw_info(void) {
     } else {
         snprintf(value, sizeof(value), T_INFO_NOT_CONNECTED);
     }
-    fact(INFO_Y + 54, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
+    fact(INFO_Y + 52, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
          T_INFO_CONNECTION, value);
-
-    snprintf(value, sizeof(value), "%u ms", tls.handshake_ms);
-    fact(INFO_Y + 76, FACT_LABEL, FACT_VALUE, 140, T_INFO_HANDSHAKE, value);
-
-    snprintf(value, sizeof(value), "%d bits", entropy_get_bits());
-    fact(INFO_Y + 96, FACT_LABEL, FACT_VALUE, 140, T_INFO_ENTROPY, value);
 
     /* Not a scheduler's number -- the PSP has none to ask. The share of each
        frame that goes into drawing it; the rest is the wait for vblank, which
-       is the only idle this client has. */
+       is the only idle this client has. Wide, like the two above it: paired
+       with a short fact it ran into that fact's label. */
     snprintf(value, sizeof(value), "%d fps, %d%% drawing",
              g_frame_us > 0.0f ? (int)(1000000.0f / g_frame_us + 0.5f) : 0,
              (int)(g_load * 100.0f + 0.5f));
-    fact(INFO_Y + 116, FACT_LABEL, FACT_VALUE, 160, T_INFO_FRAMES, value);
+    fact(INFO_Y + 70, FACT_LABEL, FACT_VALUE, SCR_W - FACT_VALUE - 30,
+         T_INFO_FRAMES, value);
+
+    /* The short ones pair up, three rows of two. */
+    snprintf(value, sizeof(value), "%u ms", tls.handshake_ms);
+    fact(INFO_Y + 96, FACT_LABEL, FACT_VALUE, 140, T_INFO_HANDSHAKE, value);
+
+    snprintf(value, sizeof(value), "%d bits", entropy_get_bits());
+    fact(INFO_Y + 114, FACT_LABEL, FACT_VALUE, 140, T_INFO_ENTROPY, value);
 
     int installed = 0;
     if (g_catalog)
         for (int i = 0; i < g_catalog->count; i++)
             if (g_catalog->apps[i].state != APP_NOT_INSTALLED) installed++;
     snprintf(value, sizeof(value), "%d", installed);
-    fact(INFO_Y + 76, FACT_LABEL2, FACT_VALUE2, 110, T_INFO_INSTALLED, value);
+    fact(INFO_Y + 132, FACT_LABEL, FACT_VALUE, 140, T_INFO_INSTALLED, value);
 
     snprintf(value, sizeof(value), "%u KB",
              (unsigned)sceKernelTotalFreeMemSize() / 1024);
@@ -1648,21 +1655,17 @@ static void draw_info(void) {
     /* Room on the stick is the one fact here that is a proportion, so it is
        drawn as one: the line fills as the stick does, and what is left of it
        is what a package has to fit into. */
-    fact(INFO_Y + 116, FACT_LABEL2, FACT_VALUE2, 110, T_INFO_STICK, g_storage);
+    fact(INFO_Y + 114, FACT_LABEL2, FACT_VALUE2, 110, T_INFO_STICK, g_storage);
     if (g_storage_used >= 0.0f) {
-        int x = FACT_VALUE2, w = SCR_W - FACT_VALUE2 - 30, y = INFO_Y + 125;
+        int x = FACT_VALUE2, w = SCR_W - FACT_VALUE2 - 30, y = INFO_Y + 123;
         int used = (int)(w * g_storage_used + 0.5f);
         gfx_rect(x, y, w, 3, RGBA(255, 255, 255, 28));
         if (used > 0) gfx_hgrad(x, y, used, 3, rgb_pack(g_tint, 255), g_accent);
     }
 
-    band_rule(INFO_Y + 134, 160, 120);
-    /* The way out, and the one thing to know: the switches for
-       development, and the seed's renewal beside them, are under SELECT
-       held on this band for a second. */
-    float w = hint_width(MARK_SELECT, T_HINT_QUIRKS) + 24 + hint_width(MARK_CIRCLE, T_HINT_BACK);
-    float hx = draw_hint(SCR_W / 2 - w / 2, INFO_Y + 156, MARK_SELECT, T_HINT_QUIRKS, g_dim);
-    draw_hint(hx + 24, INFO_Y + 156, MARK_CIRCLE, T_HINT_BACK, g_dim);
+    /* The way out is in the foot, where every view has it. */
+    if (shell_footer_free())
+        draw_hint(LIST_X, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
 }
 
 /* --------------------------------------------------------------- details */
@@ -1934,13 +1937,24 @@ static void draw_footer(void) {
        way back out of a band that fills the screen. Otherwise there is no
        strip, and the water runs to the edge. */
     if (g_ask_title[0] || g_menu || g_menu_leaving || g_installing) return;
-    if (!g_details && !g_status[0]) return;
+    /* The gear's own rows carry the legend the views under them carry:
+       X into a row, SELECT for the frame rate of this run, L and R across
+       the tabs. It is the one list that is about the client rather than
+       about packages, and the place a hand learns its keys. */
+    int gear = !g_details && !g_status[0] && !g_info && g_catalog && g_catalog->count > 0 &&
+               view_tab_kind() == VIEW_TAB_GEAR && !files_view_shown() &&
+               !sources_view_shown() && !system_view_shown();
+    if (!g_details && !g_status[0] && !gear) return;
     /* No edge: the strip comes in as a shadow rising from the bottom, the
        way the PSP's own bars sit on their backgrounds. */
     gfx_vgrad(0, FOOTER_Y - 28, SCR_W, 28, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 120));
     gfx_vgrad(0, FOOTER_Y, SCR_W, SCR_H - FOOTER_Y, RGBA(0, 0, 0, 120),
               RGBA(0, 0, 0, 200));
-    if (g_details) {
+    if (gear) {
+        float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_HINT_ENTER, g_dim);
+        x = draw_hint(x, FOOTER_BASE, MARK_SELECT, T_HINT_UI_MODE, g_dim);
+        draw_hint(x, FOOTER_BASE, MARK_L, T_HINT_TABS, g_dim);
+    } else if (g_details) {
         /* The page names its keys, since X does the one thing there is to
            do to the package and that thing changes with its state. */
         const struct app_entry *e = g_details;
@@ -2042,17 +2056,16 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     float t = g_clock;
     g_now = t;
 
-    /* The room changes colour with the selection, but slowly: an eighth of
-       the way per frame is a crossfade, not a flash. And not at all while
-       a direction is held down: the rows flying by keep the colour the
-       room has, and the one the cursor stops on gets its turn when the
-       key is let go. */
+    /* The room changes colour with the tab, but slowly: an eighth of the
+       way per frame is a crossfade, not a flash. The cursor moving in a
+       list changes nothing; the room is the tab's. */
     static struct rgb target = { 80, 140, 255 };
-    static int lit_for = -1;
+    static int lit_for = -1000;
+    int tab = view_tab_current();
     if (catalog->count <= 0) target = DEFAULT_TINT;
-    else if (cursor != lit_for && !g_held) {
-        lit_for = cursor;
-        target = draw_lot();
+    else if (tab != lit_for) {
+        lit_for = tab;
+        target = tab_tint(tab);
         /* The water is told the colour outright, so the front that runs
            out from the ring carries it whole from its first frame; the
            rest of the room eases toward it below. */
@@ -2114,6 +2127,8 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         files_view_draw(t);
     } else if (sources_view_shown()) {
         sources_view_draw(t);
+    } else if (system_view_shown()) {
+        system_view_draw(t);
     } else if (catalog->count > 0 && view_tab_kind() == VIEW_TAB_UMD) {
         /* The UMD tab has no rows yet, only the one line saying so, in the
            middle of the room under the header. */
@@ -2132,8 +2147,9 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         int menu_active = g_menu || g_menu_leaving;
         int suppress_panel = menu_active
                            && (!gfx_fps_cap30() || menu_left <= PANEL_X);
-        /* Nor while the browser is off the left edge under the page. */
-        if (g_page_dx <= -(SCR_W - 20)) suppress_panel = 1;
+        /* Nor while the browser is off the left edge under the page, nor
+           under the About band, whose facts stand where the panel would. */
+        if (g_page_dx <= -(SCR_W - 20) || g_info) suppress_panel = 1;
         if (!suppress_panel) {
             if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
             else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
@@ -2272,6 +2288,8 @@ void shell_rest(int resting) { g_resting = resting; }
 void shell_toggle_fps(void) { g_show_fps = !g_show_fps; }
 void shell_toggle_dev(void) { g_dev_updates = !g_dev_updates; }
 int shell_dev_updates(void) { return g_dev_updates; }
+
+int shell_info_shown(void) { return g_info; }
 
 void shell_info(int open) {
     if (open && !g_info) read_storage();
