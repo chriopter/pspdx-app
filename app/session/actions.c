@@ -26,6 +26,7 @@
 #include "pspkit-https/entropy.h"
 #include "pspkit-https/https.h"
 #include "session/actions.h"
+#include "session/options.h"
 #include "session/view.h"
 #include "update/inbox.h"
 #include "update/sources.h"
@@ -253,6 +254,10 @@ void launch_app(int index) {
     cues_post(CUE_OPEN, 0);
     logline("launching %s", path);
     entropy_save(entropy_screen_is_replay());
+    /* LoadExec replaces this process without running the HOME exit callback.
+       Persist a changed graphics mode here as well, beside the other session
+       state that must survive a normal app launch. */
+    options_settings_save();
     audio_stop();
     log_dump();
 

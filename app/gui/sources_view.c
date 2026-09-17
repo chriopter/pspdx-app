@@ -79,9 +79,9 @@ static void draw_row(const struct manage_row *r, int i, int y, int selected, flo
                   selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     /* Two lines, the way the action row is: the name, and under it how the
        last fetch went. */
-    font_print_scrolling(FONT_BODY, NAME_X, y + 13, w, selected ? g_text : g_dim, r->name,
+    font_print_scrolling(FONT_BODY, NAME_X, y + 12, w, selected ? g_text : g_dim, r->name,
                          selected ? hover_age(3, i) : 0.0f);
-    font_print_clipped(FONT_META, NAME_X, y + 25, w, g_dim, r->status);
+    font_print_clipped(FONT_META, NAME_X, y + 26, w, g_dim, r->status);
 }
 
 void sources_view_draw(float t) {
@@ -107,13 +107,13 @@ void sources_view_draw(float t) {
         draw_shade(PANEL_X + SHOT_W / 2, SHOT_Y + 120, SHOT_W, 110);
     int lines = draw_setting_note(manage_title(m, cursor), note, hover_age(3, cursor));
     if (r->kind == MANAGE_SOURCE) {
-        int y = SHOT_Y + 14 + 24 + 16 * lines + 6;
+        int y = SHOT_Y + 14 + 24 + 17 * lines + 6;
         break_url(manage_url(m, cursor));
-        for (int i = 0; i < g_url_lines; i++, y += 14)
+        for (int i = 0; i < g_url_lines; i++, y += 17)
             font_print_clipped(FONT_META, PANEL_X, y, SHOT_W, g_text, g_url_line[i]);
         char facts[3][MANAGE_FACT];
         int n = manage_facts(m, cursor, facts, 3);
-        for (int i = 0; i < n; i++, y += 14)
+        for (int i = 0; i < n; i++, y += 17)
             font_print_clipped(FONT_META, PANEL_X, y + 4, SHOT_W, g_dim, facts[i]);
     }
 

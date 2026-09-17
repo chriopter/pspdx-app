@@ -43,6 +43,11 @@ int psmf_is(const unsigned char *data, size_t len);
    stream does not fit in len. */
 int psmf_parse(const unsigned char *data, size_t len, struct psmf_info *out);
 
+/* Copy the header only when the first pack has the strict Sony system-header
+   and AU-index layout that real sceMpeg accepts. */
+int psmf_decoder_header(const unsigned char *data, size_t len,
+                        unsigned char out[PSMF_HEADER]);
+
 /* How long one picture stays, in 90 kHz ticks: the presentation's span
    over its count, or thirty a second when the header cannot say. */
 unsigned psmf_frame_ticks(const struct psmf_info *info);

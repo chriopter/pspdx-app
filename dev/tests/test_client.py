@@ -230,7 +230,7 @@ class ClientTests(unittest.TestCase):
  def test_view_tabs_come_and_go(self):
   # One app, installed with a newer one published: stick, Homebrew, the UMD, which has no rows, and the gear; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
   self.fixtures();r=self.run_client('view')
-  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 1 first 0 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 6 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
+  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 1 first 0 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 7 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
  def test_catalog_offline_fallback(self):
   self.fixtures();r=self.run_client('fetch');self.assertIn(ID+' 2 1',r.stdout)
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)
@@ -1438,13 +1438,13 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(r.returncode,0,r.stderr[-2000:]);self.assertNotIn('Sanitizer',r.stderr);self.assertNotIn('runtime error:',r.stderr);return r.stdout.splitlines()
  def test_a_picture_larger_than_a_texture_is_scaled_down_to_fit(self):
   halves=lambda w,left,right:lambda y:left*(w//2)+right*(w-w//2)
-  cases=[(self.png('screenshot.png',640,480,halves(640,b'\xff\0\0',b'\0\0\xff'),kind=2),'0 512x384 512x512 255,0,0,255 0,0,255,255'),
-         (self.png('wide.png',2048,100,halves(2048,b'\0\xff\0\0',b'\x0a\x14\x1e\xff')),'0 512x25 512x32 0,0,0,0 10,20,30,255'),
-         (self.png('tall.png',100,2048,lambda y:b'\x80'*100,kind=0),'0 25x512 32x512 128,128,128,255 128,128,128,255'),
+  cases=[(self.png('screenshot.png',640,480,halves(640,b'\xff\0\0',b'\0\0\xff'),kind=2),'0 256x192 256x256 255,0,0,255 0,0,255,255'),
+         (self.png('wide.png',2048,100,halves(2048,b'\0\xff\0\0',b'\x0a\x14\x1e\xff')),'0 256x13 256x16 0,0,0,0 10,20,30,255'),
+         (self.png('tall.png',100,2048,lambda y:b'\x80'*100,kind=0),'0 13x256 16x256 128,128,128,255 128,128,128,255'),
          # A transparent pixel does not whiten the red beside it: the colour is weighted by alpha, the alpha averaged.
-         (self.png('edge.png',1024,2,lambda y:b'\xff\xff\xff\0\xc8\0\0\xff'*512),'0 512x1 512x1 200,0,0,128 200,0,0,128'),
-         (self.png('exact.png',512,512,lambda y:b'\x01\x02\x03\x04'*512),'0 512x512 512x512 1,2,3,4 1,2,3,4'),
-         (self.png('palette.png',480,272,lambda y:b'\0'*240+b'\1'*240,kind=3,palette=b'\x11\x22\x33\x44\x55\x66'),'0 480x272 512x512 17,34,51,255 68,85,102,255'),
+         (self.png('edge.png',1024,2,lambda y:b'\xff\xff\xff\0\xc8\0\0\xff'*512),'0 256x1 256x1 200,0,0,128 200,0,0,128'),
+         (self.png('exact.png',512,512,lambda y:b'\x01\x02\x03\x04'*512),'0 256x256 256x256 1,2,3,4 1,2,3,4'),
+         (self.png('palette.png',480,272,lambda y:b'\0'*240+b'\1'*240,kind=3,palette=b'\x11\x22\x33\x44\x55\x66'),'0 256x145 256x256 17,34,51,255 68,85,102,255'),
          (self.png('huge.png',4097,1,lambda y:b'\0\0\0\0'*4097),'-1'),
          (self.png('interlaced.png',600,600,lambda y:b'\0\0\0\0'*600,interlace=1),'-1'),
          # Cut short part way through the rows, scaled or not: nothing it had allocated is left behind.

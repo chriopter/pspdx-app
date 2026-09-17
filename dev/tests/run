@@ -13,4 +13,7 @@ cc -g -O1 -fsanitize=address,undefined -Wno-deprecated-declarations \
   -lcjson -lz -lcrypto -o "$TEST_WORK/client"
 cc -g -O1 -fsanitize=address,undefined -I"$HERE/host" -I"$APP" \
   "$HERE/host/image.c" "$APP/gui/image.c" $(pkg-config --cflags --libs libpng) -o "$TEST_WORK/image"
+cc -g -O1 -fsanitize=address,undefined -I"$APP" \
+  "$HERE/host/video.c" "$APP/video/mp4.c" "$APP/video/psmf.c" -o "$TEST_WORK/video"
+ASAN_OPTIONS=detect_leaks=0 "$TEST_WORK/video" "$APP/assets/icon1.pmf"
 PSPDX_TEST_BIN="$TEST_WORK/client" PSPDX_IMAGE_BIN="$TEST_WORK/image" python3 "$HERE/test_client.py" -v

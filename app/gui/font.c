@@ -30,8 +30,14 @@ static intraFont *g_font;
 static const struct { float size; unsigned shadow; } STYLES[] = {
     [FONT_DISPLAY] = { 1.35f, 0x00000000 },
     [FONT_H1]   = { 1.00f, 0xA0000000 },
-    [FONT_BODY] = { 0.82f, 0x80000000 },
-    [FONT_META] = { 0.72f, 0x70000000 },
+    /* The XMB's two sizes, measured off its own screen (6.60, a Go): a
+       menu item stands 11 px from cap to baseline with an x-height of 8,
+       and everything else -- the line under an item, a column's label, a
+       button's word, an options row -- 9 with an x-height of 7. ltn8 at
+       1.0 is that second size exactly, and 1.2 is the first. */
+    [FONT_TITLE] = { 1.20f, 0x80000000 },
+    [FONT_BODY] = { 1.00f, 0x80000000 },
+    [FONT_META] = { 1.00f, 0x70000000 },
 };
 
 /* ---------------------------------------------------------- measurements */

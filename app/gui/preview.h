@@ -47,6 +47,8 @@ void preview_resume(void);
 /* What to draw on the card, bottom to top: the still (or NULL), then the
    film over it (or NULL), each with how far it has faded in (0..255). */
 const struct gfx_texture *preview_still(int *alpha);
+/* Bumped each time a still is published: a VRAM copy keyed on it re-uploads. */
+unsigned preview_still_gen(void);
 const struct gfx_texture *preview_film(int *alpha);
 enum preview_state preview_state(void);
 

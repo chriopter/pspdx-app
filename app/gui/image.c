@@ -16,9 +16,9 @@
 
 /* The largest texture made here. A picture larger than that -- a 640x480
    screenshot -- is read a row at a time and scaled down into one, up to
-   MAX_SOURCE_DIM a side: one row of that is 16 KB, and the texture is never
-   more than the megabyte a 512x512 one takes. */
-#define MAX_DIM 512
+   MAX_SOURCE_DIM a side: one row of that is 16 KB, while the finished
+   preview texture stays within 256 KB. */
+#define MAX_DIM 256
 #define MAX_SOURCE_DIM 4096
 
 struct source {
@@ -110,10 +110,13 @@ int image_decode_png(const void *data, size_t len, struct gfx_texture *out) {
         png_destroy_read_struct(&png, &info, 0);
         return -1;
     }
-    /* What the texture holds: the picture itself, or the picture scaled
-       down, its sides kept in proportion, to fit MAX_DIM. */
+    /* The PSP screen never needs more than a 256-texel preview source: the
+       30 Hz path already kept exactly that resolution in its VRAM copy.
+       Shrink on the media thread so neither mode ever asks the GE to fetch a
+       full 512x512 system-RAM texture. */
+    unsigned max_dim = MAX_DIM;
     unsigned tw = w, th = h;
-    int shrink = w > MAX_DIM || h > MAX_DIM;
+    int shrink = w > max_dim || h > max_dim;
     if (shrink) {
         /* An interlaced picture arrives in passes over the whole of it, which
            a row at a time cannot scale; none a catalog serves is one. */
@@ -124,11 +127,11 @@ int image_decode_png(const void *data, size_t len, struct gfx_texture *out) {
             return -1;
         }
         if (w >= h) {
-            tw = MAX_DIM;
-            th = (unsigned)(((unsigned long long)h * MAX_DIM + w / 2) / w);
+            tw = max_dim;
+            th = (unsigned)(((unsigned long long)h * max_dim + w / 2) / w);
         } else {
-            th = MAX_DIM;
-            tw = (unsigned)(((unsigned long long)w * MAX_DIM + h / 2) / h);
+            th = max_dim;
+            tw = (unsigned)(((unsigned long long)w * max_dim + h / 2) / h);
         }
         if (!tw) tw = 1;
         if (!th) th = 1;

@@ -3,6 +3,7 @@
 *.d
 *.elf
 *.prx
+*.syms
 EBOOT.PBP
 PARAM.SFO
 target/

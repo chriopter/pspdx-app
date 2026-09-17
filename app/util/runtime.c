@@ -10,7 +10,7 @@
 #include "util/runtime.h"
 
 #define LOGLINES 40
-#define LOGCOLS 100           /* the debug screen clips at 60; the file gets it all */
+#define LOGCOLS 256           /* enough for one complete, batched perf record */
 
 /* The last LOGLINES lines, as a ring: a session that runs for an hour
    still leaves behind what happened last, not what happened first. */

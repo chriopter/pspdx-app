@@ -23,7 +23,7 @@ end of the run. This harness therefore reads the file *while* the emulator is
 up, several times a second, and stitches the snapshots back together by
 their overlap. That gives the whole log, in order, with a host timestamp on
 every line, which is also how a window is known to have had an install in it
-and how "the last frames: line is within 15 s of the end" is measured.
+and how "the last perf line is within 15 s of the end" is measured.
 
 It is also how a run knows the log is its own: the first snapshot of a run
 starts at `font:` and `ripple:`, which are the first two lines the client
@@ -69,7 +69,7 @@ LOCK_PATH = "/tmp/pspdx-rig.lock"
 CATALOG_S = 16
 # After the last key. A scripted `shot` can draw 360 frames before it
 # photographs, and there has to be room for at least one more ten-second
-# frames: line after it, or the liveness check has nothing to stand on.
+# perf line after it, or the liveness check has nothing to stand on.
 TAIL_S = 24
 # PPSSPP does not keep up with a PSP on this workload: thirty rows, a film
 # looping behind the card and a piano on another thread come to about six
@@ -88,13 +88,13 @@ POLL_S = 0.6
 # ------------------------------------------------------------- log reading
 
 FRAMES_RE = re.compile(
-    r"frames: (\d+) in 10 s, avg (\d+) ms, worst (\d+) ms, (\d+) late "
-    r"\(17-20 (\d+), 20-25 (\d+), 25-35 (\d+), 35\+ (\d+)\)")
+    r"perf \d+: (\d+)/10s avg (\d+) us worst (\d+) us late (\d+) "
+    r"\[(\d+) (\d+) (\d+) (\d+)\]")
 DRAW_RE = re.compile(
     r"slowest draw (\d+) us: back (\d+), front (\d+), end (\d+) "
     r"\(ge (\d+), vblank (\d+)\)")
 OUTSIDE_RE = re.compile(
-    r"outside draw: tick (\d+) us, audio callback (\d+) us, free (\d+) KB")
+    r"tick (\d+) us audio (\d+) us(?: atrac \d+ us)? free (\d+) KB")
 SLOW_FRAME_RE = re.compile(r"^frame (\d+): (\d+) ms, (\d+) ms since the shell")
 
 # A window with one of these in it was not browsing: the loop was away
@@ -105,7 +105,7 @@ SLOW_FRAME_RE = re.compile(r"^frame (\d+): (\d+) ms, (\d+) ms since the shell")
 # is forty lines and a row rested on writes six of them -- a handshake, a
 # status, a picture, a texture, a film, a player. Between two ten-second
 # dumps a browsing client can write more than forty, and then the lines in
-# the middle are gone before anything can read them. The frames: lines
+# the middle are gone before anything can read them. The perf lines
 # themselves are never lost (the dump follows them in the same breath), and
 # neither is anything an install writes (install_all dumps after each one),
 # but a `shot:` in the middle of a quiet stretch can be. So the other half is
@@ -238,8 +238,8 @@ def busy_spans(pred, keys, catalog_up, slowdown):
 
 
 def windows(lines, spans=()):
-    """The run cut at every frames: line: what happened in each ten seconds,
-    and whether any of it was an install. A window runs from the frames: line
+    """The run cut at every perf line: what happened in each ten seconds,
+    and whether any of it was an install. A window runs from the perf line
     before it to its own."""
     out = []
     held = []
@@ -255,8 +255,10 @@ def windows(lines, spans=()):
             busy = any(s < at and e > started for s, e in spans)
         out.append({
             "at": at, "from": started,
-            "frames": int(m.group(1)), "avg": int(m.group(2)),
-            "worst": int(m.group(3)), "late": int(m.group(4)),
+            "frames": int(m.group(1)),
+            "avg": (int(m.group(2)) + 999) // 1000,
+            "worst": (int(m.group(3)) + 999) // 1000,
+            "avg_us": int(m.group(2)), "worst_us": int(m.group(3)),
             "buckets": [int(m.group(i)) for i in range(5, 9)],
             "busy": busy,
             "lines": body,
@@ -407,7 +409,7 @@ def check(result, tail, pred, records, dirs, ms, began_at, ended_at, keys, world
     result["windows"] = len(win)
     result["busy_windows"] = [i for i, w in enumerate(win) if w["busy"]]
     if not win:
-        fails.append("b: no frames: line at all -- the loop never ran ten "
+        fails.append("b: no perf line at all -- the loop never ran ten "
                      "seconds")
     else:
         # Fifteen seconds in the client's own clock, which is the one the
@@ -418,7 +420,7 @@ def check(result, tail, pred, records, dirs, ms, began_at, ended_at, keys, world
         result["silence_s"] = round(gap, 1)
         result["silence_guest_s"] = round(gap / slowdown, 1)
         if gap > 15.0 * slowdown:
-            fails.append("b: the last frames: line was %.0f s (%.0f in the "
+            fails.append("b: the last perf line was %.0f s (%.0f in the "
                          "guest's clock) before the emulator was stopped"
                          % (gap, gap / slowdown))
         if shot_at is not None and win[-1]["at"] < shot_at:
@@ -669,7 +671,7 @@ def perf_run(paths, world, seed, run, lock):
     win = windows(tail.lines, spans)
     fails = []
     if not win:
-        fails.append("no frames: line at all")
+        fails.append("no perf line at all")
     if shot_at is None:
         fails.append("PSPDX1.BMP was not written")
     worst_back = worst_front = worst_audio = 0
@@ -697,7 +699,7 @@ def perf_run(paths, world, seed, run, lock):
                          % (i, w["late"], w["worst"]))
     gap = ended_at - win[-1]["at"] if win else 999
     if gap > 15.0 * slowdown:
-        fails.append("the last frames: line was %.0f s before the end" % gap)
+        fails.append("the last perf line was %.0f s before the end" % gap)
 
     result.update({
         "worst_frame_ms": max([w["worst"] for w in win], default=0),
@@ -830,13 +832,13 @@ def edge_check(sc, result, tail, rep, ms, began_at, ended_at, keys, world):
     win = rep.windows
     result["windows"] = len(win)
     if not win:
-        fails.append("b: no frames: line at all -- the loop never ran ten "
+        fails.append("b: no perf line at all -- the loop never ran ten "
                      "seconds")
     else:
         gap = ended_at - win[-1]["at"]
         result["silence_s"] = round(gap, 1)
         if gap > max(25.0, 15.0 * slowdown):
-            fails.append("b: the last frames: line was %.0f s before the "
+            fails.append("b: the last perf line was %.0f s before the "
                          "emulator was stopped; the loop stopped drawing" % gap)
         if shot_at is not None and win[-1]["at"] < shot_at:
             fails.append("b: nothing was logged after the shot -- the run was "

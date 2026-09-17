@@ -2,6 +2,14 @@
 
 #include "gui/lattice.h"
 
+/* The fine second ripple layer doubles the water's full-screen additive fill
+   (two more draw_surface passes) for a sparkle "noticed only by someone who
+   looks". Off by default: it is the single biggest GE cost and the wave
+   motion lives in the height field, not this texture layer. */
+#ifndef WATER_SPARKLE
+#define WATER_SPARKLE 0
+#endif
+
 /* The surface runs to the horizon in every direction: rows a constant factor
    apart in depth until they are two and a half pixels under the one behind
    them, and beyond the sixty-one columns in front of the viewer eight more
@@ -43,7 +51,8 @@
    through the row that field would have put there -- the same shape on the
    water however the rows are laid out now. */
 #define Z_REF 0.6f
-#define STARS 22
+#define STARS 40
+#define STARS_SLOW 22
 #define SPECKS 12
 
 /* The water in the world the GE draws it in: how high the eye sits over the
@@ -120,7 +129,7 @@ static float frand(void) {
     return (g_lcg >> 8) / 16777216.0f;
 }
 
-static struct { float x, y, vx, vy, size, phase; } g_stars[STARS];
+static struct { float x, y, vx, vy, size, phase, depth; } g_stars[STARS];
 
 /* Stars that fall when the sweep's hand smashes a button: a few at a time,
    each streaking down the sky and burning out before the horizon. Only a
@@ -539,7 +548,9 @@ void lattice_init(void) {
     for (int i = 0; i < STARS; i++) {
         g_stars[i].x = frand() * SCR_W;
         g_stars[i].y = 6 + frand() * (GFX_HORIZON - 30);
-        g_stars[i].size = 3 + frand() * 6;
+        float d = frand();
+        g_stars[i].depth = 0.25f + 0.75f * d * d;
+        g_stars[i].size = 2.0f + 6.0f * g_stars[i].depth;
         g_stars[i].phase = frand() * 6.283f;
         /* Adrift, each its own way, a few pixels a second. */
         g_stars[i].vx = (frand() - 0.5f) * 0.12f;
@@ -597,21 +608,54 @@ void lattice_touch(float x) {
     g_touch_i = rf;
 }
 
+/* Where the source sat last frame, so the stir can tell which way the hand is
+   moving and lay a wake across that line. -999 means "not stirring". */
+static float g_stir_lj = -999.0f, g_stir_li = -999.0f;
+/* In the 60 Hz sky the same hand drags the stars. The draw loop eases toward
+   this target, giving release a coast instead of snapping the field still. */
+static float g_sky_tx, g_sky_ty, g_sky_vx, g_sky_vy;
+
 void lattice_stir(float x, float y) {
     float push = x * x + y * y;
-    if (push < 0.04f) return;                   /* the dead zone */
+    if (push < 0.03f) {                         /* the dead zone */
+        g_stir_lj = g_stir_li = -999.0f;
+        g_sky_tx = g_sky_ty = 0.0f;
+        return;
+    }
     if (push > 1.0f) push = 1.0f;
+    g_sky_tx = x * 1.6f;
+    g_sky_ty = y * 1.6f;
     /* Across the field with the stick, and stick forward is out toward
        the horizon. Kept off the very front rows, which are under the
        screen's bottom edge. */
     float fx = 0.5f + x * 0.42f;
     float fz = 0.42f - y * 0.34f;
-    float jf = J0 + fx * (NX_INNER - 1) + (frand() - 0.5f) * 1.9f;
-    float rf = g_row0 + fz * (NZ - 1 - g_row0) + (frand() - 0.5f) * 1.2f;
-    /* A light press each frame rather than a drop: the wave equation adds
+    float jf = J0 + fx * (NX_INNER - 1);
+    float rf = g_row0 + fz * (NZ - 1 - g_row0);
+    /* A firmer press each frame rather than a drop: the wave equation adds
        them up into a wake, and the cap on the height keeps a stick held
-       against its stop from digging a hole. */
-    dent(jf, rf, 0.18f + 0.45f * push, 4.6f + 2.8f * push);
+       against its stop from digging a hole. Deeper and a touch wider than
+       before, so the hand reads on the water at a glance. */
+    dent(jf + (frand() - 0.5f) * 1.9f, rf + (frand() - 0.5f) * 1.2f,
+         0.34f + 0.85f * push, 5.0f + 3.2f * push);
+    /* Cross-waves: a hand dragged over water throws a wake to either side of
+       its track, not only a ring that runs off ahead. When the source is
+       moving, two more presses are laid a little out to the left and right of
+       the line it travels along -- perpendicular to the motion -- and the
+       fronts they raise run out sideways across the field, the transverse
+       wake the ring alone never shows. */
+    if (g_stir_lj > -900.0f) {
+        float vj = jf - g_stir_lj, vi = rf - g_stir_li;
+        float sp = sqrtf(vj * vj + vi * vi);
+        if (sp > 0.25f) {
+            float pj = -vi / sp, pi = vj / sp;  /* unit, across the motion */
+            float off = 4.5f, str = 0.22f + 0.55f * push;
+            dent(jf + pj * off, rf + pi * off, str, 3.4f);
+            dent(jf - pj * off, rf - pi * off, str, 3.4f);
+        }
+    }
+    g_stir_lj = jf;
+    g_stir_li = rf;
 }
 
 float lattice_pour(float fx, float fz, int pouring) {
@@ -914,7 +958,11 @@ static float lit_at(int i, int j) {
    reflection that reached the bottom of the screen would be a second
    picture, and this is meant to be light on water. */
 #define MIRROR_ALPHA 0.28f
-#define MIRROR_REACH 1.2f       /* card heights it carries down */
+/* Shortened from 1.2 card-heights: the reflection is a big additive redraw of
+   the water mesh under the card and was ~11 ms of GE fill. Carrying it half as
+   far down halves that fill; a reflection this long already faded to nothing
+   before it reached here, so the picture is unchanged where it reads. */
+#define MIRROR_REACH 0.3f       /* card heights it carries down */
 #define MIRROR_BREAK 0.05f      /* what a slope does to what a corner holds */
 #define MIRROR_SIDE 0.10f       /* of the width, faded out at each side */
 #define MIRROR_EDGE 16.0f       /* rows this far over the edge can still dip under it */
@@ -934,9 +982,16 @@ static void card_span(int i, float x0, float x1, int *lo, int *hi) {
 
 void lattice_mirror(const struct gfx_texture *t, int alpha,
                     float px, float bottom, float pw, float ph) {
+    /* At 60 Hz the card itself is kept, but its second full mesh pass is the
+       first quality trade: it is decorative overdraw and costs several ms of
+       GE time exactly where the frame only has 16.67 ms. */
+    if (!gfx_fps_cap30()) return;
     if (!t || !t->pixels || alpha <= 0 || !g_mesh) return;
     float u1 = (float)t->w / t->tw, v1 = (float)t->h / t->th;
-    float head = MIRROR_ALPHA * alpha;          /* at the card's own edge */
+    /* Follow the idle veil the way the card itself does: when the room rests
+       and the film fades out, its reflection has to fade with it, or a bright
+       mirror hangs on the still water under a card that is no longer there. */
+    float head = MIRROR_ALPHA * (float)(gfx_veiled((unsigned)alpha << 24) >> 24);
     float reach = MIRROR_REACH * ph;
     float inv_w = 1.0f / pw, inv_h = 1.0f / ph, inv_reach = 1.0f / reach;
     float x1 = px + pw;
@@ -944,6 +999,12 @@ void lattice_mirror(const struct gfx_texture *t, int alpha,
 
     for (int i = 0; i < NZ - 1; i++) {
         if (g_row[i].y0 <= bottom - MIRROR_EDGE) break;
+        /* Skip the rows the reflection no longer reaches, rather than emitting
+           full-width water strips there only to fill them at zero alpha: below
+           the reach every corner fades to nothing, so the strip is pure GE
+           fill for no picture. Rows run bottom-of-screen (largest below) up
+           toward the card, so once inside the reach they stay inside. */
+        if (g_row[i].y0 - bottom >= reach) continue;
         int a0, a1, b0, b1;
         card_span(i, px, x1, &a0, &a1);
         card_span(i + 1, px, x1, &b0, &b1);
@@ -998,7 +1059,7 @@ void lattice_mirror(const struct gfx_texture *t, int alpha,
 
 /* The source hangs over the cell it is filling, so it has to be placed
    between four crossings that have already been projected. */
-static void source_at(float *sx, float *sy) {
+static void source_at(float *sx, float *sy, int flat, float sway) {
     float rf = g_row0 + g_source.fz * (NZ - 1 - g_row0);
     float jf = J0 + g_source.fx * (NX_INNER - 1);
     int i = (int)rf, j = (int)jf;
@@ -1010,10 +1071,22 @@ static void source_at(float *sx, float *sy) {
     if (j > g_row[i].j1 - 1) j = g_row[i].j1 - 1;
     if (j > NX - 2) j = NX - 2;
     float fi = rf - i, fj = jf - j;
-    float x0 = g_x[i][j] + (g_x[i][j + 1] - g_x[i][j]) * fj;
-    float x1 = g_x[i + 1][j] + (g_x[i + 1][j + 1] - g_x[i + 1][j]) * fj;
-    float y0 = g_y[i][j] + (g_y[i][j + 1] - g_y[i][j]) * fj;
-    float y1 = g_y[i + 1][j] + (g_y[i + 1][j + 1] - g_y[i + 1][j]) * fj;
+    float x0, x1, y0, y1;
+    if (flat) {
+        /* The 60 Hz path deliberately does not project the full water mesh.
+           Project this one point from the precomputed rows instead, so a run
+           that starts in persisted 60 Hz mode never reads stale g_x/g_y. */
+        float u = g_u[j] + (g_u[j + 1] - g_u[j]) * fj + sway;
+        x0 = SCR_W / 2.0f + u * g_row[i].f;
+        x1 = SCR_W / 2.0f + u * g_row[i + 1].f;
+        y0 = g_row[i].y0;
+        y1 = g_row[i + 1].y0;
+    } else {
+        x0 = g_x[i][j] + (g_x[i][j + 1] - g_x[i][j]) * fj;
+        x1 = g_x[i + 1][j] + (g_x[i + 1][j + 1] - g_x[i + 1][j]) * fj;
+        y0 = g_y[i][j] + (g_y[i][j + 1] - g_y[i][j]) * fj;
+        y1 = g_y[i + 1][j] + (g_y[i + 1][j + 1] - g_y[i + 1][j]) * fj;
+    }
     *sx = x0 + (x1 - x0) * fi;
     *sy = y0 + (y1 - y0) * fi;
 }
@@ -1031,37 +1104,110 @@ void lattice_horizon(float keep) { g_horizon_keep = keep; }
 float lattice_light_x(void) { return g_lightx; }
 
 void lattice_draw(float t, struct rgb tint) {
+    int fast = !gfx_fps_cap30();
+    /* Keep the wave equation at 60 Hz in both presentation modes. A fixed
+       step makes rings, damping and colour fronts independent of whether a
+       frame is shown every one or two vblanks. Catch-up is bounded so a long
+       modal or I/O pause cannot turn the next frame into a simulation storm. */
+    static float sim_time = -1.0f, sim_acc;
+    float elapsed = sim_time < 0.0f ? 1.0f / 60.0f : t - sim_time;
+    sim_time = t;
+    if (elapsed < 0.0f) elapsed = 0.0f;
+    if (elapsed > 0.05f) elapsed = 0.05f;
+    if (!fast) sim_acc += elapsed;
+    int sim_steps = 0;
+    while (!fast && sim_acc >= 1.0f / 60.0f && sim_steps < 3) {
+        step_water(t - sim_acc);
+        sim_acc -= 1.0f / 60.0f;
+        sim_steps++;
+    }
+    /* At very high rates an occasional presentation may arrive before a full
+       fixed step accumulated; the last mesh remains valid for that frame. */
     float sway = fsin(t * 0.23f) * 0.06f;
     g_time = t;
-    step_water(t);
-    /* The colour before the light: the palette below and every crossing's
-       own share of it are both built out of what the front has done. */
-    if (!g_told) watch(tint);
-    spread(tint);
+    /* Per-crossing colour fronts only affect the full mesh. While the 60 Hz
+       scene is flat, collapse directly to its visible tint instead of walking
+       up to 4,620 crossings during every selection transition. Marking it
+       uniform also makes the first later 30 Hz frame safe without a rebuild. */
+    if (fast) {
+        g_front_on = 0;
+        g_uniform = 1;
+        g_held = g_ref = tint;
+    } else {
+        if (!g_told) watch(tint);
+        int updates = sim_steps ? sim_steps : 1;
+        for (int i = 0; i < updates; i++) spread(tint);
+    }
 
     gfx_batch_begin();
 
-    /* Sky: a few points of light, and the horizon burning under them. */
+    /* At 60 Hz the shell's night gradient is the entire room. A field with
+       depth is cheaper and cleaner than a substitute water mesh: the stick
+       drags its near lights quickly and its far lights slowly. */
+    float motion = elapsed * 60.0f;
+    static int was_fast = -1;
+    if (fast != was_fast) {
+        if (fast) {
+            for (int i = 0; i < STARS; i++) g_stars[i].y = frand() * SCR_H;
+        } else {
+            for (int i = 0; i < STARS_SLOW; i++)
+                if (g_stars[i].y > GFX_HORIZON - 24)
+                    g_stars[i].y = 6 + frand() * (GFX_HORIZON - 30);
+        }
+        was_fast = fast;
+    }
+    if (fast) {
+        float ease = 0.08f * motion;
+        if (ease > 1.0f) ease = 1.0f;
+        g_sky_vx += (g_sky_tx - g_sky_vx) * ease;
+        g_sky_vy += (g_sky_ty - g_sky_vy) * ease;
+        /* The shell gradient already gives the open sky its colour volume.
+           Large translucent glow sprites looked pleasant but touched nearly
+           every pixel several times and could push the PSP GE past a 16.7 ms
+           presentation. Keep the motion in the cheap, depth-sorted lights. */
+    }
+
+    /* Sky: points of light over the full room in fast mode, or over the
+       horizon of the full water scene in quality mode. */
     unsigned white = rgb_pack(RGB_WHITE, 0);
-    for (int i = 0; i < STARS; i++) {
-        g_stars[i].x += g_stars[i].vx + fsin(t * 0.3f + g_stars[i].phase) * 0.03f;
-        g_stars[i].y += g_stars[i].vy;
+    int stars = fast ? STARS : STARS_SLOW;
+    for (int i = 0; i < stars; i++) {
+        float d = g_stars[i].depth;
+        g_stars[i].x += (g_stars[i].vx + fsin(t * 0.3f + g_stars[i].phase) * 0.03f
+                         + (fast ? g_sky_vx * d : 0.0f)) * motion;
+        g_stars[i].y += (g_stars[i].vy + (fast ? g_sky_vy * d : 0.0f)) * motion;
         if (g_stars[i].x < -8) g_stars[i].x += SCR_W + 16;
         else if (g_stars[i].x > SCR_W + 8) g_stars[i].x -= SCR_W + 16;
-        if (g_stars[i].y < 4) { g_stars[i].y = 4; g_stars[i].vy = -g_stars[i].vy; }
-        else if (g_stars[i].y > GFX_HORIZON - 24) { g_stars[i].y = GFX_HORIZON - 24; g_stars[i].vy = -g_stars[i].vy; }
+        if (fast) {
+            if (g_stars[i].y < -8) g_stars[i].y += SCR_H + 16;
+            else if (g_stars[i].y > SCR_H + 8) g_stars[i].y -= SCR_H + 16;
+        } else {
+            if (g_stars[i].y < 4) { g_stars[i].y = 4; g_stars[i].vy = -g_stars[i].vy; }
+            else if (g_stars[i].y > GFX_HORIZON - 24) { g_stars[i].y = GFX_HORIZON - 24; g_stars[i].vy = -g_stars[i].vy; }
+        }
         float tw = 0.5f + 0.5f * fsin(t * 1.3f + g_stars[i].phase);
-        gfx_glow(g_stars[i].x, g_stars[i].y, g_stars[i].size, g_stars[i].size,
-                 tinted(white, (int)(30 + 70 * tw)));
+        float speed = fast ? fabsf(g_sky_vx) + fabsf(g_sky_vy) : 0.0f;
+        float w = g_stars[i].size + fabsf(g_sky_vx) * d * 6.0f;
+        float h = g_stars[i].size + fabsf(g_sky_vy) * d * 6.0f;
+        float cap = g_stars[i].size * 3.0f;
+        if (w > cap) w = cap;
+        if (h > cap) h = cap;
+        int alpha = (int)((30 + 70 * tw) * (0.45f + 0.55f * d) + speed * d * 20.0f);
+        if (alpha > 190) alpha = 190;
+        /* The same soft point of light in both modes. Each is one batched
+           sprite of at most three times its size, so forty of them cost
+           the GE far less than the water they stand in for. */
+        gfx_glow(g_stars[i].x, g_stars[i].y, w, h, tinted(white, alpha));
     }
     /* Falling stars: a bright head and a fading tail behind it along the way
        it came. */
     for (int i = 0; i < SHOWER; i++) {
         if (g_shower[i].life <= 0) continue;
-        g_shower[i].x += g_shower[i].vx;
-        g_shower[i].y += g_shower[i].vy;
-        g_shower[i].life -= 0.025f;
-        if (g_shower[i].y > GFX_HORIZON - 10) g_shower[i].life = 0;
+        float motion = elapsed * 60.0f;
+        g_shower[i].x += g_shower[i].vx * motion;
+        g_shower[i].y += g_shower[i].vy * motion;
+        g_shower[i].life -= 0.025f * motion;
+        if (g_shower[i].y > (fast ? SCR_H + 10 : GFX_HORIZON - 10)) g_shower[i].life = 0;
         if (g_shower[i].life <= 0) continue;
         int alpha = (int)(170 * g_shower[i].life);
         for (int k = 0; k < 4; k++) {
@@ -1077,9 +1223,12 @@ void lattice_draw(float t, struct rgb tint) {
     g_lightx = lightx;
     g_sway = sway;
     /* Less of it while the shell has borrowed the light for the list. */
-    gfx_glow(lightx, GFX_HORIZON + 6, 760, 110, rgb_pack(tint, (int)(110 * g_horizon_keep)));
-    gfx_glow(lightx, GFX_HORIZON + 2, 420, 30,
-             rgb_pack(rgb_mix(tint, RGB_WHITE, 0.6f), (int)(120 * g_horizon_keep)));
+    if (!fast) {
+        gfx_glow(lightx, GFX_HORIZON + 6, 760, 110,
+                 rgb_pack(tint, (int)(110 * g_horizon_keep)));
+        gfx_glow(lightx, GFX_HORIZON + 2, 420, 30,
+                 rgb_pack(rgb_mix(tint, RGB_WHITE, 0.6f), (int)(120 * g_horizon_keep)));
+    }
     /* The light's path on the water: the sun is a point on the horizon and
        the water is rough, so what comes back down the lens is a path that
        runs from under the light to the viewer, narrow at the far end and
@@ -1088,10 +1237,12 @@ void lattice_draw(float t, struct rgb tint) {
        so it lights a band across rather than a path down -- and the path is
        what a sea looks like. Three lights under the water, widening as they
        come forward; the surface is drawn over them and adds its own. */
-    struct rgb pathlit = rgb_mix(tint, RGB_WHITE, 0.45f);
-    gfx_glow(lightx, GFX_HORIZON + 34, 150, 90, rgb_pack(pathlit, 40));
-    gfx_glow(lightx, GFX_HORIZON + 86, 330, 150, rgb_pack(pathlit, 38));
-    gfx_glow(lightx, GFX_HORIZON + 160, 620, 190, rgb_pack(pathlit, 34));
+    if (!fast) {
+        struct rgb pathlit = rgb_mix(tint, RGB_WHITE, 0.45f);
+        gfx_glow(lightx, GFX_HORIZON + 34, 150, 90, rgb_pack(pathlit, 40));
+        gfx_glow(lightx, GFX_HORIZON + 86, 330, 150, rgb_pack(pathlit, 38));
+        gfx_glow(lightx, GFX_HORIZON + 160, 620, 190, rgb_pack(pathlit, 34));
+    }
     /* The light the shell has carried forward stands over the water at
        its own depth, and the water under it takes a path of its own: its
        foot where perspective puts a point on the surface at that depth,
@@ -1107,14 +1258,17 @@ void lattice_draw(float t, struct rgb tint) {
     /* Two skies for the palette: the low one, lit, that a facet leaning
        away mirrors, and the high one, nearly the water's own dark, that a
        facet leaning toward the eye mirrors. */
-    unsigned glint = rgb_pack(rgb_mix(rgb_mix(g_ref, RGB_WHITE, 0.9f), DEEP, 0.62f), 0);
-    gfx_water_light(0.42f * fsin(t * 0.13f), 0.86f, 0.30f,
-                    rgb_pack(rgb_mix(g_ref, DEEP, 0.86f), 0),
-                    rgb_pack(rgb_mix(g_ref, DEEP, 0.40f), 0),
-                    rgb_pack(rgb_mix(g_ref, DEEP, 0.84f), 0),
-                    glint);
-    place_all(sway);
-    gfx_water_ready();
+    if (!fast) {
+        /* Palette construction evaluates 256 reflected normals. It only feeds
+           the textured mesh, so the flat 60 Hz scene must not pay for it. */
+        unsigned glint = rgb_pack(rgb_mix(rgb_mix(g_ref, RGB_WHITE, 0.9f), DEEP, 0.62f), 0);
+        gfx_water_light(0.42f * fsin(t * 0.13f), 0.86f, 0.30f,
+                        rgb_pack(rgb_mix(g_ref, DEEP, 0.86f), 0),
+                        rgb_pack(rgb_mix(g_ref, DEEP, 0.40f), 0),
+                        rgb_pack(rgb_mix(g_ref, DEEP, 0.84f), 0),
+                        glint);
+        place_all(sway);
+        gfx_water_ready();
     /* Not quite two steps a second through the ripple's baked frames,
        each one crossfaded into the next so nothing jumps: the four of them
        are a cycle, and at seven a second the cycle was a shiver, at two
@@ -1127,10 +1281,11 @@ void lattice_draw(float t, struct rgb tint) {
        carry; the sway of the room goes with it, since the surface is drawn
        where the sway put it. */
     gfx_water_begin(sway * TILES + t * 0.04f, -t * 0.16f);
-    gfx_water_step(0, step, 1.0f - f);
-    draw_surface();
-    gfx_water_step(1, step + 1, f);
-    draw_surface();
+        /* Full quality: crossfade adjacent ripple frames. */
+        gfx_water_step(0, step, 1.0f - f);
+        draw_surface();
+        gfx_water_step(1, step + 1, f);
+        draw_surface();
     /* A second layer of ripples over the first: the same tile at twice the
        frequency, creeping the other way and a little faster, holding
        nothing but glint -- no deep, no sky -- so what it adds is a finer
@@ -1138,6 +1293,7 @@ void lattice_draw(float t, struct rgb tint) {
        once. Slow, and faint: a menu is a still room, and the second
        scale is there to be noticed only by someone who looks. Its own
        two copies of the palette. */
+#if WATER_SPARKLE
     gfx_water_light(0.42f * fsin(t * 0.13f), 0.86f, 0.30f, 0, 0, 0,
                     rgb_pack(rgb_mix(rgb_mix(g_ref, RGB_WHITE, 0.9f), DEEP, 0.87f), 0));
     gfx_water_begin(-sway * TILES * 2.0f - t * 0.03f, -t * 0.09f);
@@ -1146,7 +1302,9 @@ void lattice_draw(float t, struct rgb tint) {
     draw_surface();
     gfx_water_step(3, step + 2, f);
     draw_surface();
-    gfx_water_end();
+#endif
+        gfx_water_end();
+    }
 
     /* The ground under the water, which is only ever drawn while there is
        ground: the sweep starts dry and ends wet, and the browser stands on a
@@ -1154,7 +1312,7 @@ void lattice_draw(float t, struct rgb tint) {
        has anything to say about open sea. It is walked two crossings at a
        time, so the grid keeps the spacing it had before the field was
        doubled under it. */
-    if (g_dry) {
+    if (g_dry && !fast) {
         float x[NX > NZ ? NX : NZ], y[NX > NZ ? NX : NZ];
         unsigned c[NX > NZ ? NX : NZ];
         /* The lines and the crossings each keep one colour all frame and
@@ -1220,7 +1378,7 @@ void lattice_draw(float t, struct rgb tint) {
        under it, and what it throws up where the two meet. */
     if (g_source.on) {
         float sx, sy;
-        source_at(&sx, &sy);
+        source_at(&sx, &sy, fast, sway);
         unsigned core = rgb_pack(rgb_mix(tint, RGB_WHITE, 0.8f), 0);
         gfx_glow(sx, sy - 15, 7, 34, tinted(core, 150));
         gfx_glow(sx, sy, 54, 22, tinted(core, 120));
@@ -1233,8 +1391,9 @@ void lattice_draw(float t, struct rgb tint) {
     /* Spray lifting off the water. */
     unsigned spark = rgb_pack(rgb_mix(tint, RGB_WHITE, 0.7f), 0);
     for (int i = 0; i < SPECKS; i++) {
-        g_specks[i].y -= g_specks[i].vy;
-        g_specks[i].x += fsin(t * 1.7f + g_specks[i].phase) * 0.2f;
+        float motion = elapsed * 60.0f;
+        g_specks[i].y -= g_specks[i].vy * motion;
+        g_specks[i].x += fsin(t * 1.7f + g_specks[i].phase) * 0.2f * motion;
         if (g_specks[i].y < 6) speck_reset(i, 0);
         /* Brightest just over the horizon, gone by the top. */
         float life = (g_specks[i].y - 6) / (GFX_HORIZON - 10);

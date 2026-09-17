@@ -13,8 +13,16 @@ void menu_open(int index);
 
 /* The popups under the gear: the two ways a .pspdx comes in directly, and
    the resets. */
-enum sub { SUB_NONE, SUB_ADD, SUB_RESET, SUB_QUIRKS };
+enum sub { SUB_NONE, SUB_ADD, SUB_RESET, SUB_QUIRKS, SUB_GRAPHICS };
 void sub_open(enum sub which);
+
+/* A missing or malformed settings file means the hardware-safe 30 FPS
+   default. Saves wait for orderly exit, so a menu choice never stalls a
+   frame on Memory Stick I/O. */
+void options_settings_load(void);
+void options_settings_save(void);
+/* SELECT's live 30/60 switch. It updates no persisted setting. */
+void options_fps_runtime_toggle(void);
 
 /* Manage sources, the view the gear's first row opens in place of the
    list: Add source, and a row per source that X deletes, asked first. */

@@ -17,11 +17,20 @@
 void gfx_init(void);
 void gfx_shutdown(void);
 
-/* One frame: begin, draw, end. end() syncs, waits for vblank and swaps, so it
-   paces the caller at 60 Hz. */
+/* One frame: begin, draw, end. end() syncs, waits for the selected vblank
+   cadence and presents, so it paces the caller at 30 or 60 Hz. */
 void gfx_frame_begin(unsigned clear);
 void gfx_frame_end(void);
 unsigned gfx_frames(void);
+
+/* Frame-rate mode: 30 is the startup default and presents every second
+   vblank; off targets every vblank for 60. Missed deadlines re-anchor at the
+   next safe boundary instead of adding another complete interval. */
+void gfx_set_fps_cap30(int on);
+int gfx_fps_cap30(void);
+int gfx_target_fps(void);
+/* Total target presentation boundaries missed since startup. */
+unsigned gfx_missed_presentations(void);
 
 /* Something the firmware draws over every frame -- its on-screen keyboard
    -- called from end() once the list is finished and before the swap, which
@@ -172,6 +181,12 @@ struct gfx_texture {
        every pixel with alpha zero, as the PSP does. */
     int opaque;
 };
+
+/* Keep this texture in VRAM (the panel's still, sampled by the card and the
+   reflection every frame); re-uploaded when gen changes. Call from inside a
+   frame, on the main thread. Drop it before its pixels are freed. */
+void gfx_texture_vram(const struct gfx_texture *t, unsigned gen);
+void gfx_texture_vram_drop(const struct gfx_texture *t);
 
 void gfx_texture_draw(const struct gfx_texture *t, int x, int y, int w, int h,
                      unsigned tint);

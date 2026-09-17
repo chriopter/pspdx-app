@@ -226,6 +226,14 @@ size_t psmf_build(const unsigned char *mp4, const struct mp4 *t,
 static unsigned get16(const unsigned char *p) { return ((unsigned)p[0] << 8) | p[1]; }
 static unsigned get32(const unsigned char *p) { return (get16(p) << 16) | get16(p + 2); }
 
+static unsigned pack_mux_rate(const unsigned char *p) {
+    if (p[0] != 0 || p[1] != 0 || p[2] != 1 || p[3] != 0xBA ||
+        (p[4] & 0xC4) != 0x44 || (p[6] & 4) == 0 || (p[8] & 4) == 0 ||
+        (p[9] & 1) == 0 || (p[12] & 3) != 3)
+        return 0;
+    return ((unsigned)p[10] << 14) | ((unsigned)p[11] << 6) | (p[12] >> 2);
+}
+
 /* The 48-bit timestamps at 0x54 and 0x5A: the low 32 bits are all a film of
    a few seconds ever uses, and all the pacing arithmetic wants. */
 static unsigned get_ts48(const unsigned char *p) { return get32(p + 2); }
@@ -234,13 +242,11 @@ int psmf_is(const unsigned char *data, size_t len) {
     return len >= 4 && memcmp(data, "PSMF", 4) == 0;
 }
 
-/* Counts the video PES packets that carry a timestamp, one per access
-   unit: the muxers Sony shipped put one on the first PES of every picture,
-   and so does psmf_build. The packs are walked in place; a pack that does
-   not start with a pack header ends the count, which is where the stream
-   ends too. */
+/* Sony streams carry an AU-size table in private stream 2 at each GOP. Some
+   simple muxers instead put a PTS on every picture, so retain that as the
+   fallback. */
 static int count_frames(const unsigned char *s, size_t len) {
-    int frames = 0;
+    int indexed = 0, timestamped = 0;
     for (size_t at = 0; at + PSMF_PACK <= len; at += PSMF_PACK) {
         const unsigned char *p = s + at, *end = p + PSMF_PACK;
         if (p[0] != 0 || p[1] != 0 || p[2] != 1 || p[3] != 0xBA) break;
@@ -250,23 +256,52 @@ static int count_frames(const unsigned char *s, size_t len) {
            end of the pack. */
         while (p + 6 <= end && p[0] == 0 && p[1] == 0 && p[2] == 1) {
             unsigned id = p[3], size = get16(p + 4);
+            if (size > (unsigned)(end - p - 6)) break;
             const unsigned char *next = p + 6 + size;
-            if ((id & 0xF0) == 0xE0 && p + 8 <= end && (p[7] & 0x80)) frames++;
-            if (next > end) break;
+            if ((id & 0xF0) == 0xE0 && size >= 3 && (p[7] & 0x80)) timestamped++;
+            if (id == 0xBF && size >= 18 && p[6] == 1 && p[7] == 0xE0) {
+                unsigned n = get16(p + 22);
+                unsigned table = get16(p + 20);
+                if (table == 2 + 4 * n && n <= (size - 18) / 4)
+                    indexed += (int)n;
+            }
             p = next;
         }
     }
-    return frames;
+    return indexed ? indexed : timestamped;
+}
+
+/* sceMpeg on hardware expects the first pack layout produced by Sony's
+   composer: a system header followed by a private-stream-2 AU index. A
+   generic MPEG-PS beginning directly with E0 is accepted by ffmpeg but can
+   poison sceMpeg's context during RingbufferPut. */
+static int decoder_pack_layout(const unsigned char *pack) {
+    const unsigned char *p = pack + PACK_HEADER + (pack[13] & 7);
+    const unsigned char *end = pack + PSMF_PACK;
+    if (p + 6 > end || p[0] || p[1] || p[2] != 1 || p[3] != 0xBB) return 0;
+    unsigned size = get16(p + 4);
+    if (size > (unsigned)(end - p - 6)) return 0;
+    p += 6 + size;
+    if (p + 6 > end || p[0] || p[1] || p[2] != 1 || p[3] != 0xBF) return 0;
+    size = get16(p + 4);
+    if (size < 18 || size > (unsigned)(end - p - 6) || p[6] != 1 || p[7] != 0xE0)
+        return 0;
+    unsigned table = get16(p + 20), n = get16(p + 22);
+    return table == 2 + 4 * n && n > 0 && n <= (size - 18) / 4;
 }
 
 int psmf_parse(const unsigned char *data, size_t len, struct psmf_info *out) {
-    if (!psmf_is(data, len) || len < 0x100) return -1;
+    if (!psmf_is(data, len) || len < PSMF_HEADER) return -1;
     memset(out, 0, sizeof(*out));
     out->stream_offset = get32(data + 0x8);
     out->stream_size = get32(data + 0xC);
-    if (out->stream_offset < 0x100 || out->stream_offset >= len) return -1;
-    /* A file cut short still plays as far as it goes. */
-    if (out->stream_size > len - out->stream_offset) out->stream_size = len - out->stream_offset;
+    /* The firmware consumes whole 2048-byte packs. Never hand it a header
+       whose payload is truncated or whose declared boundaries are not pack
+       aligned: the emulator tolerates both, sceMpeg on hardware does not. */
+    if (out->stream_offset < PSMF_HEADER || out->stream_offset > len ||
+        (out->stream_offset % PSMF_PACK) != 0 || out->stream_size < PSMF_PACK ||
+        (out->stream_size % PSMF_PACK) != 0 || out->stream_size > len - out->stream_offset)
+        return -1;
     out->start_pts = get_ts48(data + 0x54);
     out->end_pts = get_ts48(data + 0x5A);
 
@@ -275,6 +310,7 @@ int psmf_parse(const unsigned char *data, size_t len, struct psmf_info *out) {
        lists an audio stream too, in PES 0xBD, which the player leaves in
        the ring unread. */
     unsigned streams = get16(data + 0x80);
+    if (streams == 0 || streams > (out->stream_offset - 0x82) / 16) return -1;
     for (unsigned i = 0; i < streams && 0x82 + (i + 1) * 16 <= out->stream_offset; i++) {
         const unsigned char *e = data + 0x82 + i * 16;
         if ((e[0] & 0xF0) != 0xE0) continue;
@@ -284,6 +320,18 @@ int psmf_parse(const unsigned char *data, size_t len, struct psmf_info *out) {
     }
     if (!out->width || !out->height) return -1;
     out->frames = count_frames(data + out->stream_offset, out->stream_size);
+    if (out->frames <= 0) return -1;
+    if (!pack_mux_rate(data + out->stream_offset)) return -1;
+    return 0;
+}
+
+int psmf_decoder_header(const unsigned char *data, size_t len,
+                        unsigned char out[PSMF_HEADER]) {
+    struct psmf_info info;
+    if (!out || psmf_parse(data, len, &info) != 0) return -1;
+    if (!decoder_pack_layout(data + info.stream_offset)) return -1;
+
+    memcpy(out, data, PSMF_HEADER);
     return 0;
 }
 

@@ -10,9 +10,23 @@
 int audio_start(void);
 void audio_stop(void);
 
+/* Load the AV/audio modules (booting the Media Engine) ahead of audio_start,
+   so it happens before the entropy sweep touches the GE. Idempotent. */
+void audio_load_modules(void);
+
 /* Longest time one callback took to render its buffer, in microseconds,
    since the last call. */
 unsigned audio_worst_us(void);
+
+/* Longest background ATRAC decode since the last call. This has no output
+   deadline; it is reported separately from the real-time render cost. */
+unsigned audio_decode_worst_us(void);
+
+/* Hardware-feed health since the last call: time blocked waiting for the
+   channel, accepted PCM frames, missed render deadlines, missing decoded
+   SND0 frames, and driver errors. Reading also starts the next interval. */
+void audio_stats(unsigned *output_us, unsigned *frames, unsigned *deadlines,
+                 unsigned *underflows, unsigned *errors, int *last_error);
 
 /* A film is on: the tune steps aside for it, and comes back when it is
    over. Safe to call every frame. The tune steps aside for the card's

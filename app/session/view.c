@@ -222,6 +222,7 @@ static const char *const SETTING[VIEW_SETTINGS] = {
     T_SET_FILES,
     T_SET_RESET,
     T_SET_INFO,
+    T_SET_GRAPHICS,
     T_SET_QUIRKS,
 };
 

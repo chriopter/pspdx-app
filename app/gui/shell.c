@@ -28,6 +28,13 @@
 #include "gui/gfx.h"
 #include "gui/icons.h"
 #include "gui/lattice.h"
+
+/* The full-frame bloom (a screen readback plus a spread of additive quads) is
+   the most visible frame-time trade in the browser. 1 = keep, 0 = off; off on
+   the bench by request, since it buys about a vblank. */
+#ifndef PSPDX_BLOOM
+#define PSPDX_BLOOM 0
+#endif
 #include "gui/marks.h"
 #include "gui/title.h"
 #include "gui/wrap.h"
@@ -127,7 +134,9 @@ static struct menu g_menu_gone;         /* its last rows, while it slides out */
 static float g_menu_slide;              /* 0 off the right edge, 1 in place */
 static int g_menu_leaving;              /* sliding out; done at 0 */
 static int g_info;
-static int g_show_fps;                  /* the rate in the corner, for the run */
+/* On while performance work is active; Quirks can still hide it. The overlay
+   is drawn once per frame and never writes to the log or Memory Stick. */
+static int g_show_fps = 1;
 static int g_dev_updates;               /* the options may fake an update, for the run */
 int shell_show_fps(void) { return g_show_fps; }
 static int g_held;                      /* a direction is down this frame */
@@ -153,6 +162,8 @@ static float g_rest;                    /* 0 no picture, 1 the picture whole */
    so the number on screen does not flicker. */
 static float g_load;
 static float g_frame_us;                /* frame to frame, eased, for the fps */
+static float g_dt = 1.0f / 60.0f;       /* real seconds since the last shell frame */
+static float g_clock;                   /* animation clock, independent of FPS mode */
 static char g_word[24] = T_WORD_CONNECTING;
 static const struct catalog *g_catalog;
 static int g_cursor;
@@ -417,9 +428,9 @@ static void draw_action_row(int y, int selected, float t) {
         mark_draw(MARK_BASKET, gx, gy, selected ? g_text : g_dim,
                   selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     int w = LIST_X + LIST_W - NAME_X;
-    font_print_clipped(FONT_BODY, NAME_X, y + 13, w, selected ? g_text : g_dim,
+    font_print_clipped(FONT_BODY, NAME_X, y + 12, w, selected ? g_text : g_dim,
                        action_title());
-    font_print_clipped(FONT_META, NAME_X, y + 25, w, g_dim, action_line());
+    font_print_clipped(FONT_META, NAME_X, y + 26, w, g_dim, action_line());
 }
 
 /* A row under the gear: a word and, where the word is about something that
@@ -428,6 +439,7 @@ static void draw_action_row(int y, int selected, float t) {
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[VIEW_SETTINGS] = {
         MARK_DOWNLOAD, MARK_BASKET, MARK_INSTALLED, MARK_UPDATE, MARK_INFO,
+        MARK_GEAR, MARK_TRIANGLE,
     };
     float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     enum mark m = (enum mark)SIGN[n];
@@ -543,7 +555,7 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
             name_w -= 22;
         }
 
-        font_print_scrolling(FONT_BODY, NAME_X, y + 21, name_w,
+        font_print_scrolling(FONT_TITLE, NAME_X, y + 21, name_w,
                              selected ? g_text : g_dim, entry->name,
                              selected ? hover_age(0, index) : 0.0f);
     }
@@ -642,7 +654,9 @@ static void bar_light(float m, float *sx, float *sy, float *z) {
    of it the horizon keeps. Asked for every frame; a frame nobody asks in
    -- another screen over the browser -- sends it home. */
 static void bar_settle(void) {
-    g_bar_m += ((g_bar_want ? 1.0f : 0.0f) - g_bar_m) * 0.10f;
+    float ease = 0.10f * g_dt * 60.0f;
+    if (ease > 0.75f) ease = 0.75f;
+    g_bar_m += ((g_bar_want ? 1.0f : 0.0f) - g_bar_m) * ease;
     if (g_bar_m < 0.002f) g_bar_m = 0.0f;
     g_bar_want = 0;
     float s = g_bar_m * g_bar_m * (3.0f - 2.0f * g_bar_m);
@@ -732,14 +746,14 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
 
     font_print(FONT_H1, PANEL_X, y, g_text, action_title());
     if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_STICK) {
-        int lines = draw_wrapped(FONT_META, PANEL_X, y + 20, SHOT_W, 16, 2, g_dim, T_CHECK_NOTE);
+        int lines = draw_wrapped(FONT_META, PANEL_X, y + 20, SHOT_W, 17, 2, g_dim, T_CHECK_NOTE);
         /* The row has two keys, and the panel names them the way the footer
            does, with the key's own mark rather than a word for it; what the
            two do is said under them. */
-        float base = y + 20 + 16 * lines + 14;
+        float base = y + 20 + 17 * lines + 14;
         draw_hint(PANEL_X, base, MARK_CROSS, T_QUICK_CHECK, g_dim);
         draw_hint(PANEL_X, base + 18, MARK_SQUARE, T_FULL_CHECK, g_dim);
-        draw_wrapped(FONT_META, PANEL_X, base + 40, SHOT_W, 16, 3, g_dim, T_CHECK_EXPLAIN);
+        draw_wrapped(FONT_META, PANEL_X, base + 40, SHOT_W, 17, 3, g_dim, T_CHECK_EXPLAIN);
         return;
     }
     if (plan.apps > 0) {
@@ -753,30 +767,30 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
     }
     /* One line a package, in the order they would be fetched, for as many as
        the panel holds; the rest are counted rather than named. */
-    int line = 0, room = (FOOTER_Y - 20 - (y + 40)) / 14;
+    int line = 0, room = (FOOTER_Y - 20 - (y + 40)) / 17;
     for (int row = 0; row < view_count(); row++) {
         int index = view_index(row);
         if (index < 0) continue;
         const struct app_entry *entry = &catalog->apps[index];
         if (!entry->has_release || !entry->release.size || entry->unsupported) continue;
         if (line >= room) {
-            font_printf(FONT_META, PANEL_X, y + 40 + line * 14, g_dim,
+            font_printf(FONT_META, PANEL_X, y + 40 + line * 17, g_dim,
                         T_AND_MORE, plan.apps - line);
             line++;
             break;
         }
         size_mb(entry->release.size, size, sizeof(size));
         float sw = font_width(FONT_META, size);
-        font_print_clipped(FONT_META, PANEL_X, y + 40 + line * 14,
+        font_print_clipped(FONT_META, PANEL_X, y + 40 + line * 17,
                            SHOT_W - sw - 10,
                            entry->state == APP_UPDATE ? UPDATE_RGB : g_text,
                            entry->name);
-        font_print(FONT_META, PANEL_X + SHOT_W - sw, y + 40 + line * 14,
+        font_print(FONT_META, PANEL_X + SHOT_W - sw, y + 40 + line * 17,
                    g_dim, size);
         line++;
     }
     if (plan.skipped)
-        font_printf(FONT_META, PANEL_X, y + 46 + line * 14, g_dim,
+        font_printf(FONT_META, PANEL_X, y + 46 + line * 17, g_dim,
                     T_PLAN_SKIPPED, plan.skipped);
 }
 
@@ -791,6 +805,11 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
    it away again in a few frames. */
 static void draw_backdrop(void) {
     int alpha;
+    /* A screen-sized system-RAM texture costs the retail GE more than one
+       60 Hz frame even after the fast-mode downscale. Keep the card preview
+       in 60 Hz mode and reserve the full-screen idle artwork for the 30 Hz
+       quality mode. */
+    if (!gfx_fps_cap30()) return;
     if (g_rest <= 0.0f) return;
     const struct gfx_texture *pic = preview_still(&alpha);
     if (!pic || alpha <= 0) return;
@@ -922,6 +941,10 @@ static void draw_picture(float t) {
        room's own backdrop once the interface goes. */
     if (film) film_alpha = 255;
     int only_film = film != 0;
+    /* The still goes to VRAM once per publication; the card and the mirror
+       then sample it from there instead of system RAM. A film is decoded
+       fresh every frame and stays where it is. */
+    gfx_texture_vram(still && !only_film ? still : 0, preview_still_gen());
     if (still || film) {
         /* The reflection first and under everything: it runs down over the
            water where the lines below the card are about to be written, and
@@ -984,7 +1007,7 @@ static void draw_picture(float t) {
 #define CARD_TOP (SHOT_Y + SHOT_H + 6)
 #define CARD_EDGE 12        /* pixels over which a line fades at either edge */
 #define CARD_BOTTOM (FOOTER_Y - 6)
-#define CARD_STEP 16
+#define CARD_STEP 17
 #define CARD_FIRST (CARD_TOP + 13)      /* the first baseline */
 static const struct app_entry *g_card_of;
 static char g_card_text[DETAIL_TEXT];
@@ -1191,14 +1214,14 @@ static int break_lines(enum font_style style, const char *text, float width,
 static void draw_ask(void) {
     char lines[3][128];
     int n = break_lines(FONT_META, g_ask_line, SCR_W - 80, lines, 3);
-    int h = BAND_H + 14 * (n - 1), y = (SCR_H - h) / 2;
+    int h = BAND_H + 17 * (n - 1), y = (SCR_H - h) / 2;
     draw_band(y, h);
     float w = font_width(FONT_BODY, g_ask_title);
     font_print_clipped(FONT_BODY, SCR_W / 2 - w / 2, y + 44, SCR_W - 40,
                        g_text, g_ask_title);
     for (int i = 0; i < n; i++) {
         w = font_width(FONT_META, lines[i]);
-        font_print(FONT_META, SCR_W / 2 - w / 2, y + 68 + 14 * i, g_dim, lines[i]);
+        font_print(FONT_META, SCR_W / 2 - w / 2, y + 68 + 17 * i, g_dim, lines[i]);
     }
     draw_answers(y + h - 22, T_YES, T_NO);
 }
@@ -1216,10 +1239,11 @@ static void draw_menu(void) {
        as it closed. */
     const struct menu *m = g_menu_leaving ? &g_menu_gone : g_menu;
     int count = m->count > MENU_MAX ? MENU_MAX : m->count;
-    /* Eased both ways: a fifth of the way there each frame is a slide that
-       lands without a bump, about a quarter of a second either way. */
+    /* Eased in real time, so the panel takes the same path at 30 and 60 FPS. */
     float goal = g_menu_leaving ? 0.0f : 1.0f;
-    g_menu_slide += (goal - g_menu_slide) * 0.22f;
+    float ease = 0.22f * g_dt * 60.0f;
+    if (ease > 0.85f) ease = 0.85f;
+    g_menu_slide += (goal - g_menu_slide) * ease;
     if (g_menu_leaving && g_menu_slide < 0.02f) {
         g_menu_leaving = 0;
         return;
@@ -1424,6 +1448,7 @@ static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
     T_NOTE_FILES,
     T_NOTE_RESET,
     T_NOTE_INFO,
+    T_NOTE_GRAPHICS,
     T_NOTE_QUIRKS,
 };
 
@@ -1546,7 +1571,7 @@ int draw_wrapped(enum font_style style, float x, float y, float width,
 #define DETAIL_BOTTOM (INFO_Y + INFO_H)
 #define DETAIL_Y (INFO_Y + 56)
 #define DETAIL_TEXT_Y 134
-#define DETAIL_STEP 16
+#define DETAIL_STEP 17
 #define DETAIL_LAST (DETAIL_BOTTOM - 4)
 #define DETAIL_X 40
 /* The stick rests a little off centre on most PSPs: under this nothing
@@ -1713,13 +1738,17 @@ void shell_card_scroll(float push) {
 
 /* ---------------------------------------------------------------- footer */
 
-/* The frame rate in the bottom right corner, while asked for: a number
-   and nothing else, over whatever is there. */
+/* Compact live telemetry: requested mode, measured rate/frame duration and
+   cumulative missed presentation boundaries. This makes a nominal 60 FPS
+   mode that actually falls to 30 immediately visible on the device. */
 static void draw_fps(void) {
     if (!g_show_fps) return;
-    char text[16];
-    snprintf(text, sizeof(text), "%d fps",
-             g_frame_us > 0.0f ? (int)(1000000.0f / g_frame_us + 0.5f) : 0);
+    char text[48];
+    unsigned tenths = g_frame_us > 0.0f ? (unsigned)(g_frame_us / 100.0f + 0.5f) : 0;
+    snprintf(text, sizeof(text), "%d | %d fps %u.%u ms | M%u",
+             gfx_target_fps(),
+             g_frame_us > 0.0f ? (int)(1000000.0f / g_frame_us + 0.5f) : 0,
+             tenths / 10, tenths % 10, gfx_missed_presentations());
     font_print(FONT_META, SCR_W - LIST_X - font_width(FONT_META, text), FOOTER_BASE,
                g_dim, text);
 }
@@ -1806,7 +1835,7 @@ int draw_setting_note(const char *title, const char *note, float age) {
     int y = SHOT_Y + 14;
     draw_shade(PANEL_X + SHOT_W / 2, y + 30, SHOT_W, 90);
     font_print_scrolling(FONT_H1, PANEL_X, y, SHOT_W, g_text, title, age);
-    return draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 16, 3, g_dim, note);
+    return draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 17, 3, g_dim, note);
 }
 
 static void draw_setting_panel(int n) {
@@ -1814,12 +1843,21 @@ static void draw_setting_panel(int n) {
 }
 
 void shell_draw(const struct catalog *catalog, int cursor) {
+    unsigned t0 = now_us();
+    static unsigned last_frame;
+    if (last_frame) {
+        unsigned elapsed = t0 - last_frame;
+        if (elapsed < 5000) elapsed = 5000;
+        if (elapsed > 50000) elapsed = 50000;
+        g_dt = elapsed * (1.0f / 1000000.0f);
+    }
+    last_frame = t0;
+    g_clock += g_dt;
     follow_view();
     g_catalog = catalog;
     g_cursor = cursor;
-    float t = gfx_frames() * (1.0f / 60.0f);
+    float t = g_clock;
     g_now = t;
-    unsigned t0 = now_us();
 
     /* The room changes colour with the selection, but slowly: an eighth of
        the way per frame is a crossfade, not a flash. And not at all while
@@ -1837,7 +1875,9 @@ void shell_draw(const struct catalog *catalog, int cursor) {
            rest of the room eases toward it below. */
         lattice_tint(target);
     }
-    g_tint = rgb_mix(g_tint, target, 0.12f);
+    float tint_ease = 0.12f * g_dt * 60.0f;
+    if (tint_ease > 0.75f) tint_ease = 0.75f;
+    g_tint = rgb_mix(g_tint, target, tint_ease);
     derive_palette();
 
     /* The word for the wait is baked between frames, once per word. */
@@ -1848,7 +1888,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
               rgb_pack(rgb_mix(NIGHT_BOTTOM, g_tint, 0.18f), 255));
     bar_settle();
     lattice_draw(t, g_tint);
-    draw_water_light(t);
+    if (gfx_fps_cap30()) draw_water_light(t);
     /* Over the water and under everything that is read: the picture is the
        room the interface stands in while nobody is working it, which is
        where the XMB puts a game's picture too. */
@@ -1857,7 +1897,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     /* Left alone, the picture of the package under the cursor rises behind
        everything, over about two seconds; a key takes it down again in a
        few frames. */
-    g_rest += g_resting ? 1.0f / 120.0f : -1.0f / 8.0f;
+    g_rest += g_resting ? g_dt * 0.5f : -g_dt * 7.5f;
     if (g_rest < 0.0f) g_rest = 0.0f;
     if (g_rest > 1.0f) g_rest = 1.0f;
     /* And as the picture comes up the interface goes: left alone for long
@@ -1878,9 +1918,20 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         int rows = view_count();
         int index = view_index(cursor < rows ? cursor : 0);
         draw_list(catalog, cursor, t);
-        if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
-        else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
-        else if (index >= 0) draw_panel(&catalog->apps[index], t);
+        /* At 30 Hz the panel stays until the sliding menu geometrically covers
+           it. At 60 Hz the 16.67 ms budget matters more than keeping dimmed
+           content behind a modal panel: suppress it for the whole open/close
+           transition. This removes the still/card/text work from precisely
+           the Triangle frames that used to combine both render paths. */
+        float menu_left = SCR_W - MENU_W * g_menu_slide;
+        int menu_active = g_menu || g_menu_leaving;
+        int suppress_panel = menu_active
+                           && (!gfx_fps_cap30() || menu_left <= PANEL_X);
+        if (!suppress_panel) {
+            if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
+            else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
+            else if (index >= 0) draw_panel(&catalog->apps[index], t);
+        }
     } else if (g_status[0]) {
         /* Nothing to browse yet: the word stands in the room, lit from
            behind; what it is waiting for is said in the strip below. */
@@ -1897,13 +1948,14 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     gfx_veil(256);
     /* Everything lit bleeds into the room: last, over the letters too, the
        way the system's own screen glows, and under the fade. */
-    gfx_bloom(150);
+    gfx_bloom(PSPDX_BLOOM ? 150 : 0);
     /* After the bloom, so the number stays crisp, and over the footer's
        strip rather than under it. */
     draw_fps();
     if (g_fade > 0) {
         gfx_rect(0, 0, SCR_W, SCR_H, RGBA(0, 0, 0, g_fade));
-        g_fade -= 7;
+        g_fade -= (int)(420.0f * g_dt + 0.5f);
+        if (g_fade < 0) g_fade = 0;
     }
     unsigned t2 = now_us();
     gfx_frame_end();

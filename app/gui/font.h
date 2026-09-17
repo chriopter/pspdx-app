@@ -7,7 +7,8 @@
 
 enum font_style {
     FONT_DISPLAY,   /* a word standing in the room, rendered once to a texture */
-    FONT_H1,        /* app names, the header */
+    FONT_H1,        /* the header */
+    FONT_TITLE,     /* game/app titles in the list, at the XMB item size */
     FONT_BODY,      /* summaries */
     FONT_META       /* category, licence, state */
 };

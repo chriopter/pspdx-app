@@ -18,8 +18,10 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX/DEBUG/PSPDX.BMP", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.INSTALL", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.KEYS", ""},
+    {"PSP/PSPDX/DEBUG/PSPDX.OFFLINE", ""},   /* skip the radio: saved catalogs only */
     {"PSP/PSPDX/DEBUG/PSPDX.RECORD", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.REPLAY", ""},
+    {"PSP/PSPDX/DEBUG/PSPDX.SHOTS", ""},     /* the rig wants the settled screenshot */
     {"PSP/PSPDX/DEBUG/PSPDX.SLOW", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.TRACE", ""},
     {"PSP/PSPDX/DEBUG/PSPDX0.BMP", ""},
@@ -37,5 +39,6 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX/TMP/download.zip", ""},
     {"PSP/PSPDX/TMP/transaction.json", ""},
     {"PSP/PSPDX/presets.seen", ""},
+    {"PSP/PSPDX/settings.txt", ""},
     {"PSP/PSPDX/sources.txt", ""},
 };

@@ -23,6 +23,9 @@
 
 #define BUF_W 512                       /* draw buffer stride, must be 2^n */
 #define FRAME_SIZE (BUF_W * SCR_H * 4)  /* 0x88000 */
+/* The VRAM copy of the panel's still: up to 256x256 (256 KB). */
+#define STILL_W 256
+#define STILL_H 256
 #define GLOW_SIZE 64
 
 /* The ripple: one tile of water surface, held as normals rather than as a
@@ -38,7 +41,12 @@
 #define RIPPLE_LEVELS 4
 #define RIPPLE_BYTES (87040)    /* 256^2 + 128^2 + 64^2 + 32^2 */
 
-static unsigned int __attribute__((aligned(16))) g_list[64 * 1024];
+/* Two lists alternate, but every list is drained before reuse. */
+#define LIST_WORDS (64 * 1024)
+static unsigned int __attribute__((aligned(16))) g_lists[2][LIST_WORDS];
+static unsigned int *g_list = g_lists[0];   /* the list in hand */
+#define LIST_BYTES sizeof(g_lists[0])
+#define FRAME_THIRD 0x160000u   /* reserved VRAM beyond bloom and the still */
 /* Kept clear under the list's end for what is drawn between two calls of
    gfx_list_room: rectangles, strips, a batch's worth of glows. */
 #define LIST_SPARE (32 * 1024)
@@ -46,6 +54,13 @@ static int g_in_frame;
 static unsigned g_list_sent;            /* bytes of this frame already sent */
 static unsigned g_frames;
 static void *g_draw;                    /* the draw buffer, relative to VRAM */
+static unsigned g_present_vcount;       /* vblank at which the last frame was shown */
+
+/* Waits for every list queued: what happens before a buffer is displayed,
+   a bake, or a readback. */
+static void ge_drain(void) {
+    sceGuSync(0, 0);
+}
 static int g_up;
 static struct gfx_texture g_glow;
 static unsigned char *g_ripple;                 /* RIPPLE_FRAMES tiles of T8 */
@@ -247,9 +262,10 @@ void gfx_init(void) {
     sceGuSync(0, 0);
     sceDisplayWaitVblankStart();
     sceGuDisplay(GU_TRUE);
+    g_present_vcount = sceDisplayGetVcount();
     g_up = 1;
-    logline("gu: up, %d KB of vram left after both buffers",
-            2048 - 2 * (FRAME_SIZE / 1024));
+    logline("gu: up, standard double buffer, %u KB vram reserved",
+            (2048u * 1024 - FRAME_THIRD) / 1024);
 }
 
 void gfx_shutdown(void) {
@@ -265,6 +281,11 @@ void gfx_frame_begin(unsigned clear) {
     g_strip = 0;
     g_in_frame = 1;
     g_list_sent = 0;
+    /* The preceding frame was drained before presentation, so this list is
+       no longer in use by the GE. Let libgu own the normal draw/display
+       buffer rotation; direct sceDisplaySetFrameBuf caused the real GE to
+       slow progressively after sustained rendering. */
+    g_list = g_lists[g_frames & 1];
     sceGuStart(GU_DIRECT, g_list);
     sceGuClearColor(clear);
     sceGuClear(GU_COLOR_BUFFER_BIT | GU_FAST_CLEAR_BIT);
@@ -275,6 +296,17 @@ static void (*g_overlay)(void);
 
 void gfx_frame_overlay(void (*overlay)(void)) { g_overlay = overlay; }
 
+/* Thirty is the safe default. The setting may lift it to sixty after startup.
+   Pacing is against an absolute vblank below: two relative waits turn a frame
+   which took just over 16.7 ms into a 50 ms frame instead of the intended
+   33 ms one. */
+static int g_fps_cap30 = 1;
+void gfx_set_fps_cap30(int on) { g_fps_cap30 = on ? 1 : 0; }
+int gfx_fps_cap30(void) { return g_fps_cap30; }
+int gfx_target_fps(void) { return g_fps_cap30 ? 30 : 60; }
+static unsigned g_missed_presentations;
+unsigned gfx_missed_presentations(void) { return g_missed_presentations; }
+
 void gfx_frame_end(void) {
     gfx_batch_end();
     g_in_frame = 0;
@@ -284,16 +316,33 @@ void gfx_frame_end(void) {
     unsigned used = g_list_sent + (unsigned)sceGuFinish();
     if (used > g_worst_list) g_worst_list = used;
     unsigned t0 = now_us();
-    sceGuSync(0, 0);
-    unsigned t1 = now_us();
-    /* The firmware's dialogs draw themselves over a finished frame, so
-       this is the one place they can be given the buffer: the list is
-       done and nothing has been shown yet. */
+    /* Real hardware must finish the GU list before the buffer is handed to
+       the display. The former one-frame pipeline queued a raw FINISH/END
+       marker and waited on its id; the console wedged on that first wait. */
+    ge_drain();
     if (g_overlay) g_overlay();
-    sceDisplayWaitVblankStart();
+    unsigned t1 = now_us();
+    unsigned step = g_fps_cap30 ? 2u : 1u;
+    unsigned target = g_present_vcount + step;
+    unsigned current = sceDisplayGetVcount();
+    if ((int)(current - target) >= 0) {
+        /* The target passed while the frame was drawing. Present on the next
+           clean boundary and re-anchor there; never add the mode's full wait
+           again after a missed deadline. */
+        g_missed_presentations++;
+        sceDisplayWaitVblankStart();
+    } else {
+        do {
+            sceDisplayWaitVblankStart();
+            current = sceDisplayGetVcount();
+        } while ((int)(current - target) < 0);
+    }
+    g_present_vcount = sceDisplayGetVcount();
     unsigned t2 = now_us();
     if (t1 - t0 > g_worst_ge) g_worst_ge = t1 - t0;
     if (t2 - t1 > g_worst_vblank) g_worst_vblank = t2 - t1;
+    /* Use libgu's paired draw/display rotation. Besides keeping its internal
+       buffer state coherent, this is the path the retail firmware expects. */
     g_draw = sceGuSwapBuffers();
     g_frames++;
 }
@@ -326,11 +375,18 @@ static void additive(void) {
     sceGuBlendFunc(GU_ADD, GU_SRC_ALPHA, GU_FIX, 0, 0xFFFFFFFF);
 }
 
+static const struct gfx_texture *g_vram_tex;    /* the one still held in VRAM, see the bloom section */
+static int g_vram_tw, g_vram_th;                /* its dimensions in the VRAM copy */
+static void *still_vram(void);
+
 static void bind(const struct gfx_texture *t) {
     sceGuDisable(GU_DEPTH_TEST);
     sceGuEnable(GU_TEXTURE_2D);
     sceGuTexMode(GU_PSM_8888, 0, 0, GU_FALSE);
-    sceGuTexImage(0, t->tw, t->th, t->tw, t->pixels);
+    /* The quality-mode still lives in VRAM; everything else comes from
+       system RAM. */
+    if (t == g_vram_tex) sceGuTexImage(0, g_vram_tw, g_vram_th, STILL_W, still_vram());
+    else sceGuTexImage(0, t->tw, t->th, t->tw, t->pixels);
     sceGuTexFunc(GU_TFX_MODULATE, t->opaque ? GU_TCC_RGB : GU_TCC_RGBA);
     sceGuTexFilter(GU_LINEAR, GU_LINEAR);
     sceGuTexWrap(GU_CLAMP, GU_CLAMP);
@@ -377,9 +433,9 @@ void gfx_batch_end(void) {
 }
 
 int gfx_list_room(unsigned bytes) {
-    if (bytes > sizeof(g_list) - LIST_SPARE)
+    if (bytes > LIST_BYTES - LIST_SPARE)
         return 0;
-    if ((unsigned)sceGuCheckList() + bytes + LIST_SPARE <= sizeof(g_list))
+    if ((unsigned)sceGuCheckList() + bytes + LIST_SPARE <= LIST_BYTES)
         return 1;
     /* A bake or a readback has the list to itself and never comes near. */
     if (!g_in_frame)
@@ -389,7 +445,7 @@ int gfx_list_room(unsigned bytes) {
        into the same draw buffer. A batch lives in the list and goes first. */
     flush_batch();
     g_list_sent += (unsigned)sceGuFinish();
-    sceGuSync(0, 0);
+    ge_drain();
     sceGuStart(GU_DIRECT, g_list);
     return 1;
 }
@@ -575,14 +631,24 @@ void gfx_water_ready(void) {
    The vanishing point belongs at the horizon and not at the middle of the
    screen, and the cheapest way to put it there is to tell the GE the screen
    is 20 rows higher than it is. Undone in end(). */
+/* The viewport the water is drawn into: centred on the horizon by the offset
+   below, and tall enough that NDC +1 lands on the screen's bottom edge. With
+   the offset alone (a 272-tall viewport moved 20 rows up) the bottom
+   SCR_H-GFX_HORIZON rows sit past NDC +1, and the real GE clips to the NDC
+   cube -- the water stopped in a ragged line above the bottom edge, which
+   PPSSPP, clipping more loosely, never showed. */
+#define WATER_VP_H (2 * (SCR_H - GFX_HORIZON))
+
 static void water_camera(void) {
     sceGuOffset(2048 - SCR_W / 2, 2048 - (unsigned)GFX_HORIZON);
+    sceGuViewport(2048, 2048, SCR_W, WATER_VP_H);
     sceGumMatrixMode(GU_PROJECTION);
     sceGumLoadIdentity();
     /* The field of view that makes one unit at one unit of depth come out
-       GFX_FOCAL pixels wide. */
-    sceGumPerspective(2.0f * 57.29578f * atanf(SCR_H / (2.0f * GFX_FOCAL)),
-                      (float)SCR_W / SCR_H, 0.25f, 300.0f);
+       GFX_FOCAL pixels wide -- over the taller viewport, so the scale on
+       screen is unchanged in both axes. */
+    sceGumPerspective(2.0f * 57.29578f * atanf(WATER_VP_H / (2.0f * GFX_FOCAL)),
+                      (float)SCR_W / WATER_VP_H, 0.25f, 300.0f);
     sceGumMatrixMode(GU_VIEW);
     sceGumLoadIdentity();
     sceGumMatrixMode(GU_MODEL);
@@ -631,7 +697,10 @@ void gfx_water_begin(float du, float dv) {
     sceGuClutMode(GU_PSM_8888, 0, 0xFF, 0);
     sceGuTexMode(GU_PSM_T8, RIPPLE_LEVELS - 1, 0, GU_FALSE);
     sceGuTexFunc(GU_TFX_MODULATE, GU_TCC_RGBA);
-    sceGuTexFilter(GU_LINEAR_MIPMAP_LINEAR, GU_LINEAR);
+    /* Bilinear within the nearest mip, not trilinear across two: each water
+       strip already pins one const LOD, so the second mip fetch and blend is
+       fill spent for no visible gain on a repeating tile. */
+    sceGuTexFilter(GU_LINEAR_MIPMAP_NEAREST, GU_LINEAR);
     sceGuTexWrap(GU_REPEAT, GU_REPEAT);
     sceGuTexScale(1.0f, 1.0f);
     sceGuTexOffset(du, dv);
@@ -685,6 +754,7 @@ void gfx_water_strip(const struct gfx_water_vertex *v, const unsigned short *idx
 void gfx_water_end(void) {
     if (!g_ripple) return;
     sceGuOffset(2048 - SCR_W / 2, 2048 - SCR_H / 2);
+    sceGuViewport(2048, 2048, SCR_W, SCR_H);      /* the flat drawing after it maps through this */
     flat_state();
 }
 
@@ -715,6 +785,7 @@ void gfx_mirror_strip(const struct gfx_mirror_vertex *v, int n) {
 
 void gfx_mirror_end(void) {
     sceGuOffset(2048 - SCR_W / 2, 2048 - SCR_H / 2);
+    sceGuViewport(2048, 2048, SCR_W, SCR_H);
     flat_state();
 }
 
@@ -907,6 +978,67 @@ static void *vram_abs(unsigned rel) {
     return (void *)((unsigned)sceGeEdramGetAddr() + (rel & 0x001FFFFF));
 }
 
+static void bloom_target(unsigned rel, int w, int h);
+static void bloom_quad(float u0, float v0, float u1, float v1,
+                       float x0, float y0, float x1, float y1, unsigned color);
+
+/* One texture kept in VRAM: the panel's still, which the card and the water's
+   reflection both sample every frame. Texels fetched from system RAM are the
+   GE's slow path; from VRAM they are several times cheaper, and the still
+   changes only when the selection does. The region after the bloom targets
+   holds up to STILL_MAX bytes; a 480x272 still at its 512 stride is 557 KB.
+   Uploaded once per publication (the caller passes the still's generation),
+   from inside the frame's own list. Anything not cached binds as before. */
+#define STILL_A (BLOOM_B + BLOOM_W * BLOOM_H * 4)
+/* The third frame buffer starts where the still ends: the map has to add up. */
+typedef char vram_map_adds_up[(STILL_A + STILL_W * STILL_H * 4 <= FRAME_THIRD) ? 1 : -1];
+#define STILL_MAX (0x200000u - STILL_A)
+static unsigned g_vram_gen;
+static void *still_vram(void) { return vram_abs(STILL_A); }
+
+void gfx_texture_vram(const struct gfx_texture *t, unsigned gen) {
+    /* The lightweight 60 Hz scene samples its 256x256 source directly and
+       has no reflection to reuse, so avoid even a one-frame upload there. */
+    if (!gfx_fps_cap30()) {
+        g_vram_tex = 0;
+        return;
+    }
+    if (!t || !t->pixels || !g_in_frame) { if (!t) g_vram_tex = 0; return; }
+    if (t == g_vram_tex && gen == g_vram_gen) return;
+    if (t->tw < 2 || t->th < 2 || t->tw > 2 * STILL_W || t->th > 2 * STILL_H) {
+        g_vram_tex = 0;
+        return;
+    }
+    /* Draw the still's whole texel space into the VRAM copy. New media is
+       decoded directly to at most 256x256; retain the half-size fallback for
+       any older/caller-owned 512 texture. Not from a VRAM copy of itself:
+       g_vram_tex is only pointed here after the blit. */
+    int scale = (t->tw > STILL_W || t->th > STILL_H) ? 2 : 1;
+    int cached_tw = t->tw / scale, cached_th = t->th / scale;
+    flush_batch();
+    g_vram_tex = 0;
+    bloom_target(STILL_A, STILL_W, STILL_H);
+    bind(t);
+    sceGuTexFilter(GU_LINEAR, GU_LINEAR);
+    sceGuDisable(GU_BLEND);
+    bloom_quad(0, 0, (float)t->tw, (float)t->th,
+               0, 0, (float)cached_tw, (float)cached_th, 0xFFFFFFFFu);
+    sceGuEnable(GU_BLEND);
+    /* Back to the frame, and the texture cache told the copy is new. */
+    bloom_target((unsigned)g_draw, SCR_W, SCR_H);
+    sceGuDrawBufferList(GU_PSM_8888, g_draw, BUF_W);
+    sceGuTexFlush();
+    sceGuTexSync();
+    g_vram_tex = t;
+    g_vram_gen = gen;
+    g_vram_tw = cached_tw;
+    g_vram_th = cached_th;
+}
+
+void gfx_texture_vram_drop(const struct gfx_texture *t) {
+    if (t == g_vram_tex) g_vram_tex = 0;
+}
+
 /* Where the GE draws next: a small target, or the frame again. */
 static void bloom_target(unsigned rel, int w, int h) {
     sceGuDrawBufferList(GU_PSM_8888, (void *)rel, w);
@@ -1018,6 +1150,10 @@ int gfx_bake_begin(int w, int h) {
     g_bake_w = w;
     g_bake_h = h;
     g_baking = 1;
+    /* The last frame may still be drawing: wait it out before using the
+       current libgu draw buffer as temporary bake storage. */
+    ge_drain();
+    g_list = g_lists[g_frames & 1];
     sceGuStart(GU_DIRECT, g_list);
     sceGuScissor(0, 0, w, h);
     sceGuClearColor(0);
@@ -1193,6 +1329,7 @@ static const unsigned *front_pixels(int *stride) {
         return (const unsigned *)((unsigned)top | 0x40000000);
 
     void *src = (void *)((unsigned)top & 0x1FFFFFFF);
+    ge_drain();
     sceGuStart(GU_DIRECT, g_list);
     sceGuCopyImage(GU_PSM_8888, 0, 0, SCR_W, SCR_H, *stride, src,
                    0, 0, SCR_W, g_readback);

@@ -20,6 +20,7 @@ enum sync_state {
 };
 
 int sync_start(struct catalog *catalog);
+void sync_set_offline(int on);          /* skip the radio on the next sync */
 enum sync_state sync_state(void);
 int sync_done(void);                    /* DONE or FAILED */
 

@@ -52,7 +52,7 @@ static void files_view_close(void) {
 #define FILE_ROW_H 26
 static void draw_raw_band(void);
 #define FILE_TEXT_COLS 40
-#define FILE_TEXT_STEP 13
+#define FILE_TEXT_STEP 16
 
 static int shell_files_page(void) {
     int y = LIST_Y + 12 + 36;
@@ -169,7 +169,7 @@ void files_view_draw(float t) {
                 char head[128];
                 snprintf(head, sizeof(head), "%.*s", cut, first);
                 font_print(FONT_META, x, y + 16, faded(g_dim, 170), head);
-                font_print_clipped(FONT_META, x, y + 28, w, faded(g_dim, 170), first + cut);
+                font_print_clipped(FONT_META, x, y + 32, w, faded(g_dim, 170), first + cut);
                 path_lines = 2;
             } else {
                 font_print_clipped(FONT_META, x, y + 16, w, faded(g_dim, 170), first);
@@ -178,9 +178,9 @@ void files_view_draw(float t) {
             font_print(FONT_META, x, y + 16, faded(g_dim, 170), first);
         }
     }
-    int note_y = y + 16 + 12 * path_lines + 4;
-    int lines = draw_wrapped(FONT_META, x, note_y, w, 14, 2, g_dim, v->note);
-    y = note_y + 14 * lines + 8;
+    int note_y = y + 16 + 16 * path_lines + 4;
+    int lines = draw_wrapped(FONT_META, x, note_y, w, 17, 2, g_dim, v->note);
+    y = note_y + 17 * lines + 8;
     int room = (FOOTER_Y - 8 - y) / FILE_TEXT_STEP;
     g_files_room = room;
     if (v->media_kind) draw_media(v, x, y, w, FOOTER_Y - 8 - y);
@@ -228,7 +228,7 @@ void files_view_draw(float t) {
    Information band: as many fixed-width lines as fit, from the one the
    stick has scrolled to. */
 #define RAW_COLS 66
-#define RAW_STEP 12
+#define RAW_STEP 15
 
 static void draw_raw_band(void) {
     const struct file_view *v = g_files;

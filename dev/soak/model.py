@@ -159,7 +159,11 @@ def load_world(site_dir=None):
         path = os.path.join(site_dir, "catalog.json")
         if os.path.exists(path):
             for entry in json.load(open(path))["apps"]:
-                sizes[entry["id"]] = entry["release"]["download"]["size"]
+                # Catalog v2 keeps releases newest-first and puts the asset
+                # fields directly on each release.
+                releases = entry.get("releases", [])
+                if releases:
+                    sizes[entry["id"]] = releases[0]["size"]
 
     apps = []
     db = {}

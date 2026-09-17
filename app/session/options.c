@@ -9,9 +9,11 @@
 
 #include <pspctrl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "audio/cues.h"
+#include "gui/gfx.h"
 #include "gui/marks.h"
 #include "gui/shell.h"
 #include "gui/sources_view.h"
@@ -23,6 +25,30 @@
 #include "update/reach.h"
 #include "update/sources.h"
 #include "update/sync.h"
+#include "util/storage.h"
+
+#define SETTINGS_PATH "PSP/PSPDX/settings.txt"
+
+static int g_settings_dirty;
+static int g_settings_fps_cap30 = 1;
+
+void options_settings_load(void) {
+    char *text = NULL;
+    int n = storage_read(storage_path(SETTINGS_PATH), &text, 32);
+    /* Be deliberately strict: an interrupted edit or a future format does not
+       get to opt old hardware into the more demanding mode. */
+    g_settings_fps_cap30 = !(n == 7 && !memcmp(text, "fps=60\n", 7));
+    gfx_set_fps_cap30(g_settings_fps_cap30);
+    free(text);
+    g_settings_dirty = 0;
+}
+
+void options_settings_save(void) {
+    if (!g_settings_dirty) return;
+    const char *text = g_settings_fps_cap30 ? "fps=30\n" : "fps=60\n";
+    if (storage_write(storage_path(SETTINGS_PATH), text, 7) == 0)
+        g_settings_dirty = 0;
+}
 
 /* An installed package has more than one thing that can be done to it, so X
    opens the short list of them rather than a yes/no. Exactly one of the two
@@ -158,26 +184,50 @@ static void fake_updates(int on) {
    after its words while it is on. X flips the row and the popup stays,
    so several can be set in one visit. */
 static char g_quirk_text[2][40];
+static char g_graphics_text[2][40];
+static void sub_push(void);
+
+static void tick_text(char *out, size_t size, const char *label, int ticked) {
+    snprintf(out, size, "%s%s", label, ticked ? "\x01" : "");
+    size_t n = strlen(out);
+    if (n && out[n - 1] == '\x01' && n + 1 < size) {
+        out[n] = (char)(MARK_TICK + 1);
+        out[n + 1] = '\0';
+    }
+}
 
 static void quirks_build(void) {
-    snprintf(g_quirk_text[0], sizeof(g_quirk_text[0]), "%s%s", T_SUB_FPS,
-             shell_show_fps() ? "\x01" : "");
-    snprintf(g_quirk_text[1], sizeof(g_quirk_text[1]), "%s%s", T_SUB_DEV,
-             shell_dev_updates() ? "\x01" : "");
-    for (int i = 0; i < 2; i++) {
-        size_t n = strlen(g_quirk_text[i]);
-        if (n && g_quirk_text[i][n - 1] == '\x01' && n + 1 < sizeof(g_quirk_text[i])) {
-            g_quirk_text[i][n] = (char)(MARK_TICK + 1);
-            g_quirk_text[i][n + 1] = '\0';
-        }
-    }
+    tick_text(g_quirk_text[0], sizeof(g_quirk_text[0]), T_SUB_FPS, shell_show_fps());
+    tick_text(g_quirk_text[1], sizeof(g_quirk_text[1]), T_SUB_DEV, shell_dev_updates());
     g_menu.count = 2;
     g_menu.item[0] = g_quirk_text[0];
     g_menu.item[1] = g_quirk_text[1];
 }
 
+static void graphics_build(void) {
+    tick_text(g_graphics_text[0], sizeof(g_graphics_text[0]), T_SUB_FPS30,
+              gfx_fps_cap30());
+    tick_text(g_graphics_text[1], sizeof(g_graphics_text[1]), T_SUB_FPS60,
+              !gfx_fps_cap30());
+    g_menu.count = 2;
+    g_menu.item[0] = g_graphics_text[0];
+    g_menu.item[1] = g_graphics_text[1];
+}
+
+void options_fps_runtime_toggle(void) {
+    /* SELECT is a session preview. It deliberately changes only gfx's live
+       mode; the value loaded from or chosen for settings remains untouched. */
+    gfx_set_fps_cap30(!gfx_fps_cap30());
+    if (g_sub == SUB_GRAPHICS) {
+        graphics_build();
+        sub_push();
+    }
+}
+
 static void sub_push(void) {
-    g_menu.title = g_sub == SUB_ADD ? T_SUB_DIRECT : g_sub == SUB_QUIRKS ? T_SUB_QUIRKS : T_SUB_RESET;
+    g_menu.title = g_sub == SUB_ADD ? T_SUB_DIRECT
+                 : g_sub == SUB_QUIRKS ? T_SUB_QUIRKS
+                 : g_sub == SUB_GRAPHICS ? T_SUB_GRAPHICS : T_SUB_RESET;
     shell_menu(&g_menu);
 }
 
@@ -229,12 +279,14 @@ void sub_open(enum sub which) {
         g_menu.item[g_menu.count++] = T_SUB_FROM_INBOX;
     } else if (which == SUB_QUIRKS) {
         quirks_build();
+    } else if (which == SUB_GRAPHICS) {
+        graphics_build();
     } else {
         g_menu.item[g_menu.count++] = T_SUB_RESET_ALL;
         g_menu.item[g_menu.count++] = T_SUB_CLEAR_CACHE;
     }
     for (int i = 0; i < g_menu.count; i++) { g_menu.on[i] = 1; g_menu.key[i] = -1; }
-    g_menu.cursor = 0;
+    g_menu.cursor = which == SUB_GRAPHICS && !gfx_fps_cap30() ? 1 : 0;
     sub_push();
 }
 
@@ -284,6 +336,19 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             else { shell_toggle_dev(); fake_updates(shell_dev_updates()); }
             cues_post(CUE_MOVE, 0);
             quirks_build();
+            sub_push();
+        }
+        else if ((pressed & PSP_CTRL_CROSS) && g_sub == SUB_GRAPHICS) {
+            int cap30 = g_menu.cursor == 0;
+            if (cap30 != gfx_fps_cap30()) {
+                gfx_set_fps_cap30(cap30);
+            }
+            if (cap30 != g_settings_fps_cap30) {
+                g_settings_fps_cap30 = cap30;
+                g_settings_dirty = 1;
+            }
+            cues_post(CUE_MOVE, 0);
+            graphics_build();
             sub_push();
         }
         else if (pressed & PSP_CTRL_CROSS) {

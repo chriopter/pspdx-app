@@ -9,8 +9,8 @@
    on the left and flat on the right so the room slowly turns; a sub, the
    floor under it; a shimmer, the drift high up and quieter; and a bell,
    cold and inharmonic, heard mostly through a long hall of its own. The
-   tune also goes through a low-pass that breathes over half a minute,
-   with a little filtered noise for air. Plain C with no platform in it, so the
+   tune also goes through a gentle low-pass with a little filtered noise for
+   air. Plain C with no platform in it, so the
    same code renders on a PSP audio thread and into a WAV on a desk.
 
    Only the audio thread may call into here. Other threads post through

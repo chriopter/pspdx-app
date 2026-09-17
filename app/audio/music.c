@@ -11,8 +11,7 @@
  *
  * The cycle is written out twice with different orders and different
  * lights, so the loop is two minutes long and the voices' own slow swells
- * and the filter's breathing (whose periods divide nothing here) put a
- * different face on every pass.
+ * and the long envelopes put a different face on every pass.
  */
 
 #include "audio/music.h"

@@ -1,5 +1,6 @@
 #include "text.h"
 #include <pspkernel.h>
+#include <pspwlan.h>
 #include <stdio.h>
 
 #include "update/sync.h"
@@ -18,10 +19,27 @@ static volatile enum sync_state g_state = SYNC_IDLE;
 static char g_message[64];
 static SceUID g_thread = -1;
 
+/* Set from the main thread before a sync: skip the radio and go straight to
+   the saved catalogs (a PSP/PSPDX/DEBUG/PSPDX.OFFLINE marker asks for it). A
+   plain flag, so the sync thread never touches storage_path, whose buffer is
+   shared with the main thread. */
+static int g_force_offline;
+void sync_set_offline(int on) { g_force_offline = on; }
+
+/* The WLAN switch on the side of the console. Off, there is no radio to
+   bring up and sceNetApctlConnect would only sit out its timeout (~10 s,
+   blocking the shell) before failing anyway -- so the saved catalogs are
+   used straight away, as with the PSPDX.OFFLINE marker. */
+static int wlan_switch_on(void) {
+    return sceWlanGetSwitchState() != 0;
+}
+
 static int run(SceSize args, void *argp) {
     (void)args; (void)argp;
     g_state = SYNC_CONNECTING;
-    int online=https_net_connect()>=0;
+    int radio = wlan_switch_on();
+    if (!radio) logline("wlan: switch is off, skipping the connect");
+    int online = !g_force_offline && radio && https_net_connect() >= 0;
     catalog_offline(!online);
     if(!online)logline("offline: using saved catalogs and installed apps");
     g_state = SYNC_FETCHING;

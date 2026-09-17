@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""An offline shelf for a real PSP with no network: thirty made-up apps that
+carry the author's own published apps' icons, pictures, films and tunes, so every
+view of the browser has something to show -- categories, tags, a film on
+the card, a picture behind the room -- without a radio.
+
+    fake-shelf make  --out DIR [--assets DIR]
+
+make writes a tree mirroring the stick under DIR: the catalog snapshot the
+client reads when it is offline, keyed the way update/catalog.c keys it
+(the SHA-1 of the built-in catalog's URL), and every asset under the name
+update/assets.c looks it up by, the id in front of the served name. Copy
+DIR/PSP onto the stick (merge; the rest of PSP/PSPDX is left alone) and
+start the client with the WLAN switch off, or with a PSPDX.OFFLINE marker
+in PSP/PSPDX/DEBUG. Also written: DIR/plant.pspsh, the PSPLink shell script
+that copies it all from host0: onto ms0:.
+
+The assets are fetched once from the published catalog into --assets
+(default DIR/../fake-assets) and reused from there.
+"""
+import hashlib, json, os, shutil, sys, urllib.request
+
+SRC = "https://chriopter.github.io/pspdx-catalog/"
+OWN_REPOS = "https://github.com/chriopter/"    # whose media may be borrowed
+SNAPSHOT_OF = SRC + "catalog.json"     # the built-in source; sha1 of it names the snapshot
+OWNER = "pspdxdemo"
+GENERATED_AT = "2026-09-17T00:00:00Z"
+PUBLISHED_AT = "2026-09-10T12:00:00Z"
+
+# name, category, tags, summary. The categories are the four the standard
+# names as the console's own, and two an author might make up; the tags
+# are the words an author would put in a .pspdx.
+ROWS = [
+    ("Tux Racer",              "game",     ["racing", "3d", "port", "snow"],       "Downhill racing with Tux, carved into the PSP."),
+    ("Lux Aeterna",            "demo",     ["graphics", "music", "cathedral"],     "A Gothic window with the sun pouring through it."),
+    ("Pixel Pilot",            "game",     ["arcade", "shooter", "retro"],         "A tiny plane, a big sky, and far too many rocks."),
+    ("Graphics Engine Tour",   "demo",     ["graphics", "gu", "samples"],          "Thirteen scenes of what the GE can do."),
+    ("Rust Raytracer",         "demo",     ["rust", "raytracing", "3d"],           "Real-time ray tracing on a 333 MHz MIPS."),
+    ("Hello PSP",              "demo",     ["hello", "minimal"],                   "The smallest thing a PSP can run."),
+    ("Chronicles of Dawn II",  "game",     ["rpg", "story", "fantasy"],            "The second chronicle, and the longer one."),
+    ("Hex",                    "game",     ["puzzle", "board", "two-player"],      "Connect your sides of the board first."),
+    ("Orbital Freight",        "game",     ["strategy", "space", "trading"],       "Haul cargo between stations that keep moving."),
+    ("Mine Cart Mayhem",       "game",     ["arcade", "platformer"],               "Rails, lamps, and a cart with no brakes."),
+    ("Nine Lives",             "game",     ["adventure", "cats", "pixelart"],      "A cat with one life left and nine doors."),
+    ("Lantern",                "demo",     ["graphics", "light", "shaders"],       "One lantern, one room, and the way light falls."),
+    ("Thirteen Tricks",        "demo",     ["graphics", "effects"],                "Thirteen effects, one scene each."),
+    ("Plasma",                 "demo",     ["oldschool", "effects", "4k"],         "The plasma every demo starts with."),
+    ("Snes9x PSP",             "emulator", ["snes", "16-bit", "nintendo"],         "Super Nintendo, on the PSP's own screen."),
+    ("Gambatte PSP",           "emulator", ["gameboy", "handheld"],                "Game Boy and Game Boy Color, cycle exact."),
+    ("PicoDrive",              "emulator", ["megadrive", "genesis", "sega"],       "Mega Drive at full speed."),
+    ("Atari 2600 Player",      "emulator", ["atari", "8-bit"],                     "The wood-panelled console, in your hands."),
+    ("ScummVM PSP",            "emulator", ["adventure", "point-and-click"],       "The classic adventures, run through ScummVM."),
+    ("Bookr",                  "app",      ["reader", "pdf", "text"],              "PDFs and text files, page by page."),
+    ("PSP Filer",              "app",      ["files", "utility"],                   "A file manager for the Memory Stick."),
+    ("Music Tracker",          "app",      ["music", "tracker", "chiptune"],       "Four channels and a keyboard drawn on screen."),
+    ("Sketchbook",             "app",      ["drawing", "art"],                     "Draw with the stick, save as PNG."),
+    ("Wi-Fi Scanner",          "app",      ["network", "wifi", "utility"],         "Every access point in range, with its channel."),
+    ("Stopwatch",              "app",      ["utility", "time"],                    "A stopwatch and a lap counter, nothing else."),
+    ("Calibre Sync",           "app",      ["reader", "sync"],                     "Pulls your reading list over the radio."),
+    ("Homebrew Radio",         "media",    ["radio", "streaming", "audio"],        "Internet radio over 802.11b, if it holds."),
+    ("Clip Player",            "media",    ["video", "player", "mp4"],             "Plays what the firmware's player will not."),
+    ("Overclock Tester",       "tool",     ["cpu", "benchmark"],                   "Runs the CPU at every step and tells you which survive."),
+    ("Save Manager",           "tool",     ["saves", "backup", "utility"],         "Copies and restores save data between sticks."),
+]
+
+LICENSES = ["MIT", "GPL-2.0-or-later", "GPL-3.0", "BSD-2-Clause", "Apache-2.0"]
+
+DESCRIPTION = (
+    "%s is a placeholder on the offline shelf: a made-up app carrying the "
+    "pictures, film and tune of a published one, so the browser has "
+    "something real to show without a network.\n\nWhat it would say about "
+    "itself: %s\n\nInstalling it does nothing, since there is no release "
+    "behind the link; the catalog entry is here for the views."
+)
+
+
+def sha1(text):
+    return hashlib.sha1(text.encode()).hexdigest()
+
+
+def fetch(url, dest):
+    if os.path.exists(dest):
+        return dest
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    urllib.request.urlretrieve(url, dest + ".part")
+    os.replace(dest + ".part", dest)
+    return dest
+
+
+def assets(cache):
+    """The published apps' media, one set per app: icon, picture, film, tune;
+    what an app has of them."""
+    cat = json.load(urllib.request.urlopen(SRC + "catalog.json"))
+    sets = []
+    for a in cat["apps"]:
+        # Only what is published from the author's own public repositories:
+        # nothing of anybody else's is copied around under made-up names.
+        if not a.get("source", "").startswith(OWN_REPOS):
+            continue
+        m = a.get("media", {})
+        s = {}
+        if m.get("icon"): s["icon"] = fetch(SRC + m["icon"], os.path.join(cache, m["icon"]))
+        if m.get("screenshots"): s["picture"] = fetch(SRC + m["screenshots"][0], os.path.join(cache, m["screenshots"][0]))
+        if m.get("video"): s["film"] = fetch(SRC + m["video"], os.path.join(cache, m["video"]))
+        if m.get("sound"): s["sound"] = fetch(SRC + m["sound"], os.path.join(cache, m["sound"]))
+        if s:
+            sets.append(s)
+    return sets
+
+
+def make(out, cache):
+    sets = assets(cache)
+    if not sets:
+        sys.exit("no media in the published catalog")
+    shutil.rmtree(os.path.join(out, "PSP"), ignore_errors=True)
+    cat_dir = os.path.join(out, "PSP/PSPDX/CACHE/catalogs")
+    media_dir = os.path.join(out, "PSP/PSPDX/CACHE/media")
+    os.makedirs(cat_dir)
+    os.makedirs(media_dir)
+    apps = []
+    planted = []
+    for i, (name, category, tags, summary) in enumerate(ROWS):
+        nn = "%02d" % (i + 1)
+        repo = "app" + nn
+        app_id = "io.github.%s.%s" % (OWNER, repo)
+        source = "https://github.com/%s/%s" % (OWNER, repo)
+        media = {}
+        s = sets[i % len(sets)]
+        for kind, key in (("icon", "icon"), ("picture", "screenshots"), ("film", "video"), ("sound", "sound")):
+            if kind not in s:
+                continue
+            with open(s[kind], "rb") as f:
+                eight = hashlib.sha256(f.read()).hexdigest()[:8]
+            ext = os.path.splitext(s[kind])[1]
+            served = "%s-%s%s" % (kind, eight, ext)
+            rel = "apps/%s/%s" % (app_id, served)
+            # update/assets.c keys the cache on the served name with the id
+            # in front: exactly this file name.
+            cached = "%s-%s" % (app_id, served)
+            shutil.copyfile(s[kind], os.path.join(media_dir, cached))
+            planted.append("PSP/PSPDX/CACHE/media/" + cached)
+            media[key] = [rel] if key == "screenshots" else rel
+        apps.append({
+            "id": app_id,
+            "source": source,
+            "name": name,
+            "type": "homebrew",
+            "category": category,
+            "tags": tags,
+            "author": "PSPDX Demo",
+            "summary": summary,
+            "license": LICENSES[i % len(LICENSES)],
+            "description": DESCRIPTION % (name, summary),
+            "media": media,
+            "releases": [{
+                "tag": "v1.%d" % (i % 4),
+                "published_at": PUBLISHED_AT,
+                "url": "%s/releases/download/v1.%d/%s.zip" % (source, i % 4, repo),
+                "size": 1048576 * (1 + i % 7) + 12345 * i,
+            }],
+        })
+    snapshot = "PSP/PSPDX/CACHE/catalogs/%s.json" % sha1(SNAPSHOT_OF)
+    with open(os.path.join(out, snapshot), "w") as f:
+        json.dump({
+            "schema": "https://chriopter.github.io/pspdx/schema/catalog-v1.json",
+            "generated_at": GENERATED_AT,
+            "apps": apps,
+        }, f, indent=1)
+    planted.append(snapshot)
+    # The PSPLink script: the tree is served as host0:, the stick is ms0:.
+    with open(os.path.join(out, "plant.pspsh"), "w") as f:
+        f.write("mkdir ms0:/PSP/PSPDX/CACHE\nmkdir ms0:/PSP/PSPDX/CACHE/media\nmkdir ms0:/PSP/PSPDX/CACHE/catalogs\n")
+        for rel in planted:
+            f.write("cp host0:/%s ms0:/%s\n" % (rel, rel))
+    print("fake shelf: %d apps, %d files, %d KB" % (
+        len(apps), len(planted),
+        sum(os.path.getsize(os.path.join(out, p)) for p in planted) // 1024))
+
+
+def main(argv):
+    if len(argv) >= 3 and argv[0] == "make" and argv[1] == "--out":
+        out = argv[2]
+        cache = argv[4] if len(argv) >= 5 and argv[3] == "--assets" else os.path.join(os.path.dirname(os.path.abspath(out)), "fake-assets")
+        make(out, cache)
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

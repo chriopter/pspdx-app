@@ -59,6 +59,7 @@ static int exit_callback(int a, int b, void *c) {
        stick -- 32 bytes, once, instead of the same sector every few
        seconds. */
     entropy_save(entropy_screen_is_replay());
+    options_settings_save();
     sceKernelExitGame();
     return 0;
 }
@@ -272,6 +273,7 @@ int main(int argc, char *argv[]) {
     /* Full speed: the film decodes and the piano plays on the same CPU
        the interface draws with. The default is two thirds of it. */
     storage_init(argc > 0 ? argv[0] : NULL);
+    options_settings_load();
     state_load();
     scePowerSetClockFrequency(333, 333, 166);
     if (setup_callbacks() < 0) {
@@ -368,6 +370,13 @@ int main(int argc, char *argv[]) {
         for (;;) sceDisplayWaitVblankStart();
     }
 
+    /* Boot the Media Engine before the sweep runs. Loading the AV modules
+       after entropy_screen_run() has driven the GE wedges ATRAC3PLUS's
+       module_start on its ME RPC (seen under PSPLink, and on the console once
+       the sweep is not skipped); done here the ME comes up clean and
+       audio_start() below just reuses it. */
+    audio_load_modules();
+
     if (sweep) {
         unsigned since = now_ms();
         int bits = entropy_screen_run();
@@ -380,6 +389,7 @@ int main(int argc, char *argv[]) {
        sweeps; it lives on its own thread and never waits for a frame. */
     audio_start();
     actions_init(&catalog);
+    sync_set_offline(storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.OFFLINE")));
     sync_start(&catalog);
 
     /* Connect, fetch and check in the background while the first frames
@@ -400,36 +410,49 @@ int main(int argc, char *argv[]) {
     unsigned dumped_ms = now_ms();
     unsigned last_buttons = 0;
     /* Frame times, so a slow frame is a number and not a feeling: every
-       ten seconds the average, the worst, and how many missed 60 Hz. */
+       ten seconds the average, worst, and misses against the selected cap. */
     unsigned frame_us = now_us(), frames = 0, worst = 0, late = 0, total = 0;
-    unsigned bucket[4] = { 0, 0, 0, 0 };    /* 17-20, 20-25, 25-35, >35 ms */
+    /* Over-budget distributions: +0-3, +3-8, +8-18, and +18 ms. The base
+       follows the selected 30/60 FPS mode below. */
+    unsigned bucket[4] = { 0, 0, 0, 0 };
     osk_frame(osk_draw, &cursor);
     for (;;) {
         unsigned now = now_us(), took = now - frame_us;
         frame_us = now;
-        frames++; total += took / 1000;
+        frames++; total += took;
         if (took > worst) worst = took;
         if (took > 100000)
             logline("frame %u: %u ms, %u ms since the shell came up",
                     gfx_frames(), took / 1000, now_ms() - shell_since);
-        if (took > 17000) late++;
-        if (took > 35000) bucket[3]++;
-        else if (took > 25000) bucket[2]++;
-        else if (took > 20000) bucket[1]++;
-        else if (took > 17000) bucket[0]++;
+        unsigned budget = gfx_fps_cap30() ? 34000u : 17000u;
+        if (took > budget) late++;
+        if (took > budget + 18000u) bucket[3]++;
+        else if (took > budget + 8000u) bucket[2]++;
+        else if (took > budget + 3000u) bucket[1]++;
+        else if (took > budget) bucket[0]++;
         /* The emulator only flushes a file on close, and a long session
            should still leave a log behind: once every ten seconds. */
         if (expired(dumped_ms, 10000)) {
             dumped_ms = now_ms();
-            logline("frames: %u in 10 s, avg %u ms, worst %u ms, %u late "
-                    "(17-20 %u, 20-25 %u, 25-35 %u, 35+ %u)",
-                    frames, frames ? total / frames : 0, worst / 1000, late,
-                    bucket[0], bucket[1], bucket[2], bucket[3]);
             char phases[120];
+            unsigned audio_output, audio_frames, audio_late, audio_dry, audio_errors;
+            int audio_error;
+            audio_stats(&audio_output, &audio_frames, &audio_late, &audio_dry,
+                        &audio_errors, &audio_error);
             shell_profile(phases, sizeof(phases));
-            logline("%s", phases);
-            logline("outside draw: tick %u us, audio callback %u us, free %u KB",
-                    g_worst_tick, audio_worst_us(),
+            /* One stdout write instead of three. PSPLink's host stream can
+               hold the main thread long enough to miss the very vblank this
+               telemetry is measuring; batching keeps the 10-second sample
+               from manufacturing a periodic hitch of its own. */
+            logline("perf %d: %u/10s avg %u us worst %u us late %u [%u %u %u %u] "
+                    "miss %u; %s; tick %u us audio %u us out %u us %u Hz "
+                    "late %u dry %u err %u/%08x atrac %u us free %u KB",
+                    gfx_target_fps(), frames, frames ? total / frames : 0,
+                    worst, late, bucket[0], bucket[1], bucket[2], bucket[3],
+                    gfx_missed_presentations(), phases, g_worst_tick,
+                    audio_worst_us(), audio_output,
+                    audio_frames / 10, audio_late, audio_dry, audio_errors,
+                    (unsigned)audio_error, audio_decode_worst_us(),
                     (unsigned)sceKernelTotalFreeMemSize() / 1024);
             g_worst_tick = 0;
             frames = worst = late = total = 0;
@@ -502,7 +525,14 @@ int main(int argc, char *argv[]) {
                 /* The rig's hooks, once: a retry that comes through does
                    not get to install or replay the keys a second time. */
                 if (rounds++ > 0) continue;
-                screenshot_settled(cursor, storage_path("PSP/PSPDX/DEBUG/PSPDX.BMP"));
+                /* The settled screenshot renders up to 360 frames waiting for
+                   the room to stop moving, which is a ~6-8 s freeze the first
+                   time the catalog lands -- fine for the test rig that wants
+                   the BMP, a bad first impression for anyone else. So it is
+                   taken only when the rig asks for it with a PSPDX.SHOTS
+                   marker; a normal boot goes straight to a live browser. */
+                if (storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.SHOTS")))
+                    screenshot_settled(cursor, storage_path("PSP/PSPDX/DEBUG/PSPDX.BMP"));
                 dump_diagnostics();
                 automatic = catalog.count > 0 ? auto_install_index() : -1;
                 if (automatic >= 0) {
@@ -544,6 +574,11 @@ int main(int argc, char *argv[]) {
                                          PSP_CTRL_LEFT | PSP_CTRL_RIGHT |
                                          PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER));
         if (synced) pressed |= keys_pressed();
+        if (pressed & PSP_CTRL_SELECT) {
+            options_fps_runtime_toggle();
+            cues_post(CUE_MOVE, 0);
+            logline("graphics: SELECT -> %d fps (session only)", gfx_target_fps());
+        }
         /* Everything below counts in rows of the shell's view -- the
            catalog filtered to the active tab -- and there are none of those
            while the catalog is being fetched. */
@@ -635,7 +670,8 @@ int main(int argc, char *argv[]) {
                 else if (which == 2) { files_names(files_name_of); files_view_open(); }
                 else if (which == 3) sub_open(SUB_RESET);
                 else if (which == 4) shell_info(info = 1);
-                else if (which == 5) sub_open(SUB_QUIRKS);
+                else if (which == 5) sub_open(SUB_GRAPHICS);
+                else if (which == 6) sub_open(SUB_QUIRKS);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X is the one thing there is to do to the package: have
                    it, have the newer one, or start it -- each asked about

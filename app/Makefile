@@ -29,7 +29,7 @@ ASFLAGS = $(CFLAGS)
 # leans on the zlib that is already here for the package archives.
 LIBS = -lcjson -lintrafont -lpng -lz -lm \
        -lpspgu -lpspgum -lpspmpeg -lpspaudio -lpspsemaphore_660 -lpsppower \
-       -lpspnet_resolver -lpspnet_apctl -lpspnet_inet -lpspnet \
+       -lpspnet_resolver -lpspnet_apctl -lpspnet_inet -lpspnet -lpspwlan \
        -lpsputility -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpspatrac3
 
 EXTRA_TARGETS = EBOOT.PBP
