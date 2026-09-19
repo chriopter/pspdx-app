@@ -2,5 +2,6 @@
 # PSP/PSPDX/sources.txt on the first start that sees it, and a source the user
 # removes stays removed. Same lines as sources.txt. app/util/self_presets.h
 # carries the same list for a stick that has lost this file.
+
 https://chriopter.github.io/pspdx-catalog/
 https://pspdev.github.io/homebrew/
