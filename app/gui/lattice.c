@@ -51,8 +51,10 @@
    through the row that field would have put there -- the same shape on the
    water however the rows are laid out now. */
 #define Z_REF 0.6f
-#define STARS 40
-#define STARS_SLOW 22
+#define STARS 22
+#define GRID_FAST_STEP 4        /* crossings between drawn lines at 60 Hz */
+#define RING_AMP 1.6f           /* the front's wave, in the swell's units */
+#define RING_W 1.4f             /* its width, in widths of the front */
 #define SPECKS 12
 
 /* The water in the world the GE draws it in: how high the eye sits over the
@@ -300,12 +302,15 @@ static float ease(float c) {
    where the edge had it last frame to where the edge has it now, which is
    how a front started over a half-turned field needs no memory of the one
    before it. */
+static void front_step(void) {
+    if (!g_front_on) return;
+    g_front_r += FRONT_C;
+    if (g_front_r >= g_front_end) g_front_on = 0;
+}
+
 static void spread(struct rgb tint) {
     float rp = g_front_r;
-    if (g_front_on) {
-        g_front_r += FRONT_C;
-        if (g_front_r >= g_front_end) g_front_on = 0;
-    }
+    front_step();
     if (!g_front_on) {
         /* One colour, and it is the one the room is easing to. Nobody asks
            which colour a crossing is holding while they are all holding
@@ -611,20 +616,14 @@ void lattice_touch(float x) {
 /* Where the source sat last frame, so the stir can tell which way the hand is
    moving and lay a wake across that line. -999 means "not stirring". */
 static float g_stir_lj = -999.0f, g_stir_li = -999.0f;
-/* In the 60 Hz sky the same hand drags the stars. The draw loop eases toward
-   this target, giving release a coast instead of snapping the field still. */
-static float g_sky_tx, g_sky_ty, g_sky_vx, g_sky_vy;
 
 void lattice_stir(float x, float y) {
     float push = x * x + y * y;
     if (push < 0.03f) {                         /* the dead zone */
         g_stir_lj = g_stir_li = -999.0f;
-        g_sky_tx = g_sky_ty = 0.0f;
         return;
     }
     if (push > 1.0f) push = 1.0f;
-    g_sky_tx = x * 1.6f;
-    g_sky_ty = y * 1.6f;
     /* Across the field with the stick, and stick forward is out toward
        the horizon. Kept off the very front rows, which are under the
        screen's bottom edge. */
@@ -943,6 +942,97 @@ static float lit_at(int i, int j) {
     return g_row[i].near2 * raw;
 }
 
+/* How lit a crossing of the grid is when the grid is all there is: the
+   swell's own light, a crest standing in it and a trough hiding from it, a
+   face leaning back toward the horizon catching more than a flat one, over
+   the ground's steady share. The slope away is read across the drawn rows,
+   which are two apart. */
+static float lit_swell(int i, int j) {
+    int im = i >= 2 ? i - 2 : 0, ip = i + 2 < NZ ? i + 2 : NZ - 1;
+    float dhz = (g_hh[ip][j] - g_hh[im][j]) * 1.5f;
+    float raw = 0.42f + 0.28f * g_hh[i][j] - 0.45f * dhz;
+    if (raw < 0.0f) raw = 0.0f;
+    return g_row[i].near2 * raw;
+}
+
+/* The swell without the simulation, and where it lands on screen. What the
+   60 Hz room stands on: the sweep's grid, swinging on the water's two long
+   waves -- the same ones step_water folds into the surface, read straight
+   off the row and the column, a sine of a sum being two products of the
+   ends. The height is written for every row, since the light on a drawn
+   row reads the rows behind and before it; the screen position for the
+   rows the grid is drawn over, every step'th one from i0 out, each held
+   under the drawn row behind it the way the water's rows are, and on those
+   for every column, so a line runs off the screen rather than to the last
+   crossing that was placed. */
+static void place_swell(float swayx, float t, int i0, int step) {
+    float sa1[NZ], ca1[NZ], sa2[NZ], ca2[NZ];
+    float sb1[NX], cb1[NX], sb2[NX], cb2[NX];
+    for (int i = 0; i < NZ; i++) {
+        float a1 = g_row[i].a1 - t * 0.42f, a2 = g_row[i].a2 + t * 0.30f;
+        sa1[i] = fsin(a1); ca1[i] = fcos(a1);
+        sa2[i] = fsin(a2); ca2[i] = fcos(a2);
+    }
+    for (int j = 0; j < NX; j++) {
+        float b1 = g_u[j] * 0.85f, b2 = g_u[j] * -1.7f;
+        sb1[j] = fsin(b1); cb1[j] = fcos(b1);
+        sb2[j] = fsin(b2); cb2[j] = fcos(b2);
+    }
+    /* The wave the colour front carries: a crest riding just inside its
+       edge and a trough behind, the ring a drop makes, spreading and
+       settling as it goes out. In the crossings' own metric, like the
+       front, so the two stay together. */
+    float ring_r = g_front_r, ring_w = FRONT_W * RING_W;
+    float ring_a = g_front_on ? RING_AMP / (1.0f + 0.03f * ring_r) : 0.0f;
+    for (int i = NZ - 1; i >= 0; i--) {
+        float *hh = g_hh[i];
+        float a1 = sa1[i], b1 = ca1[i], a2 = sa2[i], b2 = ca2[i];
+        for (int j = 0; j < NX; j++) {
+            float s1 = a1 * cb1[j] + b1 * sb1[j];
+            float s2 = a2 * cb2[j] + b2 * sb2[j];
+            float s = 0.82f * s1 + 0.44f * s2;
+            hh[j] = s + 0.20f * s * (s < 0 ? -s : s);
+        }
+        float di = i - g_front_i;
+        if (ring_a > 0.0f && fabsf(di) < ring_r + ring_w) {
+            float dii = di * di;
+            for (int j = 0; j < NX; j++) {
+                float dj = j - g_front_j;
+                float d = sqrtf(dii + dj * dj);
+                float x = (d - ring_r) * (1.0f / ring_w);
+                if (x <= -1.0f || x >= 1.0f) continue;
+                float e = 1.0f - x * x;
+                hh[j] += ring_a * x * e * e * 3.0f;
+            }
+        }
+        if (i < i0 || (i - i0) % step) continue;
+        float xlim = XLIM * g_row[i].z;
+        float y0 = g_row[i].y0, yh = g_row[i].yh, f = g_row[i].f;
+        const float *back = i + step < NZ ? g_y[i + step] : 0;
+        float least = 0.0f;
+        for (int k = i; k < i + step && k < NZ; k++) least += g_row[k].least;
+        float *y = g_y[i], *x = g_x[i];
+        /* Every column, not only the row's own span: a line that stopped at
+           the last column inside the span stopped short of the edge of the
+           screen, and the columns outside it are pinned at XLIM anyway. */
+        for (int j = 0; j < NX; j++) {
+            float wx = g_u[j] + swayx;
+            if (wx < -xlim) wx = -xlim;
+            else if (wx > xlim) wx = xlim;
+            float dy = hh[j] * yh;
+            float rise = dy < 0.0f ? -dy : dy;
+            if (rise > DY_CAP * 0.5f) {
+                float eased = DY_CAP - (0.25f * DY_CAP * DY_CAP) / rise;
+                dy = dy < 0.0f ? -eased : eased;
+            }
+            float sy = y0 - dy;
+            if (back && sy < back[j] + least) sy = back[j] + least;
+            x[j] = SCR_W / 2.0f + wx * f;
+            y[j] = sy;
+        }
+    }
+}
+
 /* ------------------------------------------------------- what the water holds */
 
 /* The picture on the card, lying in the water under it: the same mesh a
@@ -1125,79 +1215,48 @@ void lattice_draw(float t, struct rgb tint) {
        fixed step accumulated; the last mesh remains valid for that frame. */
     float sway = fsin(t * 0.23f) * 0.06f;
     g_time = t;
-    /* Per-crossing colour fronts only affect the full mesh. While the 60 Hz
-       scene is flat, collapse directly to its visible tint instead of walking
-       up to 4,620 crossings during every selection transition. Marking it
-       uniform also makes the first later 30 Hz frame safe without a rebuild. */
+    /* The front runs out from the drop in both rooms. Over the water it
+       carries the colour, a crossing at a time; through the grid it carries
+       a wave, and the grid is the room's colour all over -- a colour
+       crossing lines came out as smearing. So at 60 Hz only its radius is
+       stepped, once a frame, which is what two steps a frame come to at 30,
+       and the crossings' colours are left uniform for the first frame back
+       at 30. */
+    if (!g_told) watch(tint);
+    /* The grid's first row: under the water it is the one just under the
+       bottom edge, since the water covers the rest; standing alone it runs
+       on down to the row nearest the eye, in the same step, because a row
+       just under the edge is lifted into view by the first crest. */
+    int grid_i0 = fast ? (g_row0 - 1) % GRID_FAST_STEP : g_row0 - 1;
     if (fast) {
-        g_front_on = 0;
-        g_uniform = 1;
+        front_step();
         g_held = g_ref = tint;
+        g_uniform = 1;
+        place_swell(sway, t, grid_i0, GRID_FAST_STEP);
     } else {
-        if (!g_told) watch(tint);
         int updates = sim_steps ? sim_steps : 1;
         for (int i = 0; i < updates; i++) spread(tint);
     }
 
     gfx_batch_begin();
 
-    /* At 60 Hz the shell's night gradient is the entire room. A field with
-       depth is cheaper and cleaner than a substitute water mesh: the stick
-       drags its near lights quickly and its far lights slowly. */
     float motion = elapsed * 60.0f;
-    static int was_fast = -1;
-    if (fast != was_fast) {
-        if (fast) {
-            for (int i = 0; i < STARS; i++) g_stars[i].y = frand() * SCR_H;
-        } else {
-            for (int i = 0; i < STARS_SLOW; i++)
-                if (g_stars[i].y > GFX_HORIZON - 24)
-                    g_stars[i].y = 6 + frand() * (GFX_HORIZON - 30);
-        }
-        was_fast = fast;
-    }
-    if (fast) {
-        float ease = 0.08f * motion;
-        if (ease > 1.0f) ease = 1.0f;
-        g_sky_vx += (g_sky_tx - g_sky_vx) * ease;
-        g_sky_vy += (g_sky_ty - g_sky_vy) * ease;
-        /* The shell gradient already gives the open sky its colour volume.
-           Large translucent glow sprites looked pleasant but touched nearly
-           every pixel several times and could push the PSP GE past a 16.7 ms
-           presentation. Keep the motion in the cheap, depth-sorted lights. */
-    }
 
-    /* Sky: points of light over the full room in fast mode, or over the
-       horizon of the full water scene in quality mode. */
+    /* Sky: points of light over the horizon, in both rooms -- the floor
+       under it is water or the grid, and neither has stars on it. */
     unsigned white = rgb_pack(RGB_WHITE, 0);
-    int stars = fast ? STARS : STARS_SLOW;
-    for (int i = 0; i < stars; i++) {
+    for (int i = 0; i < STARS; i++) {
         float d = g_stars[i].depth;
-        g_stars[i].x += (g_stars[i].vx + fsin(t * 0.3f + g_stars[i].phase) * 0.03f
-                         + (fast ? g_sky_vx * d : 0.0f)) * motion;
-        g_stars[i].y += (g_stars[i].vy + (fast ? g_sky_vy * d : 0.0f)) * motion;
+        g_stars[i].x += (g_stars[i].vx + fsin(t * 0.3f + g_stars[i].phase) * 0.03f) * motion;
+        g_stars[i].y += g_stars[i].vy * motion;
         if (g_stars[i].x < -8) g_stars[i].x += SCR_W + 16;
         else if (g_stars[i].x > SCR_W + 8) g_stars[i].x -= SCR_W + 16;
-        if (fast) {
-            if (g_stars[i].y < -8) g_stars[i].y += SCR_H + 16;
-            else if (g_stars[i].y > SCR_H + 8) g_stars[i].y -= SCR_H + 16;
-        } else {
-            if (g_stars[i].y < 4) { g_stars[i].y = 4; g_stars[i].vy = -g_stars[i].vy; }
-            else if (g_stars[i].y > GFX_HORIZON - 24) { g_stars[i].y = GFX_HORIZON - 24; g_stars[i].vy = -g_stars[i].vy; }
-        }
+        if (g_stars[i].y < 4) { g_stars[i].y = 4; g_stars[i].vy = -g_stars[i].vy; }
+        else if (g_stars[i].y > GFX_HORIZON - 24) { g_stars[i].y = GFX_HORIZON - 24; g_stars[i].vy = -g_stars[i].vy; }
         float tw = 0.5f + 0.5f * fsin(t * 1.3f + g_stars[i].phase);
-        float speed = fast ? fabsf(g_sky_vx) + fabsf(g_sky_vy) : 0.0f;
-        float w = g_stars[i].size + fabsf(g_sky_vx) * d * 6.0f;
-        float h = g_stars[i].size + fabsf(g_sky_vy) * d * 6.0f;
-        float cap = g_stars[i].size * 3.0f;
-        if (w > cap) w = cap;
-        if (h > cap) h = cap;
-        int alpha = (int)((30 + 70 * tw) * (0.45f + 0.55f * d) + speed * d * 20.0f);
-        if (alpha > 190) alpha = 190;
-        /* The same soft point of light in both modes. Each is one batched
-           sprite of at most three times its size, so forty of them cost
-           the GE far less than the water they stand in for. */
-        gfx_glow(g_stars[i].x, g_stars[i].y, w, h, tinted(white, alpha));
+        int alpha = (int)((30 + 70 * tw) * (0.45f + 0.55f * d));
+        gfx_glow(g_stars[i].x, g_stars[i].y, g_stars[i].size, g_stars[i].size,
+                 tinted(white, alpha));
     }
     /* Falling stars: a bright head and a fading tail behind it along the way
        it came. */
@@ -1207,7 +1266,7 @@ void lattice_draw(float t, struct rgb tint) {
         g_shower[i].x += g_shower[i].vx * motion;
         g_shower[i].y += g_shower[i].vy * motion;
         g_shower[i].life -= 0.025f * motion;
-        if (g_shower[i].y > (fast ? SCR_H + 10 : GFX_HORIZON - 10)) g_shower[i].life = 0;
+        if (g_shower[i].y > GFX_HORIZON - 10) g_shower[i].life = 0;
         if (g_shower[i].life <= 0) continue;
         int alpha = (int)(170 * g_shower[i].life);
         for (int k = 0; k < 4; k++) {
@@ -1222,13 +1281,13 @@ void lattice_draw(float t, struct rgb tint) {
     float lightx = SCR_W / 2 + sway * (GFX_FOCAL / Z_FAR);
     g_lightx = lightx;
     g_sway = sway;
-    /* Less of it while the shell has borrowed the light for the list. */
-    if (!fast) {
-        gfx_glow(lightx, GFX_HORIZON + 6, 760, 110,
-                 rgb_pack(tint, (int)(110 * g_horizon_keep)));
-        gfx_glow(lightx, GFX_HORIZON + 2, 420, 30,
-                 rgb_pack(rgb_mix(tint, RGB_WHITE, 0.6f), (int)(120 * g_horizon_keep)));
-    }
+    /* Less of it while the shell has borrowed the light for the list. In
+       both rooms: the grid runs to the same horizon the water does, and
+       the two glows are a fraction of the screen. */
+    gfx_glow(lightx, GFX_HORIZON + 6, 760, 110,
+             rgb_pack(tint, (int)(110 * g_horizon_keep)));
+    gfx_glow(lightx, GFX_HORIZON + 2, 420, 30,
+             rgb_pack(rgb_mix(tint, RGB_WHITE, 0.6f), (int)(120 * g_horizon_keep)));
     /* The light's path on the water: the sun is a point on the horizon and
        the water is rough, so what comes back down the lens is a path that
        runs from under the light to the viewer, narrow at the far end and
@@ -1312,41 +1371,62 @@ void lattice_draw(float t, struct rgb tint) {
        has anything to say about open sea. It is walked two crossings at a
        time, so the grid keeps the spacing it had before the field was
        doubled under it. */
-    if (g_dry && !fast) {
+    /* At 60 Hz there is no water and the grid is the floor of the room, the
+       whole field of it, swinging on the swell place_swell laid under it:
+       nothing is wet, and the light on a crossing is the swell's. Coarser
+       there, too: the sweep's grid is drawn under the water it is becoming
+       and reads through it; standing alone it was a mesh. */
+    if (g_dry || fast) {
+        int step = fast ? GRID_FAST_STEP : 2;
         float x[NX > NZ ? NX : NZ], y[NX > NZ ? NX : NZ];
         unsigned c[NX > NZ ? NX : NZ];
         /* The lines and the crossings each keep one colour all frame and
            vary only in alpha, so the channels are packed once and the alpha
-           byte is laid in over them. */
+           byte is laid in over them. Under the water the grid is drawn over
+           the columns the row was placed on; at 60 Hz place_swell placed
+           them all. */
         unsigned line = rgb_pack(rgb_mix(tint, RGB_WHITE, 0.15f), 0);
-        int i0 = g_row0 - 1;
+        int i0 = grid_i0;
+#define WET_AT(i, j) (fast ? 0.0f : g_wet[i][j])
+#define LIT_AT(i, j) (fast ? lit_swell(i, j) : lit_at(i, j))
+#define LO_AT(i) (fast ? 0 : g_row[i].j0)
+#define HI_AT(i) (fast ? NX - 1 : g_row[i].j1)
 
         /* The grid belongs to the ground, not to the water: it goes out
            under a cell as the cell fills, and what is left where the field
            is full is the surface and nothing else. */
-        for (int i = i0; i < NZ; i += 2) {
-            int n = 0;
-            for (int j = g_row[i].j0; j <= g_row[i].j1; j += 2, n++) {
+        for (int i = i0; i < NZ; i += step) {
+            int n = 0, lo = LO_AT(i), hi = HI_AT(i);
+            /* Over the column lines, so the crossings sit on the lines that
+               cross them, and out to the last column past them, so the
+               line reaches the edge. */
+            for (int j = (lo + step - 1) / step * step; j <= hi; j += step, n++) {
                 x[n] = g_x[i][j];
                 y[n] = g_y[i][j];
-                c[n] = tinted(line, (int)(190 * lit_at(i, j) * (1.0f - g_wet[i][j])));
+                c[n] = tinted(line, (int)(190 * LIT_AT(i, j) * (1.0f - WET_AT(i, j))));
+            }
+            if (n && (hi % step)) {
+                x[n] = g_x[i][hi];
+                y[n] = g_y[i][hi];
+                c[n] = c[n - 1];
+                n++;
             }
             gfx_ribbon(x, y, c, n, 0.9f);
         }
         /* A line away runs only as far forward as the rows it crosses were
            drawn out to: nearer than that its column is off the side of the
            screen, and the crossing it would join was never placed. */
-        for (int j = 0; j < NX; j += 2) {
+        for (int j = 0; j < NX; j += step) {
             int n = 0;
-            for (int i = i0; i < NZ; i += 2) {
-                if (j < g_row[i].j0 || j > g_row[i].j1) {
+            for (int i = i0; i < NZ; i += step) {
+                if (j < LO_AT(i) || j > HI_AT(i)) {
                     if (n >= 2) gfx_ribbon(x, y, c, n, 0.9f);
                     n = 0;
                     continue;
                 }
                 x[n] = g_x[i][j];
                 y[n] = g_y[i][j];
-                c[n] = tinted(line, (int)(140 * lit_at(i, j) * (1.0f - g_wet[i][j])));
+                c[n] = tinted(line, (int)(140 * LIT_AT(i, j) * (1.0f - WET_AT(i, j))));
                 n++;
             }
             if (n >= 2) gfx_ribbon(x, y, c, n, 0.9f);
@@ -1357,13 +1437,13 @@ void lattice_draw(float t, struct rgb tint) {
            crossing over a row a few pixels tall came out as a dash. */
         unsigned cell = rgb_pack(rgb_mix(tint, RGB_WHITE, 0.45f), 0);
         unsigned foam = rgb_pack(rgb_mix(tint, RGB_WHITE, 0.85f), 0);
-        for (int i = i0; i < NZ; i += 2) {
-            for (int j = g_row[i].j0; j <= g_row[i].j1; j += 2) {
+        for (int i = i0; i < NZ; i += step) {
+            for (int j = (LO_AT(i) + step - 1) / step * step; j <= HI_AT(i); j += step) {
                 float sx = g_x[i][j];
                 if (sx < -10 || sx > SCR_W + 10) continue;
-                float w = g_wet[i][j];
+                float w = WET_AT(i, j);
                 if (w >= 0.98f) continue;
-                float sy = g_y[i][j], lit = lit_at(i, j);
+                float sy = g_y[i][j], lit = LIT_AT(i, j);
                 float size = 3.0f + 16.0f * lit;
                 gfx_glow(sx, sy, size, size,
                          tinted(cell, (int)((50 + 200 * lit) * (1.0f - w))));
@@ -1372,6 +1452,10 @@ void lattice_draw(float t, struct rgb tint) {
                              tinted(foam, (int)(200 * g_row[i].near2)));
             }
         }
+#undef WET_AT
+#undef LIT_AT
+#undef LO_AT
+#undef HI_AT
     }
 
     /* The source: a light standing over the water it is making, the column
