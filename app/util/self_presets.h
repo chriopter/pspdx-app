@@ -4,4 +4,4 @@
    what the catalog is called before any source has answered. */
 #define PSPDX_PRESET_FIRST "https://chriopter.github.io/pspdx-catalog/"
 #define PSPDX_PRESETS PSPDX_PRESET_FIRST "\n" \
-    "https://wijsman.de/psp-homebrew-database/\n"
+    "https://pspdev.github.io/homebrew/\n"

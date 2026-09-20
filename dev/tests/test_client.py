@@ -6,7 +6,7 @@ BIN=os.environ.get('PSPDX_TEST_BIN','/tmp/pspdx-host-test')
 IMAGE_BIN=os.environ.get('PSPDX_IMAGE_BIN')
 SCHEMA='https://chriopter.github.io/pspdx/schema/pspdx-v1.json'
 ID='io.github.test.demo'
-PRESETS=['https://chriopter.github.io/pspdx-catalog/','https://wijsman.de/psp-homebrew-database/']
+PRESETS=['https://chriopter.github.io/pspdx-catalog/','https://pspdev.github.io/homebrew/']
 SPEC=dict(schema=SCHEMA,source='https://github.com/test/demo',name='Demo',tags=['demo'],installdir='PSP/GAME/Demo',author='test',summary='Demo',license='MIT')
 # A catalog stamped now: one a day old is asked about at the origin, which is another test.
 NOW=lambda:time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
@@ -404,9 +404,9 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(self.listed(),['https://example.com/catalog.json']+PRESETS)
  def test_a_preset_that_does_not_answer_is_any_unreachable_source(self):
   self.fixtures();(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text(''.join(p+'\n' for p in PRESETS))
-  r=self.run_client('fetch',DOWN_HOST='wijsman.de');self.assertIn(ID,r.stdout)
+  r=self.run_client('fetch',DOWN_HOST='pspdev.github.io');self.assertIn(ID,r.stdout)
   requests=(self.root/'requests.log').read_text();self.assertIn(PRESETS[1]+'catalog.json',requests);self.assertIn(PRESETS[1]+'catalog.txt',requests)
-  lines=self.run_client('reach',DOWN_HOST='wijsman.de').stdout.splitlines()
+  lines=self.run_client('reach',DOWN_HOST='pspdev.github.io').stdout.splitlines()
   self.assertIn(PRESETS[0]+' ok',lines);self.assertIn(PRESETS[1]+' unreachable',lines)
  def test_a_source_that_does_not_load_is_marked_and_the_rest_still_load(self):
   # The second source does not answer: its apps are missing, the first's are there, and only the second is marked. The next fetch starts over.

@@ -76,7 +76,7 @@ https://github.com/someone/project@v1.2
 | GitHub URL or `owner/repo` | **Direct Install** | Add the repository as a source and install its app; without a `.pspdx` it installs from its latest release, named after the repository |
 | `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct Install** | Validate and install the selected files; for a repository without its own `.pspdx` your file is the app |
 
-- Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://wijsman.de/psp-homebrew-database/`
+- Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://pspdev.github.io/homebrew/`
 - Presets ship as `PSP/GAME/PSPDX/presets.txt`, same lines as `sources.txt`; the EBOOT carries a copy for a stick without one
 - Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
 - **Sources** lists each source with its address, kind, apps and when it last loaded; one that does not load is marked *unreachable*, one served only from its saved copy *offline copy*; the rest load as usual
