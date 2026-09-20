@@ -141,7 +141,7 @@ void sources_view_draw(float t) {
        line has something to say there or a question stands with its own. */
     if (shell_footer_free()) {
         float hx = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS,
-                             r->kind == MANAGE_ADD ? T_HINT_ENTER : T_HINT_DELETE, g_dim);
+                             r->kind == MANAGE_SOURCE ? T_HINT_DELETE : T_HINT_ENTER, g_dim);
         draw_hint(hx, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
     }
 }

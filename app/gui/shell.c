@@ -2047,7 +2047,8 @@ static void draw_footer(void) {
     if (gear) {
         float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_HINT_ENTER, g_dim);
         x = draw_hint(x, FOOTER_BASE, MARK_SELECT, T_HINT_UI_MODE, g_dim);
-        draw_hint(x, FOOTER_BASE, MARK_L, T_HINT_TABS, g_dim);
+        x = draw_hint(x, FOOTER_BASE, MARK_L, "/", g_dim) - HINT_SPACE;
+        draw_hint(x, FOOTER_BASE, MARK_R, T_HINT_TABS, g_dim);
     } else if (g_details) {
         const struct app_entry *e = g_details;
         float x = LIST_X;
