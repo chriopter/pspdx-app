@@ -412,6 +412,11 @@ static void draw_chrome(const struct catalog *catalog, float t) {
 
 /* ------------------------------------------------------------------- list */
 
+static void download_speed(char text[24], const struct download_status *s) {
+    double rate = s->bytes_per_second;
+    snprintf(text, 24, rate >= 1000000 ? "%.2f MB/s" : "%.1f kB/s",
+             rate / (rate >= 1000000 ? 1000000 : 1000));
+}
 
 /* The two words the action row is headed with, and the sentence under them.
    Both are wanted in the list and again in the panel, so they are made in one
@@ -642,14 +647,21 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
         }
 
         struct download_status download;
+        int downloading = 0;
         if (downloads_status(index, &download)) {
+            downloading = download.state >= DOWNLOAD_QUEUED && download.state <= DOWNLOAD_RUNNING;
             float fraction = download.total ? (float)download.done / download.total : 0;
             if (fraction > 1) fraction = 1;
             if (download.state == DOWNLOAD_DONE) fraction = 1;
             gfx_rect((int)(NAME_X + dx), y + ITEM_H - 3, name_w, 2, RGBA(255,255,255,35));
             gfx_rect((int)(NAME_X + dx), y + ITEM_H - 3, (int)(name_w * fraction), 2, g_accent);
+            if (downloading) {
+                char speed[24];
+                download_speed(speed, &download);
+                font_print(FONT_CAPTION, NAME_X + dx, y + 26, g_dim, speed);
+            }
         }
-        font_print_scrolling(FONT_TITLE, NAME_X + dx, y + 21, name_w,
+        font_print_scrolling(FONT_TITLE, NAME_X + dx, y + (downloading ? 14 : 21), name_w,
                              selected ? g_text : g_dim, entry->name,
                              selected ? hover_age(0, index) : 0.0f);
     }
@@ -839,7 +851,7 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
         view_action_plan(&pending);
         if (!pending.apps && view_download_count()) {
             draw_setting_note(downloads_busy() ? "Downloads in progress" : "Clear finished",
-                downloads_busy() ? "Your cart is downloading. Select an app to see its progress or cancel it from Options."
+                downloads_busy() ? "Press X for quiet download progress. Music and background motion pause. Circle returns to the cart."
                                  : "Finished downloads stay here until you clear them. Installed apps are also in Installed.", 0);
             return;
         }
@@ -1913,13 +1925,16 @@ static void draw_details(void) {
     struct download_status download;
     int at = g_catalog ? (int)(e - g_catalog->apps) : -1;
     if (downloads_status(at, &download)) {
+        char speed[24], status[96];
+        download_speed(speed, &download);
+        snprintf(status, sizeof(status), "%s  %s", downloads_label(&download), speed);
         float f = download.total ? (float)download.done / download.total : 0;
         if (f > 1) f = 1;
         if (download.state == DOWNLOAD_DONE) f = 1;
         gfx_rect((int)cx, CINE_FACTS_Y - 16, CINE_W, 3, RGBA(255,255,255,45));
         gfx_rect((int)cx, CINE_FACTS_Y - 16, (int)(CINE_W * f), 3, g_accent);
         font_print_clipped(FONT_CAPTION, cx, CINE_FACTS_Y, CINE_W, g_dim,
-                           downloads_label(&download));
+                           status);
     }
 }
 
@@ -2014,12 +2029,8 @@ static void draw_fps(void) {
 }
 
 static void draw_footer(void) {
-    /* The system's own screens carry no legend: the keys are the keys, and
-       a strip that names them names nothing. What the strip is for is the
-       one line that is not a legend -- what is being waited for -- and the
-       way back out of a band that fills the screen. Otherwise there is no
-       strip, and the water runs to the edge. */
-    if (g_ask_title[0] || g_menu || g_menu_leaving || g_installing || g_details) return;
+    /* Detail pages show their actions; modal views draw their own hints. */
+    if (g_ask_title[0] || g_menu || g_menu_leaving || g_installing) return;
     /* The gear's own rows carry the legend the views under them carry:
        X into a row, SELECT for the frame rate of this run, L and R across
        the tabs. It is the one list that is about the client rather than
@@ -2037,6 +2048,16 @@ static void draw_footer(void) {
         float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_HINT_ENTER, g_dim);
         x = draw_hint(x, FOOTER_BASE, MARK_SELECT, T_HINT_UI_MODE, g_dim);
         draw_hint(x, FOOTER_BASE, MARK_L, T_HINT_TABS, g_dim);
+    } else if (g_details) {
+        const struct app_entry *e = g_details;
+        float x = LIST_X;
+        const char *word = g_catalog && downloads_active((int)(e - g_catalog->apps)) ? "Download"
+                         : e->state == APP_UPDATE ? T_HINT_UPDATE
+                         : e->state == APP_NOT_INSTALLED ? T_MENU_INSTALL : T_MENU_RUN;
+        if (!(e->state == APP_NOT_INSTALLED && e->unsupported))
+            x = draw_hint(x, FOOTER_BASE, MARK_CROSS, word, g_dim);
+        x = draw_hint(x, FOOTER_BASE, MARK_TRIANGLE, T_HINT_OPTIONS, g_dim);
+        draw_hint(x, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
     } else {
         font_print_clipped(FONT_META, LIST_X, FOOTER_BASE, SCR_W - 2 * LIST_X,
                            g_accent, g_status);
@@ -2231,10 +2252,11 @@ void shell_draw(const struct catalog *catalog, int cursor) {
             else if (index >= 0 && view_tab_kind() == VIEW_TAB_BASKET &&
                      downloads_active(index)) {
                 struct download_status s;
-                char note[160];
+                char note[160], speed[24];
                 downloads_status(index, &s);
-                if (s.total) snprintf(note, sizeof(note), "%s  %u%%\nX: App information\nTriangle: Options", downloads_label(&s), (unsigned)((unsigned long long)s.done * 100 / s.total));
-                else snprintf(note, sizeof(note), "%s\nX: App information\nTriangle: Options", downloads_label(&s));
+                download_speed(speed, &s);
+                if (s.total) snprintf(note, sizeof(note), "%s  %u%%\n%s\nX: App information\nTriangle: Options", downloads_label(&s), (unsigned)((unsigned long long)s.done * 100 / s.total), speed);
+                else snprintf(note, sizeof(note), "%s\n%s\nX: App information\nTriangle: Options", downloads_label(&s), speed);
                 draw_setting_note(catalog->apps[index].name, note, 0);
             } else if (index >= 0) draw_panel(&catalog->apps[index], t);
         }
@@ -2430,7 +2452,7 @@ void shell_install_end(const char *message) {
 /* Deliberately static: the main loop redraws only the progress at ~6 Hz.
    No lattice simulation, video, scrolling text, bloom or audio advances. */
 void shell_download_draw(const struct app_entry *entry, const struct download_status *s) {
-    char amount[96], percent[16];
+    char amount[96], percent[16], speed[24];
     float f = s->total ? (float)s->done / s->total : 0;
     if (f > 1) f = 1;
     gfx_veil(256);
@@ -2453,6 +2475,8 @@ void shell_download_draw(const struct app_entry *entry, const struct download_st
     if (s->total) snprintf(amount, sizeof(amount), "%.2f / %.2f MB", s->done / 1048576.0, s->total / 1048576.0);
     else snprintf(amount, sizeof(amount), "Your download will continue if you leave this screen.");
     font_print(FONT_META, 40, 175, dim, amount);
+    download_speed(speed, s);
+    font_print(FONT_META, 40, 195, dim, speed);
     mark_draw(MARK_CIRCLE, 46, 221, text, MARK_PLAIN, 0, 0);
     font_print(FONT_BODY, 60, 226, text, "Continue in background");
     mark_draw(MARK_SQUARE, 46, 246, dim, MARK_PLAIN, 0, 0);

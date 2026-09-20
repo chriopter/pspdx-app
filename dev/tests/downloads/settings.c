@@ -27,10 +27,13 @@ void gfx_set_fps_cap30(int on) {
 }
 int main(void) {
     options_settings_load();
-    assert(!actual && !options_fps_requested());
+    assert(actual && options_fps_requested());
     saved = "garbage";
     options_settings_load();
-    assert(!actual);
+    assert(actual);
+    saved = "fps=60\n";
+    options_settings_load();
+    assert(!actual && !options_fps_requested());
     saved = "fps=30\n";
     options_settings_load();
     assert(actual && options_fps_requested());
@@ -53,6 +56,6 @@ int main(void) {
     assert(actual);
     options_settings_save();
     assert(!strcmp(written, "fps=60\n"));
-    puts("settings: default 60, opt-in Baked, temporary override, changes during download and "
+    puts("settings: default 30, saved 60, temporary override, changes during download and "
          "persistence passed");
 }

@@ -800,7 +800,9 @@ int main(int argc, char *argv[]) {
                     struct view_plan plan;
                     view_action_plan(&plan);
                     if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_BASKET && view_download_count()) {
-                        if (!downloads_busy()) {
+                        if (downloads_busy()) {
+                            downloads_focus_queue();
+                        } else {
                             downloads_clear_finished();
                             view_settled(&cursor);
                         }

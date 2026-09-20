@@ -383,7 +383,7 @@ void install_all(void) {
         }
         dump_diagnostics();
     }
-    if (view_tab_kind() == VIEW_TAB_BASKET) downloads_background();
+    if (queued) downloads_focus_queue();
     char message[96];
     snprintf(message, sizeof(message), "%d of %d added to Downloads", queued, n);
     logline("%s", message);

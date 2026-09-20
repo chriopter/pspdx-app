@@ -16,6 +16,7 @@ enum download_state {
 struct download_status {
     enum download_state state;
     size_t done, total;
+    size_t bytes_per_second;
     unsigned order;
     char phase[24];
     int cancel_requested;
@@ -35,6 +36,7 @@ void downloads_reset(void);
 /* Exit callback: cancel and join before leaving installer files behind. */
 void downloads_shutdown(void);
 void downloads_focus(int index);
+void downloads_focus_queue(void);
 void downloads_background(void);
 int downloads_focused(void);
 int downloads_focus_frame(unsigned pressed);

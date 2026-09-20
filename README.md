@@ -14,10 +14,13 @@ Just install, start and search for homebrew! Updates are shown automatically. Ne
 
 Downloads open a quiet progress screen: **Circle** continues in the background,
 **Square** cancels. Background downloads live in the **Basket**, with a bouncing download icon
-while a job is running. Downloading the whole basket keeps you in that view. Each app's information page also shows its progress.
+while a job is running. Both individual and whole-basket downloads start in the quiet progress screen.
+Press **Cross** on **Downloads in progress** to open the quiet progress screen for the queue;
+**Circle** returns to the basket. Each app's information page also shows its progress.
 
-The UI defaults to **60 FPS**. Baked mode is optional and temporarily switches to
-the 60-FPS interface while downloads are queued or running.
+The UI defaults to **Baked mode at 30 FPS**, with an optional 60-FPS mode.
+While downloads are queued or running, background browsing temporarily uses
+the lighter 60-FPS interface and returns to your chosen mode when the queue finishes.
 
 Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 

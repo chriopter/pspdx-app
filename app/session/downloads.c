@@ -23,6 +23,8 @@ struct job {
     struct install_report report;
     int rc, finished, approved;
     unsigned since;
+    unsigned rate_since;
+    size_t rate_bytes;
 };
 static struct job jobs[MAX_APPS];
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -167,6 +169,9 @@ static void phase(void *ctx, const char *name) {
     pthread_mutex_lock(&lock);
     snprintf(j->status.phase, sizeof(j->status.phase), "%s", name);
     j->status.done = j->status.total = 0;
+    j->status.bytes_per_second = 0;
+    j->rate_since = now_ms();
+    j->rate_bytes = 0;
     pthread_mutex_unlock(&lock);
     progress(ctx, 0, 0);
 }
@@ -224,6 +229,13 @@ int downloads_tick(int cursor, int modal) {
     if (current >= 0) {
         struct job *j = &jobs[current];
         pthread_mutex_lock(&lock);
+        unsigned elapsed = now_ms() - j->rate_since;
+        if (!strcmp(j->status.phase, "download") && elapsed >= 500) {
+            size_t bytes = j->status.done >= j->rate_bytes ? j->status.done - j->rate_bytes : 0;
+            j->status.bytes_per_second = (unsigned long long)bytes * 1000 / elapsed;
+            j->rate_bytes = j->status.done;
+            j->rate_since += elapsed;
+        }
         int done = j->finished, confirm = j->status.state == DOWNLOAD_CONFIRM;
         int cancelled = j->status.cancel_requested;
         pthread_mutex_unlock(&lock);
@@ -244,6 +256,7 @@ int downloads_tick(int cursor, int modal) {
                               : j->rc == INSTALL_CANCELLED ? DOWNLOAD_CANCELLED
                                                            : DOWNLOAD_FAILED;
             j->status.cancel_requested = 0;
+            j->status.bytes_per_second = 0;
             free_entry(j);
             current = -1;
             view_download_running(-1);
@@ -356,6 +369,19 @@ void downloads_focus(int index) {
     audio_pause(1);
     player_pause(1);
 }
+void downloads_focus_queue(void) {
+    int next = -1;
+    unsigned order = ~0u;
+    pthread_mutex_lock(&lock);
+    for (int i = 0; i < MAX_APPS; i++)
+        if (pending(jobs[i].status.state) && jobs[i].status.order < order) {
+            next = i;
+            order = jobs[i].status.order;
+        }
+    pthread_mutex_unlock(&lock);
+    if (next >= 0)
+        downloads_focus(next);
+}
 void downloads_background(void) {
     focused = -1;
     audio_pause(0);
@@ -374,21 +400,11 @@ int downloads_focus_frame(unsigned pressed) {
     if (pressed & PSP_CTRL_SQUARE)
         downloads_cancel(focused);
     if (!downloads_active(focused)) {
-        int next = -1;
-        unsigned order = ~0u;
-        for (int i = 0; i < MAX_APPS; i++) {
-            struct download_status s;
-            if (downloads_status(i, &s) && pending(s.state) && s.order < order) {
-                next = i;
-                order = s.order;
-            }
-        }
-        if (next < 0) {
+        downloads_focus_queue();
+        if (!downloads_active(focused)) {
             downloads_background();
             return 1;
         }
-        focused = next;
-        focus_drawn = 0;
     }
     if (!focus_drawn || now_ms() - focus_drawn >= 150) {
         struct download_status s;

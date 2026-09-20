@@ -21,6 +21,7 @@ static sem_t answer;
 static atomic_int aborted, hold_prepare, prepare_entered, in_install, hold_install;
 static int completed, last_rc, forced, paused, pause_held, order[16], order_n;
 static int reject_folder, fail_start, snapshot_ok;
+static int drawn = -1;
 static void *start(void *unused) {
     (void)unused;
     entry(0, NULL);
@@ -139,7 +140,7 @@ void shell_status(const char *s) {
     (void)s;
 }
 void shell_download_draw(const struct app_entry *e, const struct download_status *s) {
-    (void)e;
+    drawn = (int)(e - catalog.apps);
     (void)s;
 }
 int inbox_count(void) {
@@ -261,7 +262,25 @@ int main(void) {
     assert(downloads_pending_count() == 2);
     downloads_focus_frame(PSP_CTRL_CIRCLE);
     assert(downloads_busy() && !paused && !downloads_focused());
+    /* The basket action focuses FIFO order, follows completion, and can
+       return to the background without cancelling the remaining queue. */
+    downloads_focus_queue();
+    assert(paused && downloads_focused());
+    downloads_focus_frame(0);
+    assert(drawn == 1);
+    downloads_cancel(1);
+    downloads_focus_frame(0);
+    assert(drawn == 0 && paused && downloads_focused());
+    downloads_focus_frame(PSP_CTRL_CIRCLE);
+    assert(downloads_busy() && !paused && !downloads_focused());
+    /* Restore the cancelled job for the existing FIFO completion checks. */
+    downloads_cancel(0);
+    downloads_clear_finished();
+    assert(downloads_enqueue(1) == 0 && downloads_enqueue(0) == 0);
+    downloads_background();
     drain();
+    downloads_focus_queue();
+    assert(!paused && !downloads_focused());
     view_tabs_refresh();
     assert(view_download_count() == 2 && view_tab_at(0) == TAB_STICK);
     assert(view_tab_kind() == VIEW_TAB_BASKET);
@@ -285,6 +304,23 @@ int main(void) {
     atomic_store(&hold_install, 1);
     ready(DOWNLOAD_RUNNING, 0);
     assert(view_download_current() == 0);
+    /* Sample bytes during a held transfer, then verify an idle interval
+       clears the rate instead of keeping the last nonzero speed. */
+    struct download_status rate;
+    unsigned rate_deadline = now_ms() + 3000;
+    do {
+        downloads_status(0, &rate);
+        assert(now_ms() < rate_deadline);
+        usleep(1000);
+    } while (!rate.done);
+    usleep(550000);
+    downloads_tick(0, 0);
+    downloads_status(0, &rate);
+    assert(rate.bytes_per_second > 0);
+    usleep(550000);
+    downloads_tick(0, 0);
+    downloads_status(0, &rate);
+    assert(rate.bytes_per_second == 0);
     downloads_focus_frame(PSP_CTRL_SQUARE);
     atomic_store(&hold_install, 0);
     drain();
@@ -292,6 +328,8 @@ int main(void) {
     assert(downloads_enqueue(0) == 0);
     drain();
     assert(last_rc == 0);
+    downloads_status(0, &rate);
+    assert(rate.bytes_per_second == 0);
 
     reject_folder = 1;
     assert(downloads_enqueue(0) == 0);
