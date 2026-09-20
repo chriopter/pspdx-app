@@ -1714,7 +1714,9 @@ int draw_wrapped(enum font_style style, float x, float y, float width,
 #define PAGE_TOP LIST_Y
 #define PAGE_BOTTOM (FOOTER_Y - 6)
 #define PAGE_PIC_H (PAGE_LEFT_W * SCR_H / SCR_W)   /* the screen's own shape at the column's width */
-#define PAGE_CHIP_Y (PAGE_TOP + 37)     /* the chips' first baseline, under the name */
+#define PAGE_ICON_W 72                  /* the bundle's ICON0 by the name, at the list's half size */
+#define PAGE_ICON_H 40
+#define PAGE_CHIP_Y (PAGE_TOP + 61)     /* the chips' first baseline, under the name's rule */
 #define DETAIL_STEP 17
 static int g_detail_text_top;           /* the first baseline of the text, under the chips */
 /* The stick rests a little off centre on most PSPs: under this nothing
@@ -1730,56 +1732,101 @@ static void draw_more(int cx, int y, int up, unsigned color) {
 }
 
 /* Everything the catalog says about the one package, as a page in the
-   browser's place: the card is for looking, this is for reading. */
+   browser's place -- test layout: one column, cinematic. The package's own
+   screen fills the room, brightest at the top and going dark toward the
+   foot; its film plays in a window at the top right; and down the left runs
+   one column, the sign and the name, the chips, the words, and the facts
+   in one line at the foot. */
+#define CINE_X (LIST_X + 8)
+#define CINE_W 288                       /* the column; the film's window starts past it */
+#define CINE_FILM_X (SCR_W - 16 - FILM_W)
+#define CINE_FILM_Y (PAGE_TOP + 2)
+#define CINE_FACTS_Y (PAGE_BOTTOM - 4)   /* the facts' baseline */
+#define CINE_TEXT_BOTTOM (CINE_FACTS_Y - 24)
+#define PAGE_STILL_FULL 250              /* a still faded this far in counts as opaque */
+
+/* True while the page stands still over a package's own screen: the
+   picture is the room then, whole and opaque, and nothing is drawn under
+   it -- a light frame, as under the keyboard. */
+static int page_is_room(void) {
+    int alpha;
+    return g_details && !g_page_leaving && g_page >= 1.0f
+        && preview_still(&alpha) && alpha >= PAGE_STILL_FULL;
+}
 static void draw_details(void) {
     const struct app_entry *e = g_details;
     float ease = g_page * g_page * (3.0f - 2.0f * g_page);
     float px = SCR_W * (1.0f - ease);
-    float lx = px + PAGE_LEFT_X, rx = px + PAGE_RIGHT_X;
-    /* Room for two versions of 64 characters: the row is cut to its width
-       when it is drawn, not here in the middle of a letter. */
-    char value[2 * VERSION_SIZE + 32], size[24];
-
-    draw_shade(lx + PAGE_LEFT_W / 2.0f, (PAGE_TOP + PAGE_BOTTOM) / 2.0f,
-               PAGE_LEFT_W + 24, PAGE_BOTTOM - PAGE_TOP);
-    draw_shade(rx + PAGE_RIGHT_W / 2.0f, (PAGE_TOP + PAGE_BOTTOM) / 2.0f,
-               PAGE_RIGHT_W + 24, PAGE_BOTTOM - PAGE_TOP);
-
-    /* The picture: whatever the card holds for this package, the film
-       over the still, at the column's width -- a film at the size it was
-       made, since the XMB never blows one up either. Backlit the way the
-       card is. */
+    float cx = px + CINE_X;
+    char value[2 * VERSION_SIZE + 32], size[24], facts[2 * VERSION_SIZE + 560];
     int still_alpha, film_alpha;
     const struct gfx_texture *still = preview_still(&still_alpha);
     const struct gfx_texture *film = preview_film(&film_alpha);
-    struct { float cx, cy; } card;
-    card.cx = lx + PAGE_LEFT_W / 2.0f;
-    card.cy = PAGE_TOP + PAGE_PIC_H / 2.0f;
-    gfx_glow(card.cx, card.cy, PAGE_LEFT_W + 90, PAGE_PIC_H + 80, rgb_pack(g_card_light, 90));
-    const struct gfx_texture *shown = film ? film : still;
-    if (shown) {
-        /* Flat, on the glass: the page is for reading, and a picture that
-           leans with the room under a column of facts is one more thing
-           moving. Drawn from system RAM, whichever mode the frame is in. */
-        float fit = (float)PAGE_LEFT_W / shown->w;
-        if (shown->h * fit > PAGE_PIC_H) fit = (float)PAGE_PIC_H / shown->h;
-        if (film && fit > 1.0f) fit = 1.0f;
-        int w = (int)(shown->w * fit), h = (int)(shown->h * fit);
-        gfx_texture_vram_drop(shown);
-        gfx_texture_draw(shown, (int)(card.cx - w / 2), (int)(card.cy - h / 2), w, h,
-                         RGBA(255, 255, 255, film ? 255 : still_alpha));
-    } else {
-        gfx_rect((int)(card.cx - FILM_W / 2), (int)(card.cy - FILM_H / 2), FILM_W, FILM_H,
-                 RGBA(255, 255, 255, 12));
-        const char *note = preview_state() == PREVIEW_LOADING ? T_CARD_LOADING
-                         : preview_state() == PREVIEW_MISSING ? T_CARD_NO_PICTURE : "";
-        font_print(FONT_META, card.cx - font_width(FONT_META, note) / 2, card.cy + 4, g_dim, note);
+
+    /* The package's own screen behind everything, fading with the page:
+       bright at the top where nothing is read, dark toward the foot, and
+       darker again down the left where the words are. */
+    if (still && still_alpha > 0) {
+        /* Whole and opaque once it is in: the fade ends a hair under 255
+           and would leave the room showing through by a hair. */
+        int back = still_alpha >= PAGE_STILL_FULL ? 255 : still_alpha;
+        gfx_texture_vram_drop(still);
+        gfx_texture_draw(still, 0, 0, SCR_W, SCR_H, RGBA(255, 255, 255, (int)(back * ease)));
+    }
+    gfx_vgrad(0, 0, SCR_W, SCR_H, RGBA(0, 0, 0, (int)(10 * ease)), RGBA(0, 0, 0, (int)(225 * ease)));
+    gfx_hgrad(0, 0, CINE_X + CINE_W + 30, SCR_H, RGBA(0, 0, 0, (int)(120 * ease)), RGBA(0, 0, 0, 0));
+
+    /* The film in its window, at the size it was made, backlit the way the
+       card is. Nothing stands in for it: the still is the room already. */
+    if (film) {
+        float fx = px + CINE_FILM_X, fy = CINE_FILM_Y;
+        gfx_glow(fx + FILM_W / 2.0f, fy + FILM_H / 2.0f, FILM_W + 70, FILM_H + 60,
+                 rgb_pack(g_card_light, 90));
+        gfx_texture_vram_drop(film);
+        gfx_texture_draw(film, (int)fx, (int)fy, FILM_W, FILM_H, RGBA(255, 255, 255, film_alpha));
     }
 
-    /* The facts under it, a line each, then what the package is in the
-       catalogs' own words. */
-    int y = PAGE_TOP + PAGE_PIC_H + 24;
-    float label_end = lx + 58, value_x = lx + 66, clip = PAGE_LEFT_W - 66;
+    /* The bundle's own sign and the name beside it, on one rule, the way
+       the XMB heads a game's page with its ICON0. */
+    const struct gfx_texture *icon = g_catalog ? icons_get((int)(e - g_catalog->apps)) : NULL;
+    float name_x = cx;
+    if (icon) {
+        gfx_texture_draw(icon, (int)cx, PAGE_TOP - 2, PAGE_ICON_W, PAGE_ICON_H, RGB(255, 255, 255));
+        name_x = cx + PAGE_ICON_W + 10;
+    }
+    font_print_clipped(FONT_TITLE, name_x, PAGE_TOP + 24, CINE_W - (name_x - cx), g_text, e->name);
+    unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 150);
+    unsigned clear = rgb_pack(g_tint, 0);
+    gfx_hgrad((int)cx, PAGE_TOP + 44, CINE_W, 1, bright, clear);
+    draw_chips(e, cx, PAGE_CHIP_Y, CINE_W, 1, 255);
+    int text_top = g_detail_text_top;
+
+    /* The words, in the one column, scrolled by the stick. */
+    gfx_clip((int)cx - 4, text_top - 13, CINE_W + 8, CINE_TEXT_BOTTOM - text_top + 17);
+    int ty = text_top - (int)g_detail_scroll;
+    char line[DETAIL_LINE_BYTES + 1];
+    for (int i = 0; i < g_detail_count; i++) {
+        int base = ty + i * DETAIL_STEP;
+        if (base + 4 < text_top - 13)
+            continue;
+        if (base - DETAIL_STEP > CINE_TEXT_BOTTOM)
+            break;
+        size_t len = g_detail_lines[i].len;
+        if (len > DETAIL_LINE_BYTES)
+            len = DETAIL_LINE_BYTES;
+        memcpy(line, g_detail_text + g_detail_lines[i].start, len);
+        line[len] = '\0';
+        font_print(FONT_META, cx, base, g_dim, line);
+    }
+    gfx_unclip();
+    unsigned more = faded(g_dim, 200);
+    if (g_detail_scroll >= 1.0f)
+        draw_more((int)(cx + CINE_W - 6), text_top - 10, 1, more);
+    if (g_detail_scroll + 1.0f <= g_detail_max)
+        draw_more((int)(cx + CINE_W - 6), CINE_TEXT_BOTTOM - 6, 0, more);
+
+    /* The facts in one line at the foot, the version first, the rest after
+       it, dots between: the credits under the picture. */
     if (catalog_new_build(e))
         snprintf(value, sizeof(value), T_DETAIL_REBUILD, e->local_version);
     else if (e->state == APP_UPDATE)
@@ -1790,57 +1837,12 @@ static void draw_details(void) {
         snprintf(value, sizeof(value), "%s", e->release.version);
     else
         snprintf(value, sizeof(value), T_UNKNOWN);
-    fact(y, label_end, value_x, clip, T_DETAIL_VERSION, value);
-    y += DETAIL_STEP;
-    fact(y, label_end, value_x, clip, T_DETAIL_AUTHOR, e->author);
-    y += DETAIL_STEP;
-    fact(y, label_end, value_x, clip, T_DETAIL_LICENSE, e->license);
-    y += DETAIL_STEP;
-    if (e->has_release && e->release.size) {
-        size_mb(e->release.size, size, sizeof(size));
-        fact(y, label_end, value_x, clip, T_DETAIL_SIZE, size);
-        y += DETAIL_STEP;
-    }
-
-    /* The name over the text, on its rule, the way the XMB heads a list;
-       under it what the package is, in the catalogs' own words. */
-    font_print_clipped(FONT_TITLE, rx, PAGE_TOP + 12, PAGE_RIGHT_W, g_text, e->name);
-    unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 150);
-    unsigned clear = rgb_pack(g_tint, 0);
-    gfx_hgrad((int)rx, PAGE_TOP + 20, PAGE_RIGHT_W, 1, bright, clear);
-    draw_chips(e, rx, PAGE_CHIP_Y, PAGE_RIGHT_W, 1, 255);
-    int text_top = g_detail_text_top;
-
-    /* The text moves as one when the stick scrolls, and stays in its
-       column while it does: the lines made when the page opened, only
-       the ones in view. */
-    gfx_clip((int)rx - 4, text_top - 13, PAGE_RIGHT_W + 8, PAGE_BOTTOM - text_top + 17);
-    int ty = text_top - (int)g_detail_scroll;
-    char line[DETAIL_LINE_BYTES + 1];
-    for (int i = 0; i < g_detail_count; i++) {
-        int base = ty + i * DETAIL_STEP;
-        if (base + 4 < text_top - 13)
-            continue;
-        if (base - DETAIL_STEP > PAGE_BOTTOM)
-            break;
-        /* wrap_text keeps a line within the bytes it was given; the buffer
-           does not take that on trust. A line cut here may end inside a
-           letter, which the font leaves out rather than reads past. */
-        size_t len = g_detail_lines[i].len;
-        if (len > DETAIL_LINE_BYTES)
-            len = DETAIL_LINE_BYTES;
-        memcpy(line, g_detail_text + g_detail_lines[i].start, len);
-        line[len] = '\0';
-        font_print(FONT_META, rx, base, g_dim, line);
-    }
-    gfx_unclip();
-    /* More above, more below: a small point at the column's edge, quiet
-       enough to be found only by an eye looking for it. */
-    unsigned more = faded(g_dim, 200);
-    if (g_detail_scroll >= 1.0f)
-        draw_more((int)(rx + PAGE_RIGHT_W - 6), text_top - 10, 1, more);
-    if (g_detail_scroll + 1.0f <= g_detail_max)
-        draw_more((int)(rx + PAGE_RIGHT_W - 6), PAGE_BOTTOM - 6, 0, more);
+    size[0] = '\0';
+    if (e->has_release && e->release.size) size_mb(e->release.size, size, sizeof(size));
+    snprintf(facts, sizeof(facts), "%s  \xc2\xb7  %s  \xc2\xb7  %s%s%s", value, e->author, e->license,
+             size[0] ? "  \xc2\xb7  " : "", size);
+    pspdx_utf8_mend(facts);
+    font_print_clipped(FONT_META, cx, CINE_FACTS_Y, SCR_W - CINE_X - 16, g_text, facts);
 }
 
 /* How wide a line of the band's text is: the measure wrap_text asks, which
@@ -1870,15 +1872,15 @@ void shell_details(const struct app_entry *entry) {
     snprintf(g_detail_text, sizeof(g_detail_text), "%s%s%s", entry->summary,
              entry->summary[0] && about[0] ? "\n\n" : "", about);
     pspdx_utf8_mend(g_detail_text);
-    g_detail_count = wrap_text(g_detail_text, PAGE_RIGHT_W, DETAIL_LINE_BYTES,
+    g_detail_count = wrap_text(g_detail_text, CINE_W, DETAIL_LINE_BYTES,
                                detail_width, NULL, g_detail_lines, DETAIL_LINES);
     g_detail_scroll = 0.0f;
     /* The text starts under the chips, however many rows they take. */
-    int chip_rows = draw_chips(entry, 0, 0, PAGE_RIGHT_W, 0, 0);
+    int chip_rows = draw_chips(entry, 0, 0, CINE_W, 0, 0);
     g_detail_text_top = PAGE_CHIP_Y + 3 + (chip_rows ? chip_rows * CHIP_STEP + 2 : 0);
     /* Scrolled as far as the last line standing on the column's last baseline. */
     int last = g_detail_text_top + (g_detail_count - 1) * DETAIL_STEP;
-    g_detail_max = g_detail_count && last > PAGE_BOTTOM - 4 ? (float)(last - (PAGE_BOTTOM - 4)) : 0.0f;
+    g_detail_max = g_detail_count && last > CINE_TEXT_BOTTOM - 4 ? (float)(last - (CINE_TEXT_BOTTOM - 4)) : 0.0f;
 }
 
 /* The stick on a column of text, -1 pushed up to 1 pushed down. Past the
@@ -2098,7 +2100,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     gfx_vgrad(0, 0, SCR_W, SCR_H, rgb_pack(rgb_mix(NIGHT_TOP, g_tint, 0.05f), 255),
               rgb_pack(rgb_mix(NIGHT_BOTTOM, g_tint, 0.18f), 255));
     bar_settle();
-    if (!g_light) {
+    if (!g_light && !page_is_room()) {
         lattice_draw(t, g_tint);
         if (gfx_fps_cap30()) draw_water_light(t);
         /* Over the water and under everything that is read: the picture is
@@ -2122,7 +2124,9 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     int backdrop_alpha = 0;
     int backdrop = gfx_fps_cap30() && preview_still(&backdrop_alpha) && backdrop_alpha > 0;
     gfx_veil(backdrop ? (int)(256.0f * (1.0f - g_rest)) : 256);
-    draw_chrome(catalog, t);
+    /* The header goes over the page when there is one: the page's picture
+       is the whole screen, and the word and the signs stand on it. */
+    if (!g_details) draw_chrome(catalog, t);
     if (files_view_shown()) {
         files_view_draw(t);
     } else if (sources_view_shown()) {
@@ -2164,7 +2168,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         font_print(FONT_BODY, LIST_X, 120, g_dim, T_CATALOG_EMPTY);
     }
     if (g_info) draw_info();
-    if (g_details) draw_details();
+    if (g_details) { draw_details(); draw_chrome(catalog, t); }
     if (g_menu || g_menu_leaving) draw_menu();
     if (g_installing) draw_install();
     if (g_ask_title[0]) draw_ask();
