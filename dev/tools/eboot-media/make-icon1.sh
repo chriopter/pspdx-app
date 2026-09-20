@@ -7,7 +7,8 @@
 # ffmpeg scales and centre-crops the source to 144x80, which is what an XMB
 # icon is and whose sides are sixteenths, the unit the PSMF header counts in.
 # Thirty frames a second, H.264 Constrained Baseline, since that is what the
-# hardware decodes; a keyframe every second so a restart never waits long.
+# tested encoder path uses; one reference picture and explicit HRD/picture
+# timing keep it compatible with the retail decoder across keyframes.
 # The MP4 that comes out is then wrapped by dev/tools/mp4-to-psmf.c, the same
 # code the client wraps its own clips with: a PSMF header and an MPEG-2
 # program stream in 2048-byte packs laid out the way Sony's composer lays
@@ -19,7 +20,8 @@
 #
 # A .pmf or .PMF as the source is remuxed as it is: the pictures are copied
 # into the new layout, nothing is re-encoded, and DURATION, FPS and the
-# start are ignored. How an ICON1 made before the layout is brought up to it.
+# start are ignored. This cannot repair incompatible AVC settings; use the
+# original video source to regenerate an old clip that fails on hardware.
 #
 # Six seconds by default. DURATION and FPS in the environment change that;
 # FPS=15 about halves the file for a calm clip.
@@ -50,8 +52,9 @@ case "$src" in
 *)
 	ffmpeg -nostdin -v error -y -ss "$start" -i "$src" -t "$dur" -an \
 		-vf "scale=144:80:force_original_aspect_ratio=increase:flags=lanczos,crop=144:80,fps=$fps,format=yuv420p" \
-		-c:v libx264 -profile:v baseline -preset veryslow -tune film \
-		-crf 23 -maxrate 300k -bufsize 300k -g "$fps" -keyint_min "$fps" -sc_threshold 0 -bf 0 \
+		-c:v libx264 -profile:v baseline -level:v 2.1 -preset veryslow -tune film \
+		-crf 23 -maxrate 300k -bufsize 300k -refs 1 \
+		-x264-params "aud=1:nal-hrd=vbr:pic-struct=1" -g "$fps" -keyint_min "$fps" -sc_threshold 0 -bf 0 \
 		-movflags +faststart "$tmp/icon1.mp4" ;;
 esac
 

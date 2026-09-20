@@ -243,7 +243,8 @@ static void stream_close(void) {
     }
     if (g_created) {
         if (g_es) sceMpegFreeAvcEsBuf(&g_mpeg, g_es);
-        if (g_video) sceMpegUnRegistStream(g_mpeg, g_video);
+        /* The SDK accepts void *, but firmware needs the handle address. */
+        if (g_video) sceMpegUnRegistStream(&g_mpeg, g_video);
         sceMpegDelete(&g_mpeg);
     }
     if (g_ring_built)
