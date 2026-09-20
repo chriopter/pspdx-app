@@ -9,12 +9,29 @@
 #include "update/sources.h"
 #include "gui/wrap.h"
 #include "util/storage.h"
+#include "util/pbp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 void host_fault(long);
 unsigned host_operations(void);
 static struct catalog catalog;
+/* Exercise installer cancellation at specific download/unpack boundaries. */
+static const char *install_phase;
+static unsigned progress_calls;
+static void test_phase(void *ctx, const char *phase) {
+    (void)ctx;
+    install_phase = phase;
+    progress_calls = 0;
+}
+static void test_progress(void *ctx, size_t done, size_t total) {
+    (void)ctx; (void)done; (void)total;
+    const char *phase = getenv("CANCEL_PHASE");
+    const char *after = getenv("CANCEL_AFTER");
+    if (phase && install_phase && !strcmp(phase, install_phase) &&
+        ++progress_calls >= (unsigned)(after ? atoi(after) : 1))
+        install_abort();
+}
 /* The host's font: every character one unit wide, so a width is a count of
    characters and a test can say which line a word lands on. */
 static float characters(void *ctx, const char *text, size_t len) {
@@ -32,6 +49,17 @@ int main(int argc, char **argv) {
     /* A power cut after that many mutating calls, for any command; recover,
        install and remove also take it as their argument. */
     host_fault(getenv("FAULT") ? atol(getenv("FAULT")) : 0);
+    if (!strcmp(argv[1], "storage")) {
+        printf("%s internal=%d card=%d\n", storage_device(),
+               storage_device_available("ef0:"), storage_device_available("ms0:"));
+        return 0;
+    }
+    if (!strcmp(argv[1], "installed-path")) {
+        char path[160];
+        if (argc < 3 || pbp_installed_path(argv[2], path, sizeof(path)) < 0) return 1;
+        puts(path);
+        return 0;
+    }
     if (!strcmp(argv[1], "parse")) {
         char *raw = NULL;
         struct pspdx_file f;
@@ -347,7 +375,8 @@ int main(int argc, char **argv) {
         struct install_report report;
         if (argc > 2)
             host_fault(atol(argv[2]));
-        int rc = install_release(&m, &report, NULL, NULL, NULL);
+        int rc = install_release_to(&m, getenv("INSTALL_DEVICE") ? getenv("INSTALL_DEVICE") : storage_device(),
+                                    &report, test_phase, test_progress, NULL);
         manifest_forget(&m);
         printf("%d %u %llu\n", rc, host_operations(), report.needed);
         return rc < 0 ? 1 : 0;

@@ -98,6 +98,6 @@ int pbp_section(const char *path, int which, void **out, size_t *len) {
 int pbp_installed_path(const char *id, char *out, size_t size) {
     struct installed rec;
     if (!id || !id[0] || db_read(id, &rec) != 0 || !rec.dir[0]) return -1;
-    snprintf(out, size, storage_path("PSP/GAME/%s/EBOOT.PBP"), rec.dir);
+    snprintf(out, size, "%s/PSP/GAME/%s/EBOOT.PBP", rec.device, rec.dir);
     return 0;
 }

@@ -18,6 +18,7 @@
      RO_MATCH=s                    a file whose path holds s is read-only: it cannot be removed
      WRITE_FAIL                    every write fails
      DEVCTL_FAIL                   the stick does not say how much is free
+     NET_DROP_AFTER=n              network stops after at least n body bytes
 
    and a network that answers from files in the working directory; URL_MAP
    (below) names any answer a test wants beside the fixed ones. */
@@ -146,7 +147,8 @@ int sceIoDevctl(const char *dev, unsigned int cmd, void *in, int inlen, void *ou
     } **info = in;
     if (cmd != 0x02425818 || !info || !*info || getenv("DEVCTL_FAIL"))
         return -1;
-    long long left = room_left();
+    const char *free_on = getenv(!strcmp(dev, "ef0:") ? "EF_FREE" : "MS_FREE");
+    long long left = free_on ? atoll(free_on) : room_left();
     /* One byte a cluster, so a test counts in bytes; a stick with no size set
        has a gigabyte free. */
     (*info)->sector_size = (*info)->sector_count = 1;
@@ -198,7 +200,8 @@ void logline(const char *fmt, ...) {
     va_end(ap);
 }
 int https_net_connect(void) { return getenv("OFFLINE") ? -1 : 0; }
-void https_abort(void) {}
+static int net_aborted;
+void https_abort(void) { net_aborted = 1; }
 static int accept_gzip;
 void https_set_accept_gzip(int on) { accept_gzip = on != 0; }
 /* The library's bound on a whole get, held against the clock above between
@@ -233,8 +236,7 @@ static int mapped(const char *url, const char **path, struct https_result *r) {
 }
 enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_progress cb, void *pc,
               struct https_result *r) {
-    (void)cb;
-    (void)pc;
+    net_aborted = 0;
     struct https_result ignored;
     if (!r) r = &ignored;
     memset(r, 0, sizeof(*r));
@@ -325,6 +327,12 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
         }
         r->body_len += n;
         if (cb) cb(pc, r->body_len, 0);
+        if (net_aborted) { rc = HTTPS_TRUNCATED; break; }
+        const char *drop = getenv("NET_DROP_AFTER");
+        if (drop && r->body_len >= strtoul(drop, NULL, 10)) {
+            rc = HTTPS_TRUNCATED;
+            break;
+        }
     }
     if (ferror(f)) rc = HTTPS_TRUNCATED;
     r->truncated = rc == HTTPS_TRUNCATED;

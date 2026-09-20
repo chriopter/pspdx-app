@@ -6,6 +6,59 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __PSP__
+#include <pspmscm.h>
+#endif
+
+static int card_separate = 1;
+
+/* Legacy Go launches can alias ms0 to ef0 even with a card inserted.
+   The PSP has no stat device/inode pair: test visibility of an exclusively
+   created, empty marker once at startup, then remove only that marker. */
+static int separate_card(void) {
+    char internal[64], card[64];
+    SceIoStat st;
+    for (unsigned attempt = 0; attempt < 16; attempt++) {
+        snprintf(internal, sizeof(internal), "ef0:/.pspdx-device-%08x-%02x", now_ms(), attempt);
+        snprintf(card, sizeof(card), "ms0:%s", internal + 4);
+        if (sceIoGetstat(internal, &st) >= 0 || sceIoGetstat(card, &st) >= 0) continue;
+        int fd = sceIoOpen(internal, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_EXCL, 0600);
+        if (fd < 0) break;
+        sceIoClose(fd);
+        int alias = sceIoGetstat(card, &st) >= 0;
+        if (sceIoRemove(internal) < 0) logline("storage: could not remove device probe");
+        return !alias;
+    }
+    /* Do not offer a destination whose identity could not be established. */
+    return 0;
+}
+
+int storage_device_valid(const char *dev) {
+    return dev && (!strcmp(dev, "ms0:") || !strcmp(dev, "ef0:"));
+}
+int storage_is_go(void) {
+    SceUID d = sceIoDopen("ef0:/");
+    if (d < 0) return 0;
+    sceIoDclose(d);
+    return 1;
+}
+int storage_device_available(const char *dev) {
+    if (!storage_device_valid(dev)) return 0;
+    if (!strcmp(dev, "ms0:") && !card_separate) return 0;
+#ifdef __PSP__
+    /* Even with distinct mappings, check physical presence: opening the
+       device directory alone does not establish that an M2 is inserted. */
+    if (!strcmp(dev, "ms0:") && storage_is_go() && MScmIsMediumInserted() != 1)
+        return 0;
+#endif
+    char path[8];
+    snprintf(path, sizeof(path), "%s/", dev);
+    SceUID d = sceIoDopen(path);
+    if (d < 0) return 0;
+    sceIoDclose(d);
+    return 1;
+}
+
 static char device[5] = "ms0:";
 static char self_dir[64] = "PSPDX";
 const char *storage_device(void) { return device; }
@@ -178,6 +231,10 @@ int storage_game_dir(const char *path, char *out, size_t size) {
 }
 const char *storage_self_dir(void) { return self_dir; }
 long long storage_free_bytes(unsigned *cluster) {
+    return storage_free_bytes_on(device, cluster);
+}
+long long storage_free_bytes_on(const char *dev, unsigned *cluster) {
+    if (!storage_device_valid(dev)) return -1;
     /* The Memory Stick's own count, as the information band reads it: a
        FAT32 free count walks the allocation table, so it is asked when an
        install needs the answer and not before. */
@@ -188,7 +245,7 @@ long long storage_free_bytes(unsigned *cluster) {
         struct ms_info *at;
     } command = {&info};
     memset(&info, 0, sizeof(info));
-    if (sceIoDevctl(device, 0x02425818, &command, sizeof(command), NULL, 0) < 0)
+    if (sceIoDevctl(dev, 0x02425818, &command, sizeof(command), NULL, 0) < 0)
         return -1;
     unsigned long long unit = (unsigned long long)info.sector_count * info.sector_size;
     if (!unit || unit > 0x10000000u)
@@ -198,7 +255,11 @@ long long storage_free_bytes(unsigned *cluster) {
     return (long long)(info.free_clusters * unit);
 }
 void storage_init(const char *boot) {
-    if (boot && !strncmp(boot, "ef0:/", 5))
+    int go = storage_is_go();
+    card_separate = !go || separate_card();
+    memcpy(device, "ms0:", 5);
+    if ((boot && !strncmp(boot, "ef0:/", 5)) ||
+        (go && (!card_separate || !boot || strncmp(boot, "ms0:/", 5))))
         memcpy(device, "ef0:", 5);
     char here[64];
     if (boot && storage_game_dir(boot, here, sizeof(here)))

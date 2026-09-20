@@ -49,6 +49,9 @@ int state_validate(const cJSON *r) {
             return 0;
         /* The folder the .pspdx named at the install, where the record keeps
            one, is a folder like any other. */
+        const cJSON *device = cJSON_GetObjectItemCaseSensitive(in, "device");
+        if (device && (!cJSON_IsString(device) || !storage_device_valid(device->valuestring)))
+            return 0;
         const cJSON *named = cJSON_GetObjectItemCaseSensitive(in, "pspdx_installdir");
         if (named && (!cJSON_IsString(named) || !pspdx_install_dir(named->valuestring)))
             return 0;
@@ -263,6 +266,8 @@ int db_read(const char *id, struct installed *out) {
         return -1;
     const cJSON *in = cJSON_GetObjectItemCaseSensitive(r, "installed");
     memset(out, 0, sizeof(*out));
+    snprintf(out->device, sizeof(out->device), "%s",
+             *str(in, "device") ? str(in, "device") : storage_device());
     snprintf(out->id, sizeof(out->id), "%s", id);
     snprintf(out->dir, sizeof(out->dir), "%s", str(in, "installdir") + 9);
     snprintf(out->version, sizeof(out->version), "%s", str(in, "version"));
@@ -295,7 +300,13 @@ static cJSON *latest_json(const struct manifest *m) {
 }
 int state_commit(const struct manifest *m, const char *dir, const unsigned char *sha256,
                  const char *file_dir) {
-    if (!healthy || !manifest_dir_is_safe(dir) || (file_dir && !manifest_dir_is_safe(file_dir)))
+    struct installed rec;
+    const char *dev = db_read(m->id, &rec) == 0 ? rec.device : storage_device();
+    return state_commit_on(m, dir, sha256, file_dir, dev);
+}
+int state_commit_on(const struct manifest *m, const char *dir, const unsigned char *sha256,
+                    const char *file_dir, const char *dev) {
+    if (!storage_device_valid(dev) || !healthy || !manifest_dir_is_safe(dir) || (file_dir && !manifest_dir_is_safe(file_dir)))
         return -1;
     cJSON *next = state_snapshot();
     if (!next)
@@ -324,6 +335,7 @@ int state_commit(const struct manifest *m, const char *dir, const unsigned char 
     cJSON_AddStringToObject(in, "version", m->version);
     cJSON_AddNumberToObject(in, "published_at", m->rev);
     cJSON_AddStringToObject(in, "installdir", target);
+    cJSON_AddStringToObject(in, "device", dev);
     if (file_dir || kept[0]) {
         char named[64];
         snprintf(named, sizeof(named), "PSP/GAME/%.32s", file_dir ? file_dir : kept);
@@ -354,7 +366,8 @@ int db_write_record(const struct installed *r) {
     snprintf(m.repo, sizeof(m.repo), "%s", r->repo);
     snprintf(m.version, sizeof(m.version), "%s", r->version);
     m.rev = r->rev;
-    return state_commit(&m, r->dir, r->sha256, NULL);
+    return state_commit_on(&m, r->dir, r->sha256, NULL,
+                           r->device[0] ? r->device : storage_device());
 }
 int state_note_latest(const struct manifest *m) {
     if (!healthy)
@@ -410,12 +423,17 @@ int state_retire_legacy(const char *id, const char *source, const char *dir) {
     return 1;
 }
 int state_target_owner(const char *dir, const char *id) {
+    struct installed rec;
+    return state_target_owner_on(dir, id, db_read(id, &rec) == 0 ? rec.device : storage_device());
+}
+int state_target_owner_on(const char *dir, const char *id, const char *dev) {
     if (!healthy)
         return -1;
     const cJSON *r;
     cJSON_ArrayForEach(r, records) {
         const cJSON *in = cJSON_GetObjectItemCaseSensitive(r, "installed");
-        if (strcasecmp(r->string, id) && !strcasecmp(str(in, "installdir") + 9, dir))
+        const char *owner_device = *str(in, "device") ? str(in, "device") : storage_device();
+        if (!strcmp(owner_device, dev) && strcasecmp(r->string, id) && !strcasecmp(str(in, "installdir") + 9, dir))
             return 1;
     }
     return 0;

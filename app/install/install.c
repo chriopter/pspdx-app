@@ -35,9 +35,18 @@
 #include "util/runtime.h"
 
 #define TMP_DIR storage_path("PSP/PSPDX/TMP")
-#define GAME_DIR storage_path("PSP/GAME")
+/* Only the serialized installer uses this context; browser/data paths never change. */
+static char target_device[5];
+static char game_dir[32], stage_dir[48];
+static const char *target(void) { return *target_device ? target_device : storage_device(); }
+static void target_set(const char *dev) {
+    snprintf(target_device, sizeof(target_device), "%s", dev);
+    snprintf(game_dir, sizeof(game_dir), "%s/PSP/GAME", dev);
+    snprintf(stage_dir, sizeof(stage_dir), "%s/PSP/GAME/.pspdx-stage", dev);
+}
+#define GAME_DIR (*game_dir ? game_dir : storage_path("PSP/GAME"))
 #define ARCHIVE storage_path("PSP/PSPDX/TMP/download.zip")
-#define STAGE storage_path("PSP/GAME/.pspdx-stage")
+#define STAGE (*stage_dir ? stage_dir : storage_path("PSP/GAME/.pspdx-stage"))
 #define JOURNAL storage_path("PSP/PSPDX/TMP/transaction.json")
 #define CLEANUP storage_path("PSP/PSPDX/TMP/cleanup.txt")
 
@@ -429,9 +438,9 @@ static int count_need(void *ctx, const char *rel, const struct zipentry *e) {
 
 /* Whether the stick has room for bytes more; where it cannot say, it is let
    try, and a write that fails is what stops the install. */
-static int room_for(unsigned long long bytes, struct install_report *rep) {
+static int room_on(const char *dev, unsigned long long bytes, struct install_report *rep) {
     unsigned cluster = 1;
-    long long left = storage_free_bytes(&cluster);
+    long long left = storage_free_bytes_on(dev, &cluster);
     if (left < 0 || (unsigned long long)left >= bytes)
         return 1;
     rep->needed = bytes;
@@ -722,7 +731,7 @@ static int journal_save(cJSON *j) {
     char *raw = cJSON_PrintUnformatted(j);
     if (!raw)
         return -1;
-    int rc = storage_write(JOURNAL, raw, strlen(raw));
+    int rc = sceIoSync(target(), 0) < 0 ? -1 : storage_write(JOURNAL, raw, strlen(raw));
     free(raw);
     return rc;
 }
@@ -751,10 +760,11 @@ static int restore_manifest(cJSON *j) {
    is written down here and tried again at every start until it goes. It
    never holds the journal, and so never any other install; only the app it
    belongs to still finds it in its way. One line each, "old <dir>" or
-   "sweep <dir>". */
+   "sweep <dir> <device>". Older lines without a device name belong to
+   the startup device. */
 static void cleanup_note(const char *kind, const char *dir) {
     char *raw = NULL, line[80];
-    snprintf(line, sizeof(line), "%s %s\n", kind, dir);
+    snprintf(line, sizeof(line), "%s %s %s\n", kind, dir, target());
     int n = storage_read(CLEANUP, &raw, 64 * 1024);
     if (n < 0 || !strstr(raw, line)) {
         size_t had = n > 0 ? (size_t)n : 0, add = strlen(line);
@@ -779,15 +789,20 @@ static void cleanup_retry(void) {
         char *end = strchr(line, '\n');
         if (end)
             *end = '\0';
-        char kind[8], dir[64], path[256];
+        char kind[8], dir[64], path[256], dev[8] = "";
         int done = 1;
-        if (sscanf(line, "%7s %63s", kind, dir) == 2 && manifest_dir_is_safe(dir)) {
-            if (!strcmp(kind, "old")) {
-                snprintf(path, sizeof(path), "%s/%s.old", GAME_DIR, dir);
-                done = remove_tree(path) == 0;
-            } else if (!strcmp(kind, "sweep")) {
-                snprintf(path, sizeof(path), "%s/%s", GAME_DIR, dir);
-                done = sweep_ours(path, SWEEP_ALL) == 0;
+        if (sscanf(line, "%7s %63s %7s", kind, dir, dev) >= 2 && manifest_dir_is_safe(dir)) {
+            if (!*dev) snprintf(dev, sizeof(dev), "%s", storage_device());
+            if (!storage_device_valid(dev) || !storage_device_available(dev)) {
+                done = 0;
+            } else {
+                if (!strcmp(kind, "old")) {
+                    snprintf(path, sizeof(path), "%s/PSP/GAME/%s.old", dev, dir);
+                    done = remove_tree(path) == 0;
+                } else if (!strcmp(kind, "sweep")) {
+                    snprintf(path, sizeof(path), "%s/PSP/GAME/%s", dev, dir);
+                    done = sweep_ours(path, SWEEP_ALL) == 0;
+                }
             }
             logline("cleanup: PSP/GAME/%s%s %s", dir, !strcmp(kind, "old") ? ".old" : "",
                     done ? "cleared" : "still will not go");
@@ -807,7 +822,14 @@ static void cleanup_retry(void) {
 
 /* The folder PSPDX runs from is PSPDX's own: no transaction of another id
    writes or removes it, and none removes it at all. */
-static int self_folder(const char *dir) { return dir[0] && !strcasecmp(dir, storage_self_dir()); }
+static int self_folder(const char *dir) {
+    return !strcmp(target(), storage_device()) && dir[0] && !strcasecmp(dir, storage_self_dir());
+}
+
+static const char *record_device(const cJSON *in) {
+    const char *dev = js(in, "device");
+    return *dev ? dev : storage_device();
+}
 
 static int recover_journal(cJSON *j) {
     const char *id = js(j, "id"), *dir = js(j, "dir"), *prior = js(j, "prior"),
@@ -826,7 +848,7 @@ static int recover_journal(cJSON *j) {
         return logline("recovery: the saved state does not validate"), -1;
     const cJSON *previous = cJSON_GetObjectItemCaseSensitive(snapshot, id);
     const cJSON *in = cJSON_GetObjectItemCaseSensitive(previous, "installed");
-    if ((*prior &&
+    if ((*prior && strcmp(record_device(in), target())) || (*prior &&
          strcmp(js(in, "installdir") + (!strncmp(js(in, "installdir"), "PSP/GAME/", 9) ? 9 : 0),
                 prior)) ||
         (!*prior && previous))
@@ -837,7 +859,7 @@ static int recover_journal(cJSON *j) {
     const cJSON *other;
     cJSON_ArrayForEach(other, snapshot) {
         const cJSON *oi = cJSON_GetObjectItemCaseSensitive(other, "installed");
-        if (strcmp(op, "remove") && strcmp(other->string, id) &&
+        if (!strcmp(record_device(oi), target()) && strcmp(op, "remove") && strcmp(other->string, id) &&
             !strcasecmp(js(oi, "installdir") + 9, dir))
             return logline("recovery: the target belongs to another app"), -1;
     }
@@ -846,10 +868,10 @@ static int recover_journal(cJSON *j) {
        is that app's whatever the journal says, and so is the folder PSPDX
        runs from: recovery deletes and renames neither. */
     struct installed own;
-    int ours = (db_read(id, &own) == 0 && !strcasecmp(own.dir, dir)) ||
-               (in && !strcasecmp(js(in, "installdir") + 9, dir));
+    int ours = (db_read(id, &own) == 0 && !strcmp(own.device, target()) && !strcasecmp(own.dir, dir)) ||
+               (in && !strcmp(record_device(in), target()) && !strcasecmp(js(in, "installdir") + 9, dir));
     int self_id = !strcmp(id, PSPDX_SELF_ID);
-    if ((!ours && state_target_owner(dir, id) > 0) ||
+    if ((!ours && state_target_owner_on(dir, id, target()) > 0) ||
         ((self_folder(dir) || self_folder(prior)) && (!self_id || !strcmp(op, "remove"))))
         return logline("recovery: PSP/GAME/%s is another app's on the stick", dir), -1;
     if (strcmp(op, "install") && strcmp(op, "remove"))
@@ -970,10 +992,18 @@ static void recover_pending(void) {
        "committed": clearing that away is the normal end, not a recovery. */
     const cJSON *phase = cJSON_GetObjectItemCaseSensitive(j, "phase");
     int finished = cJSON_IsString(phase) && !strcmp(phase->valuestring, "committed");
-    if (!j || recover_journal(j) < 0)
+    char saved[5];
+    snprintf(saved, sizeof(saved), "%s", target());
+    const cJSON *device = cJSON_GetObjectItemCaseSensitive(j, "device");
+    const char *dev = device && cJSON_IsString(device) ? device->valuestring : storage_device();
+    int valid = (!device || cJSON_IsString(device)) && storage_device_valid(dev) &&
+                storage_device_available(dev);
+    if (valid) target_set(dev);
+    if (!j || !valid || recover_journal(j) < 0)
         logline("recovery: unfinished transaction; installation blocked");
     else if (!finished)
         logline("recovery: an unfinished transaction was put back");
+    target_set(saved);
     cJSON_Delete(j);
 }
 void install_recover(void) {
@@ -995,15 +1025,23 @@ void install_recover(void) {
    named in line. Returns 0 when the journal is gone. */
 int install_discard(char *line, size_t size) {
     char *raw = NULL, dir[64] = "", dest[256], old[256];
+    char saved[5];
+    snprintf(saved, sizeof(saved), "%s", target());
+    int known = 0;
     int n = storage_read(JOURNAL, &raw, 512 * 1024);
     if (n >= 0) {
         cJSON *j = cJSON_ParseWithLengthOpts(raw, n + 1, NULL, 1);
-        if (j && manifest_dir_is_safe(js(j, "dir")))
+        const cJSON *dv = cJSON_GetObjectItemCaseSensitive(j, "device");
+        const char *dev = dv ? js(j, "device") : storage_device();
+        if (j && manifest_dir_is_safe(js(j, "dir")) && storage_device_valid(dev)) {
             snprintf(dir, sizeof(dir), "%s", js(j, "dir"));
+            target_set(dev);
+            known = 1;
+        }
         cJSON_Delete(j);
     }
     free(raw);
-    if (remove_tree(STAGE) < 0)
+    if (known && remove_tree(STAGE) < 0)
         logline("discard: the staging directory would not go");
     if (storage_remove(ARCHIVE) < 0)
         logline("discard: the archive would not go");
@@ -1017,6 +1055,7 @@ int install_discard(char *line, size_t size) {
              has_dest && has_old ? " and " : "", has_old ? dir : "",
              has_old ? ".old stay" : has_dest ? " stays" : "");
     logline("discard: %s", line);
+    target_set(saved);
     return storage_exists(JOURNAL) ? -1 : 0;
 }
 
@@ -1041,7 +1080,7 @@ static cJSON *begin(const char *id, const char *dir, const char *op) {
     /* Three things can sit under the name the release wants, and each is
        a different sentence on screen: the shell shows the last log line
        when an install fails, so the reason is spelled out here. */
-    if (strcmp(op, "remove") && state_target_owner(dir, id) != 0)
+    if (strcmp(op, "remove") && state_target_owner_on(dir, id, target()) != 0)
         return logline("install: PSP/GAME/%s is another app's, remove that app first", dir), NULL;
     if (storage_exists(backup))
         return logline("install: PSP/GAME/%s.old is in the way, delete or rename it", dir), NULL;
@@ -1051,6 +1090,7 @@ static cJSON *begin(const char *id, const char *dir, const char *op) {
     if (!j)
         return NULL;
     cJSON_AddStringToObject(j, "id", id);
+    cJSON_AddStringToObject(j, "device", target());
     cJSON_AddStringToObject(j, "dir", dir);
     cJSON_AddStringToObject(j, "prior", has ? rec.dir : "");
     cJSON_AddStringToObject(j, "op", op);
@@ -1079,9 +1119,12 @@ static cJSON *begin(const char *id, const char *dir, const char *op) {
     return j;
 }
 int uninstall(const char *id) {
+    install_recover();
     struct installed rec;
     if (!manifest_id_is_safe(id) || db_read(id, &rec) < 0)
         return -1;
+    target_set(rec.device);
+    if (!storage_device_available(target())) return -1;
     /* Whatever record names it: what is in RAM would go on running with
        nothing left to start again. */
     if (self_folder(rec.dir)) {
@@ -1127,7 +1170,20 @@ int install_retire_legacy(void) {
 }
 int install_release(const struct manifest *m, struct install_report *rep, install_phase_cb phase,
                     https_progress progress, void *ctx) {
+    return install_release_to(m, storage_device(), rep, phase, progress, ctx);
+}
+int install_release_to(const struct manifest *m, const char *dev, struct install_report *rep,
+                       install_phase_cb phase, https_progress progress, void *ctx) {
     memset(rep, 0, sizeof(*rep));
+    if (!storage_device_valid(dev)) return -1;
+    install_recover();
+    if (storage_exists(JOURNAL)) return -8;
+    struct installed recorded;
+    target_set(db_read(m->id, &recorded) == 0 ? recorded.device : dev);
+    if (!storage_device_available(target())) {
+        logline("install: %s is not available", target());
+        return -1;
+    }
     struct pspdx_file spec;
     char why[80];
     unsigned char got[32] = {0};
@@ -1180,8 +1236,12 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
     install_recover();
     unsigned cluster = 1;
     storage_free_bytes(&cluster);
-    if (!room_for((m->size + cluster - 1) / cluster * cluster + ROOM_FOR_RECORDS, rep))
+    if (!room_on(storage_device(), (m->size + cluster - 1) / cluster * cluster + ROOM_FOR_RECORDS, rep))
         return INSTALL_NO_SPACE;
+    char parent[32];
+    snprintf(parent, sizeof(parent), "%s/PSP", target());
+    sceIoMkdir(parent, 0777);
+    sceIoMkdir(GAME_DIR, 0777);
     cJSON *j = begin(m->id, m->dir, "install");
     if (!j)
         return -1;
@@ -1214,10 +1274,12 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
        an update laid over the folder. */
     if (rc == 0 && (!cJSON_AddStringToObject(j, "root", root) || journal_save(j) < 0))
         rc = -1;
+    cluster = 1;
+    storage_free_bytes_on(target(), &cluster);
     struct need need = {cluster, ROOM_FOR_RECORDS};
     if (rc == 0 && walk_package(&z, root, count_need, &need) < 0)
         rc = -1;
-    if (rc == 0 && !room_for(need.bytes, rep))
+    if (rc == 0 && !room_on(target(), need.bytes, rep))
         rc = INSTALL_NO_SPACE;
     if (rc == 0 && overlay && walk_package(&z, root, clear_one, priorpath) < 0)
         rc = -1;
@@ -1236,7 +1298,7 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
         goto end;
     }
     rc = -3;
-    if (sceIoSync(storage_device(), 0) < 0 || journal_phase(j, "ready") < 0)
+    if (sceIoSync(target(), 0) < 0 || journal_phase(j, "ready") < 0)
         goto end;
     if (phase)
         phase(ctx, "commit");
@@ -1265,7 +1327,7 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
     char path[256];
     storage_app_path(m->id, path, sizeof(path));
     if (storage_write(path, m->raw, strlen(m->raw)) < 0 ||
-        state_commit(m, dir, got, spec.installdir + 9) < 0)
+        state_commit_on(m, dir, got, spec.installdir + 9, target()) < 0)
         goto end;
     if (journal_phase(j, "committed") < 0)
         goto end;

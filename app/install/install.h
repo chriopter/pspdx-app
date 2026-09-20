@@ -58,6 +58,7 @@ struct install_report {
 
 /* What PSP/PSPDX/db/<id>.json remembers about an installed package. */
 struct installed {
+    char device[5];
     char id[PSPDX_ID_SIZE];
     char dir[64];
     char version[VERSION_SIZE];
@@ -148,6 +149,10 @@ void install_abort(void);
 
 /* Download, verify, unpack, rename into place. Returns 0 on success;
    negative on the phase that failed. Nothing is left half-written. */
+int install_release_to(const struct manifest *release, const char *device,
+                       struct install_report *rep, install_phase_cb phase,
+                       https_progress progress, void *pctx);
+
 int install_release(const struct manifest *release, struct install_report *rep,
                     install_phase_cb phase, https_progress progress, void *pctx);
 

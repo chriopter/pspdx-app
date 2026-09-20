@@ -25,4 +25,8 @@ const char *storage_self_dir(void);
 /* Free bytes on the startup device, and the size of one cluster there, which
    every file rounds up to; -1 when the device does not say. */
 long long storage_free_bytes(unsigned *cluster);
+long long storage_free_bytes_on(const char *device, unsigned *cluster);
+int storage_device_valid(const char *device);
+int storage_device_available(const char *device);
+int storage_is_go(void);
 #endif

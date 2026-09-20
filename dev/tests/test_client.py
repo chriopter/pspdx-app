@@ -32,6 +32,113 @@ class ClientTests(unittest.TestCase):
   record=json.loads(json.dumps(self.state()[ID]));record['source']='https://github.com/test/other';record['installed']['installdir']='PSP/GAME/Other'
   self.write('ms0:/PSP/PSPDX/INSTALLED/io.github.test.other.state.json',record)
   return record
+ def test_install_target_survives_update_launch_path_and_removal(self):
+  other=self.root/'ms0:/PSP/GAME/Demo';other.mkdir(parents=True);(other/'EBOOT.PBP').write_bytes(b'unmanaged')
+  self.run_client('install',INSTALL_DEVICE='ef0:',VERSION=1)
+  game=self.root/'ef0:/PSP/GAME/Demo';(game/'save.dat').write_bytes(b'my save')
+  self.assertEqual(self.state()[ID]['installed']['device'],'ef0:')
+  self.assertEqual(self.run_client('installed-path',ID).stdout.strip(),'ef0:/PSP/GAME/Demo/EBOOT.PBP')
+  self.zip('new.zip',{'EBOOT.PBP':b'update','data.txt':b'updated data'})
+  self.run_client('install',INSTALL_DEVICE='ms0:')
+  self.assertEqual((game/'EBOOT.PBP').read_bytes(),b'update')
+  self.assertEqual((game/'save.dat').read_bytes(),b'my save')
+  self.assertEqual((other/'EBOOT.PBP').read_bytes(),b'unmanaged')
+  self.run_client('remove');self.assertFalse(game.exists());self.assertTrue(other.exists())
+ def test_go_alias_is_not_offered_as_a_second_install_device(self):
+  (self.root/'ms0:').rmdir();(self.root/'ms0:').symlink_to('ef0:',target_is_directory=True)
+  self.assertEqual(self.run_client('storage').stdout.strip(),'ef0: internal=1 card=0')
+  self.assertNotEqual(self.run_client('install',INSTALL_DEVICE='ms0:',ok=False).returncode,0)
+  self.assertFalse(list((self.root/'ef0:').glob('.pspdx-device-*')))
+  self.assertFalse((self.root/'ef0:/PSP/GAME/Demo').exists())
+ def test_go_separate_devices_remain_available(self):
+  self.assertEqual(self.run_client('storage').stdout.strip(),'ms0: internal=1 card=1')
+  self.assertEqual(self.run_client('storage',DEVICE='host0:/pspdx.prx').stdout.strip(),'ef0: internal=1 card=1')
+  self.assertFalse(list((self.root/'ef0:').glob('.pspdx-device-*')))
+ def test_install_from_internal_storage_to_card(self):
+  boot='ef0:/PSP/GAME/PSPDX/EBOOT.PBP'
+  self.run_client('install',DEVICE=boot,INSTALL_DEVICE='ms0:')
+  state=json.loads((self.root/f'ef0:/PSP/PSPDX/INSTALLED/{ID}.state.json').read_text())
+  self.assertEqual(state['installed']['device'],'ms0:')
+  self.assertTrue((self.root/'ms0:/PSP/GAME/Demo/EBOOT.PBP').exists())
+  self.assertFalse((self.root/'ef0:/PSP/GAME/Demo').exists())
+  self.assertEqual(self.run_client('installed-path',ID,DEVICE=boot).stdout.strip(),'ms0:/PSP/GAME/Demo/EBOOT.PBP')
+  self.run_client('remove',DEVICE=boot);self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists())
+ def test_install_device_is_validated(self):
+  for dev in ['flash0:','host0:','ef0:/../ms0:','',42]:
+   self.assertNotEqual(self.run_client('install',INSTALL_DEVICE=dev,ok=False).returncode,0)
+  self.run_client('install')
+  record=self.state()[ID];record['installed']['device']='flash0:'
+  self.write(f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json',record)
+  self.assertNotEqual(self.run_client('remove',ok=False).returncode,0)
+  self.assertTrue((self.root/'ms0:/PSP/GAME/Demo/EBOOT.PBP').exists())
+ def test_missing_target_leaves_transaction_until_reinserted(self):
+  self.run_client('install',INSTALL_DEVICE='ef0:',VERSION=1)
+  snapshot=self.state();game=self.root/'ef0:/PSP/GAME/Demo'
+  j=dict(id=ID,dir='Demo',prior='Demo',device='ef0:',phase='prepared',op='install',old_state=snapshot,old_manifest=json.dumps(SPEC))
+  self.write('ms0:/PSP/PSPDX/TMP/transaction.json',j)
+  (self.root/'ef0:').rename(self.root/'removed-card')
+  self.run_client('recover')
+  self.assertTrue((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists())
+  self.assertNotEqual(self.run_client('install',ok=False).returncode,0)
+  self.assertEqual(self.state(),snapshot)
+  (self.root/'removed-card').rename(self.root/'ef0:');self.run_client('recover')
+  self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists())
+  self.assertTrue((game/'EBOOT.PBP').exists())
+ def test_cross_device_power_cuts(self):
+  self.zip('new.zip',{'EBOOT.PBP':b'old','data.txt':b'old data'})
+  self.run_client('install',INSTALL_DEVICE='ef0:',VERSION=1)
+  (self.root/'ef0:/PSP/GAME/Demo/save.dat').write_bytes(b'save')
+  for dev in ['ms0:','ef0:']:shutil.copytree(self.root/dev,self.root/('baseline-'+dev))
+  self.zip('new.zip',{'EBOOT.PBP':b'new','data.txt':b'new data'})
+  for op in ['fresh','update','move','remove']:
+   self.write('manifest.json',dict(SPEC,installdir='PSP/GAME/Moved') if op=='move' else SPEC)
+   for fault in range(1,220):
+    for dev in ['ms0:','ef0:']:
+     shutil.rmtree(self.root/dev);shutil.copytree(self.root/('baseline-'+dev),self.root/dev)
+    if op=='fresh':
+     shutil.rmtree(self.root/'ef0:/PSP/GAME/Demo')
+     shutil.rmtree(self.root/'ms0:/PSP/PSPDX/INSTALLED')
+    r=self.run_client('remove' if op=='remove' else 'install',fault,INSTALL_DEVICE='ef0:',ok=False)
+    self.assertIn(r.returncode,[0,77],(op,fault,r.stderr))
+    self.run_client('recover')
+    state=self.state()
+    self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists(),(op,fault))
+    self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists(),(op,fault))
+    if ID in state:
+     ins=state[ID]['installed'];self.assertEqual(ins['device'],'ef0:')
+     game=self.root/ins['device']/ins['installdir']
+     self.assertEqual((game/'EBOOT.PBP').read_bytes(),b'old' if ins['version']=='1' else b'new',(op,fault))
+     if op!='fresh':self.assertEqual((game/'save.dat').read_bytes(),b'save',(op,fault))
+    else:self.assertFalse((self.root/'ef0:/PSP/GAME/Demo').exists(),(op,fault))
+    if r.returncode==0:break
+   else:self.fail('cross-device fault sweep did not complete: '+op)
+ def test_space_is_checked_on_selected_device(self):
+  self.assertNotEqual(self.run_client('install',INSTALL_DEVICE='ef0:',EF_FREE=1,ok=False).returncode,0)
+  self.assertFalse((self.root/'ef0:/PSP/GAME/Demo').exists())
+  self.assertEqual(self.state(),{})
+  self.run_client('install',INSTALL_DEVICE='ef0:',EF_FREE=10000000)
+ def test_missing_install_device_never_falls_back_to_other_drive(self):
+  self.run_client('install',INSTALL_DEVICE='ef0:',VERSION=1)
+  before=self.state()
+  other=self.root/'ms0:/PSP/GAME/Demo';other.mkdir(parents=True)
+  (other/'EBOOT.PBP').write_bytes(b'unmanaged other drive')
+  (self.root/'ef0:').rename(self.root/'absent')
+  self.assertNotEqual(self.run_client('install',INSTALL_DEVICE='ms0:',ok=False).returncode,0)
+  self.assertNotEqual(self.run_client('remove',ok=False).returncode,0)
+  self.assertEqual(self.state(),before)
+  self.assertEqual((other/'EBOOT.PBP').read_bytes(),b'unmanaged other drive')
+  (self.root/'absent').rename(self.root/'ef0:')
+  self.run_client('remove')
+  self.assertFalse((self.root/'ef0:/PSP/GAME/Demo').exists())
+  self.assertTrue(other.exists())
+ def test_legacy_install_record_keeps_startup_device(self):
+  self.run_client('install',VERSION=1)
+  record=self.state()[ID];del record['installed']['device']
+  self.write(f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json',record)
+  self.assertEqual(self.run_client('installed-path',ID).stdout.strip(),'ms0:/PSP/GAME/Demo/EBOOT.PBP')
+  self.run_client('install',INSTALL_DEVICE='ef0:')
+  self.assertEqual(self.state()[ID]['installed']['device'],'ms0:')
+  self.assertFalse((self.root/'ef0:/PSP/GAME/Demo').exists())
  def test_separate_records_and_latest(self):
   self.fixtures();other=self.second_record()
   path=self.root/'ms0:/PSP/PSPDX/INSTALLED/io.github.test.other.state.json'
@@ -1125,6 +1232,85 @@ class ClientTests(unittest.TestCase):
  def game(self,*parts):return self.root.joinpath('ms0:/PSP/GAME',*parts)
  def journal_path(self):return self.root/'ms0:/PSP/PSPDX/TMP/transaction.json'
  def ours_left(self,folder):return sorted(str(p.relative_to(folder)) for p in folder.rglob('*') if p.name.endswith(('.pspdx-new','.pspdx-old')))
+ def test_cancel_download_and_unpack_preserve_install_and_allow_retry(self):
+  for device in ('ms0:', 'ef0:'):
+   for existing in (False, True):
+    for phase in ('download', 'unpack'):
+     for after in (1, 2, 3):
+      with self.subTest(device=device,existing=existing,phase=phase,after=after):
+       for dev in ('ms0:', 'ef0:'):
+        shutil.rmtree(self.root/dev);(self.root/dev).mkdir()
+       self.zip('new.zip',{'EBOOT.PBP':b'old executable','data.txt':b'old data'})
+       game=self.root/device/'PSP/GAME/Demo'
+       if existing:
+        self.run_client('install',INSTALL_DEVICE=device,VERSION=1)
+        (game/'save.dat').write_bytes(b'user save\x00unchanged')
+       before=self.state()
+       self.zip('new.zip',{'EBOOT.PBP':os.urandom(20000),'data.txt':b'replacement','sub/new.dat':b'new'})
+       r=self.run_client('install',INSTALL_DEVICE=device,CANCEL_PHASE=phase,CANCEL_AFTER=after,ok=False)
+       self.assertEqual(r.stdout.split()[0],'-9',r.stderr)
+       self.assertEqual(self.state(),before)
+       self.assertFalse(self.journal_path().exists())
+       self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/download.zip').exists())
+       self.assertFalse((game.parent/'.pspdx-stage').exists())
+       if existing:
+        self.assertEqual((game/'EBOOT.PBP').read_bytes(),b'old executable')
+        self.assertEqual((game/'data.txt').read_bytes(),b'old data')
+        self.assertEqual((game/'save.dat').read_bytes(),b'user save\x00unchanged')
+        self.assertFalse((game/'sub/new.dat').exists())
+        self.assertEqual(self.ours_left(game),[])
+       else:self.assertFalse(game.exists())
+       self.run_client('install',INSTALL_DEVICE=device)
+       self.assertEqual(self.state()[ID]['installed']['version'],'2')
+       if existing:self.assertEqual((game/'save.dat').read_bytes(),b'user save\x00unchanged')
+       self.run_client('remove');self.assertFalse(game.exists())
+ def test_interrupted_download_keeps_old_files_and_can_retry(self):
+  for device in ('ms0:', 'ef0:'):
+   for existing in (False, True):
+    for after in (1, 8192, 16384):
+     with self.subTest(device=device,existing=existing,after=after):
+      for dev in ('ms0:', 'ef0:'):
+       shutil.rmtree(self.root/dev);(self.root/dev).mkdir()
+      self.zip('new.zip',{'EBOOT.PBP':b'old executable','data.txt':b'old data'})
+      game=self.root/device/'PSP/GAME/Demo'
+      if existing:
+       self.run_client('install',INSTALL_DEVICE=device,VERSION=1)
+       (game/'save.dat').write_bytes(b'my save')
+      before=self.state()
+      self.zip('new.zip',{'EBOOT.PBP':os.urandom(20000),'data.txt':b'updated'})
+      r=self.run_client('install',INSTALL_DEVICE=device,NET_DROP_AFTER=after,ok=False)
+      self.assertNotEqual(r.returncode,0)
+      self.assertNotEqual(r.stdout.split()[0],'-9')  # failure, not user cancellation
+      self.assertEqual(self.state(),before)
+      if existing:
+       self.assertEqual((game/'EBOOT.PBP').read_bytes(),b'old executable')
+       self.assertEqual((game/'data.txt').read_bytes(),b'old data')
+       self.assertEqual((game/'save.dat').read_bytes(),b'my save')
+      else:self.assertFalse(game.exists())
+      self.assertFalse(self.journal_path().exists())
+      self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/download.zip').exists())
+      self.run_client('install',INSTALL_DEVICE=device)
+      self.assertEqual((game/'data.txt').read_bytes(),b'updated')
+      self.run_client('remove');self.assertFalse(game.exists())
+ def test_repeated_install_reinstall_remove_leaves_no_transactions(self):
+  for cycle in range(30):
+   device='ef0:' if cycle%2 else 'ms0:'
+   game=self.root/device/'PSP/GAME/Demo'
+   payload=('cycle %d'%cycle).encode()
+   self.zip('new.zip',{'EBOOT.PBP':payload,'nested/data.bin':payload*50})
+   self.run_client('install',INSTALL_DEVICE=device)
+   (game/'save.dat').write_bytes(payload+b' save')
+   self.run_client('install',INSTALL_DEVICE=device)
+   self.assertEqual((game/'EBOOT.PBP').read_bytes(),payload)
+   self.assertEqual((game/'save.dat').read_bytes(),payload+b' save')
+   self.run_client('remove');self.run_client('recover')
+   self.assertFalse(game.exists());self.assertNotIn(ID,self.state())
+   self.assertFalse(self.journal_path().exists())
+   self.assertEqual(self.ours_left(self.root),[])
+   for dev in ('ms0:', 'ef0:'):
+    self.assertFalse((self.root/dev/'PSP/GAME/.pspdx-stage').exists())
+    self.assertFalse((self.root/dev/'PSP/GAME/Demo.old').exists())
+   self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/download.zip').exists())
  def test_an_app_whose_folder_was_deleted_by_hand_can_be_installed_and_removed(self):
   # The record says installed, the folder is gone: neither a reinstall nor a removal may be stuck on it.
   self.run_client('install');d=self.game('Demo');shutil.rmtree(d)

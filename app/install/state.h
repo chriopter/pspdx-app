@@ -28,4 +28,7 @@ int state_latest(const char *id, struct manifest *m);
 int state_note_latest(const struct manifest *m);
 int state_read_manifest(const char *id, char **raw, struct pspdx_file *file);
 int state_target_owner(const char *dir, const char *id);
+int state_target_owner_on(const char *dir, const char *id, const char *device);
+int state_commit_on(const struct manifest *m, const char *dir, const unsigned char *sha256,
+                    const char *file_dir, const char *device);
 #endif
