@@ -1,6 +1,6 @@
 /*
  * The 2D render layer. Everything the shell draws goes through here: flat
- * quads, gradients, waves, soft lights, and textures out of system RAM.
+ * quads, gradients, waves, soft lights, and textures.
  *
  * There is no depth buffer on purpose. A 2D UI never needs one, and leaving
  * it out gives back 272 KB of the 2 MB of VRAM -- enough that both display
@@ -46,7 +46,7 @@
 static unsigned int __attribute__((aligned(16))) g_lists[2][LIST_WORDS];
 static unsigned int *g_list = g_lists[0];   /* the list in hand */
 #define LIST_BYTES sizeof(g_lists[0])
-#define FRAME_THIRD 0x160000u   /* reserved VRAM beyond bloom and the still */
+#define GLOW_VRAM 0x160000u     /* after bloom and the 256x256 still: 4 KB */
 /* Kept clear under the list's end for what is drawn between two calls of
    gfx_list_room: rectangles, strips, a batch's worth of glows. */
 #define LIST_SPARE (32 * 1024)
@@ -63,6 +63,7 @@ static void ge_drain(void) {
 }
 static int g_up;
 static struct gfx_texture g_glow;
+static unsigned __attribute__((aligned(16))) g_glow_clut[256];
 static unsigned char *g_ripple;                 /* RIPPLE_FRAMES tiles of T8 */
 static float g_normal[256][3];                  /* what each index stands for */
 /* The palette as lit, and two copies scaled for the two steps of the
@@ -107,19 +108,20 @@ static struct { short first, count; } g_strip_at[BATCH_STRIPS];
    Every light on screen is this texture, scaled and tinted. */
 static void make_glow(void) {
     g_glow.w = g_glow.h = g_glow.tw = g_glow.th = GLOW_SIZE;
-    g_glow.pixels = memalign(16, GLOW_SIZE * GLOW_SIZE * 4);
-    if (!g_glow.pixels) return;
-    unsigned *px = g_glow.pixels;
+    g_glow.pixels = (unsigned char *)sceGeEdramGetAddr() + GLOW_VRAM;
+    unsigned char *px = (unsigned char *)g_glow.pixels;
+    for (int a = 0; a < 256; a++) g_glow_clut[a] = RGBA(255, 255, 255, a);
     float c = (GLOW_SIZE - 1) / 2.0f;
     for (int y = 0; y < GLOW_SIZE; y++) {
         for (int x = 0; x < GLOW_SIZE; x++) {
             float dx = (x - c) / c, dy = (y - c) / c;
             float d = sqrtf(dx * dx + dy * dy);
             float a = d >= 1.0f ? 0.0f : (1.0f - d) * (1.0f - d);
-            px[y * GLOW_SIZE + x] = RGBA(255, 255, 255, (unsigned)(a * 255.0f));
+            px[y * GLOW_SIZE + x] = (unsigned char)(a * 255.0f);
         }
     }
-    sceKernelDcacheWritebackRange(g_glow.pixels, GLOW_SIZE * GLOW_SIZE * 4);
+    sceKernelDcacheWritebackRange(g_glow.pixels, GLOW_SIZE * GLOW_SIZE);
+    sceKernelDcacheWritebackRange(g_glow_clut, sizeof(g_glow_clut));
 }
 
 /* The tile holds a normal per texel, not a colour: the high nibble is the
@@ -264,8 +266,8 @@ void gfx_init(void) {
     sceGuDisplay(GU_TRUE);
     g_present_vcount = sceDisplayGetVcount();
     g_up = 1;
-    logline("gu: up, standard double buffer, %u KB vram reserved",
-            (2048u * 1024 - FRAME_THIRD) / 1024);
+    logline("gu: up, standard double buffer, %u KB vram free",
+            (2048u * 1024 - GLOW_VRAM - GLOW_SIZE * GLOW_SIZE) / 1024);
 }
 
 void gfx_shutdown(void) {
@@ -362,6 +364,7 @@ unsigned gfx_frames(void) { return g_frames; }
    afterwards. */
 static void flat_state(void) {
     sceGuDisable(GU_TEXTURE_2D);
+    sceGuDisable(GU_ALPHA_TEST);
     sceGuDisable(GU_DEPTH_TEST);
     /* The water leaves a light burning, and a vertex with no normal in its
        format would be lit off whatever the last one had. */
@@ -382,14 +385,29 @@ static void *still_vram(void);
 static void bind(const struct gfx_texture *t) {
     sceGuDisable(GU_DEPTH_TEST);
     sceGuEnable(GU_TEXTURE_2D);
-    sceGuTexMode(GU_PSM_8888, 0, 0, GU_FALSE);
-    /* The quality-mode still lives in VRAM; everything else comes from
-       system RAM. */
+    if (t == &g_glow) {
+        /* The disc is white: its alpha byte indexes the exact RGBA value.
+           T8 keeps all 256 alpha levels with a quarter of the texel traffic. */
+        sceGuClutMode(GU_PSM_8888, 0, 0xff, 0);
+        sceGuClutLoad(32, g_glow_clut);
+        sceGuTexMode(GU_PSM_T8, 0, 0, GU_FALSE);
+    } else {
+        sceGuTexMode(GU_PSM_8888, 0, 0, GU_FALSE);
+    }
+    /* The still's cached copy has its own stride. Other textures carry
+       their RAM or VRAM address directly. */
     if (t == g_vram_tex) sceGuTexImage(0, g_vram_tw, g_vram_th, STILL_W, still_vram());
     else sceGuTexImage(0, t->tw, t->th, t->tw, t->pixels);
     sceGuTexFunc(GU_TFX_MODULATE, t->opaque ? GU_TCC_RGB : GU_TCC_RGBA);
     sceGuTexFilter(GU_LINEAR, GU_LINEAR);
     sceGuTexWrap(GU_CLAMP, GU_CLAMP);
+    if (t == &g_glow) {
+        /* Transparent corners need no framebuffer read/modify/write. */
+        sceGuAlphaFunc(GU_GREATER, 0, 0xff);
+        sceGuEnable(GU_ALPHA_TEST);
+    } else {
+        sceGuDisable(GU_ALPHA_TEST);
+    }
     /* The water leaves the tile's own scale and creep behind it. */
     sceGuTexScale(1.0f, 1.0f);
     sceGuTexOffset(0.0f, 0.0f);
@@ -792,6 +810,9 @@ void gfx_mirror_end(void) {
 void gfx_glow(float cx, float cy, float w, float h, unsigned color) {
     if (!g_glow.pixels) return;
     color = gfx_veiled(color);
+    if (!(color >> 24) || w <= 0 || h <= 0 ||
+        cx + w / 2 <= 0 || cy + h / 2 <= 0 ||
+        cx - w / 2 >= SCR_W || cy - h / 2 >= SCR_H) return;
     if (g_batching) {
         flush_strips();
         if (g_sprites == BATCH_SPRITES) flush_sprites();
@@ -986,13 +1007,13 @@ static void bloom_quad(float u0, float v0, float u1, float v1,
    reflection both sample every frame. Texels fetched from system RAM are the
    GE's slow path; from VRAM they are several times cheaper, and the still
    changes only when the selection does. The region after the bloom targets
-   holds up to STILL_MAX bytes; a 480x272 still at its 512 stride is 557 KB.
+   holds the downsampled 256x256 still (256 KB).
    Uploaded once per publication (the caller passes the still's generation),
    from inside the frame's own list. Anything not cached binds as before. */
 #define STILL_A (BLOOM_B + BLOOM_W * BLOOM_H * 4)
-/* The third frame buffer starts where the still ends: the map has to add up. */
-typedef char vram_map_adds_up[(STILL_A + STILL_W * STILL_H * 4 <= FRAME_THIRD) ? 1 : -1];
-#define STILL_MAX (0x200000u - STILL_A)
+/* The permanent light texture must not overlap the still or exceed VRAM. */
+typedef char vram_map_adds_up[(STILL_A + STILL_W * STILL_H * 4 <= GLOW_VRAM &&
+    GLOW_VRAM + GLOW_SIZE * GLOW_SIZE <= 0x200000u) ? 1 : -1];
 static unsigned g_vram_gen;
 static void *still_vram(void) { return vram_abs(STILL_A); }
 
