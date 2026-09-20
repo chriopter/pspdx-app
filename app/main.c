@@ -28,6 +28,7 @@
 #include "gui/screen.h"
 #include "gui/lattice.h"
 #include "gui/osk.h"
+#include "gui/netconf.h"
 #include "gui/shell.h"
 #include "install/install.h"
 #include "pspkit-https/entropy.h"
@@ -393,7 +394,9 @@ int main(int argc, char *argv[]) {
        sweeps; it lives on its own thread and never waits for a frame. */
     audio_start();
     actions_init(&catalog);
-    sync_set_offline(storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.OFFLINE")));
+    int offline = storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.OFFLINE"));
+    if (!offline) offline = netconf_connect() < 0;
+    sync_set_offline(offline);
     sync_start(&catalog);
 
     /* Connect, fetch and check in the background while the first frames

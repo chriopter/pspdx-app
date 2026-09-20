@@ -1,6 +1,6 @@
 TARGET = pspdx
 OBJS = main.o gui/screen.o gui/entropy_screen.o gui/gfx.o gui/font.o \
-       gui/image.o gui/lattice.o gui/title.o gui/preview.o gui/icons.o gui/marks.o gui/shell.o gui/wrap.o gui/files_view.o gui/sources_view.o gui/system_view.o gui/osk.o network/bench.o \
+       gui/image.o gui/lattice.o gui/title.o gui/preview.o gui/icons.o gui/marks.o gui/shell.o gui/wrap.o gui/files_view.o gui/sources_view.o gui/system_view.o gui/osk.o gui/netconf.o network/bench.o \
        update/catalog.o update/gunzip.o update/sources.o update/presets.o update/reach.o update/pspdx.o update/inbox.o update/assets.o update/sync.o \
        install/install.o install/state.o util/storage.o util/files.o session/view.o session/actions.o session/questions.o session/options.o session/manage_sources.o \
        install/zipread.o audio/audio.o audio/synth.o audio/music.o \
