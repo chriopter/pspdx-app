@@ -26,13 +26,16 @@ static int g_tab_at;                    /* index into g_tab */
 static const struct catalog *g_view_of;
 static unsigned char g_view[MAX_APPS];
 static int g_view_count;                /* packages; the action row is extra */
-static int g_view_action;               /* 1 when row 0 is the action row */
+static int g_view_action;               /* whether the view has an action row */
 static unsigned g_generation;           /* counted up when the rows stand for other packages */
 
 /* The basket: catalog indices set aside this session, a bit each. */
 static unsigned char g_basket[(MAX_APPS + 7) / 8];
 static int g_basket_n;
 static unsigned g_downloads[MAX_APPS];
+static int g_download_running = -1;
+void view_download_running(int index) { g_download_running = index; }
+int view_download_current(void) { return g_download_running; }
 void view_download_set(int index, unsigned order) {
     if (index >= 0 && index < MAX_APPS) g_downloads[index] = order;
 }
@@ -150,9 +153,9 @@ static void build_view(int restart) {
         int take;
         if (tab == TAB_HOMEBREW)
             take = g_cat_open < 0 || category_of(&g_view_of->apps[i]) == g_cat_open;
-        else if (tab == TAB_STICK) take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
-        else if (tab == TAB_BASKET) take = view_basket_has(i);
-        else if (tab == TAB_DOWNLOADS) take = g_downloads[i] != 0;
+        else if (tab == TAB_STICK)
+            take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
+        else if (tab == TAB_BASKET) take = view_basket_has(i) || g_downloads[i] != 0;
         else take = 0;      /* the gear's rows are not packages; the UMD has none */
         if (take) g_view[g_view_count++] = (unsigned char)i;
     }
@@ -168,11 +171,15 @@ static void build_view(int restart) {
             }
         memcpy(g_view, sorted, (size_t)n);
     }
-    if (tab == TAB_DOWNLOADS) {
+    /* The live transfer leads the cart, then queued jobs and its other apps. */
+    if (tab == TAB_BASKET) {
         for (int i = 1; i < g_view_count; i++) {
             unsigned char value = g_view[i];
             int j = i;
-            while (j > 0 && g_downloads[g_view[j - 1]] > g_downloads[value]) {
+            while (j > 0 && g_view[j - 1] != g_download_running &&
+                   (value == g_download_running ||
+                    (g_downloads[value] && (!g_downloads[g_view[j - 1]] ||
+                     g_downloads[g_view[j - 1]] > g_downloads[value])))) {
                 g_view[j] = g_view[j - 1]; j--;
             }
             g_view[j] = value;
@@ -181,7 +188,7 @@ static void build_view(int restart) {
     /* A tab that is a job as well as a list carries the job itself at
        the top, above the packages it would be done to -- the stick only
        while there is a job on it. */
-    g_view_action = tab == TAB_BASKET || tab == TAB_STICK || tab == TAB_DOWNLOADS;
+    g_view_action = tab == TAB_BASKET || tab == TAB_STICK;
     if (!restart) return;
     g_generation++;
 }
@@ -196,11 +203,10 @@ static int collect_tabs(int keep) {
     int installed = 0;
     for (int i = 0; i < g_view_of->count; i++)
         if (g_view_of->apps[i].state != APP_NOT_INSTALLED) installed = 1;
-    if (view_download_count()) g_tab[g_tabs++] = TAB_DOWNLOADS;
     if (installed) g_tab[g_tabs++] = TAB_STICK;
     g_tab[g_tabs++] = TAB_HOMEBREW;
     g_tab[g_tabs++] = TAB_UMD;
-    if (g_basket_n > 0) g_tab[g_tabs++] = TAB_BASKET;
+    if (g_basket_n > 0 || view_download_count()) g_tab[g_tabs++] = TAB_BASKET;
     g_tab[g_tabs++] = TAB_GEAR;
     for (int i = 0; i < g_tabs; i++)
         if (g_tab[i] == keep) { g_tab_at = i; found = 1; }
@@ -220,6 +226,7 @@ void view_rebuild(const struct catalog *catalog) {
        old one was. Nothing is carried across. */
     view_basket_clear();
     memset(g_downloads, 0, sizeof(g_downloads));
+    g_download_running = -1;
     g_view_of = catalog;
     g_cat_open = -1;
     collect_categories();
@@ -260,8 +267,7 @@ int view_row(int index) {
 
 enum view_tab_kind view_tab_kind(void) {
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
-    return tab == TAB_DOWNLOADS ? VIEW_TAB_DOWNLOADS
-         : tab == TAB_GEAR ? VIEW_TAB_GEAR
+    return tab == TAB_GEAR ? VIEW_TAB_GEAR
          : tab == TAB_STICK ? VIEW_TAB_STICK
          : tab == TAB_BASKET ? VIEW_TAB_BASKET
          : tab == TAB_UMD ? VIEW_TAB_UMD : VIEW_TAB_HOMEBREW;
@@ -269,9 +275,10 @@ enum view_tab_kind view_tab_kind(void) {
 
 void view_action_plan(struct view_plan *plan) {
     memset(plan, 0, sizeof(*plan));
-    if (!g_view_of || !g_view_action || view_tab_kind() == VIEW_TAB_DOWNLOADS) return;
+    if (!g_view_of || !g_view_action) return;
     plan->updates = g_tab[g_tab_at] == TAB_STICK;
     for (int row = 0; row < g_view_count; row++) {
+        if (g_downloads[g_view[row]]) continue;
         const struct app_entry *entry = &g_view_of->apps[g_view[row]];
         /* On the stick the job is the updates; what is merely installed is
            not part of it. */
@@ -307,7 +314,11 @@ int view_tab_current(void) { return g_tabs ? g_tab[g_tab_at] : TAB_HOMEBREW; }
 int view_tab_at(int i) { return i >= 0 && i < g_tabs ? g_tab[i] : TAB_HOMEBREW; }
 int view_tab_active(void) { return g_tab_at; }
 
-int view_basket_count(void) { return g_basket_n; }
+int view_basket_count(void) {
+    int n = 0;
+    for (int i = 0; i < MAX_APPS; i++) n += view_basket_has(i) || g_downloads[i] != 0;
+    return n;
+}
 
 unsigned view_generation(void) { return g_generation; }
 
@@ -323,4 +334,54 @@ static const char *const SETTING[VIEW_SETTINGS] = {
 
 const char *view_setting(int n) {
     return n >= 0 && n < VIEW_SETTINGS ? SETTING[n] : "";
+}
+
+/* Tabs have stable IDs even when Installed or Basket temporarily disappears. */
+static struct {
+    int row, details;
+    float scroll;
+    char app[PSPDX_ID_SIZE], category[32];
+} bookmarks[TAB_COUNT];
+
+void view_remember(int cursor, int details_index, float detail_scroll) {
+    int tab = -view_tab_current();
+    if (tab < 0 || tab >= TAB_COUNT || !g_view_of) return;
+    int index = details_index >= 0 ? details_index : view_index(cursor);
+    bookmarks[tab].row = cursor;
+    bookmarks[tab].details = details_index >= 0;
+    bookmarks[tab].scroll = detail_scroll;
+    snprintf(bookmarks[tab].app, sizeof(bookmarks[tab].app), "%s",
+             index >= 0 && index < g_view_of->count ? g_view_of->apps[index].id : "");
+    snprintf(bookmarks[tab].category, sizeof(bookmarks[tab].category), "%s",
+             view_tab_current() == TAB_HOMEBREW ? view_category(g_cat_open) : "");
+}
+
+void view_recall(int *cursor, int *details_index, float *detail_scroll) {
+    int tab = -view_tab_current();
+    *cursor = 0;
+    *details_index = -1;
+    *detail_scroll = 0;
+    if (tab < 0 || tab >= TAB_COUNT || !g_view_of) return;
+    if (view_tab_current() == TAB_HOMEBREW && bookmarks[tab].category[0]) {
+        for (int i = 0; i < g_cats; i++)
+            if (!strcmp(view_category(i), bookmarks[tab].category)) {
+                view_category_open(i);
+                break;
+            }
+    }
+    int count = view_count();
+    *cursor = bookmarks[tab].row < count ? bookmarks[tab].row : count - 1;
+    if (*cursor < 0) *cursor = 0;
+    if (!bookmarks[tab].app[0]) return;
+    for (int i = 0; i < g_view_of->count; i++) {
+        if (strcmp(g_view_of->apps[i].id, bookmarks[tab].app)) continue;
+        int row = view_row(i);
+        if (row < 0) return;
+        *cursor = row;
+        if (bookmarks[tab].details) {
+            *details_index = i;
+            *detail_scroll = bookmarks[tab].scroll;
+        }
+        return;
+    }
 }

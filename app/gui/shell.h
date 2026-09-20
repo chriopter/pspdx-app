@@ -108,6 +108,8 @@ void shell_details(const struct app_entry *entry);
 void shell_details_scroll(float push);
 /* Up and down on the page: the text a line at a time. */
 void shell_details_step(int lines);
+float shell_details_position(void);
+void shell_details_restore_position(float position);
 /* The same stick over the browser: what the card says about the package
    under the cursor scrolls, the summary and the description. */
 void shell_card_scroll(float push);

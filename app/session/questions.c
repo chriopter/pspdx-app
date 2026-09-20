@@ -37,47 +37,6 @@ struct sources *question_sources(void) {
     return &g_sources;
 }
 
-void ask_install(int index) {
-    if (downloads_active(index)) { downloads_focus(index); return; }
-    const struct app_entry *entry = &actions_catalog()->apps[index];
-    if (entry->unsupported) {
-        char refused[96];
-        snprintf(refused, sizeof(refused), T_INSTALL_UNSUPPORTED, entry->name);
-        shell_status(refused);
-        return;
-    }
-    const char *version = entry->remote_version[0] ? entry->remote_version
-                                                   : entry->release.version;
-    char title[64], line[200];
-    if (entry->state == APP_UPDATE)
-        snprintf(title, sizeof(title), T_UPDATE_ASK, entry->name);
-    else
-        snprintf(title, sizeof(title), T_INSTALL_ASK, entry->name);
-    if (entry->has_release && entry->release.size) {
-        /* Tenths: whole megabytes call everything under one of them nothing,
-           and a count of bytes is not a size anybody reads. */
-        unsigned long long size = entry->release.size;
-        snprintf(line, sizeof(line), catalog_new_build(entry) ? T_INSTALL_LINE_REBUILD : T_INSTALL_LINE,
-                 version, (unsigned long)(size >> 20), (unsigned long)((size * 10 >> 20) % 10));
-    } else {
-        snprintf(line, sizeof(line), T_INSTALL_LINE_NOSIZE, version);
-    }
-    pspdx_utf8_mend(line);
-    struct installed previous;
-    int recorded = db_read(entry->id, &previous) == 0;
-    /* A release that names another directory than the one installed is
-       said so, after the version: the app is going to live elsewhere. A
-       name that differs only in case is the same directory to the stick
-       (and to PPSSPP, which once wrote pspdx where PSPDX was meant). */
-    if (recorded && strcasecmp(previous.dir, entry->release.dir)) {
-        size_t at = strlen(line);
-        snprintf(line + at, sizeof(line) - at, T_INSTALL_MOVES, previous.dir, entry->release.dir);
-    }
-    shell_ask(title, line);
-    g_question = ASK_INSTALL;
-    g_question_of = index;
-}
-
 void ask_remove(int index) {
     const struct app_entry *entry = &actions_catalog()->apps[index];
     struct installed record;
@@ -204,8 +163,7 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         enum question asked = g_question;
         int index = g_question_of;
         ask_forget();
-        if (asked == ASK_INSTALL) downloads_enqueue(index);
-        else if (asked == ASK_ALL) install_all();
+        if (asked == ASK_ALL) install_all();
         else if (asked == ASK_INBOX) install_inbox();
         else if (asked == ASK_RESET) reset_completely();
         else if (asked == ASK_DISCARD) clear_cache();

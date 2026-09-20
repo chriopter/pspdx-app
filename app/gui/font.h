@@ -10,7 +10,8 @@ enum font_style {
     FONT_H1,        /* the header */
     FONT_TITLE,     /* game/app titles in the list, at the XMB item size */
     FONT_BODY,      /* summaries */
-    FONT_META       /* category, licence, state */
+    FONT_META,      /* category, state */
+    FONT_CAPTION    /* compact facts below an app description */
 };
 
 /* Returns 0 if the firmware font could not be loaded; the caller should then

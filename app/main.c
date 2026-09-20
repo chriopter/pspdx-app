@@ -265,7 +265,7 @@ static int wanted_settled(int *cursor) {
     if (*cursor < 0) *cursor = 0;
     const struct app_entry *entry = &catalog.apps[found];
     if (entry->state == APP_NOT_INSTALLED || entry->state == APP_UPDATE) {
-        ask_install(found);
+        downloads_enqueue(found);
     } else {
         snprintf(message, sizeof(message), T_WANT_CURRENT, entry->name);
         shell_status(message);
@@ -442,6 +442,16 @@ int main(int argc, char *argv[]) {
                 unsigned focus_pressed = focus_pad.Buttons & ~last_buttons;
                 last_buttons = focus_pad.Buttons;
                 downloads_focus_frame(focus_pressed);
+                if ((focus_pressed & PSP_CTRL_CIRCLE) && view_download_count()) {
+                    view_remember(cursor, details ? details_of : -1, shell_details_position());
+                    shell_details(NULL);
+                    details = 0;
+                    details_of = -1;
+                    menu_details_forget();
+                    for (int i = 0; i < view_tab_count() && view_tab_kind() != VIEW_TAB_BASKET; i++)
+                        view_tab_move(1);
+                    cursor = view_count() > 1 ? 1 : 0;
+                }
             }
             frame_us = now_us();
             idle_since = now_ms();
@@ -630,12 +640,20 @@ int main(int argc, char *argv[]) {
            up and down belong to the menu while one is open, and a tab
            changing under a band would change what the band is about. */
         int modal = asking() || menu_shown() || popup_shown() || details || gear_view_shown();
-        /* The triggers cross the tabs from inside the gear's views too:
-           Sources, Options, Data or About is left where it is and the next
-           tab comes up, as the system's own columns are left from any
-           depth. Only a question, a popup or the options hold them. */
-        if ((pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && gear_view_shown() &&
+        int tab_departure_saved = 0;
+        /* L/R leave nested pages for the adjacent tab. D-pad left/right
+           keep their local meaning inside an app's details. */
+        if ((pressed & (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) &&
+            (details || gear_view_shown()) &&
             !asking() && !menu_shown() && !popup_shown() && shown()->count > 0) {
+            view_remember(cursor, details ? details_of : -1, shell_details_position());
+            tab_departure_saved = 1;
+            if (details) {
+                shell_details(NULL);
+                details = 0;
+                details_of = -1;
+                menu_details_forget();
+            }
             gear_views_close();
             info = 0;
             modal = 0;
@@ -662,18 +680,24 @@ int main(int argc, char *argv[]) {
             shell_rest(resting = 0);
         }
 
-        /* The triggers and left/right walk the tabs, and the list under
-           them starts again at the top. They walk whenever there is a
-           catalog, not only while there are rows: the UMD tab has none and
-           is left the way any tab is. Left and right do the same as the
-           triggers here, so a hand on the pad alone can cross the tabs --
-           there is nothing sideways in a list for them to mean instead. */
+        /* Each tab remembers its category, selected app and detail scroll.
+           Triggers leave nested pages; D-pad arrows switch tabs in lists. */
         unsigned tabs = PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_LEFT | PSP_CTRL_RIGHT;
         if ((pressed & tabs) && shown()->count > 0 && !modal) {
+            if (!tab_departure_saved)
+                view_remember(cursor, details ? details_of : -1, shell_details_position());
             view_tab_move(pressed & (PSP_CTRL_RTRIGGER | PSP_CTRL_RIGHT) ? 1 : -1);
-            cues_post(CUE_MOVE, cursor = 0);
+            float detail_scroll;
+            view_recall(&cursor, &details_of, &detail_scroll);
+            details = details_of >= 0;
+            if (details) {
+                shell_details(&catalog.apps[details_of]);
+                shell_details_restore_position(detail_scroll);
+            }
+            modal = details;
+            pressed &= ~tabs;
+            cues_post(CUE_MOVE, cursor);
             count = view_count();
-
         }
         modal = modal || info;
         /* The list is a ring: past the last entry comes the first. */
@@ -715,7 +739,7 @@ int main(int argc, char *argv[]) {
                 const struct app_entry *e = &catalog.apps[details_of];
                 if (downloads_active(details_of)) downloads_focus(details_of);
                 else if (e->state == APP_NOT_INSTALLED || e->state == APP_UPDATE)
-                    ask_install(details_of);
+                    downloads_enqueue(details_of);
                 else {
                     char title[64];
                     snprintf(title, sizeof(title), T_RUN_ASK, e->name);
@@ -728,11 +752,11 @@ int main(int argc, char *argv[]) {
                    that never touches the stick is not left with a page
                    that seems not to answer. */
                 shell_details_step(pressed & PSP_CTRL_DOWN ? 1 : -1);
-            } else if ((pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT | PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER)) && count > 0) {
+            } else if ((pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) && count > 0) {
                 /* Left and right turn the page to the neighbouring package
                    in the list, skipping the rows that are not packages,
                    and the cursor under the page follows. */
-                int step = pressed & (PSP_CTRL_RIGHT | PSP_CTRL_RTRIGGER) ? 1 : -1;
+                int step = pressed & PSP_CTRL_RIGHT ? 1 : -1;
                 for (int tries = 0; tries < count; tries++) {
                     cursor = (cursor + step + count) % count;
                     int at = view_index(cursor);
@@ -772,13 +796,15 @@ int main(int argc, char *argv[]) {
                 /* X opens the package's page; the job rows do their job.
                    The options, with the same things and the rest, are on
                    triangle. */
-                if (at == VIEW_ROW_ACTION && view_tab_kind() == VIEW_TAB_DOWNLOADS) {
-                    downloads_clear_finished();
-                    view_settled(&cursor);
-                } else if (at == VIEW_ROW_ACTION) {
+                if (at == VIEW_ROW_ACTION) {
                     struct view_plan plan;
                     view_action_plan(&plan);
-                    if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_STICK) {
+                    if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_BASKET && view_download_count()) {
+                        if (!downloads_busy()) {
+                            downloads_clear_finished();
+                            view_settled(&cursor);
+                        }
+                    } else if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_STICK) {
                         if (synced)
                             refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
                     } else ask_all();

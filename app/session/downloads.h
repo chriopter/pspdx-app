@@ -25,6 +25,7 @@ struct download_status {
 int downloads_enqueue(int index);
 int downloads_tick(int cursor, int modal);
 int downloads_busy(void);
+int downloads_pending_count(void);
 int downloads_active(int index);
 int downloads_count(void);
 int downloads_status(int index, struct download_status *out);

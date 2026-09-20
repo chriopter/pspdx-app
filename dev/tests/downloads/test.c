@@ -107,6 +107,7 @@ void actions_download_complete(int i, struct app_entry *e, const struct install_
     (void)sec;
     completed++;
     last_rc = rc;
+    if (rc == 0) catalog.apps[i].state = APP_CURRENT;
     order[order_n++] = i;
 }
 void entry_clear(struct app_entry *e) {
@@ -216,20 +217,59 @@ int main(void) {
     catalog.count = 3;
     for (int i = 0; i < 3; i++) {
         sprintf(catalog.apps[i].name, "Test %d", i);
+        sprintf(catalog.apps[i].id, "test.%d", i);
+        strcpy(catalog.apps[i].category, "game");
         catalog.apps[i].state = APP_NOT_INSTALLED;
         catalog.apps[i].description = strdup("original");
         catalog.apps[i].release.raw = strdup("manifest");
     }
     view_rebuild(&catalog);
+    /* A round trip restores the category, package and detail scroll. */
+    view_category_open(0);
+    view_remember(view_row(1), 1, 42.0f);
+    view_tab_move(1);
+    int saved_cursor, saved_details;
+    float saved_scroll;
+    view_recall(&saved_cursor, &saved_details, &saved_scroll);
+    assert(saved_details == -1);
+    view_tab_move(-1);
+    view_recall(&saved_cursor, &saved_details, &saved_scroll);
+    assert(view_category_open_at() == 0 && view_index(saved_cursor) == 1);
+    assert(saved_details == 1 && saved_scroll == 42.0f);
+    /* A removed app must never restore a different package at its old row. */
+    strcpy(catalog.apps[1].id, "replacement");
+    view_tab_move(1);
+    view_tab_move(-1);
+    view_recall(&saved_cursor, &saved_details, &saved_scroll);
+    assert(saved_details == -1);
+    strcpy(catalog.apps[1].id, "test.1");
+    view_category_close();
+    view_remember(0, -1, 0);
     assert(downloads_enqueue(1) == 0 && forced && paused && downloads_focused());
     assert(downloads_enqueue(0) == 0 && downloads_enqueue(1) == 0 && downloads_count() == 2);
-    assert(view_tab_at(0) == TAB_DOWNLOADS);
-    while (view_tab_kind() != VIEW_TAB_DOWNLOADS)
+    assert(view_tab_at(0) == TAB_HOMEBREW && view_tab_count() == 4);
+    while (view_tab_kind() != VIEW_TAB_BASKET)
         view_tab_move(1);
     assert(view_index(1) == 1 && view_index(2) == 0);
+    /* A running job outranks even an older retained queue/history entry. */
+    view_download_running(0);
+    view_tabs_refresh();
+    assert(view_index(0) == VIEW_ROW_ACTION && view_index(1) == 0 && view_index(2) == 1);
+    assert(view_row(0) == 1 && view_row(1) == 2);
+    view_download_running(-1);
+    view_tabs_refresh();
+    assert(downloads_pending_count() == 2);
     downloads_focus_frame(PSP_CTRL_CIRCLE);
     assert(downloads_busy() && !paused && !downloads_focused());
     drain();
+    view_tabs_refresh();
+    assert(view_download_count() == 2 && view_tab_at(0) == TAB_STICK);
+    assert(view_tab_kind() == VIEW_TAB_BASKET);
+    struct view_plan finished;
+    view_action_plan(&finished);
+    assert(finished.apps == 0);
+    assert(view_download_current() == -1 && downloads_pending_count() == 0);
+    assert(view_count() == 3 && view_row(0) > 0 && view_row(1) > 0);
     assert(completed == 2 && order[0] == 1 && order[1] == 0);
     downloads_clear_finished();
     view_tabs_refresh();
@@ -244,6 +284,7 @@ int main(void) {
     assert(downloads_enqueue(0) == 0);
     atomic_store(&hold_install, 1);
     ready(DOWNLOAD_RUNNING, 0);
+    assert(view_download_current() == 0);
     downloads_focus_frame(PSP_CTRL_SQUARE);
     atomic_store(&hold_install, 0);
     drain();

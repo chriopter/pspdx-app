@@ -47,8 +47,7 @@
 #include "update/sources.h"
 #include "util/runtime.h"
 
-/* Three type roles and nowhere else a fourth: FONT_H1 for the one name on
-   screen, FONT_BODY for the list and the summary, FONT_META for facts. */
+/* Titles and body text lead; compact captions keep package facts secondary. */
 
 #define HEADER_H 32
 /* ITEM_H, ICON_W, NAME_X, VISIBLE, SHOT_W and SHOT_Y are shell_internal.h's. */
@@ -160,6 +159,9 @@ static int g_page_leaving;
 static char g_detail_text[DETAIL_TEXT];
 static struct wrap_line g_detail_lines[DETAIL_LINES];
 static int g_detail_count;
+static char g_detail_facts[2 * VERSION_SIZE + 560];
+static struct wrap_line g_detail_fact_lines[16];
+static int g_detail_fact_count;
 static float g_detail_scroll, g_detail_max;     /* pixels scrolled, and how far it can */
 static int g_resting;                   /* left alone: where the picture is going */
 static float g_rest;                    /* 0 no picture, 1 the picture whole */
@@ -251,21 +253,21 @@ void draw_shade(int cx, int cy, int w, int h) {
 static const char *tab_count(int tab) {
     static char text[8];
     snprintf(text, sizeof(text), "%d",
-             tab == TAB_DOWNLOADS ? view_download_count() : tab == TAB_STICK ? view_updates_waiting() : view_basket_count());
+             tab == TAB_STICK ? view_updates_waiting()
+                              : downloads_busy() ? downloads_pending_count() : view_basket_count());
     return text;
 }
 
 static int tab_counted(int tab) {
-    return tab == TAB_DOWNLOADS || tab == TAB_BASKET || (tab == TAB_STICK && view_updates_waiting() > 0);
+    return tab == TAB_BASKET || (tab == TAB_STICK && view_updates_waiting() > 0);
 }
 
 /* The stick's sign is the stick until something is waiting for it, and the
    update arrows with the count while something is. */
 static enum mark tab_mark(int tab) {
     switch (tab) {
-    case TAB_DOWNLOADS: return MARK_DOWNLOAD;
     case TAB_GEAR: return MARK_GEAR;
-    case TAB_BASKET: return MARK_BASKET;
+    case TAB_BASKET: return view_download_current() >= 0 ? MARK_DOWNLOAD : MARK_BASKET;
     case TAB_HOMEBREW: return MARK_STORE;
     case TAB_UMD: return MARK_UMD;
     default: return view_updates_waiting() > 0 ? MARK_UPDATE : MARK_INSTALLED;
@@ -313,7 +315,10 @@ static void draw_tab(int tab, int on, float x, float t) {
     unsigned c = m == MARK_UPDATE
         ? faded(UPDATE_RGB, (int)((on ? 255 : 170) * update_pulse(t)))
         : (on ? g_text : faded(g_dim, 150));
-    mark_draw(m, x + mark_width(m) / 2.0f, TAB_Y, c, on ? MARK_LIT : MARK_PLAIN,
+    /* A small, smooth bounce stays legible at the PSP's native resolution. */
+    float bounce = m == MARK_DOWNLOAD ? 2.0f * (1.0f - cosf(t * 6.2831853f)) : 0;
+    if (m == MARK_DOWNLOAD) c = on ? g_text : g_accent;
+    mark_draw(m, x + mark_width(m) / 2.0f, TAB_Y - bounce, c, on ? MARK_LIT : MARK_PLAIN,
               m == MARK_UPDATE ? UPDATE_RGB : rgb_pack(g_tint, 255), t);
     /* The count in the body face, its baseline set so the digits stand
        centred on the sign's middle. */
@@ -333,7 +338,7 @@ static void draw_tabs(float t) {
     }
     x = TAB_X - TAB_GAP;
     for (int i = tabs - 1; i >= 0; i--) {
-        if (view_tab_at(i) != TAB_STICK && view_tab_at(i) != TAB_DOWNLOADS) continue;
+        if (view_tab_at(i) != TAB_STICK) continue;
         x -= tab_width(view_tab_at(i));
         draw_tab(view_tab_at(i), i == at, x, t);
         x -= TAB_GAP;
@@ -383,7 +388,6 @@ static const char *tab_word(int tab) {
         return category_word(view_category_open_at());
     switch (tab) {
     case TAB_GEAR: return T_HEAD_GEAR;
-    case TAB_DOWNLOADS: return "Downloads";
     case TAB_STICK: return T_HEAD_STICK;
     case TAB_BASKET: return T_HEAD_BASKET;
     case TAB_UMD: return T_HEAD_UMD;
@@ -414,7 +418,12 @@ static void draw_chrome(const struct catalog *catalog, float t) {
    place. */
 static const char *action_title(void) {
     static char title[32];
-    if (view_tab_kind() == VIEW_TAB_DOWNLOADS) return "Clear finished";
+    if (view_tab_kind() == VIEW_TAB_BASKET) {
+        struct view_plan plan;
+        view_action_plan(&plan);
+        if (!plan.apps && view_download_count())
+            return downloads_busy() ? "Downloads in progress" : "Clear finished";
+    }
     if (view_tab_kind() != VIEW_TAB_STICK) return T_DOWNLOAD_ALL;
     int waiting = view_updates_waiting();
     if (waiting <= 0) return T_NO_UPDATES;
@@ -436,7 +445,7 @@ static void draw_action_row(int y, int selected, float t) {
                   faded(UPDATE_RGB, (int)((selected ? 255 : 170) * update_pulse(t))),
                   selected ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
     else
-        mark_draw(view_tab_kind() == VIEW_TAB_DOWNLOADS ? MARK_TICK : MARK_BASKET, gx, gy, selected ? g_text : g_dim,
+        mark_draw(MARK_BASKET, gx, gy, selected ? g_text : g_dim,
                   selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     int w = LIST_X + LIST_W - NAME_X;
     /* At the item size the heading can be wider than the column; it walks
@@ -602,7 +611,13 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
         /* Two marks, read from the outside in: the update arrows where a
            newer package waits, the tick where the package is on the stick.
            The basket says nothing here; it has its own tab. */
-        if (entry->state == APP_UPDATE) {
+        if (index == view_download_current()) {
+            float bounce = 1.5f * (1.0f - cosf(t * 6.2831853f));
+            mark_draw(MARK_DOWNLOAD, mx, my - bounce, g_accent,
+                      MARK_PLAIN, 0, t);
+            mx -= 21;
+            name_w -= 21;
+        } else if (entry->state == APP_UPDATE) {
             mark_draw(MARK_UPDATE, mx, my,
                       faded(UPDATE_RGB, (int)((selected ? 255 : 170) * update_pulse(t))),
                       selected ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
@@ -819,9 +834,15 @@ void draw_rows_bar(int count, float first, float t) {
    every package that would come down, what each weighs, the total, and how
    long that is over a PSP's own radio. */
 static void draw_action_panel(const struct catalog *catalog, float t) {
-    if (view_tab_kind() == VIEW_TAB_DOWNLOADS) {
-        draw_setting_note("Clear finished", "Remove completed, failed and cancelled entries from this list. Active downloads keep running.", 0);
-        return;
+    if (view_tab_kind() == VIEW_TAB_BASKET) {
+        struct view_plan pending;
+        view_action_plan(&pending);
+        if (!pending.apps && view_download_count()) {
+            draw_setting_note(downloads_busy() ? "Downloads in progress" : "Clear finished",
+                downloads_busy() ? "Your cart is downloading. Select an app to see its progress or cancel it from Options."
+                                 : "Finished downloads stay here until you clear them. Installed apps are also in Installed.", 0);
+            return;
+        }
     }
     struct view_plan plan;
     char value[48], size[24];
@@ -1752,7 +1773,7 @@ static void draw_more(int cx, int y, int up, unsigned color) {
    screen fills the room, brightest at the top and going dark toward the
    foot; its film plays in a window at the top right; and down the left runs
    one column, the sign and the name, the chips, the words, and the facts
-   in one line at the foot. */
+   below the description in smaller type. */
 #define CINE_X (LIST_X + 8)
 #define CINE_W 288                       /* the column; the film's window starts past it */
 #define CINE_FILM_X (SCR_W - 16 - FILM_W)
@@ -1769,12 +1790,50 @@ static int page_is_room(void) {
     return g_details && !g_page_leaving && g_page >= 1.0f
         && preview_still(&alpha) && alpha >= PAGE_STILL_FULL;
 }
+#define DETAIL_FACT_STEP 12
+#define DETAIL_FACT_GAP 22
+static float detail_fact_width(void *ctx, const char *text, size_t len) {
+    (void)ctx;
+    char line[DETAIL_LINE_BYTES + 1];
+    if (len > DETAIL_LINE_BYTES) len = DETAIL_LINE_BYTES;
+    memcpy(line, text, len);
+    line[len] = '\0';
+    return font_width(FONT_CAPTION, line);
+}
+
+static void detail_facts(const struct app_entry *e) {
+    char value[2 * VERSION_SIZE + 32], size[24] = "", facts[sizeof(g_detail_facts)];
+    if (catalog_new_build(e))
+        snprintf(value, sizeof(value), T_DETAIL_REBUILD, e->local_version);
+    else if (e->state == APP_UPDATE)
+        snprintf(value, sizeof(value), T_DETAIL_UPDATE, e->local_version, e->remote_version);
+    else if (e->state != APP_NOT_INSTALLED)
+        snprintf(value, sizeof(value), T_DETAIL_INSTALLED, e->local_version);
+    else if (e->has_release)
+        snprintf(value, sizeof(value), "%s", e->release.version);
+    else
+        snprintf(value, sizeof(value), T_UNKNOWN);
+    if (e->has_release && e->release.size) size_mb(e->release.size, size, sizeof(size));
+    snprintf(facts, sizeof(facts), "%s  \xc2\xb7  %s  \xc2\xb7  %s%s%s", value, e->author, e->license,
+             size[0] ? "  \xc2\xb7  " : "", size);
+    pspdx_utf8_mend(facts);
+    if (strcmp(g_detail_facts, facts)) {
+        snprintf(g_detail_facts, sizeof(g_detail_facts), "%s", facts);
+        g_detail_fact_count = wrap_text(g_detail_facts, CINE_W, DETAIL_LINE_BYTES,
+                                        detail_fact_width, NULL, g_detail_fact_lines, 16);
+    }
+    int last = g_detail_text_top + (g_detail_count ? (g_detail_count - 1) * DETAIL_STEP + DETAIL_FACT_GAP : 0)
+               + (g_detail_fact_count - 1) * DETAIL_FACT_STEP;
+    g_detail_max = last > CINE_TEXT_BOTTOM - 4 ? (float)(last - (CINE_TEXT_BOTTOM - 4)) : 0;
+    if (g_detail_scroll > g_detail_max) g_detail_scroll = g_detail_max;
+}
+
 static void draw_details(void) {
     const struct app_entry *e = g_details;
     float ease = g_page * g_page * (3.0f - 2.0f * g_page);
     float px = SCR_W * (1.0f - ease);
     float cx = px + CINE_X;
-    char value[2 * VERSION_SIZE + 32], size[24], facts[2 * VERSION_SIZE + 560];
+    detail_facts(e);
     int still_alpha, film_alpha;
     const struct gfx_texture *still = preview_still(&still_alpha);
     const struct gfx_texture *film = preview_film(&film_alpha);
@@ -1834,6 +1893,16 @@ static void draw_details(void) {
         line[len] = '\0';
         font_print(FONT_META, cx, base, g_dim, line);
     }
+    int facts_y = ty + (g_detail_count ? (g_detail_count - 1) * DETAIL_STEP + DETAIL_FACT_GAP : 0);
+    for (int i = 0; i < g_detail_fact_count; i++) {
+        int base = facts_y + i * DETAIL_FACT_STEP;
+        if (base + 4 < text_top - 13 || base - DETAIL_FACT_STEP > CINE_TEXT_BOTTOM) continue;
+        size_t len = g_detail_fact_lines[i].len;
+        if (len > DETAIL_LINE_BYTES) len = DETAIL_LINE_BYTES;
+        memcpy(line, g_detail_facts + g_detail_fact_lines[i].start, len);
+        line[len] = '\0';
+        font_print(FONT_CAPTION, cx, base, g_dim, line);
+    }
     gfx_unclip();
     unsigned more = faded(g_dim, 200);
     if (g_detail_scroll >= 1.0f)
@@ -1841,23 +1910,6 @@ static void draw_details(void) {
     if (g_detail_scroll + 1.0f <= g_detail_max)
         draw_more((int)(cx + CINE_W - 6), CINE_TEXT_BOTTOM - 6, 0, more);
 
-    /* The facts in one line at the foot, the version first, the rest after
-       it, dots between: the credits under the picture. */
-    if (catalog_new_build(e))
-        snprintf(value, sizeof(value), T_DETAIL_REBUILD, e->local_version);
-    else if (e->state == APP_UPDATE)
-        snprintf(value, sizeof(value), T_DETAIL_UPDATE, e->local_version, e->remote_version);
-    else if (e->state != APP_NOT_INSTALLED)
-        snprintf(value, sizeof(value), T_DETAIL_INSTALLED, e->local_version);
-    else if (e->has_release)
-        snprintf(value, sizeof(value), "%s", e->release.version);
-    else
-        snprintf(value, sizeof(value), T_UNKNOWN);
-    size[0] = '\0';
-    if (e->has_release && e->release.size) size_mb(e->release.size, size, sizeof(size));
-    snprintf(facts, sizeof(facts), "%s  \xc2\xb7  %s  \xc2\xb7  %s%s%s", value, e->author, e->license,
-             size[0] ? "  \xc2\xb7  " : "", size);
-    pspdx_utf8_mend(facts);
     struct download_status download;
     int at = g_catalog ? (int)(e - g_catalog->apps) : -1;
     if (downloads_status(at, &download)) {
@@ -1866,10 +1918,9 @@ static void draw_details(void) {
         if (download.state == DOWNLOAD_DONE) f = 1;
         gfx_rect((int)cx, CINE_FACTS_Y - 16, CINE_W, 3, RGBA(255,255,255,45));
         gfx_rect((int)cx, CINE_FACTS_Y - 16, (int)(CINE_W * f), 3, g_accent);
-        snprintf(facts, sizeof(facts), "%s%s", downloads_label(&download),
-                 downloads_active(at) ? "  -  X: Show download" : "");
+        font_print_clipped(FONT_CAPTION, cx, CINE_FACTS_Y, CINE_W, g_dim,
+                           downloads_label(&download));
     }
-    font_print_clipped(FONT_META, cx, CINE_FACTS_Y, SCR_W - CINE_X - 16, g_text, facts);
 }
 
 /* How wide a line of the band's text is: the measure wrap_text asks, which
@@ -1905,9 +1956,7 @@ void shell_details(const struct app_entry *entry) {
     /* The text starts under the chips, however many rows they take. */
     int chip_rows = draw_chips(entry, 0, 0, CINE_W, 0, 0);
     g_detail_text_top = PAGE_CHIP_Y + 3 + (chip_rows ? chip_rows * CHIP_STEP + 2 : 0);
-    /* Scrolled as far as the last line standing on the column's last baseline. */
-    int last = g_detail_text_top + (g_detail_count - 1) * DETAIL_STEP;
-    g_detail_max = g_detail_count && last > CINE_TEXT_BOTTOM - 4 ? (float)(last - (CINE_TEXT_BOTTOM - 4)) : 0.0f;
+    detail_facts(entry);
 }
 
 /* The stick on a column of text, -1 pushed up to 1 pushed down. Past the
@@ -1929,6 +1978,11 @@ static void push_scroll(float *at, float max, float push) {
 
 void shell_details_scroll(float push) {
     if (g_details) push_scroll(&g_detail_scroll, g_detail_max, push);
+}
+
+float shell_details_position(void) { return g_detail_scroll; }
+void shell_details_restore_position(float position) {
+    g_detail_scroll = fmaxf(0, fminf(position, g_detail_max));
 }
 
 void shell_details_step(int lines) {
@@ -1965,7 +2019,7 @@ static void draw_footer(void) {
        one line that is not a legend -- what is being waited for -- and the
        way back out of a band that fills the screen. Otherwise there is no
        strip, and the water runs to the edge. */
-    if (g_ask_title[0] || g_menu || g_menu_leaving || g_installing) return;
+    if (g_ask_title[0] || g_menu || g_menu_leaving || g_installing || g_details) return;
     /* The gear's own rows carry the legend the views under them carry:
        X into a row, SELECT for the frame rate of this run, L and R across
        the tabs. It is the one list that is about the client rather than
@@ -1983,18 +2037,6 @@ static void draw_footer(void) {
         float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_HINT_ENTER, g_dim);
         x = draw_hint(x, FOOTER_BASE, MARK_SELECT, T_HINT_UI_MODE, g_dim);
         draw_hint(x, FOOTER_BASE, MARK_L, T_HINT_TABS, g_dim);
-    } else if (g_details) {
-        /* The page names its keys, since X does the one thing there is to
-           do to the package and that thing changes with its state. */
-        const struct app_entry *e = g_details;
-        float x = LIST_X;
-        const char *word = g_catalog && downloads_active((int)(e - g_catalog->apps)) ? "Download"
-                         : e->state == APP_UPDATE ? T_HINT_UPDATE
-                         : e->state == APP_NOT_INSTALLED ? T_MENU_INSTALL : T_MENU_RUN;
-        if (!(e->state == APP_NOT_INSTALLED && e->unsupported))
-            x = draw_hint(x, FOOTER_BASE, MARK_CROSS, word, g_dim);
-        x = draw_hint(x, FOOTER_BASE, MARK_TRIANGLE, T_HINT_OPTIONS, g_dim);
-        draw_hint(x, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, g_dim);
     } else {
         font_print_clipped(FONT_META, LIST_X, FOOTER_BASE, SCR_W - 2 * LIST_X,
                            g_accent, g_status);
@@ -2186,7 +2228,8 @@ void shell_draw(const struct catalog *catalog, int cursor) {
             if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
             else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
             else if (index <= VIEW_ROW_CATEGORY) draw_category_panel(VIEW_ROW_CATEGORY - index);
-            else if (index >= 0 && view_tab_kind() == VIEW_TAB_DOWNLOADS) {
+            else if (index >= 0 && view_tab_kind() == VIEW_TAB_BASKET &&
+                     downloads_active(index)) {
                 struct download_status s;
                 char note[160];
                 downloads_status(index, &s);

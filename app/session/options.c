@@ -83,6 +83,10 @@ static char g_menu_title[48];
 static int g_menu_open, g_menu_of, g_details_from_menu, g_details_index = -1;
 static int g_menu_download;
 int menu_details_index(void) { return g_details_index; }
+void menu_details_forget(void) {
+    g_details_from_menu = 0;
+    g_details_index = -1;
+}
 
 /* The keys that do a row's thing without the menu, named at the row: the
    menu is where they are learned. */
@@ -363,7 +367,7 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             else if (chosen == CHOICE_DELETE) ask_remove(index);
             else if (chosen == CHOICE_GET && (actions_catalog()->apps[index].state == APP_NOT_INSTALLED ||
                                               actions_catalog()->apps[index].state == APP_UPDATE))
-                ask_install(index);
+                downloads_enqueue(index);
             else if (chosen == CHOICE_RUN) launch_app(index);
             else if (chosen == CHOICE_BASKET) {
                 view_basket_toggle(index);

@@ -354,6 +354,8 @@ void install_all(void) {
     for (int row = 0; row < view_count() && n < MAX_APPS; row++) {
         int at = view_index(row);
         if (at < 0) continue;
+        struct download_status download;
+        if (downloads_status(at, &download)) continue;
         const struct app_entry *entry = &g_catalog->apps[at];
         if (!entry->has_release || !entry->release.size || entry->unsupported) continue;
         /* On the stick the job is the updates alone. */
@@ -381,6 +383,7 @@ void install_all(void) {
         }
         dump_diagnostics();
     }
+    if (view_tab_kind() == VIEW_TAB_BASKET) downloads_background();
     char message[96];
     snprintf(message, sizeof(message), "%d of %d added to Downloads", queued, n);
     logline("%s", message);

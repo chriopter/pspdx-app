@@ -25,8 +25,7 @@ static intraFont *g_font;
 
 /* size is intraFont's scale factor, where 1.0 is the face at its design size
    -- about 20 px tall on this screen. */
-/* The system shell's own sizes: names at the size of an XMB item, the
-   rows a step under, and nothing smaller than the XMB's smallest line. */
+/* XMB-sized titles and body text, with smaller captions for app facts. */
 static const struct { float size; unsigned shadow; } STYLES[] = {
     [FONT_DISPLAY] = { 1.35f, 0x00000000 },
     [FONT_H1]   = { 1.20f, 0xA0000000 },
@@ -40,6 +39,7 @@ static const struct { float size; unsigned shadow; } STYLES[] = {
     [FONT_TITLE] = { 1.20f, 0x80000000 },
     [FONT_BODY] = { 1.00f, 0x80000000 },
     [FONT_META] = { 1.00f, 0x70000000 },
+    [FONT_CAPTION] = { 0.80f, 0x70000000 },
 };
 
 /* ---------------------------------------------------------- measurements */

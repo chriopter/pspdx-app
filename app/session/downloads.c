@@ -1,3 +1,4 @@
+#include "text.h"
 #include <pspkernel.h>
 #include <pspctrl.h>
 #include "audio/audio.h"
@@ -61,14 +62,15 @@ int downloads_active(int i) {
     downloads_status(i, &s);
     return pending(s.state);
 }
-int downloads_busy(void) {
+int downloads_pending_count(void) {
     int n = 0;
     pthread_mutex_lock(&lock);
     for (int i = 0; i < MAX_APPS; i++)
         n += pending(jobs[i].status.state);
     pthread_mutex_unlock(&lock);
-    return n != 0;
+    return n;
 }
+int downloads_busy(void) { return downloads_pending_count() != 0; }
 int downloads_count(void) {
     int n = 0;
     pthread_mutex_lock(&lock);
@@ -103,8 +105,14 @@ const char *downloads_label(const struct download_status *s) {
 }
 int downloads_enqueue(int i) {
     struct catalog *c = actions_catalog();
-    if (i < 0 || i >= c->count || c->apps[i].unsupported || shutting_down())
+    if (i < 0 || i >= c->count || shutting_down())
         return -1;
+    if (c->apps[i].unsupported) {
+        char refused[96];
+        snprintf(refused, sizeof(refused), T_INSTALL_UNSUPPORTED, c->apps[i].name);
+        shell_status(refused);
+        return -1;
+    }
     if (downloads_active(i)) {
         downloads_focus(i);
         return 0;
@@ -238,6 +246,7 @@ int downloads_tick(int cursor, int modal) {
             j->status.cancel_requested = 0;
             free_entry(j);
             current = -1;
+            view_download_running(-1);
             pthread_mutex_unlock(&lock);
             changed = 1;
         } else if (confirm && !modal) {
@@ -282,6 +291,10 @@ int downloads_tick(int cursor, int modal) {
                 j->status.state = DOWNLOAD_PREPARING;
                 pthread_mutex_unlock(&lock);
                 int rc = answer < 0 || worker < 0 ? -1 : sceKernelStartThread(worker, 0, NULL);
+                if (rc >= 0) {
+                    view_download_running(at);
+                    changed = 1;
+                }
                 if (rc < 0) {
                     if (worker >= 0)
                         sceKernelDeleteThread(worker);

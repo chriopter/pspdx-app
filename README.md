@@ -13,8 +13,8 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 Just install, start and search for homebrew! Updates are shown automatically. Needs ARK-5 for WPA2.
 
 Downloads open a quiet progress screen: **Circle** continues in the background,
-**Square** cancels. The left Downloads tab lists queued and finished apps; each
-app's information page also shows its progress.
+**Square** cancels. Background downloads live in the **Basket**, with a bouncing download icon
+while a job is running. Downloading the whole basket keeps you in that view. Each app's information page also shows its progress.
 
 The UI defaults to **60 FPS**. Baked mode is optional and temporarily switches to
 the 60-FPS interface while downloads are queued or running.
@@ -194,7 +194,7 @@ flowchart TD
 
 #### Apply
 
-- Checking never installs; confirm an update with **×**
+- Checking never installs; **×** on Install or Update queues it immediately
 - **○** during download or unpack cancels the install and puts the stick back; in a batch it also stops the rest
 - INBOX skips conflicts; only successful imports leave INBOX; up to 64 files that install are queued
 - A pinned tag in an INBOX file must be the release's exactly (`0.1.3` is not `v0.1.3`); the repository's own `.pspdx` wins over your file
@@ -203,7 +203,7 @@ flowchart TD
 
 #### Keys
 
-**×** install, confirm · **△** options · **○** back · **□** basket · **START** run · **L/R** or **←/→** tabs
+**×** install · **△** options · **○** back · **□** basket · **START** run · **L/R** tabs (remembering your app page and scroll position); **←/→** tabs in lists, adjacent apps on detail pages
 
 Tabs, as signs to the right, the open one named at the head of the list: **Installed**, update arrows and a count while updates wait → **Homebrews** everything published → **UMDs** coming soon → **basket** while it holds something → | → **gear** settings at the right edge; Homebrew, the UMD and the gear keep their place, the stick and the basket hang off them and come and go
 
