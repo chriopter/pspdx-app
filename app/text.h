@@ -314,7 +314,13 @@
 #define T_KIND_REPO          "Repository"
 #define T_APP_INSTALLED      "Installed: %s"                      /* version */
 #define T_APP_LATEST         "Latest: %s"                         /* version */
-#define T_APP_FOLDER         "Folder: PSP/GAME/%s"                /* dir */
+#define T_STORAGE_ASK        "Install to"
+#define T_STORAGE_INTERNAL   "System Storage"
+#define T_STORAGE_CARD       "Memory Stick"
+#define T_STORAGE_ABSENT     "Not available"
+#define T_STORAGE_MISSING    "The installation storage is not available."
+
+#define T_APP_FOLDER         "Folder: %s/PSP/GAME/%s"             /* device, dir */
 #define T_APP_SOURCE         "Source: %s"                         /* url */
 #define T_APP_CHECKED        "Checked: %s"                        /* when */
 #define T_APP_VIA            "Via: %s"                            /* host */

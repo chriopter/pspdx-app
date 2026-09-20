@@ -10,6 +10,8 @@
 #include <stdio.h>
 
 #include "gui/shell.h"
+#include "session/options.h"
+#include "session/downloads.h"
 #include "gui/shell_internal.h"
 #include "gui/system_view.h"
 
@@ -47,7 +49,7 @@ static const signed char SIGN[SYS_COUNT] = {
 #define KNOB_TRAVEL 4.6f
 
 static int row_on(int i) {
-    if (i == SYS_FRAME_RATE) return !gfx_fps_cap30();      /* right is 60 */
+    if (i == SYS_FRAME_RATE) return !options_fps_requested();      /* right is 60 */
     if (i == SYS_SHOW_FPS) return shell_show_fps();
     if (i == SYS_FAKE_UPDATES) return shell_dev_updates();
     return 1;
@@ -70,14 +72,14 @@ static void draw_row(int i, int y, int selected, float t) {
     /* A value row says what it is set to at the row's end, in the row's
        own colour: the value is the row's. */
     const char *value = NULL;
-    if (i == SYS_FRAME_RATE) value = gfx_fps_cap30() ? T_VALUE_FPS30 : T_VALUE_FPS60;
+    if (i == SYS_FRAME_RATE) value = options_fps_requested() ? T_VALUE_FPS30 : T_VALUE_FPS60;
     if (value) {
         float vw = font_width(FONT_TITLE, value);
         font_print(FONT_TITLE, LIST_X + LIST_W - vw, y + 21, color, value);
         w -= vw + 10;
     }
     /* The first row is named by the side it is on: Baked at 30, Mercy at 60. */
-    const char *word = i == SYS_FRAME_RATE ? (gfx_fps_cap30() ? T_SYS_BAKED : T_SYS_MERCY) : WORD[i];
+    const char *word = i == SYS_FRAME_RATE ? (options_fps_requested() ? T_SYS_BAKED : T_SYS_MERCY) : WORD[i];
     font_print_clipped(FONT_TITLE, NAME_X, y + 21, w, color, word);
 }
 
@@ -88,8 +90,10 @@ void system_view_draw(float t) {
     for (int i = 0; i < SYS_COUNT; i++)
         draw_row(i, LIST_Y + i * ITEM_H, i == g_cursor, t);
 
-    draw_setting_note(g_cursor == SYS_FRAME_RATE ? (gfx_fps_cap30() ? T_SYS_BAKED : T_SYS_MERCY)
-                      : WORD[g_cursor], NOTE[g_cursor], 0.0f);
+    draw_setting_note(g_cursor == SYS_FRAME_RATE ? (options_fps_requested() ? T_SYS_BAKED : T_SYS_MERCY)
+                      : WORD[g_cursor], g_cursor == SYS_FRAME_RATE && downloads_busy()
+                      ? "Downloads temporarily use the 60 FPS UI. Your selected mode returns when the queue is finished."
+                      : NOTE[g_cursor], 0.0f);
 
     /* The keys at the foot, the way the system names its own: what X
        does on this row, SELECT for the frame rate of this run, O back. */

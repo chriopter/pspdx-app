@@ -2,8 +2,8 @@
 /*
  * What the session does to the stick and the catalog: installs, one or a
  * run of them, removing, starting a package, fetching the catalog again,
- * the sweep, the cache and the reset. Each is a call that holds the loop
- * until it is over; the shell draws what it says meanwhile. The questions
+ * the sweep, the cache and the reset. Installs are queued; dialogs and
+ * completion messages stay on the main thread. The questions
  * that stand before them are session/questions.c's; the options that
  * lead to them, session/options.c's.
  */
@@ -20,6 +20,7 @@
 #include "gui/files_view.h"
 #include "gui/gfx.h"
 #include "gui/osk.h"
+#include "gui/netconf.h"
 #include "gui/preview.h"
 #include "gui/shell.h"
 #include "install/install.h"
@@ -27,6 +28,7 @@
 #include "pspkit-https/entropy.h"
 #include "pspkit-https/https.h"
 #include "session/actions.h"
+#include "session/downloads.h"
 #include "session/options.h"
 #include "session/view.h"
 #include "update/inbox.h"
@@ -52,6 +54,7 @@ struct catalog *actions_catalog(void) {
 static int g_http_dumped;
 
 void dump_diagnostics(void) {
+    if (downloads_busy()) { log_dump_later(); return; }
     log_dump();
     if (!g_http_dumped && sync_done()) {
         catalog_dump_http();
@@ -80,28 +83,21 @@ void screenshot_settled(int cursor, const char *path) {
     gfx_screenshot(path);
 }
 
-/* index is a catalog index; the row of the shell's view it sits on -- the
-   catalog filtered to the active tab -- is what the frames drawn around
-   the install show, and the entry is on the active tab, since that is
-   where it was chosen.
-
-   at and of place this install in a run of them, for the band to say; both
-   zero for an install that is only itself. */
-/* The install's progress, and the one place a single install can be left:
-   circle, read between the pieces the network and the unpack hand over. */
-static void install_progress(void *ctx, size_t done, size_t total) {
-    SceCtrlData pad;
-    sceCtrlPeekBufferPositive(&pad, 1);
-    if (pad.Buttons & PSP_CTRL_CIRCLE) install_abort();
-    shell_install_progress(ctx, done, total);
-}
-
 /* Set when PSPDX has replaced itself: the loop asks to restart once the
    install that did it, or the batch it was the last of, is over. */
 static int g_restart_of = -1;
 static char g_restart_version[VERSION_SIZE];
 
+/* Main thread, after parking the media worker. A cancelled system dialog
+   stays offline; only a later explicit action asks again. */
+static int connect_online(void) {
+    if (storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.OFFLINE"))) return 0;
+    if (https_net_connect() == 0) return 1;
+    return netconf_connect() == 0 && https_net_connect() == 0;
+}
+
 int restart_take(char *version, size_t size) {
+    if (downloads_busy()) return -1;
     int of = g_restart_of;
     if (of < 0) return -1;
     snprintf(version, size, "%s", g_restart_version);
@@ -109,44 +105,117 @@ int restart_take(char *version, size_t size) {
     return of;
 }
 
-int install_app(int index, int screenshot, int at, int of) {
-    if (index < 0 || index >= g_catalog->count) return -1;
-    /* A plugin or an ISO is listed and not installed, and that is said
-       before anything is fetched. */
-    if (g_catalog->apps[index].unsupported) {
-        char message[96];
-        snprintf(message, sizeof(message), T_INSTALL_UNSUPPORTED, g_catalog->apps[index].name);
-        logline("%s", message);
-        shell_status(message);
-        cues_post(CUE_FAIL, 0);
-        return -1;
+/* Every install route meets here, including the basket and INBOX. Existing
+   apps retain their device so an update cannot strand saves on another one. */
+static int install_device(const struct app_entry *entry, int row, char out[5]) {
+    struct installed rec;
+    if (db_read(entry->id, &rec) == 0) {
+        snprintf(out, 5, "%s", rec.device);
+        if (!storage_device_available(out)) {
+            shell_status(T_STORAGE_MISSING);
+            return -1;
+        }
+        return 0;
     }
-    int row = view_row(index);
-    if (row < 0) row = 0;
+    snprintf(out, 5, "%s", storage_device());
+    if (!storage_is_go()) return 0;
+    static struct menu choice;
+    memset(&choice, 0, sizeof(choice));
+    memset(choice.key, -1, sizeof(choice.key));
+    choice.title = T_STORAGE_ASK;
+    choice.item[0] = T_STORAGE_INTERNAL;
+    choice.item[1] = T_STORAGE_CARD;
+    choice.count = 2;
+    const char *devices[] = { "ef0:", "ms0:" };
+    choice.cursor = !strcmp(out, "ms0:") && storage_device_available("ms0:") ? 1 : 0;
+    SceCtrlData pad;
+    sceCtrlPeekBufferPositive(&pad, 1);
+    unsigned last = pad.Buttons;
+    shell_menu(&choice);
+    int rc = INSTALL_CANCELLED;
+    for (;;) {
+        for (int i = 0; i < 2; i++) {
+            choice.on[i] = storage_device_available(devices[i]);
+            choice.value[i] = choice.on[i] ? NULL : T_STORAGE_ABSENT;
+        }
+        shell_draw(g_catalog, row);
+        sceCtrlPeekBufferPositive(&pad, 1);
+        unsigned pressed = pad.Buttons & ~last;
+        last = pad.Buttons;
+        if (pressed & PSP_CTRL_CIRCLE) break;
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) choice.cursor ^= 1;
+        if ((pressed & PSP_CTRL_CROSS) && choice.on[choice.cursor]) {
+            snprintf(out, 5, "%s", devices[choice.cursor]);
+            rc = 0;
+            break;
+        }
+    }
+    shell_menu(NULL);
+    return rc;
+}
+
+/* Checked against the selected device and the author's final directory,
+   after catalog_prepare, rather than the catalog's provisional folder. */
+static int install_folder(const struct app_entry *entry, const char *dev, int row) {
+    struct installed rec;
+    if (state_target_owner_on(entry->release.dir, entry->id, dev) != 0) return -1;
+    if (!strcmp(dev, storage_device()) &&
+        !strcasecmp(entry->release.dir, storage_self_dir()) && strcmp(entry->id, PSPDX_SELF_ID))
+        return -1;
+    if (db_read(entry->id, &rec) == 0 && !strcmp(rec.device, dev) &&
+        !strcasecmp(rec.dir, entry->release.dir)) return 0;
+    char dest[160], bak[168], title[96], line[200];
+    snprintf(dest, sizeof(dest), "%s/PSP/GAME/%s", dev, entry->release.dir);
+    if (!storage_exists(dest)) return 0;
+    snprintf(bak, sizeof(bak), "%s.bak", dest);
+    if (storage_exists(bak)) return -1;
+    snprintf(title, sizeof(title), T_DIR_EXISTS_ASK, entry->release.dir);
+    snprintf(line, sizeof(line), T_DIR_EXISTS_LINE, entry->release.dir);
+    shell_ask(title, line);
+    SceCtrlData pad;
+    sceCtrlPeekBufferPositive(&pad, 1);
+    unsigned last = pad.Buttons;
+    int rc = INSTALL_CANCELLED;
+    for (;;) {
+        shell_draw(g_catalog, row);
+        sceCtrlPeekBufferPositive(&pad, 1);
+        unsigned pressed = pad.Buttons & ~last;
+        last = pad.Buttons;
+        if (pressed & PSP_CTRL_CIRCLE) break;
+        if (pressed & PSP_CTRL_CROSS) {
+            char name[80];
+            snprintf(name, sizeof(name), "%s.bak", entry->release.dir);
+            rc = sceIoRename(dest, name) < 0 ? -1 : 0;
+            break;
+        }
+    }
+    shell_ask(NULL, NULL);
+    return rc;
+}
+
+int actions_download_device(const struct app_entry *entry, char out[5]) {
+    int row = view_row((int)(entry - g_catalog->apps));
+    return install_device(entry, row < 0 ? 0 : row, out);
+}
+int actions_download_connect(void) {
+    int online = connect_online();
+    if (online) catalog_offline(0);
+    return online;
+}
+int actions_download_folder(const struct app_entry *entry, const char *dev, int row) {
+    return install_folder(entry, dev, row);
+}
+void actions_download_complete(int index, struct app_entry *prepared,
+                               const struct install_report *result, int rc, unsigned seconds) {
     struct app_entry *entry = &g_catalog->apps[index];
-    struct install_report report;
-
-    shell_install_begin(entry->name, at, of);
-    cues_post(CUE_OPEN, 0);
-    /* The installer and the media thread share one HTTPS stack and one
-       asset buffer; only one of them talks to the network at a time. */
-    preview_quiesce();
-    /* The handshake and the checksum run flat out on this thread, and the
-       audio thread sits one step under it by design -- see audio.c -- so
-       for the length of the install this thread steps under the audio
-       thread instead. The tune keeps playing; the progress bar, drawn from
-       the installer's callbacks, gets what is left, which is nearly all. */
-    SceUID self = sceKernelGetThreadId();
-    sceKernelChangeThreadPriority(self, 0x22);
-    unsigned start = now_ms();
-    catalog_offline(https_net_connect()<0);
-    int rc = entry->has_release ? catalog_prepare(entry) : -1;
-    if(rc==0)rc=install_release(&entry->release, &report, shell_install_phase,
-                             install_progress, NULL);
-    unsigned seconds = (now_ms() - start) / 1000;
-    sceKernelChangeThreadPriority(self, 0x20);
-    preview_resume();
-
+    struct install_report report = *result;
+    if (rc == 0) {
+        manifest_forget(&entry->release);
+        entry->release = prepared->release;
+        prepared->release.raw = NULL;
+        entry->no_pspdx = prepared->no_pspdx;
+        view_basket_forget(index);
+    }
     /* A name and a version of 64 characters whole; the status line cuts it
        to its own room, between letters. */
     char message[sizeof(entry->name) + VERSION_SIZE + 64];
@@ -186,14 +255,12 @@ int install_app(int index, int screenshot, int at, int of) {
     } else {
         snprintf(message, sizeof(message), T_INSTALL_FAILED, entry->name, rc);
     }
-    shell_install_end(message);
+    shell_status(message);
     cues_post(rc == 0 ? CUE_DONE : CUE_FAIL, 0);
-    shell_draw(g_catalog, row);
-    if (screenshot) screenshot_settled(row, storage_path("PSP/PSPDX/DEBUG/PSPDX2.BMP"));
-    return rc;
 }
 
 void uninstall_app(int index) {
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
     struct app_entry *entry = &g_catalog->apps[index];
     char message[96];
 
@@ -235,6 +302,7 @@ void view_settled(int *cursor) {
    before it: the pool above all, which otherwise only reaches the seed file
    when the user quits through HOME. */
 void launch_app(int index) {
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
     const struct app_entry *entry = &g_catalog->apps[index];
     struct installed record;
     char path[160];
@@ -243,7 +311,7 @@ void launch_app(int index) {
         shell_status(T_NO_RECORD);
         return;
     }
-    snprintf(path, sizeof(path), storage_path("PSP/GAME/%s/EBOOT.PBP"), record.dir);
+    snprintf(path, sizeof(path), "%s/PSP/GAME/%s/EBOOT.PBP", record.device, record.dir);
     int fd = sceIoOpen(path, PSP_O_RDONLY, 0777);
     if (fd < 0) {
         shell_status(T_NO_EBOOT);
@@ -274,25 +342,6 @@ void launch_app(int index) {
     shell_status(T_START_REFUSED);
 }
 
-/* The answer to ASK_ASIDE: one rename, then the install it was asked for.
-   The new name is a bare name because that is what sceIoRename takes for
-   its second argument, the same way the installer moves its own directories. */
-int set_aside(int index) {
-    const char *dir = g_catalog->apps[index].release.dir;
-    char dest[160], name[80], line[96];
-    snprintf(dest, sizeof(dest), storage_path("PSP/GAME/%s"), dir);
-    snprintf(name, sizeof(name), "%s.bak", dir);
-    if (sceIoRename(dest, name) < 0) {
-        snprintf(line, sizeof(line), T_RENAME_FAILED, dir);
-        logline("%s", line);
-        shell_status(line);
-        cues_post(CUE_FAIL, 0);
-        return -1;
-    }
-    logline("install: moved PSP/GAME/%s to %s.bak", dir, dir);
-    return 0;
-}
-
 /* The action row taken: everything the tab holds, one after another, in the
    order it is listed. The rows are read into a list before the first fetch --
    an install moves the entry's state, and on the updates tab that takes the
@@ -312,22 +361,31 @@ void install_all(void) {
         list[n] = at;
         n++;
     }
-    for(int i=0;i<n-1;i++)if(!strcmp(g_catalog->apps[list[i]].id,PSPDX_SELF_ID)){int self=list[i];memmove(list+i,list+i+1,(n-i-1)*sizeof(int));list[n-1]=self;break;}
-    int done = 0;
+    /* Replace PSPDX last, after the other queued packages. */
+    for (int i = 0; i < n - 1; i++) {
+        if (strcmp(g_catalog->apps[list[i]].id, PSPDX_SELF_ID)) continue;
+        int self = list[i];
+        memmove(list + i, list + i + 1, (n - i - 1) * sizeof(*list));
+        list[n - 1] = self;
+        break;
+    }
+    int queued = 0;
     for (int i = 0; i < n; i++) {
-        SceCtrlData pad;sceCtrlPeekBufferPositive(&pad,1);if(pad.Buttons&PSP_CTRL_CIRCLE)break;
-        if (install_app(list[i], 0, i + 1, n) == 0) {
-            view_basket_forget(list[i]);
-            done++;
+        SceCtrlData pad;
+        sceCtrlPeekBufferPositive(&pad, 1);
+        if (pad.Buttons & PSP_CTRL_CIRCLE) break;
+        int rc = downloads_enqueue(list[i]);
+        if (rc == INSTALL_CANCELLED) break;
+        if (rc == 0) {
+            queued++;
         }
         dump_diagnostics();
     }
     char message[96];
-    snprintf(message, sizeof(message), T_ALL_DONE, done, n);
+    snprintf(message, sizeof(message), "%d of %d added to Downloads", queued, n);
     logline("%s", message);
     shell_status(message);
-    /* One note for the run being over. Each install that failed sounded its
-       own at the time it did, so this is not saying they all worked. */
+    /* Acknowledge queueing; each job reports its own completion later. */
     cues_post(CUE_DONE, 0);
 }
 
@@ -335,6 +393,7 @@ void install_all(void) {
    a repository, as a URL or as owner/repo, and it is asked at the origin
    like one typed on the gear tab. Returns its index in the catalog. */
 int auto_install_index(void) {
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return -1; }
     char text[SOURCE_URL], url[SOURCE_URL];
     int fd = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.INSTALL"), PSP_O_RDONLY, 0777);
     if (fd < 0) return -1;
@@ -388,10 +447,14 @@ void wanted_forget(void) { g_wanted_url[0] = '\0'; }
    the media thread steps aside for the length of it. */
 void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
                         int *refreshing) {
+    if (!sync_done()) return;
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    downloads_reset();
     int was = view_index(cursor);
     snprintf(keep, keep_size, "%s", was >= 0 ? g_catalog->apps[was].id : "");
     preview_quiesce();
     shell_word(T_WORD_CHECKING);
+    sync_set_offline(!connect_online());
     if (sync_start(g_catalog) == 0) {
         *synced = 0;
         *refreshing = 1;
@@ -409,6 +472,7 @@ void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
    of stick work and this one is two presses from the list, so it has to
    be possible to leave, and leaving puts the old count back. */
 void sweep_again(void) {
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
     /* No connection outlives the seed it was made under: the kept ones
        are closed and the media thread parked, so nothing handshakes while
        the field is being swept. */
@@ -428,6 +492,7 @@ void sweep_again(void) {
    settle. Nothing else moves. The media thread is parked meanwhile, so no
    fetch lands in a folder that is being emptied. */
 void clear_cache(void) {
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
     preview_quiesce();
     int bad = storage_remove_tree(storage_path("PSP/PSPDX/CACHE/catalogs")) < 0;
     bad |= storage_remove_tree(storage_path("PSP/PSPDX/CACHE/media")) < 0;
@@ -448,6 +513,7 @@ void clear_cache(void) {
    the sweep, the built-in list, nothing installed as far as it knows. The
    apps under PSP/GAME are not its to remove. */
 void reset_completely(void) {
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
     log_dump();
     if (storage_remove_tree(storage_path("PSP/PSPDX")) < 0)
         logline("reset: some of PSP/PSPDX would not go");
@@ -457,13 +523,20 @@ void reset_completely(void) {
 /* Reads a source from the keyboard and adds it. Returns 1 when the catalog
    should be fetched again, 0 when there is nothing new. */
 int type_source(int install) {
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return 0; }
     char text[SOURCE_URL], url[SOURCE_URL];
     int rc = osk_read(install ? T_OSK_GITHUB : T_OSK_SOURCE, "", text, sizeof(text));
     if (rc <= 0 || !text[0]) return 0;
     rc = sources_normalize(text,url,sizeof(url));
     struct source_repo parsed;
     if(rc<0 || (install && !sources_parse_repo(url,&parsed))) {shell_status(T_BAD_ADDRESS);return 0;}
-    preview_quiesce();catalog_offline(https_net_connect()<0);
+    preview_quiesce();
+    if (!connect_online()) {
+        preview_resume();
+        shell_status(T_STATUS_OFFLINE);
+        return 0;
+    }
+    catalog_offline(0);
     rc=catalog_validate_source(url,install);
     preview_resume();
     if (rc < 0) {
@@ -494,18 +567,22 @@ int type_source(int install) {
     return 1;
 }
 
-void install_inbox(void){
-    int count=inbox_count(),done=0;
-    for(int i=0;i<count;i++){
-        SceCtrlData pad;sceCtrlPeekBufferPositive(&pad,1);if(pad.Buttons&PSP_CTRL_CIRCLE)break;
-        int at=inbox_index(i);
-        if(install_app(at,0,i+1,count)==0){inbox_installed(i);done++;}
+void install_inbox(void) {
+    int count = inbox_count(), queued = 0;
+    for (int i = 0; i < count; i++) {
+        SceCtrlData pad;
+        sceCtrlPeekBufferPositive(&pad, 1);
+        if (pad.Buttons & PSP_CTRL_CIRCLE) break;
+        int at = inbox_index(i);
+        int rc = downloads_enqueue(at);
+        if (rc == INSTALL_CANCELLED) break;
+        if (rc == 0) queued++;
     }
     /* One app's own line -- installed, from the user's file, or why not --
        says more than "1 of 1". */
     if (count != 1) {
         char message[96];
-        snprintf(message, sizeof(message), T_INBOX_DONE, done, count);
+        snprintf(message, sizeof(message), "%d of %d added to Downloads", queued, count);
         shell_status(message);
     }
 }

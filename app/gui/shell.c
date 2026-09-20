@@ -42,6 +42,7 @@
 #include "gui/palette.h"
 #include "gui/preview.h"
 #include "session/view.h"
+#include "session/downloads.h"
 #include "update/pspdx.h"
 #include "update/sources.h"
 #include "util/runtime.h"
@@ -250,18 +251,19 @@ void draw_shade(int cx, int cy, int w, int h) {
 static const char *tab_count(int tab) {
     static char text[8];
     snprintf(text, sizeof(text), "%d",
-             tab == TAB_STICK ? view_updates_waiting() : view_basket_count());
+             tab == TAB_DOWNLOADS ? view_download_count() : tab == TAB_STICK ? view_updates_waiting() : view_basket_count());
     return text;
 }
 
 static int tab_counted(int tab) {
-    return tab == TAB_BASKET || (tab == TAB_STICK && view_updates_waiting() > 0);
+    return tab == TAB_DOWNLOADS || tab == TAB_BASKET || (tab == TAB_STICK && view_updates_waiting() > 0);
 }
 
 /* The stick's sign is the stick until something is waiting for it, and the
    update arrows with the count while something is. */
 static enum mark tab_mark(int tab) {
     switch (tab) {
+    case TAB_DOWNLOADS: return MARK_DOWNLOAD;
     case TAB_GEAR: return MARK_GEAR;
     case TAB_BASKET: return MARK_BASKET;
     case TAB_HOMEBREW: return MARK_STORE;
@@ -331,7 +333,7 @@ static void draw_tabs(float t) {
     }
     x = TAB_X - TAB_GAP;
     for (int i = tabs - 1; i >= 0; i--) {
-        if (view_tab_at(i) != TAB_STICK) continue;
+        if (view_tab_at(i) != TAB_STICK && view_tab_at(i) != TAB_DOWNLOADS) continue;
         x -= tab_width(view_tab_at(i));
         draw_tab(view_tab_at(i), i == at, x, t);
         x -= TAB_GAP;
@@ -381,6 +383,7 @@ static const char *tab_word(int tab) {
         return category_word(view_category_open_at());
     switch (tab) {
     case TAB_GEAR: return T_HEAD_GEAR;
+    case TAB_DOWNLOADS: return "Downloads";
     case TAB_STICK: return T_HEAD_STICK;
     case TAB_BASKET: return T_HEAD_BASKET;
     case TAB_UMD: return T_HEAD_UMD;
@@ -411,6 +414,7 @@ static void draw_chrome(const struct catalog *catalog, float t) {
    place. */
 static const char *action_title(void) {
     static char title[32];
+    if (view_tab_kind() == VIEW_TAB_DOWNLOADS) return "Clear finished";
     if (view_tab_kind() != VIEW_TAB_STICK) return T_DOWNLOAD_ALL;
     int waiting = view_updates_waiting();
     if (waiting <= 0) return T_NO_UPDATES;
@@ -432,7 +436,7 @@ static void draw_action_row(int y, int selected, float t) {
                   faded(UPDATE_RGB, (int)((selected ? 255 : 170) * update_pulse(t))),
                   selected ? MARK_LIT : MARK_PLAIN, UPDATE_RGB, t);
     else
-        mark_draw(MARK_BASKET, gx, gy, selected ? g_text : g_dim,
+        mark_draw(view_tab_kind() == VIEW_TAB_DOWNLOADS ? MARK_TICK : MARK_BASKET, gx, gy, selected ? g_text : g_dim,
                   selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     int w = LIST_X + LIST_W - NAME_X;
     /* At the item size the heading can be wider than the column; it walks
@@ -622,6 +626,14 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
             name_w -= 22;
         }
 
+        struct download_status download;
+        if (downloads_status(index, &download)) {
+            float fraction = download.total ? (float)download.done / download.total : 0;
+            if (fraction > 1) fraction = 1;
+            if (download.state == DOWNLOAD_DONE) fraction = 1;
+            gfx_rect((int)(NAME_X + dx), y + ITEM_H - 3, name_w, 2, RGBA(255,255,255,35));
+            gfx_rect((int)(NAME_X + dx), y + ITEM_H - 3, (int)(name_w * fraction), 2, g_accent);
+        }
         font_print_scrolling(FONT_TITLE, NAME_X + dx, y + 21, name_w,
                              selected ? g_text : g_dim, entry->name,
                              selected ? hover_age(0, index) : 0.0f);
@@ -807,6 +819,10 @@ void draw_rows_bar(int count, float first, float t) {
    every package that would come down, what each weighs, the total, and how
    long that is over a PSP's own radio. */
 static void draw_action_panel(const struct catalog *catalog, float t) {
+    if (view_tab_kind() == VIEW_TAB_DOWNLOADS) {
+        draw_setting_note("Clear finished", "Remove completed, failed and cancelled entries from this list. Active downloads keep running.", 0);
+        return;
+    }
     struct view_plan plan;
     char value[48], size[24];
     int y = SHOT_Y + 14;
@@ -1766,7 +1782,7 @@ static void draw_details(void) {
     /* The package's own screen behind everything, fading with the page:
        bright at the top where nothing is read, dark toward the foot, and
        darker again down the left where the words are. */
-    if (still && still_alpha > 0) {
+    if (gfx_fps_cap30() && still && still_alpha > 0) {
         /* Whole and opaque once it is in: the fade ends a hair under 255
            and would leave the room showing through by a hair. */
         int back = still_alpha >= PAGE_STILL_FULL ? 255 : still_alpha;
@@ -1842,6 +1858,17 @@ static void draw_details(void) {
     snprintf(facts, sizeof(facts), "%s  \xc2\xb7  %s  \xc2\xb7  %s%s%s", value, e->author, e->license,
              size[0] ? "  \xc2\xb7  " : "", size);
     pspdx_utf8_mend(facts);
+    struct download_status download;
+    int at = g_catalog ? (int)(e - g_catalog->apps) : -1;
+    if (downloads_status(at, &download)) {
+        float f = download.total ? (float)download.done / download.total : 0;
+        if (f > 1) f = 1;
+        if (download.state == DOWNLOAD_DONE) f = 1;
+        gfx_rect((int)cx, CINE_FACTS_Y - 16, CINE_W, 3, RGBA(255,255,255,45));
+        gfx_rect((int)cx, CINE_FACTS_Y - 16, (int)(CINE_W * f), 3, g_accent);
+        snprintf(facts, sizeof(facts), "%s%s", downloads_label(&download),
+                 downloads_active(at) ? "  -  X: Show download" : "");
+    }
     font_print_clipped(FONT_META, cx, CINE_FACTS_Y, SCR_W - CINE_X - 16, g_text, facts);
 }
 
@@ -1961,7 +1988,8 @@ static void draw_footer(void) {
            do to the package and that thing changes with its state. */
         const struct app_entry *e = g_details;
         float x = LIST_X;
-        const char *word = e->state == APP_UPDATE ? T_HINT_UPDATE
+        const char *word = g_catalog && downloads_active((int)(e - g_catalog->apps)) ? "Download"
+                         : e->state == APP_UPDATE ? T_HINT_UPDATE
                          : e->state == APP_NOT_INSTALLED ? T_MENU_INSTALL : T_MENU_RUN;
         if (!(e->state == APP_NOT_INSTALLED && e->unsupported))
             x = draw_hint(x, FOOTER_BASE, MARK_CROSS, word, g_dim);
@@ -2158,7 +2186,14 @@ void shell_draw(const struct catalog *catalog, int cursor) {
             if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
             else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
             else if (index <= VIEW_ROW_CATEGORY) draw_category_panel(VIEW_ROW_CATEGORY - index);
-            else if (index >= 0) draw_panel(&catalog->apps[index], t);
+            else if (index >= 0 && view_tab_kind() == VIEW_TAB_DOWNLOADS) {
+                struct download_status s;
+                char note[160];
+                downloads_status(index, &s);
+                if (s.total) snprintf(note, sizeof(note), "%s  %u%%\nX: App information\nTriangle: Options", downloads_label(&s), (unsigned)((unsigned long long)s.done * 100 / s.total));
+                else snprintf(note, sizeof(note), "%s\nX: App information\nTriangle: Options", downloads_label(&s));
+                draw_setting_note(catalog->apps[index].name, note, 0);
+            } else if (index >= 0) draw_panel(&catalog->apps[index], t);
         }
     } else if (g_status[0]) {
         /* Nothing to browse yet: the word stands in the room, lit from
@@ -2347,4 +2382,37 @@ void shell_install_end(const char *message) {
     pspdx_utf8_mend(g_status);
     logline("%s", g_status);
     lattice_touch(0.5f);
+}
+
+/* Deliberately static: the main loop redraws only the progress at ~6 Hz.
+   No lattice simulation, video, scrolling text, bloom or audio advances. */
+void shell_download_draw(const struct app_entry *entry, const struct download_status *s) {
+    char amount[96], percent[16];
+    float f = s->total ? (float)s->done / s->total : 0;
+    if (f > 1) f = 1;
+    gfx_veil(256);
+    gfx_frame_begin(RGB(8, 13, 25));
+    gfx_vgrad(0, 0, SCR_W, SCR_H, RGB(10, 19, 36), RGB(5, 9, 18));
+    gfx_glow(400, 32, 190, 120, RGBA(65, 140, 200, 35));
+    for (int y = 200; y < SCR_H; y += 18)
+        gfx_rect(0, y, SCR_W, 1, RGBA(80, 150, 210, 12));
+    unsigned accent = RGB(114, 207, 246), text = RGB(235, 241, 249), dim = RGB(151, 171, 193);
+    mark_draw(MARK_DOWNLOAD, 47, 34, accent, MARK_PLAIN, 0, 0);
+    font_print(FONT_BODY, 64, 39, dim, "Downloads");
+    gfx_hgrad(40, 52, 400, 1, RGBA(115, 185, 220, 100), RGBA(115, 185, 220, 0));
+    font_print_clipped(FONT_TITLE, 40, 87, 400, text, entry->name);
+    font_print(FONT_BODY, 40, 120, dim, downloads_label(s));
+    if (s->total) snprintf(percent, sizeof(percent), "%u%%", (unsigned)(f * 100));
+    else snprintf(percent, sizeof(percent), "--");
+    font_print(FONT_TITLE, 440 - font_width(FONT_TITLE, percent), 120, accent, percent);
+    gfx_rect(40, 143, 400, 6, RGBA(180, 215, 240, 35));
+    gfx_rect(40, 143, (int)(400 * f), 6, accent);
+    if (s->total) snprintf(amount, sizeof(amount), "%.2f / %.2f MB", s->done / 1048576.0, s->total / 1048576.0);
+    else snprintf(amount, sizeof(amount), "Your download will continue if you leave this screen.");
+    font_print(FONT_META, 40, 175, dim, amount);
+    mark_draw(MARK_CIRCLE, 46, 221, text, MARK_PLAIN, 0, 0);
+    font_print(FONT_BODY, 60, 226, text, "Continue in background");
+    mark_draw(MARK_SQUARE, 46, 246, dim, MARK_PLAIN, 0, 0);
+    font_print(FONT_META, 60, 251, dim, "Cancel download");
+    gfx_frame_end();
 }

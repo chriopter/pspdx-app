@@ -36,6 +36,7 @@
 #include "network/bench.h"
 #include "session/view.h"
 #include "session/actions.h"
+#include "session/downloads.h"
 #include "session/questions.h"
 #include "session/options.h"
 #include "update/catalog.h"
@@ -59,6 +60,7 @@ static int exit_callback(int a, int b, void *c) {
        pool has been sitting in RAM until here, so this is where it reaches the
        stick -- 32 bytes, once, instead of the same sector every few
        seconds. */
+    downloads_shutdown();
     entropy_save(entropy_screen_is_replay());
     options_settings_save();
     sceKernelExitGame();
@@ -425,6 +427,26 @@ int main(int argc, char *argv[]) {
     unsigned bucket[4] = { 0, 0, 0, 0 };
     osk_frame(osk_draw, &cursor);
     for (;;) {
+        int download_modal = asking() || menu_shown() || popup_shown();
+        if (synced && downloads_tick(cursor, download_modal)) view_settled(&cursor);
+        /* The unattended rig's second screenshot belongs after completion,
+           not after the asynchronous enqueue call. */
+        if (automatic >= 0 && !downloads_busy() && !download_modal) {
+            screenshot_settled(cursor, storage_path("PSP/PSPDX/DEBUG/PSPDX2.BMP"));
+            dump_diagnostics();
+            automatic = -1;
+        }
+        if (downloads_focused() && !download_modal) {
+            SceCtrlData focus_pad;
+            if (sceCtrlReadBufferPositive(&focus_pad, 1) > 0) {
+                unsigned focus_pressed = focus_pad.Buttons & ~last_buttons;
+                last_buttons = focus_pad.Buttons;
+                downloads_focus_frame(focus_pressed);
+            }
+            frame_us = now_us();
+            idle_since = now_ms();
+            continue;
+        }
         unsigned now = now_us(), took = now - frame_us;
         frame_us = now;
         frames++; total += took;
@@ -546,7 +568,7 @@ int main(int argc, char *argv[]) {
                 if (automatic >= 0) {
                     cursor = view_row(automatic);
                     if (cursor < 0) cursor = 0;
-                    install_app(automatic, 1, 0, 0);
+                    if (downloads_enqueue(automatic) < 0) automatic = -1;
                     dump_diagnostics();
                     view_settled(&cursor);
                 }
@@ -691,7 +713,8 @@ int main(int argc, char *argv[]) {
                    have it, have the newer one, or start it, each asked
                    about first. */
                 const struct app_entry *e = &catalog.apps[details_of];
-                if (e->state == APP_NOT_INSTALLED || e->state == APP_UPDATE)
+                if (downloads_active(details_of)) downloads_focus(details_of);
+                else if (e->state == APP_NOT_INSTALLED || e->state == APP_UPDATE)
                     ask_install(details_of);
                 else {
                     char title[64];
@@ -749,7 +772,10 @@ int main(int argc, char *argv[]) {
                 /* X opens the package's page; the job rows do their job.
                    The options, with the same things and the rest, are on
                    triangle. */
-                if (at == VIEW_ROW_ACTION) {
+                if (at == VIEW_ROW_ACTION && view_tab_kind() == VIEW_TAB_DOWNLOADS) {
+                    downloads_clear_finished();
+                    view_settled(&cursor);
+                } else if (at == VIEW_ROW_ACTION) {
                     struct view_plan plan;
                     view_action_plan(&plan);
                     if (plan.apps <= 0 && view_tab_kind() == VIEW_TAB_STICK) {

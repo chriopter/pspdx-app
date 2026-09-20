@@ -20,6 +20,7 @@
 #include "gui/sources_view.h"
 #include "gui/system_view.h"
 #include "session/actions.h"
+#include "session/downloads.h"
 #include "session/manage_sources.h"
 #include "session/options.h"
 #include "session/questions.h"
@@ -32,15 +33,24 @@
 #define SETTINGS_PATH "PSP/PSPDX/settings.txt"
 
 static int g_settings_dirty;
-static int g_settings_fps_cap30 = 1;
+static int g_settings_fps_cap30;
+static int g_runtime_fps_cap30, g_download_mode;
+static void apply_fps(void) {
+    gfx_set_fps_cap30(g_download_mode ? 0 : g_runtime_fps_cap30);
+}
+int options_fps_requested(void) { return g_runtime_fps_cap30; }
+void options_download_mode(int on) {
+    g_download_mode = !!on;
+    apply_fps();
+}
 
 void options_settings_load(void) {
     char *text = NULL;
     int n = storage_read(storage_path(SETTINGS_PATH), &text, 32);
-    /* Be deliberately strict: an interrupted edit or a future format does not
-       get to opt old hardware into the more demanding mode. */
-    g_settings_fps_cap30 = !(n == 7 && !memcmp(text, "fps=60\n", 7));
-    gfx_set_fps_cap30(g_settings_fps_cap30);
+    /* Baked rendering is opt-in; missing or invalid settings use 60 FPS. */
+    g_settings_fps_cap30 = n == 7 && !memcmp(text, "fps=30\n", 7);
+    g_runtime_fps_cap30 = g_settings_fps_cap30;
+    apply_fps();
     free(text);
     g_settings_dirty = 0;
 }
@@ -71,6 +81,7 @@ static struct menu g_menu;
 static int g_row[CHOICE_COUNT];
 static char g_menu_title[48];
 static int g_menu_open, g_menu_of, g_details_from_menu, g_details_index = -1;
+static int g_menu_download;
 int menu_details_index(void) { return g_details_index; }
 
 /* The keys that do a row's thing without the menu, named at the row: the
@@ -92,6 +103,7 @@ static int row_of(enum choice c) {
 
 void menu_open(int index) {
     g_details_index = -1;
+    g_menu_download = downloads_active(index);
     const struct app_entry *entry = &actions_catalog()->apps[index];
     int installed = entry->state != APP_NOT_INSTALLED;
     snprintf(g_menu_title, sizeof(g_menu_title), "%s", entry->name);
@@ -116,6 +128,7 @@ void menu_open(int index) {
     else
         snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]),
                  installed ? T_MENU_REINSTALL : T_MENU_INSTALL);
+    if (downloads_active(index)) snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), "Cancel download");
     snprintf(g_choice_text[CHOICE_DELETE], sizeof(g_choice_text[0]), T_MENU_DELETE);
     /* The basket is for what is not on the stick yet, so only such a package
        has the row; one already in the basket keeps it, to come out again.
@@ -124,11 +137,11 @@ void menu_open(int index) {
     snprintf(g_choice_text[CHOICE_BASKET], sizeof(g_choice_text[0]), "%s\x01%c",
              view_basket_has(index) ? T_MENU_BASKET_OUT : T_MENU_BASKET_IN, (char)(MARK_BASKET + 1));
     snprintf(g_choice_text[CHOICE_DETAILS], sizeof(g_choice_text[0]), T_MENU_INFO);
-    g_choice_on[CHOICE_RUN] = installed;
+    g_choice_on[CHOICE_RUN] = installed && !downloads_busy();
     /* What cannot be installed yet keeps its row, grey, so the menu has the
        same five rows for every package. */
     g_choice_on[CHOICE_GET] = !entry->unsupported;
-    g_choice_on[CHOICE_DELETE] = installed && strcmp(entry->id, PSPDX_SELF_ID) != 0;
+    g_choice_on[CHOICE_DELETE] = !downloads_busy() && installed && strcmp(entry->id, PSPDX_SELF_ID) != 0;
     g_choice_on[CHOICE_BASKET] = !entry->unsupported || view_basket_has(index);
     g_choice_on[CHOICE_DETAILS] = 1;
     for (int i = 0; i < CHOICE_COUNT; i++) g_choice_shown[i] = 1;
@@ -187,8 +200,9 @@ static void fake_updates(int on) {
 static void sub_push(void);
 
 void options_fps_toggle_saved(void) {
-    int cap30 = !gfx_fps_cap30();
-    gfx_set_fps_cap30(cap30);
+    int cap30 = !g_runtime_fps_cap30;
+    g_runtime_fps_cap30 = cap30;
+    apply_fps();
     g_settings_fps_cap30 = cap30;
     g_settings_dirty = 1;
 }
@@ -196,7 +210,8 @@ void options_fps_toggle_saved(void) {
 void options_fps_runtime_toggle(void) {
     /* SELECT is a session preview. It deliberately changes only gfx's live
        mode; the value loaded from or chosen for settings remains untouched. */
-    gfx_set_fps_cap30(!gfx_fps_cap30());
+    g_runtime_fps_cap30 = !g_runtime_fps_cap30;
+    apply_fps();
 }
 
 static void sub_push(void) {
@@ -344,7 +359,8 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             /* Deleting cannot be undone by pressing the same button
                again, and a first install is a download worth a look at
                the size, so both are asked about. */
-            if (chosen == CHOICE_DELETE) ask_remove(index);
+            if (chosen == CHOICE_GET && g_menu_download) downloads_cancel(index);
+            else if (chosen == CHOICE_DELETE) ask_remove(index);
             else if (chosen == CHOICE_GET && (actions_catalog()->apps[index].state == APP_NOT_INSTALLED ||
                                               actions_catalog()->apps[index].state == APP_UPDATE))
                 ask_install(index);
@@ -360,7 +376,7 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
                 g_details_from_menu = 1;
                 g_details_index = index;
             } else {
-                install_app(index, 0, 0, 0);
+                downloads_enqueue(index);
                 dump_diagnostics();
                 view_settled(cursor);
                 *count = view_count();

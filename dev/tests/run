@@ -15,5 +15,13 @@ cc -g -O1 -fsanitize=address,undefined -I"$HERE/host" -I"$APP" \
   "$HERE/host/image.c" "$APP/gui/image.c" $(pkg-config --cflags --libs libpng) -o "$TEST_WORK/image"
 cc -g -O1 -fsanitize=address,undefined -I"$APP" \
   "$HERE/host/video.c" "$APP/video/mp4.c" "$APP/video/psmf.c" -o "$TEST_WORK/video"
+cc -g -O1 -fsanitize=address,undefined -pthread \
+  -I"$HERE/downloads" -I"$APP" -I"$APP/lib/pspkit-https/include" \
+  "$HERE/downloads/test.c" "$APP/session/downloads.c" "$APP/session/view.c" -o "$TEST_WORK/downloads"
+cc -g -O1 -ffunction-sections -fdata-sections -fsanitize=address,undefined \
+  -I"$HERE/downloads" -I"$APP" -I"$APP/lib/pspkit-https/include" \
+  "$HERE/downloads/settings.c" "$APP/session/options.c" -Wl,--gc-sections -o "$TEST_WORK/settings"
+"$TEST_WORK/downloads"
+"$TEST_WORK/settings"
 ASAN_OPTIONS=detect_leaks=0 "$TEST_WORK/video" "$APP/assets/icon1.pmf"
 PSPDX_TEST_BIN="$TEST_WORK/client" PSPDX_IMAGE_BIN="$TEST_WORK/image" python3 "$HERE/test_client.py" -v

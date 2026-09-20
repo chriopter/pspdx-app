@@ -302,7 +302,7 @@ void gfx_frame_overlay(void (*overlay)(void)) { g_overlay = overlay; }
    Pacing is against an absolute vblank below: two relative waits turn a frame
    which took just over 16.7 ms into a 50 ms frame instead of the intended
    33 ms one. */
-static int g_fps_cap30 = 1;
+static int g_fps_cap30;
 void gfx_set_fps_cap30(int on) { g_fps_cap30 = on ? 1 : 0; }
 int gfx_fps_cap30(void) { return g_fps_cap30; }
 int gfx_target_fps(void) { return g_fps_cap30 ? 30 : 60; }

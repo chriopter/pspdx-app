@@ -23,7 +23,7 @@ void gfx_frame_begin(unsigned clear);
 void gfx_frame_end(void);
 unsigned gfx_frames(void);
 
-/* Frame-rate mode: 30 is the startup default and presents every second
+/* Frame-rate mode: 60 is the startup default; 30 is opt-in and presents every second
    vblank; off targets every vblank for 60. Missed deadlines re-anchor at the
    next safe boundary instead of adding another complete interval. */
 void gfx_set_fps_cap30(int on);

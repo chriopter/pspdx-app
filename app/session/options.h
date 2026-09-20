@@ -15,13 +15,15 @@ void menu_open(int index);
 enum sub { SUB_NONE, SUB_ADD };
 void sub_open(enum sub which);
 
-/* A missing or malformed settings file means the hardware-safe 30 FPS
+/* A missing or malformed settings file means the 60 FPS
    default. Saves wait for orderly exit, so a menu choice never stalls a
    frame on Memory Stick I/O. */
 void options_settings_load(void);
 void options_settings_save(void);
 /* SELECT's live 30/60 switch. It updates no persisted setting. */
 void options_fps_runtime_toggle(void);
+int options_fps_requested(void);
+void options_download_mode(int on);
 
 /* Sources, the view the gear's first row opens in place of the list: Add
    Source, Direct Install, and a row per source that X deletes, asked

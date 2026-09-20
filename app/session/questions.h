@@ -13,7 +13,7 @@
 /* Which question stands, and what it is about: a catalog index for the
    ones about a package, a row of the sources list for ASK_CATALOG, -1 for
    the rest. */
-enum question { ASK_NOTHING, ASK_INSTALL, ASK_ASIDE, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART, ASK_TRUST };
+enum question { ASK_NOTHING, ASK_INSTALL, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART, ASK_TRUST };
 
 /* The questions that put themselves into words: fetching one package (or
    parking what is in its way first), removing it, fetching the whole tab,

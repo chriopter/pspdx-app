@@ -42,6 +42,9 @@ void preview_poke(void);
    buffer are free for whoever asks -- an install, say -- and lets it go
    again. quiesce waits for a fetch in flight to finish. */
 void preview_quiesce(void);
+/* Non-blocking ownership handoff, polled by the download queue. */
+void preview_pause_begin(void);
+int preview_pause_ready(void);
 void preview_resume(void);
 
 /* What to draw on the card, bottom to top: the still (or NULL), then the

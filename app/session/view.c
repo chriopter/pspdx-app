@@ -32,6 +32,15 @@ static unsigned g_generation;           /* counted up when the rows stand for ot
 /* The basket: catalog indices set aside this session, a bit each. */
 static unsigned char g_basket[(MAX_APPS + 7) / 8];
 static int g_basket_n;
+static unsigned g_downloads[MAX_APPS];
+void view_download_set(int index, unsigned order) {
+    if (index >= 0 && index < MAX_APPS) g_downloads[index] = order;
+}
+int view_download_count(void) {
+    int n = 0;
+    for (int i = 0; i < MAX_APPS; i++) n += g_downloads[i] != 0;
+    return n;
+}
 
 int view_basket_has(int index) {
     if (index < 0 || index >= MAX_APPS) return 0;
@@ -143,6 +152,7 @@ static void build_view(int restart) {
             take = g_cat_open < 0 || category_of(&g_view_of->apps[i]) == g_cat_open;
         else if (tab == TAB_STICK) take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_BASKET) take = view_basket_has(i);
+        else if (tab == TAB_DOWNLOADS) take = g_downloads[i] != 0;
         else take = 0;      /* the gear's rows are not packages; the UMD has none */
         if (take) g_view[g_view_count++] = (unsigned char)i;
     }
@@ -158,10 +168,20 @@ static void build_view(int restart) {
             }
         memcpy(g_view, sorted, (size_t)n);
     }
+    if (tab == TAB_DOWNLOADS) {
+        for (int i = 1; i < g_view_count; i++) {
+            unsigned char value = g_view[i];
+            int j = i;
+            while (j > 0 && g_downloads[g_view[j - 1]] > g_downloads[value]) {
+                g_view[j] = g_view[j - 1]; j--;
+            }
+            g_view[j] = value;
+        }
+    }
     /* A tab that is a job as well as a list carries the job itself at
        the top, above the packages it would be done to -- the stick only
        while there is a job on it. */
-    g_view_action = tab == TAB_BASKET || tab == TAB_STICK;
+    g_view_action = tab == TAB_BASKET || tab == TAB_STICK || tab == TAB_DOWNLOADS;
     if (!restart) return;
     g_generation++;
 }
@@ -176,6 +196,7 @@ static int collect_tabs(int keep) {
     int installed = 0;
     for (int i = 0; i < g_view_of->count; i++)
         if (g_view_of->apps[i].state != APP_NOT_INSTALLED) installed = 1;
+    if (view_download_count()) g_tab[g_tabs++] = TAB_DOWNLOADS;
     if (installed) g_tab[g_tabs++] = TAB_STICK;
     g_tab[g_tabs++] = TAB_HOMEBREW;
     g_tab[g_tabs++] = TAB_UMD;
@@ -198,6 +219,7 @@ void view_rebuild(const struct catalog *catalog) {
        seventeen of the new catalog is not the package row seventeen of the
        old one was. Nothing is carried across. */
     view_basket_clear();
+    memset(g_downloads, 0, sizeof(g_downloads));
     g_view_of = catalog;
     g_cat_open = -1;
     collect_categories();
@@ -238,7 +260,8 @@ int view_row(int index) {
 
 enum view_tab_kind view_tab_kind(void) {
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
-    return tab == TAB_GEAR ? VIEW_TAB_GEAR
+    return tab == TAB_DOWNLOADS ? VIEW_TAB_DOWNLOADS
+         : tab == TAB_GEAR ? VIEW_TAB_GEAR
          : tab == TAB_STICK ? VIEW_TAB_STICK
          : tab == TAB_BASKET ? VIEW_TAB_BASKET
          : tab == TAB_UMD ? VIEW_TAB_UMD : VIEW_TAB_HOMEBREW;
@@ -246,7 +269,7 @@ enum view_tab_kind view_tab_kind(void) {
 
 void view_action_plan(struct view_plan *plan) {
     memset(plan, 0, sizeof(*plan));
-    if (!g_view_of || !g_view_action) return;
+    if (!g_view_of || !g_view_action || view_tab_kind() == VIEW_TAB_DOWNLOADS) return;
     plan->updates = g_tab[g_tab_at] == TAB_STICK;
     for (int row = 0; row < g_view_count; row++) {
         const struct app_entry *entry = &g_view_of->apps[g_view[row]];

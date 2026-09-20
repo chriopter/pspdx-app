@@ -123,4 +123,7 @@ void shell_install_phase(void *ctx, const char *phase);
 void shell_install_progress(void *ctx, size_t done, size_t total);
 void shell_install_end(const char *message);
 
+struct download_status;
+void shell_download_draw(const struct app_entry *entry, const struct download_status *status);
+
 #endif

@@ -392,24 +392,30 @@ void preview_shutdown(void) {
     g_want.id[0] = '\0';
 }
 
-void preview_quiesce(void) {
+static int g_pause_ready;
+void preview_pause_begin(void) {
+    g_pause_ready = g_thread < 0;
     if (g_thread < 0) return;
-    /* Every wake the thread takes while held is answered with an idle
-       signal, and a poke for icons during an install is such a wake -- so
-       the count can be ahead of the holds. A stale signal left over would
-       let the next quiesce return while the thread is still in a fetch,
-       and the installer and the media thread would then share the HTTPS
-       stack and the asset buffer at once. The soak found exactly that: a
-       film fetched in the middle of an unpack. So the count is drained
-       first, and the one waited for is the one this hold earns. */
+    /* Discard idle signals from earlier holds: only this hold's reply
+       establishes that the shared HTTPS stack is free for the installer. */
     while (sceKernelPollSema(g_idle, 1) == 0) {}
     g_hold = 1;
     wake();
-    sceKernelWaitSema(g_idle, 1, 0);
 }
-
+int preview_pause_ready(void) {
+    if (!g_pause_ready && sceKernelPollSema(g_idle, 1) == 0) g_pause_ready = 1;
+    return g_pause_ready;
+}
+void preview_quiesce(void) {
+    preview_pause_begin();
+    if (!g_pause_ready) {
+        sceKernelWaitSema(g_idle, 1, 0);
+        g_pause_ready = 1;
+    }
+}
 void preview_resume(void) {
     g_hold = 0;
+    g_pause_ready = 0;
     wake();
 }
 

@@ -9,6 +9,8 @@
 
 int audio_start(void);
 void audio_stop(void);
+/* Pause synthesis and decoding without advancing playback positions. */
+void audio_pause(int on);
 
 /* Load the AV/audio modules (booting the Media Engine) ahead of audio_start,
    so it happens before the entropy sweep touches the GE. Idempotent. */

@@ -33,6 +33,7 @@ int player_failed(void);
 /* Stops the thread and lets go of everything, after any decode in flight
    has finished. Safe when nothing was started. */
 void player_stop(void);
+void player_pause(int on);
 
 /* Loads the firmware's AVCODEC module, once, for whichever side asks
    first: the film's decoder sits on it and so does the card's sound, and

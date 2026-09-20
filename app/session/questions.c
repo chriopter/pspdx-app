@@ -15,6 +15,7 @@
 #include "install/state.h"
 #include "pspkit-https/https.h"
 #include "session/actions.h"
+#include "session/downloads.h"
 #include "session/questions.h"
 #include "session/view.h"
 #include "update/inbox.h"
@@ -37,6 +38,7 @@ struct sources *question_sources(void) {
 }
 
 void ask_install(int index) {
+    if (downloads_active(index)) { downloads_focus(index); return; }
     const struct app_entry *entry = &actions_catalog()->apps[index];
     if (entry->unsupported) {
         char refused[96];
@@ -63,37 +65,6 @@ void ask_install(int index) {
     pspdx_utf8_mend(line);
     struct installed previous;
     int recorded = db_read(entry->id, &previous) == 0;
-    /* Something already under the name the release wants, and not this
-       app's own directory. The installer would refuse it; the shell says
-       so first, and for the one case it can do something about -- a
-       directory somebody copied there by hand -- offers to park it under
-       .bak. That is a single rename, so nothing is half-done if the
-       battery comes out; the transaction's own backup name, .old, is left
-       to the transaction. A .bak is the user's and is never touched. */
-    const char *dir = entry->release.dir;
-    if (dir[0] && !(recorded && !strcasecmp(previous.dir, dir))) {
-        char dest[160], bak[160];
-        snprintf(dest, sizeof(dest), storage_path("PSP/GAME/%s"), dir);
-        snprintf(bak, sizeof(bak), storage_path("PSP/GAME/%s.bak"), dir);
-        if (state_target_owner(dir, entry->id) == 1) {
-            snprintf(line, sizeof(line), T_DIR_OTHER_APP, dir);
-            shell_status(line);
-            return;
-        }
-        if (storage_exists(dest)) {
-            if (storage_exists(bak)) {
-                snprintf(line, sizeof(line), T_DIR_BAK_EXISTS, dir);
-                shell_status(line);
-                return;
-            }
-            snprintf(title, sizeof(title), T_DIR_EXISTS_ASK, dir);
-            snprintf(line, sizeof(line), T_DIR_EXISTS_LINE, dir);
-            shell_ask(title, line);
-            g_question = ASK_ASIDE;
-            g_question_of = index;
-            return;
-        }
-    }
     /* A release that names another directory than the one installed is
        said so, after the version: the app is going to live elsewhere. A
        name that differs only in case is the same directory to the stick
@@ -170,6 +141,8 @@ static void ask_forget(void) {
 }
 
 void ask_inbox(void){
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    downloads_reset();
     preview_quiesce();catalog_offline(https_net_connect()<0);
     shell_word(T_WORD_INBOX);
     int n=inbox_scan(actions_catalog());preview_resume();view_rebuild(actions_catalog());
@@ -231,8 +204,7 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         enum question asked = g_question;
         int index = g_question_of;
         ask_forget();
-        if (asked == ASK_INSTALL) install_app(index, 0, 0, 0);
-        else if (asked == ASK_ASIDE) { if (set_aside(index) == 0) install_app(index, 0, 0, 0); }
+        if (asked == ASK_INSTALL) downloads_enqueue(index);
         else if (asked == ASK_ALL) install_all();
         else if (asked == ASK_INBOX) install_inbox();
         else if (asked == ASK_RESET) reset_completely();
@@ -243,6 +215,7 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
             refetch_now(*cursor, keep, keep_size, synced, refreshing);
         }
         else if (asked == ASK_CATALOG) {
+            if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return 1; }
             if (index >= 0 && index < g_sources.count &&
                 sources_remove(g_sources.url[index]) > 0)
                 refetch_now(*cursor, keep, keep_size, synced, refreshing);

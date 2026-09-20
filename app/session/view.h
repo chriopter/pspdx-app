@@ -33,7 +33,7 @@ unsigned view_generation(void);
    what is in them, and both carry one row that is not a package but the
    whole tab as a thing to do. */
 enum view_tab_kind { VIEW_TAB_HOMEBREW, VIEW_TAB_STICK, VIEW_TAB_BASKET,
-                     VIEW_TAB_GEAR, VIEW_TAB_UMD };
+                     VIEW_TAB_GEAR, VIEW_TAB_UMD, VIEW_TAB_DOWNLOADS };
 enum view_tab_kind view_tab_kind(void);
 
 /* A tab is a number: Homebrew, everything the catalogs publish, at zero, and
@@ -43,7 +43,8 @@ enum view_tab_kind view_tab_kind(void);
 #define TAB_STICK   (-2)
 #define TAB_GEAR    (-3)
 #define TAB_UMD     (-4)
-#define TAB_COUNT   5       /* all of them on screen at once */
+#define TAB_DOWNLOADS (-5)
+#define TAB_COUNT   6       /* all of them on screen at once */
 
 /* The tab that is open; the ones on screen, in their order, by position;
    and which position is the open one. */
@@ -112,6 +113,8 @@ int view_tabs_refresh(void);
 
 /* How many tabs are on screen: none until there is a catalog. */
 int view_tab_count(void);
+void view_download_set(int index, unsigned order);
+int view_download_count(void);
 
 /* L and R: one tab along, wrapping. The view follows; the caller resets
    its cursor. */

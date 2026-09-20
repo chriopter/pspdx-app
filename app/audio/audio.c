@@ -32,7 +32,8 @@ static int g_up;
 static int g_channel = -1;
 static SceUID g_thread = -1;
 static SceUID g_snd_thread = -1;
-static volatile int g_quit;
+static volatile int g_quit, g_paused;
+void audio_pause(int on) { g_paused = !!on; }
 static volatile unsigned g_worst_us;
 static volatile unsigned g_snd_worst_us;
 static volatile unsigned g_output_worst_us;
@@ -234,6 +235,7 @@ static int sound_run(SceSize args, void *argp) {
        there also makes a stop/start cycle safe when seq has moved past zero. */
     unsigned current = g_snd_ready;
     while (!g_quit) {
+        if (g_paused) { sceKernelDelayThread(10000); continue; }
         unsigned want = g_snd_want;
         if (want != current) {
             if (!sound_take(want)) { sceKernelDelayThread(1000); continue; }
@@ -382,6 +384,7 @@ static int run(SceSize args, void *argp) {
     (void)args; (void)argp;
     int b = 0;
     while (!g_quit) {
+        if (g_paused) { sceKernelDelayThread(10000); continue; }
         unsigned t0 = now_us();
         music_render_output(g_buf[b]);
         sound_render(g_buf[b], CHUNK);

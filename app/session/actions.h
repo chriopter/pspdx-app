@@ -6,8 +6,8 @@
 #include "update/catalog.h"
 
 /* What the session does: installs, removing, starting a package, fetching
-   the catalog again, the sweep, the cache and the reset. Each holds the
-   loop until it is over. The questions that stand before them are
+   the catalog again, the sweep, the cache and the reset. Downloads run
+   asynchronously; their dialogs and completion updates stay on the main thread. The questions that stand before them are
    session/questions.h's. */
 
 /* The catalog every action works on -- main.c's, handed over once, and
@@ -25,11 +25,12 @@ void dump_diagnostics(void);
 /* Frames until the shell has settled, then a screenshot to path. */
 void screenshot_settled(int cursor, const char *path);
 
-/* One package fetched and unpacked, the band saying so meanwhile. index is
-   a catalog index; at and of place the install in a run of them, both zero
-   for one that is only itself; screenshot takes PSPDX2.BMP after. Returns
-   the installer's result, 0 when the package is on the stick. */
-int install_app(int index, int screenshot, int at, int of);
+/* Queue hooks, main thread only: dialogs and publishing a worker result. */
+int actions_download_device(const struct app_entry *entry, char out[5]);
+int actions_download_connect(void);
+int actions_download_folder(const struct app_entry *entry, const char *dev, int row);
+void actions_download_complete(int index, struct app_entry *prepared,
+                               const struct install_report *report, int rc, unsigned seconds);
 
 /* Set when PSPDX has replaced itself: the loop asks to restart once the
    install that did it, or the batch it was the last of, is over. Hands
@@ -38,10 +39,6 @@ int restart_take(char *version, size_t size);
 
 void uninstall_app(int index);
 void launch_app(int index);
-
-/* The answer to ASK_ASIDE: the directory in the release's way renamed to
-   .bak. 0 when it moved. */
-int set_aside(int index);
 
 /* The action row taken: everything the tab holds, one after another. */
 void install_all(void);

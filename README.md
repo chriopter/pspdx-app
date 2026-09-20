@@ -12,6 +12,13 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 
 Just install, start and search for homebrew! Updates are shown automatically. Needs ARK-5 for WPA2.
 
+Downloads open a quiet progress screen: **Circle** continues in the background,
+**Square** cancels. The left Downloads tab lists queued and finished apps; each
+app's information page also shows its progress.
+
+The UI defaults to **60 FPS**. Baked mode is optional and temporarily switches to
+the 60-FPS interface while downloads are queued or running.
+
 Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 
 ## How it works
@@ -136,6 +143,7 @@ flowchart TD
   overlay --> state
 ```
 
+- On PSP Go, each new installation asks for **System Storage** or **Memory Stick**; an absent card cannot be selected. Updates and reinstalls keep the recorded device, including saves and settings.
 - Only the folder holding the single `EBOOT.PBP` is installed
 - **Updates keep your files:** files the ZIP ships are replaced or added, everything else in the folder stays; files an older version shipped and the new one doesn't are left over. **Delete** removes the whole folder
 - An author who moves `installdir` moves the folder with your files in it, then the release is laid over it
@@ -215,7 +223,8 @@ direct    ->  raw.githubusercontent.com   .pspdx, up to 16 KB
 download  ->  release ZIP, following GitHub asset redirects
 ```
 
-- First saved PSP network profile
+- At startup the PSP system network dialog lets you select or create a Wi-Fi connection
+- Cancel to browse offline; checking again or installing can reopen the dialog
 - Everything over HTTPS
 - A catalog, `.pspdx` or API answer has 120 s in all; a response head 30 s
 - Only a catalog asks for gzip, inflated as it arrives into a 512 KB buffer; `pspdx.log` says `fetch: <n> bytes gzipped, <m> inflated`. A ZIP is never asked for compressed
@@ -349,7 +358,7 @@ for an app installed from a catalog entry, it is the entry's words.
 | Field | Contents |
 |---|---|
 | `source`, `added_from` | Original repository and import route |
-| `installed` | Version, `published_at`, SHA-256, install directory, and `pspdx_installdir`: the folder the `.pspdx` named at install |
+| `installed` | Version, `published_at`, SHA-256, install directory, `device` (`ef0:` or `ms0:`), and `pspdx_installdir`: the folder the `.pspdx` named at install |
 | `latest` | Version, `published_at`, download URL, size, SHA-256, last successful check time and source |
 | `update_check`, `manifest_url` | Written by older versions; read and ignored |
 
@@ -366,7 +375,8 @@ browse                  ->  writes nothing
 #### Recovery and housekeeping
 
 - Recoverable writes may leave `.new` or `.bak` files
-- Staging stays under `GAME/` and an update's copies beside their files: PSP renames need the same parent
+- Records and the download stay on PSPDX's startup device; the transaction journal also records the target device. Recovery waits if that device is unavailable. Legacy records without a device use the startup device.
+- Staging stays on the target device under `GAME/` and an update's copies beside their files: PSP renames need the same parent
 - Keep `INSTALLED/`; `CACHE/` is disposable; never delete a pending transaction's files
 - Only per-app state files load; older combined state files are ignored
 - Corrupt records are preserved and block writes; a NUL in a string or a SHA-256 of zeros makes a record corrupt

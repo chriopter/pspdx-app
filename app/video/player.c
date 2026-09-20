@@ -46,7 +46,8 @@ static SceUID g_free = -1;
 static void *g_buf[2];
 static int g_write;
 static void *volatile g_ready;
-static volatile int g_quit, g_failed;
+static volatile int g_quit, g_failed, g_paused;
+void player_pause(int on) { g_paused = !!on; }
 
 /* The decoder pulls packs through this; it is what makes the stream a
    ring rather than a file. */
@@ -269,6 +270,12 @@ static int decode_thread(SceSize args, void *argp) {
     int paced = 0;
 
     while (!g_quit) {
+        if (g_paused) {
+            unsigned before = now_ms();
+            sceKernelDelayThread(10000);
+            started += now_ms() - before;
+            continue;
+        }
         /* The film's own rate by the clock, not by the frame: when the
            thread was held off for a while the next pictures come back to
            back until the film is in step again. */
