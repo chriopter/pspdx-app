@@ -8,7 +8,6 @@
 
 #define PACK_HEADER 14
 #define PES_MIN 9                   /* start code, length, three flag bytes */
-#define PES_PTS 5
 
 struct writer {
     unsigned char *out;
@@ -30,6 +29,24 @@ static void put_ts48(struct writer *w, unsigned long long ts) {
     put16(w, (unsigned)(ts >> 32)); put32(w, (unsigned)ts);
 }
 
+/* The layout below is Sony's, read off three PSMF files Sony's own tools
+   made (the devbook's graphics/video note has the dumps): every GOP starts
+   a fresh pack that opens with a system header and a private-stream-2
+   packet indexing the sizes of the GOP's access units; the video PES that
+   follows carries PTS and DTS and a P-STD extension; inside the GOP a PTS
+   and DTS return every sixteenth picture; every access unit begins with an
+   access unit delimiter; the pack before a GOP is padded out. sceMpeg on
+   hardware wants the index -- a program stream that opens with the video
+   PES itself is refused before decoder setup -- so the client's reader
+   refuses it too, in psmf_decoder_header. */
+
+#define MUX_RATE 25000              /* 50-byte units: 1.25 MB/s, what every Sony file declares */
+#define PSTD_VIDEO 0x0FB            /* the video buffer bound, in KB: Sony's 251 */
+#define PACK_TICKS 147              /* a pack's worth of clock at MUX_RATE: 2048 B over 1.25 MB/s */
+#define SCR_LEAD 45000              /* the clock runs half a second ahead of the pictures */
+#define STAMP_EVERY 16              /* pictures between timestamps inside a GOP */
+#define GOP_MAX 400                 /* index entries that still leave the first pack room */
+
 /* MPEG-2 pack header: marker bits the demuxers check, a clock, a rate. */
 static void pack_header(struct writer *w, unsigned long long scr) {
     unsigned char h[PACK_HEADER];
@@ -40,7 +57,7 @@ static void pack_header(struct writer *w, unsigned long long scr) {
     h[7] = (unsigned char)((scr >> 5) & 0xFF);
     h[8] = (unsigned char)(0x04 | ((scr & 0x1F) << 3));   /* SCR_ext = 0 */
     h[9] = 0x01;
-    unsigned rate = 1500;                                  /* 75 KB/s in 50-byte units */
+    unsigned rate = MUX_RATE;
     h[10] = (unsigned char)(rate >> 14);
     h[11] = (unsigned char)(rate >> 6);
     h[12] = (unsigned char)(((rate & 0x3F) << 2) | 3);
@@ -48,21 +65,23 @@ static void pack_header(struct writer *w, unsigned long long scr) {
     put(w, h, sizeof(h));
 }
 
-static void pes_pts(struct writer *w, unsigned long long pts) {
-    put8(w, 0x21 | (unsigned)(((pts >> 30) & 7) << 1));
-    put16(w, 0x0001 | (unsigned)(((pts >> 15) & 0x7FFF) << 1));
-    put16(w, 0x0001 | (unsigned)((pts & 0x7FFF) << 1));
+static void pes_ts(struct writer *w, unsigned prefix, unsigned long long ts) {
+    put8(w, prefix | (unsigned)(((ts >> 30) & 7) << 1));
+    put16(w, 0x0001 | (unsigned)(((ts >> 15) & 0x7FFF) << 1));
+    put16(w, 0x0001 | (unsigned)((ts & 0x7FFF) << 1));
 }
 
 /* Packs are filled continuously: a PES packet starts wherever the last one
    ended, and only when a pack has no room left for another header and a
    few bytes of payload is the rest padded and a new pack begun. Otherwise
    half a pack per frame is lost to padding, which for 300 frames is more
-   than the film. */
+   than the film. A GOP is the exception: it always opens a pack of its own. */
 struct packer {
     struct writer w;
     size_t pack_start;          /* w.pos of the current pack, or 0 if none */
-    unsigned long long scr;
+    unsigned long long scr;     /* the clock the last pack was stamped with */
+    unsigned long long floor;   /* what the next pack's clock is at least */
+    int packs;
 };
 
 static size_t pack_left(const struct packer *p) {
@@ -84,19 +103,57 @@ static void pack_close(struct packer *p) {
     p->pack_start = 0;
 }
 
+/* The clock walks a pack's worth per pack, as Sony's does, and jumps
+   ahead where a GOP asks for more. */
 static void pack_open(struct packer *p) {
+    unsigned long long next = p->packs ? p->scr + PACK_TICKS + (p->packs & 1) : p->floor;
+    if (next < p->floor) next = p->floor;
+    p->scr = next;
+    p->packs++;
     p->pack_start = p->w.pos;
     pack_header(&p->w, p->scr);
 }
 
-/* One access unit as PES packets, the first carrying the timestamp. */
+/* What the first pack of a GOP opens with: the system header naming the
+   video stream and its buffer, then the private-stream-2 index, one
+   four-byte entry per access unit in the GOP -- a zero, the size's top
+   bits under a set high bit, the size's low sixteen. The eight bytes after
+   the stream's id are zero, as they are in the first GOP of Sony's own
+   files; what Sony writes there later in a film is not understood. */
+static void gop_open(struct packer *p, const unsigned *sizes, int n, unsigned long long dts) {
+    static const unsigned char sys[] = {
+        0, 0, 1, 0xBB, 0, 9,
+        0x80 | (MUX_RATE >> 15), (MUX_RATE >> 7) & 0xFF, ((MUX_RATE & 0x7F) << 1) | 1,
+        0x80, 0xF0, 0x7F,
+        0xB9, 0xE0 | (PSTD_VIDEO >> 8), PSTD_VIDEO & 0xFF
+    };
+    pack_close(p);
+    p->floor = dts > SCR_LEAD ? dts - SCR_LEAD : 0;
+    pack_open(p);
+    put(&p->w, sys, sizeof(sys));
+    put8(&p->w, 0); put8(&p->w, 0); put8(&p->w, 1); put8(&p->w, 0xBF);
+    put16(&p->w, (unsigned)(18 + 4 * n));
+    put8(&p->w, 0x01); put8(&p->w, 0xE0);
+    for (int i = 0; i < 12; i++) put8(&p->w, 0);
+    put16(&p->w, (unsigned)(2 + 4 * n));
+    put16(&p->w, (unsigned)n);
+    for (int i = 0; i < n; i++) {
+        put8(&p->w, 0);
+        put8(&p->w, 0x80 | ((sizes[i] >> 16) & 0x7F));
+        put16(&p->w, sizes[i] & 0xFFFF);
+    }
+}
+
+enum stamp { STAMP_NONE, STAMP_TS, STAMP_TS_EXT };
+
+/* One access unit as PES packets. The first may carry PTS and DTS, and at
+   the head of a GOP the P-STD extension too, as Sony's do. */
 static void put_unit(struct packer *p, const unsigned char *au, size_t len,
-                     unsigned long long pts) {
+                     unsigned long long pts, unsigned long long dts, enum stamp stamp) {
     size_t done = 0;
-    int first = 1;
-    p->scr = pts > 900 ? pts - 900 : 0;
     while (done < len) {
-        size_t header = PES_MIN + (first ? PES_PTS : 0);
+        size_t extra = stamp == STAMP_TS ? 10 : stamp == STAMP_TS_EXT ? 13 : 0;
+        size_t header = PES_MIN + extra;
         if (pack_left(p) < header + 16) {
             pack_close(p);
             pack_open(p);
@@ -108,15 +165,22 @@ static void put_unit(struct packer *p, const unsigned char *au, size_t len,
            header as stuffing bytes, so the pack still comes out whole. */
         size_t stuff = spare < 6 ? spare : 0;
         put8(&p->w, 0); put8(&p->w, 0); put8(&p->w, 1); put8(&p->w, 0xE0);
-        put16(&p->w, (unsigned)(3 + (first ? PES_PTS : 0) + stuff + take));
-        put8(&p->w, 0x80);
-        put8(&p->w, first ? 0x80 : 0x00);
-        put8(&p->w, (unsigned)((first ? PES_PTS : 0) + stuff));
-        if (first) pes_pts(&p->w, pts);
+        put16(&p->w, (unsigned)(3 + extra + stuff + take));
+        put8(&p->w, 0x81);
+        put8(&p->w, stamp == STAMP_TS ? 0xC0 : stamp == STAMP_TS_EXT ? 0xC1 : 0x00);
+        put8(&p->w, (unsigned)(extra + stuff));
+        if (stamp != STAMP_NONE) {
+            pes_ts(&p->w, 0x31, pts);
+            pes_ts(&p->w, 0x11, dts);
+        }
+        if (stamp == STAMP_TS_EXT) {
+            put8(&p->w, 0x1E);                             /* P-STD buffer follows */
+            put16(&p->w, 0x6000 | PSTD_VIDEO);             /* scale 1, in KB */
+        }
         for (size_t i = 0; i < stuff; i++) put8(&p->w, 0xFF);
         put(&p->w, au + done, take);
         done += take;
-        first = 0;
+        stamp = STAMP_NONE;
     }
 }
 
@@ -126,25 +190,71 @@ static void put_unit(struct packer *p, const unsigned char *au, size_t len,
 #define SCRATCH (128 * 1024)
 
 size_t psmf_capacity(size_t mp4_len) {
-    /* Pack and PES headers are under 2% of the payload; parameter sets
-       before every keyframe and the final padding are bounded. */
+    /* Pack and PES headers are under 2% of the payload; parameter sets and
+       a delimiter before every picture, a GOP's index and padding, and the
+       final padding are bounded. */
     return PSMF_HEADER + mp4_len + mp4_len / 32 + 64 * 1024 + SCRATCH;
 }
 
+/* Every access unit opens with a delimiter, as Sony's do; an encoder that
+   wrote none gets one. */
+static const unsigned char AUD[6] = { 0, 0, 0, 1, 0x09, 0x10 };
+
+static int has_aud(const unsigned char *mp4, const struct mp4 *t, int i) {
+    const struct mp4_sample *s = &t->sample[i];
+    const unsigned char *p = mp4 + s->offset;
+    if (s->size < (unsigned)t->nal_length_size + 1) return 0;
+    return (p[t->nal_length_size] & 0x1F) == 9;
+}
+
+/* How long assemble() will make sample i: what the index says before the
+   unit is written. */
+static unsigned unit_size(const unsigned char *mp4, const struct mp4 *t, int i) {
+    const struct mp4_sample *s = &t->sample[i];
+    size_t n = has_aud(mp4, t, i) ? 0 : sizeof(AUD);
+    if (s->key) n += 8 + (size_t)t->sps_len + t->pps_len;
+    const unsigned char *p = mp4 + s->offset, *end = p + s->size;
+    while (p + t->nal_length_size <= end) {
+        unsigned len = 0;
+        for (int k = 0; k < t->nal_length_size; k++) len = (len << 8) | *p++;
+        if (len == 0 || p + len > end) break;
+        n += 4 + len;
+        p += len;
+    }
+    return (unsigned)n;
+}
+
 /* A sample's NAL units, length-prefixed in the file, become a byte stream
-   with start codes; keyframes get the parameter sets in front. Assembled in
-   a scratch area at the end of out, which the stream then overwrites. */
+   with start codes: the delimiter first, then on keyframes the parameter
+   sets, then the units as they came. Assembled in a scratch area at the
+   end of out, which the stream then overwrites. unit_size() says in
+   advance how long this comes out. */
 static size_t assemble(const unsigned char *mp4, const struct mp4 *t, int i,
                        unsigned char *scratch, size_t cap) {
     const struct mp4_sample *s = &t->sample[i];
     static const unsigned char start[4] = { 0, 0, 0, 1 };
+    const unsigned char *p = mp4 + s->offset, *end = p + s->size;
     size_t n = 0;
+    if (has_aud(mp4, t, i)) {
+        /* The encoder's own delimiter, kept as the first unit. */
+        unsigned len = 0;
+        for (int k = 0; k < t->nal_length_size; k++) len = (len << 8) | *p++;
+        if (len == 0 || p + len > end || 4 + len > cap) return 0;
+        memcpy(scratch, start, 4); memcpy(scratch + 4, p, len);
+        n = 4 + len;
+        p += len;
+    } else {
+        if (sizeof(AUD) > cap) return 0;
+        memcpy(scratch, AUD, sizeof(AUD));
+        n = sizeof(AUD);
+    }
+    /* The parameter sets go behind the delimiter and before everything
+       else in the picture, which is where Sony's composer puts them. */
     if (s->key) {
-        if (8 + (size_t)t->sps_len + t->pps_len > cap) return 0;
+        if (n + 8 + (size_t)t->sps_len + t->pps_len > cap) return 0;
         memcpy(scratch + n, start, 4); n += 4; memcpy(scratch + n, t->sps, t->sps_len); n += t->sps_len;
         memcpy(scratch + n, start, 4); n += 4; memcpy(scratch + n, t->pps, t->pps_len); n += t->pps_len;
     }
-    const unsigned char *p = mp4 + s->offset, *end = p + s->size;
     while (p + t->nal_length_size <= end) {
         unsigned len = 0;
         for (int k = 0; k < t->nal_length_size; k++) len = (len << 8) | *p++;
@@ -163,61 +273,69 @@ size_t psmf_build(const unsigned char *mp4, const struct mp4 *t,
         return 0;
     if (t->width > 720 || t->height > 480 || (t->width & 15) || (t->height & 15))
         return 0;
+    if (!t->sample[0].key) return 0;
 
-    struct packer pk = { { out, cap - SCRATCH, PSMF_HEADER, 0 }, 0, 0 };
-    /* The largest unit we assemble has to fit behind the stream it will
-       be written into; the stream is at most the input plus packaging. */
+    struct packer pk = { { out, cap - SCRATCH, PSMF_HEADER, 0 }, 0, 0, 0, 0 };
     size_t scratch_cap = SCRATCH;
     if (cap < PSMF_HEADER + PSMF_PACK + scratch_cap) return 0;
     unsigned char *scratch = out + cap - scratch_cap;
 
-    unsigned key_packs[180];
-    unsigned key_pts[180];
-    int keys = 0;
+    /* One picture's worth of clock: the presentation's span over its count.
+       DTS stands that far before PTS, as it does in Sony's files. */
+    unsigned long long ticks = t->duration / (unsigned)t->count;
+    if (ticks < 1500 || ticks > 9000) ticks = 3003;
 
-    for (int i = 0; i < t->count; i++) {
-        size_t n = assemble(mp4, t, i, scratch, scratch_cap);
-        if (!n) return 0;
-        unsigned long long pts = PTS_BASE + t->sample[i].pts;
-        if (t->sample[i].key && keys < 180) {
-            size_t at = pk.pack_start ? pk.pack_start : pk.w.pos;
-            key_packs[keys] = (unsigned)((at - PSMF_HEADER) / PSMF_PACK);
-            key_pts[keys] = (unsigned)pts;
-            keys++;
+    unsigned sizes[GOP_MAX];
+    for (int i = 0; i < t->count;) {
+        /* The GOP: this keyframe to the next. */
+        int n = 1;
+        while (i + n < t->count && !t->sample[i + n].key && n < GOP_MAX) n++;
+        if (i + n < t->count && !t->sample[i + n].key) return 0;
+        for (int k = 0; k < n; k++) sizes[k] = unit_size(mp4, t, i + k);
+        unsigned long long pts0 = PTS_BASE + t->sample[i].pts;
+        gop_open(&pk, sizes, n, pts0 - ticks);
+        for (int k = 0; k < n; k++) {
+            size_t len = assemble(mp4, t, i + k, scratch, scratch_cap);
+            if (!len || len != sizes[k]) return 0;
+            unsigned long long pts = PTS_BASE + t->sample[i + k].pts;
+            enum stamp stamp = k == 0 ? STAMP_TS_EXT : k % STAMP_EVERY == 0 ? STAMP_TS : STAMP_NONE;
+            put_unit(&pk, scratch, len, pts, pts - ticks, stamp);
+            if (pk.w.overflow) return 0;
         }
-        put_unit(&pk, scratch, n, pts);
-        if (pk.w.overflow) return 0;
+        i += n;
     }
     pack_close(&pk);
     if (pk.w.overflow) return 0;
     size_t stream = pk.w.pos - PSMF_HEADER;
     unsigned long long last = PTS_BASE + t->duration;
 
-    /* The header: what sceMpeg reads at fixed offsets, and the one stream
-       entry with its keyframe map. Unknown fields stay zero. */
+    /* The header as Sony writes it for one stream: the three lengths are
+       of what follows each of them, out to the end of the stream table at
+       0x92; the rate and the buffer bound are the ones the packs and the
+       system header declare; the keyframe map is empty, as it is in
+       Sony's own files. Everything else stays zero. */
     memset(out, 0, PSMF_HEADER);
     struct writer h = { out, PSMF_HEADER, 0, 0 };
     put(&h, "PSMF", 4);
     put(&h, "0015", 4);
     put32(&h, PSMF_HEADER);
     put32(&h, (unsigned)stream);
-    h.pos = 0x50; put32(&h, (unsigned)stream);
+    h.pos = 0x50; put32(&h, 0x92 - 0x54);
     h.pos = 0x54; put_ts48(&h, PTS_BASE);
     h.pos = 0x5A; put_ts48(&h, last);
-    h.pos = 0x6A; put32(&h, PSMF_PACK);
-    h.pos = 0x7C; put32(&h, PSMF_PACK);
+    h.pos = 0x60; put32(&h, MUX_RATE);
+    h.pos = 0x64; put32(&h, 90000);
+    h.pos = 0x68; put8(&h, 1); put8(&h, 1);
+    h.pos = 0x6C; put16(&h, 0x92 - 0x6E);
+    h.pos = 0x6E; put_ts48(&h, PTS_BASE);
+    h.pos = 0x74; put_ts48(&h, last);
+    h.pos = 0x7A; put16(&h, 1);
+    h.pos = 0x7C; put32(&h, 0x92 - 0x80);
     h.pos = 0x80; put16(&h, 1);
     h.pos = 0x82;
-    put8(&h, 0xE0); put8(&h, 0x00); put16(&h, 0);
-    put32(&h, 0x100);                       /* keyframe map, inside the header */
-    put32(&h, (unsigned)keys);
+    put8(&h, 0xE0); put8(&h, 0x00); put16(&h, 0x2000 | PSTD_VIDEO);
+    put32(&h, 0); put32(&h, 0);
     put8(&h, (unsigned)(t->width / 16)); put8(&h, (unsigned)(t->height / 16));
-    h.pos = 0x100;
-    for (int k = 0; k < keys; k++) {
-        put8(&h, 0); put8(&h, 0);
-        put32(&h, key_pts[k]);
-        put32(&h, key_packs[k]);
-    }
     return pk.w.pos;
 }
 

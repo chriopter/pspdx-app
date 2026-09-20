@@ -120,17 +120,14 @@ static void load_still(const struct request *req, unsigned gen, struct gfx_textu
    the next fetch's, so the stream is moved out of it first. */
 static void play(unsigned char *psmf, size_t n, unsigned gen) {
     if (stale(gen)) { free(psmf); return; }
-
-    /* sceMpeg_library faults inside its own worker on retail hardware for
-       streams which pass all of its public header/query calls.  A firmware
-       exception cannot be caught by the application and may leave the PSP
-       requiring a hard restart.  Keep the still preview and SND0 audio, but
-       do not enter that unsafe decoder until the exact Sony mux contract is
-       understood and covered by a hardware test corpus. */
-    (void)n;
-    logline("film: hardware MPEG disabled after a decoder fault");
-    free(psmf);
-    g_film_state = FILM_FAILED;
+    g_psmf = psmf;
+    if (player_start(g_psmf, n, g_film_buf[0], g_film_buf[1], FILM_STRIDE) != 0) {
+        free(g_psmf);
+        g_psmf = 0;
+        g_film_state = FILM_FAILED;
+        return;
+    }
+    g_film_state = FILM_PLAYING;
 }
 
 /* An ICON1.PMF out of an EBOOT is already what the decoder reads: it goes
@@ -344,15 +341,25 @@ void preview_init(void) {
     g_shown_gen = 0;
     g_done_gen = 0;
     g_quit = g_hold = 0;
-    /* Animated MPEG preview is deliberately disabled in play(): a retail
-       PSP faulted inside sceMpeg_library even for a stream which passed all
-       public validation calls. Do not reserve two 1 MiB decode textures for
-       a path we cannot safely enter; still previews and SND0 remain active. */
+    /* The film decodes into two textures that live for the whole run: the
+       decoder writes one while the GE reads the other, and a picture
+       changes hands as a pointer. The CPU never touches either. Without
+       both there is no film, only the still and the sound. */
     g_film.w = FILM_W; g_film.h = FILM_H;
     g_film.tw = FILM_STRIDE; g_film.th = 512;
     g_film.opaque = 1;
-    g_film.pixels = 0;
-    g_film_buf[0] = g_film_buf[1] = 0;
+    for (int i = 0; i < 2; i++) {
+        g_film_buf[i] = memalign(16, (size_t)FILM_STRIDE * 512 * 4);
+        if (g_film_buf[i]) memset(g_film_buf[i], 0, (size_t)FILM_STRIDE * 512 * 4);
+    }
+    if (g_film_buf[0] && g_film_buf[1]) {
+        g_film.pixels = g_film_buf[0];
+        sceKernelDcacheWritebackInvalidateAll();
+    } else {
+        free(g_film_buf[0]); free(g_film_buf[1]);
+        g_film_buf[0] = g_film_buf[1] = 0;
+        logline("film: no room for the two pictures; stills only");
+    }
     g_wake = sceKernelCreateSema("media_wake", 0, 0, 64, 0);
     g_idle = sceKernelCreateSema("media_idle", 0, 0, 64, 0);
     g_thread = sceKernelCreateThread("media", media_thread, MEDIA_PRIORITY, MEDIA_STACK,

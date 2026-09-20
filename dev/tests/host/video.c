@@ -176,14 +176,44 @@ static void parse_file(const char *path) {
     struct psmf_info info;
     assert(psmf_parse(p, (size_t)end, &info) == 0);
     unsigned char header[PSMF_HEADER];
-    /* The bundled legacy mux starts directly with E0. It is useful to the
-       metadata reader but must never reach real sceMpeg. */
-    assert(psmf_decoder_header(p, (size_t)end, header) < 0);
+    /* The bundled ICON1 is the mux's own output: Sony's first-pack layout,
+       which is what real sceMpeg wants. */
+    assert(psmf_decoder_header(p, (size_t)end, header) == 0);
+    assert(info.frames > 0);
     free(p);
+}
+
+/* The mux, on the one-sample MP4: what it writes is what the reader wants,
+   index and all. */
+static void mux_layout(void) {
+    struct mp4_file f;
+    struct mp4 track;
+    make_mp4(&f);
+    assert(mp4_parse(f.data, f.pos, &track) == 0);
+    size_t cap = psmf_capacity(f.pos);
+    unsigned char *out = calloc(1, cap);
+    assert(out);
+    size_t n = psmf_build(f.data, &track, out, cap);
+    assert(n > PSMF_HEADER && (n - PSMF_HEADER) % PSMF_PACK == 0);
+    struct psmf_info info;
+    assert(psmf_parse(out, n, &info) == 0);
+    assert(info.frames == 1 && info.width == 16 && info.height == 16);
+    unsigned char header[PSMF_HEADER];
+    assert(psmf_decoder_header(out, n, header) == 0);
+    /* The first pack opens with the system header and the index, and the
+       index names the one unit: a delimiter, the parameter sets. */
+    const unsigned char *pack = out + PSMF_HEADER;
+    assert(pack[17] == 0xbb && pack[32] == 0xbf);
+    assert(pack[35] == 0x01 && pack[36] == 0xe0);
+    assert(pack[51] == 0 && pack[52] == 1);
+    unsigned size = ((unsigned)pack[55] << 8) | pack[56];
+    assert(size == 6 + 4 + track.sps_len + 4 + track.pps_len);
+    free(out);
 }
 
 int main(int argc, char **argv) {
     mp4_bounds();
+    mux_layout();
     size_t len;
     unsigned char *p = one_frame(&len);
     struct psmf_info info;
