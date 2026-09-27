@@ -513,17 +513,7 @@ static void draw_category_panel(int n) {
     int named = 0;
     for (int i = 0; g_catalog && i < g_catalog->count && at < sizeof(note) - 1; i++) {
         const struct app_entry *e = &g_catalog->apps[i];
-        if (!e->category[0] || view_hidden(e)) continue;
-        /* The same test the view makes, letter for letter, case aside. */
-        const char *a = e->category, *b = view_category(n);
-        int same = 1;
-        for (; *a && *b; a++, b++) {
-            char x = *a, y = *b;
-            if (x >= 'A' && x <= 'Z') x += 'a' - 'A';
-            if (y >= 'A' && y <= 'Z') y += 'a' - 'A';
-            if (x != y) { same = 0; break; }
-        }
-        if (!same || *a || *b) continue;
+        if (view_hidden(e) || !view_in_category(e, n)) continue;
         at += (size_t)snprintf(note + at, sizeof(note) - at, "%s%s", named ? ", " : "", e->name);
         named++;
     }

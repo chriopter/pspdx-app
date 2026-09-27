@@ -115,11 +115,17 @@ int view_hidden(const struct app_entry *entry) {
     return !g_show_unreleased && has_tag(entry->tags, "unreleased");
 }
 
+/* The row an entry stands under. "application" is what some catalogs call
+   an app, and stands under the same row. */
 static int category_of(const struct app_entry *entry) {
     if (!entry->category[0]) return -1;
+    const char *word = same_word(entry->category, "application") ? "app" : entry->category;
     for (int c = 0; c < g_cats; c++)
-        if (same_word(g_cat[c], entry->category)) return c;
+        if (same_word(g_cat[c], word)) return c;
     return -1;
+}
+int view_in_category(const struct app_entry *entry, int n) {
+    return n >= 0 && category_of(entry) == n;
 }
 
 /* The rows the store opens with, for now: the three groups the standard

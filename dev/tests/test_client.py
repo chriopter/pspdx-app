@@ -821,11 +821,39 @@ class ClientTests(unittest.TestCase):
               releases=[dict(first['releases'][0],url='https://github.com/test/other/releases/download/v2/download.zip')])
   good=self.mirror('Fine',summary='s'*60,description='d'*2500,tags=['t%d'%i for i in range(8)],category='game')
   self.write('catalog.json',dict(catalog,apps=[first,*bad,github,good]))
-  r=self.run_client('fetch',VERBOSE=1);self.assertEqual([l.split()[0] for l in r.stdout.splitlines()],[ID,'org.archive.fine'],r.stderr)
-  for field in ('summary','name','tags','author','category','description','license'):self.assertIn('breaks the .pspdx rules (%s); dropped'%field,r.stderr)
-  self.assertIn('io.github.test.other breaks the .pspdx rules (summary)',r.stderr)
+  r=self.run_client('fetch',VERBOSE=1);ids=[l.split()[0] for l in r.stdout.splitlines()]
+  # Text longer than the file allows is shortened and a tag that breaks the rules left out: those apps stay.
+  self.assertEqual(ids,[ID,'org.archive.summary','org.archive.'+'n'*39,'org.archive.tagged','org.archive.twice','org.archive.many','io.github.test.other','org.archive.fine'],r.stderr)
+  # What is not a matter of length still is not an app.
+  for field in ('author','category','description','license'):self.assertIn('breaks the .pspdx rules (%s); dropped'%field,r.stderr)
+  for field in ('summary','name','tags'):self.assertNotIn('breaks the .pspdx rules (%s)'%field,r.stderr)
   self.assertIn('which only a GitHub repository has; refused',r.stderr);self.assertIn('Pages is from outside GitHub and its source\'s host and name make no id; dropped',r.stderr)
   self.assertEqual(self.run_client('get','org.archive.fine',VERBOSE=1).stdout.strip(),'0')
+ def test_a_catalog_names_an_app_without_a_repository(self):
+  # An entry with no source is the catalog's to name: source <catalog>#<its id>, id catalog.<host backwards>.<the id made safe>, installed from the entry and held to its hash.
+  self.fixtures();catalog=self.catalog_app();first=catalog['apps'][0]
+  package=(self.root/'new.zip').read_bytes()
+  def listed(given,name,**change):
+   app=dict(id=given,name=name,category='application',tags=['NEO Spring Coding Compo 2009','game'],summary='s'*80,
+            releases=[dict(tag='1.0',published_at='2009-05-01',size=len(package),sha256=hashlib.sha256(package).hexdigest(),url='https://archive.org/download/x/download.zip')])
+   app.update(change);return app
+  under,dash,long_=listed('psp_doom','PSP Doom'),listed('psp-doom','PSP Doom Two'),listed('_'*60,'Long One')
+  none=listed(None,'No Id');del none['id']
+  self.write('catalog.json',dict(catalog,apps=[first,under,dash,long_,none]))
+  r=self.run_client('fetch',VERBOSE=1);ids=[l.split()[0] for l in r.stdout.splitlines()]
+  self.assertEqual(ids[:3],[ID,'catalog.com.example.pspz5fdoom','catalog.com.example.pspz2ddoom'],r.stderr)
+  self.assertEqual(len(ids),4,r.stderr);self.assertRegex(ids[3],r'^catalog\.com\.example\.(z5f){13}z\.[0-9a-f]{12}$')
+  self.assertNotIn('is not an id this stick can use',r.stderr)
+  # Installed, it is the same app on the next start: the .pspdx kept on the stick names the catalog and makes the same id.
+  app='catalog.com.example.pspz5fdoom'
+  self.assertEqual(self.run_client('get',app,VERBOSE=1).stdout.strip(),'0')
+  saved=json.loads((self.root/f'ms0:/PSP/PSPDX/INSTALLED/{app}.pspdx').read_text())
+  self.assertEqual(saved['source'],'https://example.com/catalog.json#psp_doom');self.assertEqual(saved['tags'],['game'])
+  self.assertEqual(len(saved['summary']),60);self.assertTrue(saved['summary'].endswith('\u2026'))
+  self.assertEqual(self.row(self.run_client('fetch').stdout,app)[3],'2')
+  # A package that does not hash to what the entry says is not installed.
+  self.zip('new.zip',{'EBOOT.PBP':b'other','data.txt':b'other'})
+  self.assertNotEqual(self.run_client('get','catalog.com.example.pspz2ddoom',ok=False).stdout.strip(),'0')
  def test_an_id_as_long_as_github_makes_one(self):
   # GitHub allows an owner of 39 characters and a repository of 100: the id is 150, and names the files on the stick whole.
   owner,repo='o'*39,'r'*100;source='https://github.com/%s/%s'%(owner,repo);long_id='io.github.%s.%s'%(owner,repo);self.assertEqual(len(long_id),150)

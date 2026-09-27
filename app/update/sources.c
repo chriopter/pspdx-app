@@ -1,6 +1,7 @@
 #include "util/storage.h"
 #include <ctype.h>
 #include <pspiofilemgr.h>
+#include <psputils.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -483,6 +484,127 @@ int sources_host_id(const char *source, const char *name, char *id, size_t size)
                 "GitHub repository has; refused", source, name);
         goto none;
     }
+    return 0;
+none:
+    id[0] = '\0';
+    return -1;
+}
+
+static int unreserved(int c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+           c == '-' || c == '.' || c == '_' || c == '~';
+}
+
+int sources_catalog_source(const char *catalog, const char *given, char *out, size_t size) {
+    size_t base = strcspn(catalog, "?#");
+    if (strncmp(catalog, "https://", 8) || !given || !given[0] || base + 2 >= size)
+        return -1;
+    memcpy(out, catalog, base);
+    size_t n = base;
+    out[n++] = '#';
+    for (const unsigned char *p = (const unsigned char *)given; *p; p++) {
+        if (*p < 32 || *p == 127)
+            return -1;
+        if (unreserved(*p)) {
+            if (n + 1 >= size)
+                return -1;
+            out[n++] = (char)*p;
+        } else {
+            if (n + 3 >= size)
+                return -1;
+            n += (size_t)snprintf(out + n, size - n, "%%%02X", *p);
+        }
+    }
+    out[n] = '\0';
+    return 0;
+}
+
+int sources_is_catalog_source(const char *source) {
+    const char *hash = strchr(source, '#');
+    return !strncmp(source, "https://", 8) && hash && hash[1];
+}
+
+static int hex_value(int c) {
+    return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10
+         : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+}
+
+int sources_catalog_id(const char *source, char *id, size_t size) {
+    static const char prefix[] = "catalog";
+    const char *host;
+    size_t n, used = 0;
+    if (!size)
+        return -1;
+    id[0] = '\0';
+    if (!sources_is_catalog_source(source) || url_host(source, &host, &n) < 0 ||
+        sizeof(prefix) >= size)
+        return -1;
+    memcpy(id, prefix, sizeof(prefix));
+    used = sizeof(prefix) - 1;
+    /* The host's labels backwards, as sources_host_id has them. */
+    for (size_t end = n;;) {
+        size_t start = end;
+        while (start > 0 && host[start - 1] != '.')
+            start--;
+        if (put_part(id, &used, size, host + start, end - start) < 0)
+            goto none;
+        if (!start)
+            break;
+        end = start - 1;
+    }
+    /* The folders of the path, not the file: two catalogs on one host are
+       two places. */
+    const char *path = host + strcspn(host, "/?#");
+    const char *stop = source + strcspn(source, "?#");
+    while (*path == '/' && path < stop) {
+        const char *seg = path + 1;
+        size_t len = strcspn(seg, "/?#");
+        if (seg + len >= stop || seg[len] != '/')
+            break;
+        if (put_part(id, &used, size, seg, len) < 0)
+            goto none;
+        path = seg + len;
+    }
+    /* The catalog's id, decoded from the URL, then written so that nothing
+       two ids hold apart comes out the same. */
+    char given[256], part[256];
+    size_t g = 0, k = 0;
+    for (const char *p = strchr(source, '#') + 1; *p; p++) {
+        int c = (unsigned char)*p;
+        if (c == '%' && hex_value(p[1]) >= 0 && hex_value(p[2]) >= 0) {
+            c = hex_value(p[1]) * 16 + hex_value(p[2]);
+            p += 2;
+        }
+        if (g + 1 >= sizeof(given))
+            goto none;
+        given[g++] = (char)c;
+    }
+    given[g] = '\0';
+    for (size_t i = 0; i < g; i++) {
+        int c = (unsigned char)given[i];
+        if (k + 4 >= sizeof(part))
+            goto none;
+        if ((c >= 'a' && c <= 'y') || (c >= '0' && c <= '9'))
+            part[k++] = (char)c;
+        else
+            k += (size_t)snprintf(part + k, sizeof(part) - k, c == 'z' ? "zz" : "z%02x", c);
+    }
+    part[k] = '\0';
+    if (!k)
+        goto none;
+    if (k > 48) {
+        unsigned char digest[20];
+        sceKernelUtilsSha1Digest((unsigned char *)given, (int)g, digest);
+        k = 40;
+        part[k++] = '.';
+        for (int i = 0; i < 6; i++)
+            k += (size_t)snprintf(part + k, sizeof(part) - k, "%02x", digest[i]);
+        part[k] = '\0';
+    }
+    if (used + 1 + k >= size)
+        goto none;
+    id[used++] = '.';
+    memcpy(id + used, part, k + 1);
     return 0;
 none:
     id[0] = '\0';

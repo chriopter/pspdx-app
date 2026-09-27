@@ -96,6 +96,21 @@ int sources_repo_id(const struct source_repo *r, char *id, size_t size);
    is GitHub's. */
 int sources_host_id(const char *source, const char *name, char *id, size_t size);
 
+/* An app a catalog lists without a repository of its own has the catalog
+   for a source: the catalog's URL, then # and the catalog's id for it,
+   percent-encoded where it is not a letter, a digit or -._~. -1 when the
+   catalog is not https, the id is empty or holds a control character, or
+   the source does not fit. */
+int sources_catalog_source(const char *catalog, const char *given, char *out, size_t size);
+/* Whether a source is one of those: https, with an id after the #. */
+int sources_is_catalog_source(const char *source);
+/* Its id: catalog., the catalog's host backwards and the folders of its
+   path, then the catalog's id with letters and digits as they are and every
+   other byte as z and two hex digits (z itself as zz), so that no two ids
+   of one catalog meet. A catalog's id of more than 48 characters so made is
+   cut to 40 and followed by a part of its SHA-1. -1 when nothing fits. */
+int sources_catalog_id(const char *source, char *id, size_t size);
+
 /* The repository's canonical URL, https://github.com/<owner>/<repo>, with
    no tag on it: what the record on the stick and the cache both call the
    repository, so the two can be compared. */

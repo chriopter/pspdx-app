@@ -113,6 +113,8 @@ int view_tabs_refresh(void);
    turns it on, for this run. */
 void view_show_unreleased(int on);
 int view_unreleased_shown(void);
+/* Whether a package stands under category row n. */
+int view_in_category(const struct app_entry *entry, int n);
 /* Whether the store leaves this package out, by that switch. */
 int view_hidden(const struct app_entry *entry);
 

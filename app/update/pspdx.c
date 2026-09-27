@@ -387,11 +387,15 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
             goto bad;
         }
     }
-    /* The id is the repository's on GitHub. Anywhere else it is the host of
-       the source and the app's name, so a file whose host and name leave
-       nothing to make one of is no app anyone could find again. */
+    /* The id is the repository's on GitHub. An app a catalog lists without
+       a repository has the catalog for its source, and the id the catalog's
+       id makes there. Anywhere else it is the host of the source and the
+       app's name, so a file whose host and name leave nothing to make one
+       of is no app anyone could find again. */
     if (github ? sources_repo_id(&repo, out->id, sizeof(out->id)) < 0
-               : sources_host_id(out->source, out->name, out->id, sizeof(out->id)) < 0) {
+        : sources_is_catalog_source(out->source)
+            ? sources_catalog_id(out->source, out->id, sizeof(out->id)) < 0
+            : sources_host_id(out->source, out->name, out->id, sizeof(out->id)) < 0) {
         snprintf(reason, cap, "no id: the source's host and the name make none");
         goto bad;
     }

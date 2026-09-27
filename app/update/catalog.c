@@ -177,6 +177,51 @@ static void mend_text(cJSON *value, int newline) {
     *w = '\0';
 }
 
+/* A line of text a catalog writes longer than the .pspdx an install makes
+   of the entry allows: cut to limit characters, the last of them an
+   ellipsis, rather than the app left out. Text that is not valid UTF-8 is
+   left as it is, for entry_fields to refuse. */
+static void fit_text(cJSON *value, int limit) {
+    if (!cJSON_IsString(value) || pspdx_characters(value->valuestring, 0) <= limit)
+        return;
+    const char *t = value->valuestring;
+    size_t at = 0;
+    for (int n = 0; t[at] && n < limit - 1; n++) {
+        at++;
+        while ((t[at] & 0xc0) == 0x80)
+            at++;
+    }
+    /* No space left hanging before the ellipsis. */
+    while (at > 0 && t[at - 1] == ' ')
+        at--;
+    char *cut = malloc(at + 4);
+    if (!cut)
+        return;
+    memcpy(cut, t, at);
+    memcpy(cut + at, "\xe2\x80\xa6", 4);
+    cJSON_SetValuestring(value, cut);
+    free(cut);
+}
+
+/* The tags a .pspdx can carry, of those a catalog wrote: 1 to 24
+   characters, no two alike, at most eight. The rest are left out. */
+static void fit_tags(cJSON *tags) {
+    if (!cJSON_IsArray(tags))
+        return;
+    int kept = 0;
+    for (cJSON *tag = tags->child, *next; tag; tag = next) {
+        next = tag->next;
+        int n = cJSON_IsString(tag) ? pspdx_characters(tag->valuestring, 0) : -1;
+        int twice = 0;
+        for (const cJSON *w = tags->child; n >= 1 && w != tag; w = w->next)
+            twice |= !strcmp(w->valuestring, tag->valuestring);
+        if (n < 1 || n > 24 || twice || kept >= PSPDX_TAGS)
+            cJSON_Delete(cJSON_DetachItemViaPointer(tags, tag));
+        else
+            kept++;
+    }
+}
+
 /* Entries point at their assets relative to the catalog, so that moving the
    whole thing to another host stays a one-line change. */
 static void asset_url(const char *base, const char *rel, char *out, size_t size) {
@@ -485,6 +530,13 @@ static int parse(struct catalog *catalog, const char *base) {
         }
         mend_text(cJSON_GetObjectItemCaseSensitive(app, "summary"), 0);
         mend_text(cJSON_GetObjectItemCaseSensitive(app, "description"), 1);
+        /* A catalog is not held to the file's lengths word for word: what
+           is longer is shortened, a tag that breaks the rules left out. */
+        fit_text(cJSON_GetObjectItemCaseSensitive(app, "name"), 40);
+        fit_text(cJSON_GetObjectItemCaseSensitive(app, "author"), 60);
+        fit_text(cJSON_GetObjectItemCaseSensitive(app, "summary"), 60);
+        fit_text(cJSON_GetObjectItemCaseSensitive(app, "license"), 60);
+        fit_tags(cJSON_GetObjectItemCaseSensitive(app, "tags"));
         /* What the catalog calls the entry, read whole: an id cut to fit the
            buffer could look like one it never was. */
         cJSON *named = cJSON_GetObjectItemCaseSensitive(app, "id");
@@ -514,6 +566,13 @@ static int parse(struct catalog *catalog, const char *base) {
         copy_str(entry->license, sizeof(entry->license),
                  cJSON_GetObjectItemCaseSensitive(app, "license"));
         copy_str(entry->repo, sizeof(entry->repo), cJSON_GetObjectItemCaseSensitive(app, "source"));
+        /* An entry with no repository of its own is the catalog's to name:
+           its source is the catalog and the catalog's id for it, and so is
+           its id. It installs from the entry, held to its hash, and is
+           updated only through a catalog, as any app away from GitHub is. */
+        if (!cJSON_GetObjectItemCaseSensitive(app, "source") && given &&
+            sources_catalog_source(base, given, entry->repo, sizeof(entry->repo)) < 0)
+            entry->repo[0] = '\0';
         /* The id names files on the stick, so PSPDX makes its own from the
            source, as it does for a .pspdx: the repository on GitHub, the
            source's host and the name elsewhere. Empty when neither leaves one
@@ -529,6 +588,8 @@ static int parse(struct catalog *catalog, const char *base) {
         int github = sources_parse_repo(entry->repo, &source);
         if (github)
             sources_repo_id(&source, derived, sizeof(derived));
+        else if (sources_is_catalog_source(entry->repo))
+            sources_catalog_id(entry->repo, derived, sizeof(derived));
         else if (!strncmp(entry->repo, "https://", 8))
             sources_host_id(entry->repo, entry->name, derived, sizeof(derived));
         int own = given && id_well_formed(given) &&
@@ -742,7 +803,7 @@ static int parse(struct catalog *catalog, const char *base) {
             continue;
         }
 
-        if (given && !own) {
+        if (given && !own && !sources_is_catalog_source(entry->repo)) {
             /* Said once the entry is kept, and only as much of the name as
                is safe to put on a line of the log. */
             char shown[41];
