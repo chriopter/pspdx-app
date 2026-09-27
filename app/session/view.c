@@ -11,7 +11,6 @@
 #include <string.h>
 
 #include "session/view.h"
-#include "update/pspdx.h"
 
 /* The tabs on screen, in the order they are shown. Leftmost, where the
    system's own shell keeps its settings, the gear: rows about this session
@@ -103,8 +102,17 @@ static int same_word(const char *a, const char *b) {
    Options shows them, for this run. The stick lists what is installed
    either way, so nothing on it goes out of reach. */
 static int g_show_unreleased;
+static int has_tag(const char *tags, const char *word) {
+    size_t n = strlen(word);
+    for (const char *p = tags; *p; p += *p == '\n') {
+        size_t k = strcspn(p, "\n");
+        if (k == n && !strncmp(p, word, n)) return 1;
+        p += k;
+    }
+    return 0;
+}
 int view_hidden(const struct app_entry *entry) {
-    return !g_show_unreleased && pspdx_has_tag(entry->tags, "unreleased");
+    return !g_show_unreleased && has_tag(entry->tags, "unreleased");
 }
 
 static int category_of(const struct app_entry *entry) {
