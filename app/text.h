@@ -195,11 +195,13 @@
 #define T_VALUE_FPS60        "60 FPS"
 #define T_SYS_FPS            "Show FPS"
 #define T_SYS_DEV            "Fake Updates"                      /* every installed package is said to have an update */
+#define T_SYS_UNRELEASED     "Show Unreleased"                   /* catalog entries tagged "unreleased" */
 #define T_SYS_SWEEP          "Renew TLS Seed"
 #define T_SYS_RESET_ALL      "Restore Defaults"
 #define T_SYS_FRAME_RATE_NOTE "Switches between baked UI at 30 FPS and performance UI at 60 FPS."
 #define T_SYS_FPS_NOTE       "Displays the frame rate on screen."
 #define T_SYS_DEV_NOTE       "Testing option to simulate updates for installed apps."
+#define T_SYS_UNRELEASED_NOTE "Also lists apps their authors tagged unreleased. Until PSPDX restarts."
 #define T_SYS_SWEEP_NOTE     "Generates a new seed for secure connections."
 #define T_SYS_RESET_NOTE     "Restores all settings to their defaults. Installed apps are not deleted."
 #define T_HINT_CHANGE        "Change"
@@ -258,6 +260,7 @@
 #define T_DETAIL_TAGS        "Tags"
 #define T_DETAIL_CATEGORY    "Category"
 #define T_CATEGORY_NOTE      "%d app%s in this category: "   /* n, "s"; the names follow */
+#define T_CATEGORY_EMPTY     "No apps in this category."
 #define T_DETAIL_SIZE        "Size"
 #define T_DETAIL_ID          "ID"
 #define T_DETAIL_CHECKED     "Last checked"

@@ -404,6 +404,7 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
                tick with it. The frame rate is the one that is remembered. */
             if (row == SYS_FRAME_RATE) options_fps_toggle_saved();
             else if (row == SYS_SHOW_FPS) shell_toggle_fps();
+            else if (row == SYS_UNRELEASED) view_show_unreleased(!view_unreleased_shown());
             else { shell_toggle_dev(); fake_updates(shell_dev_updates()); }
             cues_post(CUE_MOVE, 0);
         }

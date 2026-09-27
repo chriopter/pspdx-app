@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "session/view.h"
+#include "update/pspdx.h"
 
 /* The tabs on screen, in the order they are shown. Leftmost, where the
    system's own shell keeps its settings, the gear: rows about this session
@@ -98,6 +99,14 @@ static int same_word(const char *a, const char *b) {
     return *a == *b;
 }
 
+/* Packages their authors tag "unreleased" stay out of the store unless
+   Options shows them, for this run. The stick lists what is installed
+   either way, so nothing on it goes out of reach. */
+static int g_show_unreleased;
+int view_hidden(const struct app_entry *entry) {
+    return !g_show_unreleased && pspdx_has_tag(entry->tags, "unreleased");
+}
+
 static int category_of(const struct app_entry *entry) {
     if (!entry->category[0]) return -1;
     for (int c = 0; c < g_cats; c++)
@@ -119,7 +128,7 @@ static void collect_categories(void) {
     if (!g_view_of) return;
     for (int i = 0; i < g_view_of->count; i++) {
         int c = category_of(&g_view_of->apps[i]);
-        if (c >= 0) g_cat_apps[c]++;
+        if (c >= 0 && !view_hidden(&g_view_of->apps[i])) g_cat_apps[c]++;
     }
     if (g_cat_open >= g_cats) g_cat_open = -1;
 }
@@ -152,7 +161,8 @@ static void build_view(int restart) {
     for (int i = 0; i < g_view_of->count; i++) {
         int take;
         if (tab == TAB_HOMEBREW)
-            take = g_cat_open < 0 || category_of(&g_view_of->apps[i]) == g_cat_open;
+            take = !view_hidden(&g_view_of->apps[i]) &&
+                   (g_cat_open < 0 || category_of(&g_view_of->apps[i]) == g_cat_open);
         else if (tab == TAB_STICK)
             take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_BASKET) take = view_basket_has(i) || g_downloads[i] != 0;
@@ -233,6 +243,13 @@ void view_rebuild(const struct catalog *catalog) {
     collect_tabs(was);
     build_view(1);
 }
+
+void view_show_unreleased(int on) {
+    g_show_unreleased = on;
+    collect_categories();
+    build_view(1);
+}
+int view_unreleased_shown(void) { return g_show_unreleased; }
 
 int view_tabs_refresh(void) {
     int was = g_tabs ? g_tab[g_tab_at] : 0;

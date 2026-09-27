@@ -12,6 +12,7 @@
 #include "gui/shell.h"
 #include "session/options.h"
 #include "session/downloads.h"
+#include "session/view.h"
 #include "gui/shell_internal.h"
 #include "gui/system_view.h"
 
@@ -33,18 +34,19 @@ void system_view_move(int by) {
 }
 
 static const char *const WORD[SYS_COUNT] = {
-    T_SYS_BAKED, T_SYS_FPS, T_SYS_DEV, T_SYS_SWEEP, T_SYS_RESET_ALL,
+    T_SYS_BAKED, T_SYS_FPS, T_SYS_DEV, T_SYS_UNRELEASED, T_SYS_SWEEP, T_SYS_RESET_ALL,
 };
 static const char *const NOTE[SYS_COUNT] = {
-    T_SYS_FRAME_RATE_NOTE, T_SYS_FPS_NOTE, T_SYS_DEV_NOTE, T_SYS_SWEEP_NOTE, T_SYS_RESET_NOTE,
+    T_SYS_FRAME_RATE_NOTE, T_SYS_FPS_NOTE, T_SYS_DEV_NOTE, T_SYS_UNRELEASED_NOTE, T_SYS_SWEEP_NOTE,
+    T_SYS_RESET_NOTE,
 };
-/* The sign where a package has its icon: a switch for the three rows
+/* The sign where a package has its icon: a switch for the four rows
    that are set one way or the other, the key for the seed, the arrow
    turning back for the way back. The switch is two marks, the pill and
    the knob, and the knob slides from one end to the other when the row
    is flipped, the way the system's own switches move. */
 static const signed char SIGN[SYS_COUNT] = {
-    MARK_PILL, MARK_PILL, MARK_PILL, MARK_KEY, MARK_RESTORE,
+    MARK_PILL, MARK_PILL, MARK_PILL, MARK_PILL, MARK_KEY, MARK_RESTORE,
 };
 #define KNOB_TRAVEL 4.6f
 
@@ -52,6 +54,7 @@ static int row_on(int i) {
     if (i == SYS_FRAME_RATE) return !options_fps_requested();      /* right is 60 */
     if (i == SYS_SHOW_FPS) return shell_show_fps();
     if (i == SYS_FAKE_UPDATES) return shell_dev_updates();
+    if (i == SYS_UNRELEASED) return view_unreleased_shown();
     return 1;
 }
 

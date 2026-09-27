@@ -109,6 +109,12 @@ int view_basket_count(void);
    tab that was active has gone -- the caller is then standing on Homebrew
    with a cursor that means nothing, and puts it back at the top. */
 int view_tabs_refresh(void);
+/* Whether the store lists packages tagged "unreleased": off unless Options
+   turns it on, for this run. */
+void view_show_unreleased(int on);
+int view_unreleased_shown(void);
+/* Whether the store leaves this package out, by that switch. */
+int view_hidden(const struct app_entry *entry);
 
 /* How many tabs are on screen: none until there is a catalog. */
 int view_tab_count(void);

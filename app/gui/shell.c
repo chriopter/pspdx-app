@@ -505,11 +505,15 @@ static void draw_category_row(int n, int y, int selected, float t) {
 static void draw_category_panel(int n) {
     char note[256];
     int apps = view_category_apps(n);
+    if (apps == 0) {
+        draw_setting_note(category_word(n), T_CATEGORY_EMPTY, 0.0f);
+        return;
+    }
     size_t at = (size_t)snprintf(note, sizeof(note), T_CATEGORY_NOTE, apps, apps == 1 ? "" : "s");
     int named = 0;
     for (int i = 0; g_catalog && i < g_catalog->count && at < sizeof(note) - 1; i++) {
         const struct app_entry *e = &g_catalog->apps[i];
-        if (!e->category[0]) continue;
+        if (!e->category[0] || view_hidden(e)) continue;
         /* The same test the view makes, letter for letter, case aside. */
         const char *a = e->category, *b = view_category(n);
         int same = 1;
