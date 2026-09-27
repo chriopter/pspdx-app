@@ -18,7 +18,7 @@ while a job is running. Both individual and whole-basket downloads start in the 
 Press **Cross** on **Downloads in progress** to open the quiet progress screen for the queue;
 **Circle** returns to the basket. Each app's information page also shows its progress.
 
-The UI defaults to **Baked mode at 30 FPS**, with an optional 60-FPS mode.
+The UI defaults to **Mercy mode at 60 FPS**, with an optional Baked mode at 30 FPS.
 While downloads are queued or running, background browsing temporarily uses
 the lighter 60-FPS interface and returns to your chosen mode when the queue finishes.
 

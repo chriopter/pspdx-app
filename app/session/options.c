@@ -47,8 +47,9 @@ void options_download_mode(int on) {
 void options_settings_load(void) {
     char *text = NULL;
     int n = storage_read(storage_path(SETTINGS_PATH), &text, 32);
-    /* Missing or invalid settings use Baked UI; keep an explicit 60 FPS choice. */
-    g_settings_fps_cap30 = !(n == 7 && !memcmp(text, "fps=60\n", 7));
+    /* Missing or invalid settings use Mercy UI at 60 FPS; keep an explicit
+       30 FPS choice. */
+    g_settings_fps_cap30 = n == 7 && !memcmp(text, "fps=30\n", 7);
     g_runtime_fps_cap30 = g_settings_fps_cap30;
     apply_fps();
     free(text);
