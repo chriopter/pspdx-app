@@ -1,0 +1,5 @@
+# Renders, captures and decoded footage are big and rebuilt by the tools.
+out/
+footage/
+captures/
+__pycache__/

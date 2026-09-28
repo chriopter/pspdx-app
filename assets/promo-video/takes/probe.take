@@ -1,0 +1,16 @@
+# Probe: is remotejoy's screen stream safe and fast enough? ~40 s, offline.
+# Before: PSPDX running, network dialog cancelled (browsing from cache),
+# Options -> Show FPS on, cursor on the Homebrews tab.
+mark start
+wait 3.0
+tap cross             # open "Game"
+wait 1.5
+taps down 3
+tap cross             # an app page: its ICON1 preview must keep playing
+mark page
+wait 12.0
+tap circle
+mark scroll
+hold down 4.0         # scrolling under capture: watch the FPS counter
+mark idle
+wait 15.0             # "Filling cache" + previews while streaming

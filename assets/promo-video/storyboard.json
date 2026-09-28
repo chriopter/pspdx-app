@@ -1,0 +1,172 @@
+{
+  "_comment": "The 60 s cut. Times in seconds of the finished video; positions in a 1920x1080 design space; 'psp' points in PSP screen pixels (480x272). 120 BPM: a beat is 0.5 s, a bar 2 s; the drop is at 6.0.",
+  "fps": 60,
+  "size": [1920, 1080],
+  "duration": 60.0,
+  "bpm": 120,
+
+  "shots": [
+    {"t": [0.0, 2.4]},
+    {"t": [2.4, 6.0], "take": "hero", "mark": "boot", "from": 0.0, "speed": 1.0, "power_on": 0.5},
+    {"t": [6.0, 8.0], "take": "hero", "mark": "home", "from": 0.0},
+    {"t": [8.0, 15.0], "take": "hero", "mark": "scroll", "from": 0.0},
+    {"t": [15.0, 20.0], "take": "hero", "mark": "settle", "from": 0.0},
+    {"t": [20.0, 24.0], "take": "hero", "mark": "page", "from": 0.0},
+    {"t": [24.0, 29.0], "take": "hero", "mark": "review", "from": 0.0},
+    {"t": [29.0, 35.0], "take": "hero", "mark": "download", "from": 0.0, "speed": 1.0},
+    {"t": [35.0, 38.0], "take": "hero", "mark": "done", "from": 0.0},
+    {"t": [38.0, 52.0], "take": "hero", "mark": "tabs", "from": 0.0},
+    {"t": [52.0, 56.0], "take": "hero", "mark": "finale", "from": 0.0},
+    {"t": [56.0, 60.0]}
+  ],
+
+  "camera": [
+    {"t": 0.0, "cx": 960, "cy": 610, "s": 1.28, "device": 1},
+    {"t": 3.9, "cx": 960, "cy": 600, "s": 1.42, "device": 1, "ease": "linear"},
+    {"t": 6.0, "cx": 960, "cy": 540, "s": 4.05, "device": 0, "ease": "expo_in"},
+    {"t": 7.55, "cx": 960, "cy": 540, "s": 4.05, "device": 0},
+    {"t": 8.2, "cx": 650, "cy": 548, "s": 2.3, "device": 0, "ease": "expo_out"},
+    {"t": 15.0, "cx": 650, "cy": 548, "s": 2.3, "device": 0},
+    {"t": 15.7, "cx": 1270, "cy": 548, "s": 2.3, "device": 0, "ease": "expo_inout"},
+    {"t": 20.0, "cx": 1270, "cy": 548, "s": 2.3, "device": 0},
+    {"t": 20.6, "cx": 650, "cy": 548, "s": 2.3, "device": 0, "ease": "expo_inout"},
+    {"t": 24.0, "cx": 650, "cy": 548, "s": 2.3, "device": 0},
+    {"t": 24.6, "cx": 1270, "cy": 548, "s": 2.3, "device": 0, "ease": "expo_inout"},
+    {"t": 29.0, "cx": 1270, "cy": 548, "s": 2.3, "device": 0},
+    {"t": 29.6, "cx": 650, "cy": 548, "s": 2.3, "device": 0, "ease": "expo_inout"},
+    {"t": 35.0, "cx": 650, "cy": 548, "s": 2.3, "device": 0},
+    {"t": 35.5, "cx": 960, "cy": 540, "s": 3.2, "device": 0, "ease": "expo_out"},
+    {"t": 38.0, "cx": 960, "cy": 540, "s": 3.3, "device": 0, "ease": "linear"},
+    {"t": 38.45, "cx": 960, "cy": 548, "s": 2.0, "device": 0, "ease": "expo_out"},
+    {"t": 52.0, "cx": 960, "cy": 548, "s": 2.06, "device": 0, "ease": "linear"},
+    {"t": 54.4, "cx": 960, "cy": 650, "s": 1.3, "device": 1, "ease": "expo_inout"},
+    {"t": 56.0, "cx": 960, "cy": 655, "s": 1.26, "device": 1, "ease": "linear"}
+  ],
+
+  "world": [
+    {"t": 0.0, "speed": 0.05, "glow": 0.0, "tint": "#508CFF", "horizon": 0.64},
+    {"t": 1.0, "speed": 0.08, "glow": 0.15, "tint": "#508CFF", "horizon": 0.64},
+    {"t": 2.6, "speed": 0.15, "glow": 0.85, "tint": "#508CFF", "horizon": 0.64, "ease": "out"},
+    {"t": 5.9, "speed": 0.3, "glow": 0.9, "tint": "#508CFF", "horizon": 0.64},
+    {"t": 6.05, "speed": 1.6, "glow": 1.35, "tint": "#508CFF", "horizon": 0.62, "ease": "expo_out"},
+    {"t": 7.6, "speed": 0.45, "glow": 1.0, "tint": "#508CFF", "horizon": 0.62},
+    {"t": 10.0, "speed": 2.6, "glow": 1.05, "tint": "#508CFF", "horizon": 0.62, "ease": "in"},
+    {"t": 14.3, "speed": 4.2, "glow": 1.15, "tint": "#508CFF", "horizon": 0.62},
+    {"t": 15.1, "speed": 0.35, "glow": 1.0, "tint": "#508CFF", "horizon": 0.62, "ease": "expo_out"},
+    {"t": 38.0, "speed": 0.35, "glow": 1.0, "tint": "#508CFF", "horizon": 0.62},
+    {"t": 38.5, "speed": 0.6, "glow": 1.05, "tint": "#38D060", "horizon": 0.62, "ease": "expo_out"},
+    {"t": 41.4, "speed": 0.6, "glow": 1.05, "tint": "#38D060", "horizon": 0.62},
+    {"t": 41.9, "speed": 0.6, "glow": 1.05, "tint": "#508CFF", "horizon": 0.62, "ease": "expo_out"},
+    {"t": 44.8, "speed": 0.6, "glow": 1.05, "tint": "#508CFF", "horizon": 0.62},
+    {"t": 45.3, "speed": 0.6, "glow": 1.05, "tint": "#E08A3C", "horizon": 0.62, "ease": "expo_out"},
+    {"t": 48.2, "speed": 0.6, "glow": 1.05, "tint": "#E08A3C", "horizon": 0.62},
+    {"t": 48.7, "speed": 0.6, "glow": 1.05, "tint": "#9A48E0", "horizon": 0.62, "ease": "expo_out"},
+    {"t": 52.0, "speed": 0.4, "glow": 1.0, "tint": "#9A48E0", "horizon": 0.62},
+    {"t": 53.0, "speed": 0.2, "glow": 0.95, "tint": "#508CFF", "horizon": 0.64, "ease": "inout"},
+    {"t": 60.0, "speed": 0.15, "glow": 0.9, "tint": "#508CFF", "horizon": 0.64}
+  ],
+
+  "overlays": [
+    {"kind": "headline", "t": [0.8, 2.55], "text": "Your PSP.", "y": 150, "px": 120},
+    {"kind": "headline", "t": [2.55, 4.5], "text": "just got an app store.", "y": 150, "px": 120, "accent": ["app", "store."]},
+    {"kind": "wordmark", "t": [6.0, 7.7], "text": "PSPDX", "px": 270, "y": 500, "sub": "PSP Download Index", "scrim": true},
+
+    {"kind": "card", "t": [8.3, 11.9], "side": "right", "label": "The catalog", "icon": "store",
+     "stat": "{n}+", "count": 1750, "sub": "homebrew apps from the pspdev catalog, newest first."},
+    {"kind": "card", "t": [12.0, 15.3], "side": "right", "label": "Hold the D-pad", "icon": "list",
+     "title": "480 rows a second.", "sub": "The list keeps accelerating: 10,000 rows in under 30 seconds."},
+
+    {"kind": "card", "t": [15.9, 19.9], "side": "left", "label": "Icons", "icon": "apps",
+     "title": "From the cursor outward.", "sub": "What you look at loads first, then stays in a pack. Never decoded twice."},
+    {"kind": "callout", "t": [16.6, 19.7], "psp": [36, 150]},
+
+    {"kind": "headline", "t": [20.5, 23.95], "text": "Every app.|Its own page.", "align": "right", "x": 1830, "y": 390, "px": 104, "accent": ["page."]},
+    {"kind": "chip", "t": [22.6, 23.95], "psp": [60, 258], "icon": "cross", "text": "Install", "px": 30},
+
+    {"kind": "card", "t": [24.7, 28.9], "side": "left", "label": "Check before installing", "icon": "download",
+     "title": "See exactly what goes where.", "sub": "Installs, comes along, left out. Before a byte touches the Memory Stick."},
+    {"kind": "callout", "t": [25.5, 28.7], "psp": [60, 128]},
+
+    {"kind": "card", "t": [29.7, 31.75], "side": "right", "label": "Over the PSP's own Wi-Fi", "icon": "globe",
+     "stat": "300 KB/s", "sub": "Downloads keep going while you browse."},
+    {"kind": "card", "t": [31.8, 33.45], "side": "right", "label": "On a 2004 handheld", "icon": "key",
+     "title": "TLS 1.3", "title_px": 104, "sub": "ChaCha20-Poly1305, straight from the console."},
+    {"kind": "card", "t": [33.5, 35.15], "side": "right", "label": "Every zip", "icon": "tick",
+     "title": "SHA-256 checked.", "sub": "What lands is exactly what the catalog names."},
+
+    {"kind": "headline", "t": [35.55, 37.95], "text": "Installed.", "y": 400, "px": 190, "accent": ["Installed."], "scrim": true},
+    {"kind": "chip", "t": [36.1, 37.95], "x": 960, "y": 680, "icon": "download", "text": "Straight onto the Memory Stick", "px": 32},
+
+    {"kind": "card", "t": [38.4, 40.3], "side": "left", "y": 250, "label": "Updates", "icon": "update",
+     "title": "Updates, automatically.", "sub": "Checked at every start."},
+    {"kind": "card", "t": [40.1, 42.0], "side": "right", "y": 600, "label": "Background", "icon": "download",
+     "title": "Keep browsing.", "sub": "Downloads carry on behind you."},
+    {"kind": "card", "t": [41.8, 43.7], "side": "left", "y": 600, "label": "Basket", "icon": "basket",
+     "title": "50 apps. One button.", "sub": "Fill the basket, download all."},
+    {"kind": "card", "t": [43.5, 45.4], "side": "right", "y": 250, "label": "Power-cut safe", "icon": "restore",
+     "title": "Nothing half-installed.", "sub": "Every install is journaled and recovers at the next start."},
+    {"kind": "card", "t": [45.2, 47.1], "side": "left", "y": 250, "label": "Mirrors", "icon": "globe",
+     "title": "archive.org fallback.", "sub": "One mirror fails, the next one answers."},
+    {"kind": "card", "t": [46.9, 48.8], "side": "right", "y": 600, "label": "File names", "icon": "page",
+     "title": "Shift-JIS & CP437.", "sub": "Japanese and DOS names land readable."},
+    {"kind": "card", "t": [48.6, 50.5], "side": "left", "y": 600, "label": "Offline", "icon": "folder",
+     "title": "Works offline.", "sub": "Cached catalog, cached previews."},
+    {"kind": "card", "t": [50.3, 52.1], "side": "right", "y": 250, "label": "Real hardware", "icon": "play",
+     "title": "60 FPS.", "title_px": 96, "sub": "On a PSP-1000. Mercy mode by default."},
+
+    {"kind": "headline", "t": [52.6, 55.75], "text": "Every homebrew.|One button.", "y": 95, "px": 108, "accent": ["One", "button."]},
+    {"kind": "endcard", "t": [55.8, 60.0],
+     "lines": [["Free and open source  ·  GPL-2.0", 30, "Regular", "text_dim"],
+               ["github.com/chriopter/pspdx-app", 34, "Medium", "accent"]]}
+  ],
+
+  "fx": [
+    {"kind": "glare", "t": [3.0, 4.2]},
+    {"kind": "flash", "t": [6.0, 6.4], "amount": 0.85},
+    {"kind": "streaks", "t": [9.2, 14.8]},
+    {"kind": "flash", "t": [20.0, 20.14], "amount": 0.3},
+    {"kind": "flash", "t": [35.45, 35.62], "amount": 0.45},
+    {"kind": "flash", "t": [38.0, 38.14], "amount": 0.3},
+    {"kind": "glare", "t": [53.2, 54.6]},
+    {"kind": "flash", "t": [55.8, 56.15], "amount": 0.6},
+    {"kind": "fade", "t": [59.25, 60.0], "dir": "out"}
+  ],
+
+  "audio": {
+    "tune_level": 0.9,
+    "kick": [[6.0, 52.0]],
+    "hats": [[20.0, 52.0]],
+    "riser": [[3.0, 6.0]],
+    "impact": [6.0, 35.5, 55.8],
+    "ui": [[20.0, "open"], [22.6, "open"], [24.7, "move"], [29.6, "open"], [35.5, "done"]],
+    "scroll_ticks": [[8.3, 14.6]],
+    "glass_on_cards": true,
+    "whoosh_on_overlays": true,
+    "master_lufs": -14
+  },
+
+  "placeholder": {
+    "_comment": "Real PSP-1000 screenshots (safe-shot, 2026-09-27/28) standing in for the take until it is shot. Each mark: [still, seconds, crossfade?].",
+    "stills": "placeholder",
+    "crossfade": 0.12,
+    "takes": {
+      "hero": {
+        "boot": [["pspdx-2.png", 1.1], ["fill2.png", 1.0], ["fill7.png", 0.8], ["fill3.png", 1.2]],
+        "home": [["fill4.png", 1.0], ["fill8.png", 1.3]],
+        "scroll": [["h1.png", 0.9], ["s0.png", 0.55], ["q06.png", 0.42], ["q15.png", 0.32, 0.06], ["r06.png", 0.24, 0.05],
+                   ["B2.png", 0.18, 0.04], ["fill6.png", 0.15, 0.04], ["i1.png", 0.12, 0.03], ["q06.png", 0.1, 0.03],
+                   ["r06.png", 0.1, 0.03], ["q15.png", 0.1, 0.03], ["fill6.png", 0.1, 0.03], ["i1.png", 0.1, 0.03],
+                   ["r06.png", 0.1, 0.03], ["q06.png", 0.1, 0.03], ["B2.png", 0.1, 0.03], ["q15.png", 0.1, 0.03],
+                   ["r06.png", 0.1, 0.03], ["fill6.png", 0.1, 0.03], ["i1.png", 0.1, 0.03], ["q06.png", 0.1, 0.03],
+                   ["r06.png", 0.1, 0.03], ["q15.png", 0.1, 0.03], ["B2.png", 1.8, 0.08]],
+        "settle": [["B2.png", 1.4], ["fill6.png", 1.8], ["q15.png", 2.2]],
+        "page": [["f1.png", 1.7], ["u1.png", 1.1], ["f1.png", 1.6]],
+        "review": [["B3.png", 5.3]],
+        "download": [["L3.png", 1.4], ["j2.png", 4.9]],
+        "done": [["d5.png", 3.2]],
+        "tabs": [["R0.png", 3.4], ["i3.png", 3.4], ["v2-tab.png", 3.4], ["m2.png", 4.0]],
+        "finale": [["fill6.png", 4.2]]
+      }
+    }
+  }
+}

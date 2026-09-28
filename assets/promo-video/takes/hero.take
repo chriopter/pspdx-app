@@ -1,0 +1,60 @@
+# The one hardware take behind storyboard.json (take "hero"), ~100 s.
+# Budget: the bench PSP powers off ~300 s after WLAN connects; psp_capture.py
+# refuses takes over --max (260 s). Numbers marked REHEARSE are guesses until
+# an offline rehearsal (see SKILL.md, step 4) has confirmed them.
+#
+# Before: PSPLink up, remotejoy.prx loaded, PSPDX NOT yet running, the saved
+# WLAN connection first in the system dialog, the install target not
+# installed (Installed tab -> triangle -> Delete if it is).
+
+sh ~/.local/opt/pspdev/bin/pspsh -e "ldstart ms0:/PSP/GAME/PSPDX/pspdx.prx"
+mark boot
+wait 4.5              # REHEARSE: PSPDX's first frames, then the network dialog
+tap cross             # connect with the saved connection
+wait 9.0              # REHEARSE: connecting, "Loading catalog", the list appears
+mark home
+wait 3.0              # Homebrews: category rows, icons coming in
+
+tap cross             # open the "Game" category (cursor starts on it)
+wait 1.2
+taps down 5           # REHEARSE: rows from the top of Game to the install target
+wait 0.8
+mark page
+tap cross             # the app's page
+wait 1.8
+tap right             # flick to the neighbour ...
+wait 1.1
+tap left              # ... and back
+wait 1.3
+mark install
+tap cross             # Install: the review page when the zip needs one
+wait 0.6
+mark review
+wait 3.5
+tap cross             # Install on the review page
+mark download
+wait 11.0             # REHEARSE: ~2 MB at ~300 KB/s plus unpacking
+mark done
+wait 2.5
+tap circle            # back to the list
+wait 1.0
+
+mark scroll
+hold down 5.8         # accelerating scroll: 10 -> 20 -> 60 -> 120 -> 240 rows/s
+mark settle
+wait 5.0              # icons fill in from the cursor outward
+
+mark tabs
+tap ltrigger          # tabs to the left: Installed (green room)
+wait 3.4
+tap rtrigger          # back through Homebrews ...
+wait 0.4
+tap rtrigger          # ... to UMDs (orange); REHEARSE: a basket tab may sit before the gear
+wait 3.4
+tap rtrigger          # the gear (purple)
+wait 3.6
+tap ltrigger
+wait 0.4
+tap ltrigger          # home to Homebrews
+mark finale
+wait 5.0
