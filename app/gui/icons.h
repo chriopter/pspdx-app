@@ -33,15 +33,22 @@ void icons_ahead(const int *index, int count);
    left to try. */
 int icons_prefetch_one(void);
 
+/* Main thread: the icon of this entry of the bound catalog, or NULL. */
+const struct gfx_texture *icons_get_entry(const struct app_entry *entry);
+
 /* Main thread: the icon of an entry, or NULL while it is not here. */
 const struct gfx_texture *icons_get(int index);
 
-/* Media thread: the next row wanted and not yet tried, or -1; the second
-   only among the rows on screen. */
-int icons_pending(void);
-int icons_pending_visible(void);
-
-/* Media thread: fetch, decode and shrink one entry's icon. Blocks. */
-void icons_load(int index);
+/* The icons have a thread of their own, beside the card's: a still or a
+   film being fetched for the card never holds up the rows. It is started,
+   held and stopped with the card's media thread (gui/preview.c). */
+void icons_start(void);
+void icons_stop(void);
+void icons_poke(void);
+/* Held: nothing fetched, the pack written out. begin asks, ready says it
+   has been done, end lets it go on. */
+void icons_hold_begin(void);
+int icons_hold_ready(void);
+void icons_hold_end(void);
 
 #endif

@@ -37,4 +37,12 @@ void asset_flush(void);
 /* Whether a picture is in the pack already, without reading it. */
 int asset_have(enum asset_kind kind, const char *id, const char *url);
 
+/* A list icon as the list draws it, already decoded and shrunk: kept in
+   the pack beside the pictures, under the icon's own name, so that a row
+   seen before costs a read and a copy, not a PNG decode. get returns the
+   bytes copied into out, 0 when there is none. */
+size_t asset_thumb_get(const char *id, const char *url, void *out, size_t cap);
+void asset_thumb_put(const char *id, const char *url, const void *data, size_t len);
+int asset_thumb_have(const char *id, const char *url);
+
 #endif

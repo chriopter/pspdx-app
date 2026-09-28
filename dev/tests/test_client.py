@@ -923,21 +923,22 @@ class ClientTests(unittest.TestCase):
   self.assertIn('metadata named 0 storage servers',r.stderr);self.assertIn('why: the server answered 500',r.stderr)
   self.assertNotIn('evil.example.com',(self.root/'requests.log').read_text())
  def test_pictures_are_kept_in_one_pack(self):
-  # Icons and stills go into CACHE/media.pak with an index beside it, not a file each; they come back from the pack without the network, a record the pack does not hold (a cut write) is ignored, and a full pack starts over.
-  (self.root/'a.png').write_bytes(b'ICON-A'+b'x'*100);(self.root/'b.png').write_bytes(b'SHOT-B'+b'y'*200)
-  (self.root/'map.txt').write_text('example.com/a.png a.png 200\nexample.com/b.png b.png 200\n')
-  r=self.run_client('asset','icon','app.a','https://example.com/a.png',URL_MAP=self.root/'map.txt',VERBOSE=1)
+  # Stills go into CACHE/media.pak with an index beside it, not a file each; they come back from the pack without the network, a record the pack does not hold (a cut write) is ignored. An icon's PNG is not kept at all: the list keeps icons shrunk, as thumbnails.
+  (self.root/'a.png').write_bytes(b'SHOT-A'+b'x'*100);(self.root/'b.png').write_bytes(b'SHOT-B'+b'y'*200);(self.root/'i.png').write_bytes(b'ICON-I'+b'z'*50)
+  (self.root/'map.txt').write_text('example.com/a.png a.png 200\nexample.com/b.png b.png 200\nexample.com/i.png i.png 200\n')
+  r=self.run_client('asset','shot','app.a','https://example.com/a.png',URL_MAP=self.root/'map.txt',VERBOSE=1)
   self.assertEqual(r.stdout.split()[0],'106');self.assertIn('fetched',r.stderr)
   self.run_client('asset','shot','app.b','https://example.com/b.png',URL_MAP=self.root/'map.txt')
+  self.assertEqual(self.run_client('asset','icon','app.i','https://example.com/i.png',URL_MAP=self.root/'map.txt').stdout.split()[0],'56')
   cache=self.root/'ms0:/PSP/PSPDX/CACHE'
   self.assertEqual((cache/'media.pak').stat().st_size,106+206);self.assertEqual((cache/'media.idx').stat().st_size,32)
   self.assertFalse(list((cache/'media').glob('*')) if (cache/'media').exists() else [])
-  # A new run, the network gone: both from the pack.
-  r=self.run_client('asset','shot','app.b','https://example.com/b.png',OFFLINE=1)
-  self.assertEqual(r.stdout.split(),['206','SHOT-Byyyyyyyyyy'])
+  # A new run, the network gone: both stills from the pack, the icon nowhere.
+  self.assertEqual(self.run_client('asset','shot','app.b','https://example.com/b.png',OFFLINE=1).stdout.split(),['206','SHOT-Byyyyyyyyyy'])
+  self.assertEqual(self.run_client('asset','icon','app.i','https://example.com/i.png',OFFLINE=1,ok=False).returncode,1)
   # A cut write: the index names bytes the pack never got. That record is dropped, the one before it stands.
   with open(cache/'media.pak','r+b') as f:f.truncate(150)
-  self.assertEqual(self.run_client('asset','icon','app.a','https://example.com/a.png',OFFLINE=1).stdout.split()[0],'106')
+  self.assertEqual(self.run_client('asset','shot','app.a','https://example.com/a.png',OFFLINE=1).stdout.split()[0],'106')
   self.assertEqual(self.run_client('asset','shot','app.b','https://example.com/b.png',OFFLINE=1,ok=False).returncode,1)
  def test_a_catalog_of_thousands_lists_every_app_newest_first(self):
   # Past two thousand entries, every one is a row, held in memory, and the store lists the newest release first; one date shared keeps the catalog's order, and no date at all stands last.

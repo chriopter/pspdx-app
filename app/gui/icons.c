@@ -28,8 +28,9 @@ enum icon_state { ICON_NONE, ICON_WANTED, ICON_READY, ICON_MISSING };
 
 /* A screenful and three rows past either edge. */
 #define WANTED 16
-/* Four screens of rows: scrolling back a little finds them still there. */
-#define SLOTS 32
+/* Ten screens of rows: scrolling back finds them still here, not on the
+   stick. 64 of 32 KB. */
+#define SLOTS 64
 
 struct slot {
     struct gfx_texture tex;
@@ -62,6 +63,8 @@ void icons_ahead(const int *index, int count) {
     g_ahead_count = count;
 }
 
+static int make_thumb(const struct app_entry *entry, struct gfx_texture *small);
+
 int icons_prefetch_one(void) {
     if (!g_catalog) return 0;
     int count = g_ahead_count;
@@ -74,9 +77,9 @@ int icons_prefetch_one(void) {
         /* An installed app is pictured from its own EBOOT; an entry from a
            saved catalog has no network to fetch from. */
         if (e->state != APP_NOT_INSTALLED || e->media_cached_only || !txt(e->icon)[0]) continue;
-        if (asset_have(ASSET_ICON, e->id, txt(e->icon))) continue;
-        size_t len;
-        asset_fetch(ASSET_ICON, e->id, txt(e->icon), 0, &len);
+        if (asset_thumb_have(e->id, txt(e->icon))) continue;
+        static struct gfx_texture scratch;
+        make_thumb(e, &scratch);
         return 1;
     }
     return 0;
@@ -126,6 +129,12 @@ int icons_want(const int *index, int count, int visible) {
     return fresh;
 }
 
+const struct gfx_texture *icons_get_entry(const struct app_entry *entry) {
+    if (!g_catalog || !entry || entry < g_catalog->apps || entry >= g_catalog->apps + g_catalog->count)
+        return 0;
+    return icons_get((int)(entry - g_catalog->apps));
+}
+
 const struct gfx_texture *icons_get(int index) {
     if (index < 0 || index >= MAX_APPS || g_state[index] != ICON_READY) return 0;
     int s = g_slot_of[index];
@@ -139,8 +148,8 @@ static int pending_among(int count) {
     }
     return -1;
 }
-int icons_pending(void) { return pending_among(g_want_count); }
-int icons_pending_visible(void) {
+static int icons_pending(void) { return pending_among(g_want_count); }
+static int icons_pending_visible(void) {
     int count = g_want_count, visible = g_want_visible;
     return pending_among(visible < count ? visible : count);
 }
@@ -191,39 +200,61 @@ static int shrink(const struct gfx_texture *big, struct gfx_texture *small) {
     return 0;
 }
 
-void icons_load(int index) {
-    if (!g_catalog || index < 0 || index >= g_catalog->count || index >= MAX_APPS) return;
-    const struct app_entry *entry = &g_catalog->apps[index];
+/* An icon as the pack keeps it once shrunk: its width and height, two
+   bytes of nothing, then its rows of RGBA, so that one seen before is a
+   read and a copy and no PNG is decoded again. */
+#define THUMB_MAX (4 + 128 * 64 * 4)
+static unsigned char g_thumb[THUMB_MAX];
+
+static int from_thumb(struct gfx_texture *t, const unsigned char *b, size_t n) {
+    int w = b[0], h = b[1];
+    if (n < 4 || w == 0 || h == 0 || w > 128 || h > 64 || n != 4 + (size_t)w * h * 4)
+        return -1;
+    if (!t->pixels && !(t->pixels = memalign(16, (size_t)128 * 64 * 4)))
+        return -1;
+    t->w = w;
+    t->h = h;
+    t->tw = 128;
+    t->th = 64;
+    t->opaque = 0;
+    memset(t->pixels, 0, (size_t)128 * 64 * 4);
+    for (int y = 0; y < h; y++)
+        memcpy((unsigned char *)t->pixels + (size_t)y * 128 * 4, b + 4 + (size_t)y * w * 4, (size_t)w * 4);
+    sceKernelDcacheWritebackRange(t->pixels, (size_t)128 * 64 * 4);
+    return 0;
+}
+
+static size_t to_thumb(const struct gfx_texture *t, unsigned char *b) {
+    b[0] = (unsigned char)t->w;
+    b[1] = (unsigned char)t->h;
+    b[2] = b[3] = 0;
+    for (int y = 0; y < t->h; y++)
+        memcpy(b + 4 + (size_t)y * t->w * 4, (const unsigned char *)t->pixels + (size_t)y * t->tw * 4,
+               (size_t)t->w * 4);
+    return 4 + (size_t)t->w * t->h * 4;
+}
+
+/* A catalog icon fetched, decoded and shrunk into small, then kept as a
+   thumbnail. -1 when there is none to be had. */
+static int make_thumb(const struct app_entry *entry, struct gfx_texture *small) {
+    size_t len = 0;
+    const void *png = asset_fetch(ASSET_ICON, entry->id, txt(entry->icon), entry->media_cached_only, &len);
     struct gfx_texture big;
-    int decoded = -1;
-    /* An installed row is pictured from its own EBOOT before anything is
-       asked of the cache or the network: the stick is free, and the bytes
-       are the app's own rather than what a catalog says about it. Only a
-       bundle without an ICON0 falls through to the catalog's. */
-    if (entry->state != APP_NOT_INSTALLED) {
-        char path[128];
-        void *png;
-        size_t len;
-        if (pbp_installed_path(entry->id, path, sizeof(path)) == 0 &&
-            pbp_section(path, PBP_ICON0, &png, &len) == 0) {
-            decoded = image_decode_png(png, len, &big);
-            free(png);
-        }
-    }
-    if (decoded != 0) {
-        size_t len = 0;
-        const void *png = asset_fetch(ASSET_ICON, entry->id, txt(entry->icon), entry->media_cached_only, &len);
-        if (!png || image_decode_png(png, len, &big) != 0) {
-            g_state[index] = ICON_MISSING;
-            return;
-        }
-    }
+    if (!png || image_decode_png(png, len, &big) != 0)
+        return -1;
+    int rc = shrink(&big, small);
+    gfx_texture_free(&big);
+    if (rc != 0)
+        return -1;
+    if (txt(entry->icon)[0])
+        asset_thumb_put(entry->id, txt(entry->icon), g_thumb, to_thumb(small, g_thumb));
+    return 0;
+}
+
+/* The slot to fill, emptied of the entry it held. */
+static int claim_slot(void) {
     int s = take_slot();
-    if (s < 0) {
-        gfx_texture_free(&big);
-        g_state[index] = ICON_NONE;
-        return;
-    }
+    if (s < 0) return -1;
     /* The entry the slot held has no icon from here on, before a pixel of
        it changes. */
     int old = g_slots[s].index;
@@ -232,14 +263,145 @@ void icons_load(int index) {
         g_state[old] = ICON_NONE;
     }
     g_slots[s].index = -1;
-    int rc = shrink(&big, &g_slots[s].tex);
-    gfx_texture_free(&big);
-    if (rc != 0) {
-        g_state[index] = ICON_MISSING;
-        return;
-    }
+    return s;
+}
+
+static void ready(int s, int index) {
     g_slots[s].index = index;
     g_slots[s].used = g_clock;
     g_slot_of[index] = (signed char)s;
     g_state[index] = ICON_READY;
+}
+
+static void icons_load(int index) {
+    if (!g_catalog || index < 0 || index >= g_catalog->count || index >= MAX_APPS) return;
+    const struct app_entry *entry = &g_catalog->apps[index];
+    /* An installed row is pictured from its own EBOOT before anything is
+       asked of the cache or the network: the stick is free, and the bytes
+       are the app's own rather than what a catalog says about it. Only a
+       bundle without an ICON0 falls through to the catalog's. */
+    if (entry->state != APP_NOT_INSTALLED) {
+        char path[128];
+        void *png;
+        size_t len;
+        struct gfx_texture big;
+        if (pbp_installed_path(entry->id, path, sizeof(path)) == 0 &&
+            pbp_section(path, PBP_ICON0, &png, &len) == 0) {
+            int decoded = image_decode_png(png, len, &big);
+            free(png);
+            int s = decoded == 0 ? claim_slot() : -1;
+            if (decoded == 0 && s >= 0 && shrink(&big, &g_slots[s].tex) == 0) {
+                gfx_texture_free(&big);
+                ready(s, index);
+                return;
+            }
+            if (decoded == 0) gfx_texture_free(&big);
+        }
+    }
+    /* Kept from before: a copy into a slot. */
+    size_t n = txt(entry->icon)[0] ? asset_thumb_get(entry->id, txt(entry->icon), g_thumb, sizeof(g_thumb)) : 0;
+    if (n) {
+        int s = claim_slot();
+        if (s >= 0 && from_thumb(&g_slots[s].tex, g_thumb, n) == 0) {
+            ready(s, index);
+            return;
+        }
+    }
+    int s = claim_slot();
+    if (s < 0) {
+        g_state[index] = ICON_NONE;
+        return;
+    }
+    if (make_thumb(entry, &g_slots[s].tex) != 0) {
+        g_state[index] = ICON_MISSING;
+        return;
+    }
+    ready(s, index);
+}
+
+/* ------------------------------------------------------------ the thread */
+
+/* With the card's thread, below the main thread: the list keeps its frame
+   rate and the fetching runs in the time it spends waiting for vblank. */
+#define ICON_PRIORITY 0x24
+#define ICON_STACK (32 * 1024)
+static SceUID g_ithread = -1, g_iwake = -1, g_iidle = -1;
+static volatile int g_iquit, g_ihold;
+static int g_hold_ready;
+
+/* The rows on screen first, then the rows past the edges; with nothing
+   asked for 0.4 s, rows further out are fetched ahead, one at a time and
+   stopping for any row that comes on screen meanwhile. What is held in
+   memory goes to the stick once two seconds have passed with nothing to
+   do. */
+static int icon_thread(SceSize args, void *argp) {
+    (void)args; (void)argp;
+    int quiet = 0;
+    for (;;) {
+        SceUInt wait = 400 * 1000;
+        int timeout = sceKernelWaitSema(g_iwake, 1, &wait) < 0;
+        if (g_iquit) break;
+        if (g_ihold) {
+            asset_flush();
+            sceKernelSignalSema(g_iidle, 1);
+            while (g_ihold && !g_iquit) sceKernelWaitSema(g_iwake, 1, 0);
+            continue;
+        }
+        int did = 0, at;
+        while (!g_ihold && !g_iquit && (at = icons_pending_visible()) >= 0) { icons_load(at); did = 1; }
+        while (!g_ihold && !g_iquit && icons_pending_visible() < 0 && (at = icons_pending()) >= 0) {
+            icons_load(at);
+            did = 1;
+        }
+        if (timeout && !did)
+            while (!g_ihold && !g_iquit && icons_pending() < 0 && icons_prefetch_one()) did = 1;
+        quiet = did ? 0 : quiet + 1;
+        if (quiet == 5) asset_flush();
+    }
+    asset_flush();
+    sceKernelSignalSema(g_iidle, 1);
+    return 0;
+}
+
+void icons_poke(void) { if (g_iwake >= 0) sceKernelSignalSema(g_iwake, 1); }
+
+void icons_start(void) {
+    g_iquit = g_ihold = 0;
+    g_iwake = sceKernelCreateSema("icons_wake", 0, 0, 64, 0);
+    g_iidle = sceKernelCreateSema("icons_idle", 0, 0, 64, 0);
+    g_ithread = sceKernelCreateThread("icons", icon_thread, ICON_PRIORITY, ICON_STACK,
+                                      PSP_THREAD_ATTR_USER, 0);
+    if (g_ithread >= 0) sceKernelStartThread(g_ithread, 0, 0);
+    else logline("icons: no thread %08x", (unsigned)g_ithread);
+}
+
+void icons_stop(void) {
+    if (g_ithread >= 0) {
+        g_iquit = 1;
+        icons_poke();
+        sceKernelWaitSema(g_iidle, 1, 0);
+        sceKernelWaitThreadEnd(g_ithread, 0);
+        sceKernelDeleteThread(g_ithread);
+        g_ithread = -1;
+    }
+    if (g_iwake >= 0) { sceKernelDeleteSema(g_iwake); g_iwake = -1; }
+    if (g_iidle >= 0) { sceKernelDeleteSema(g_iidle); g_iidle = -1; }
+}
+
+void icons_hold_begin(void) {
+    g_hold_ready = g_ithread < 0;
+    if (g_ithread < 0) return;
+    /* Only this hold's answer counts. */
+    while (sceKernelPollSema(g_iidle, 1) == 0) {}
+    g_ihold = 1;
+    icons_poke();
+}
+int icons_hold_ready(void) {
+    if (!g_hold_ready && sceKernelPollSema(g_iidle, 1) == 0) g_hold_ready = 1;
+    return g_hold_ready;
+}
+void icons_hold_end(void) {
+    g_ihold = 0;
+    g_hold_ready = 0;
+    icons_poke();
 }

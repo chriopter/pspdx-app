@@ -572,19 +572,28 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
        -- and the action row stands for none, so it asks for nothing. */
     int from = (int)(g_scroll / ITEM_H), to = from + VISIBLE + 1;
     if (to > count) to = count;
-    /* The rows on screen first, then three past either edge; nothing at
-       all while the list flies by, so that where it stops is fetched
-       first, and fetched at once. */
+    /* The rows the list is going to, not the ones it is sliding past: the
+       icons follow where the cursor put the list, so a row that only
+       slides by on the way there is never fetched. On screen first, then
+       three past either edge; nothing at all while the list flies by. */
+    int wfrom = g_first, wto = wfrom + VISIBLE;
+    if (wto > count) wto = count;
     enum { AHEAD = 3 };
-    int wanted[VISIBLE + 2 + 2 * AHEAD], want_count = 0, visible = 0;
+    int wanted[VISIBLE + 2 * AHEAD], want_count = 0, visible = 0;
     if (!g_fast) {
-        for (int i = from; i < to; i++) {
+        /* From the row the cursor is on outwards -- it, then one above and
+           one below, and so on -- so that what is being looked at comes
+           first, and the rest of the screen after it. */
+        int c = cursor < wfrom ? wfrom : cursor >= wto ? wto - 1 : cursor;
+        for (int k = 0; k < VISIBLE * 2; k++) {
+            int i = k == 0 ? c : k % 2 ? c - (k + 1) / 2 : c + k / 2;
+            if (i < wfrom || i >= wto) continue;
             int index = view_index(i);
             if (index >= 0) wanted[want_count++] = index;
         }
         visible = want_count;
         for (int k = 1; k <= AHEAD; k++) {
-            int around[2] = {from - k, to - 1 + k};
+            int around[2] = {wfrom - k, wto - 1 + k};
             for (int j = 0; j < 2; j++) {
                 int index = around[j] >= 0 && around[j] < count ? view_index(around[j]) : -1;
                 if (index >= 0) wanted[want_count++] = index;
@@ -592,14 +601,14 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
         }
     }
     icons_bind(catalog);
-    if (icons_want(wanted, want_count, visible)) preview_poke();
+    if (icons_want(wanted, want_count, visible)) icons_poke();
     /* Further out for fetching ahead while nothing else is asked: nearest
        first, alternating below and above, not while the list flies. */
     if (!g_fast) {
         enum { FAR = 24 };
         int ahead[2 * FAR], ahead_count = 0;
         for (int k = AHEAD + 1; k <= AHEAD + FAR; k++) {
-            int around[2] = {to - 1 + k, from - k};
+            int around[2] = {wto - 1 + k, wfrom - k};
             for (int j = 0; j < 2; j++) {
                 int index = around[j] >= 0 && around[j] < count ? view_index(around[j]) : -1;
                 if (index >= 0) ahead[ahead_count++] = index;
@@ -1019,7 +1028,7 @@ static void card_light_follow(const struct gfx_texture *still, const struct gfx_
     }
 }
 
-static void draw_picture(float t) {
+static void draw_picture(const struct app_entry *entry, float t) {
     /* The card keeps its place: a picture that drifts is a picture that is
        hard to look at. But it is a plane in the room, not a window in the
        glass: it leans back a hair, turns with the room's own slow sway,
@@ -1136,6 +1145,15 @@ static void draw_picture(float t) {
         card.alpha = 255;
         card.bare = 1;
         gfx_card_draw(0, &card);
+        /* The list's icon of the entry is already here, and it is the same
+           picture at half the size: it stands on the card at once, while
+           the rest is fetched, and for good when there is nothing else. */
+        const struct gfx_texture *icon = icons_get_entry(entry);
+        if (icon) {
+            gfx_texture_draw(icon, (int)(card.cx - FILM_W / 2), (int)(card.cy - FILM_H / 2), FILM_W,
+                             FILM_H, RGBA(255, 255, 255, 255));
+            return;
+        }
         if (picture == PREVIEW_LOADING)
             gfx_glow(card.cx, card.cy, 70 + sinf(t * 4) * 14, 36 + sinf(t * 4) * 8,
                      rgb_pack(g_tint, 120));
@@ -1291,7 +1309,7 @@ static const char *state_line(const struct app_entry *entry, unsigned *color) {
 
 static void draw_panel(const struct app_entry *entry, float t) {
     card_text(entry);
-    draw_picture(t);
+    draw_picture(entry, t);
     draw_shade(PANEL_X + SHOT_W / 2 + g_page_dx, (CARD_TOP + CARD_BOTTOM) / 2, SHOT_W,
                CARD_BOTTOM - CARD_TOP);
     unsigned state_color;

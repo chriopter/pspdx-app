@@ -243,20 +243,6 @@ static void load_sound(const struct request *req, unsigned gen) {
     if (stale(gen)) audio_sound_stop();
 }
 
-/* The list's icons come after the card: one at a time, and only while no
-   newer selection is waiting, so a scroll through the list is never held
-   up by the icons of the rows it left. */
-static void load_icons(unsigned gen) {
-    int index;
-    while (!stale(gen) && (index = icons_pending()) >= 0) icons_load(index);
-}
-/* Only the rows on screen: what a stopped list shows is fetched before
-   the card, which is one picture against six. */
-static void load_visible_icons(unsigned gen) {
-    int index;
-    while (!stale(gen) && (index = icons_pending_visible()) >= 0) icons_load(index);
-}
-
 /* One request at a time, the newest. Between requests the decoder is
    stopped and the last film let go of, so nothing here ever runs two
    films or two fetches at once. */
@@ -264,21 +250,11 @@ static int media_thread(SceSize args, void *argp) {
     (void)args; (void)argp;
     unsigned served = 0;
     for (;;) {
-        /* Nothing asked for two seconds: the rows around the ones on
-           screen are fetched ahead, one at a time and only while nothing
-           else is asked, and the pictures held in memory go to the stick. */
-        SceUInt idle = 2 * 1000 * 1000;
-        if (sceKernelWaitSema(g_wake, 1, &idle) < 0) {
-            unsigned gen = g_want.gen;
-            while (!stale(gen) && icons_prefetch_one())
-                ;
-            asset_flush();
-            continue;
-        }
+        sceKernelWaitSema(g_wake, 1, 0);
         if (g_quit) break;
         if (g_hold) { asset_flush(); sceKernelSignalSema(g_idle, 1); continue; }
         unsigned gen = g_want.gen;
-        if (gen == served) { load_icons(gen); continue; }
+        if (gen == served) continue;
         /* The strings, copied whole: the main thread writes them before it
            raises gen, so a copy that sees the same gen after as before saw
            a finished request. */
@@ -316,12 +292,9 @@ static int media_thread(SceSize args, void *argp) {
             free(bytes);
             if (gen == g_want.gen) g_done_gen = gen;
             else if (g_film_state == FILM_PLAYING) { player_stop(); free(g_psmf); g_psmf = 0; g_film_state = FILM_NONE; }
-            load_icons(gen);
             continue;
         }
 
-        load_visible_icons(gen);
-        if (stale(gen)) continue;
         int slot = g_still_slot ^ 1;
         gfx_texture_vram_drop(&g_stills[slot]);    /* never sample a freed still from VRAM */
         gfx_texture_free(&g_stills[slot]);
@@ -329,11 +302,6 @@ static int media_thread(SceSize args, void *argp) {
         load_still(&req, gen, &g_stills[slot]);
         if (stale(gen)) { gfx_texture_free(&g_stills[slot]); continue; }
         g_still_slot = slot;
-        /* The rows just past the edges before the film and the sound:
-           those only start after a pause, and a scroll a little further
-           should find its icons. */
-        load_icons(gen);
-        if (stale(gen)) continue;
 
         /* The cache is tried even without a link, so this is asked of
            every entry; it comes back at once when there is nothing. */
@@ -346,7 +314,6 @@ static int media_thread(SceSize args, void *argp) {
         load_sound(&req, gen);
         if (gen == g_want.gen) g_done_gen = gen;
         else if (g_film_state == FILM_PLAYING) { player_stop(); free(g_psmf); g_psmf = 0; g_film_state = FILM_NONE; }
-        load_icons(gen);
     }
     player_stop();
     free(g_psmf);
@@ -394,9 +361,11 @@ void preview_init(void) {
                                      PSP_THREAD_ATTR_USER, 0);
     if (g_thread >= 0) sceKernelStartThread(g_thread, 0, 0);
     else logline("media: no thread %08x", (unsigned)g_thread);
+    icons_start();
 }
 
 void preview_shutdown(void) {
+    icons_stop();
     audio_sound_stop();
     if (g_thread >= 0) {
         g_quit = 1;
@@ -422,6 +391,7 @@ void preview_shutdown(void) {
 
 static int g_pause_ready;
 void preview_pause_begin(void) {
+    icons_hold_begin();
     g_pause_ready = g_thread < 0;
     if (g_thread < 0) return;
     /* Discard idle signals from earlier holds: only this hold's reply
@@ -432,7 +402,7 @@ void preview_pause_begin(void) {
 }
 int preview_pause_ready(void) {
     if (!g_pause_ready && sceKernelPollSema(g_idle, 1) == 0) g_pause_ready = 1;
-    return g_pause_ready;
+    return g_pause_ready && icons_hold_ready();
 }
 void preview_quiesce(void) {
     preview_pause_begin();
@@ -440,8 +410,11 @@ void preview_quiesce(void) {
         sceKernelWaitSema(g_idle, 1, 0);
         g_pause_ready = 1;
     }
+    /* The icons' thread finishes the icon in hand first. */
+    while (!icons_hold_ready()) sceKernelDelayThread(5 * 1000);
 }
 void preview_resume(void) {
+    icons_hold_end();
     g_hold = 0;
     g_pause_ready = 0;
     wake();
