@@ -31,6 +31,7 @@
 #include "session/downloads.h"
 #include "session/options.h"
 #include "session/view.h"
+#include "update/assets.h"
 #include "update/inbox.h"
 #include "update/sources.h"
 #include "update/sync.h"
@@ -527,6 +528,7 @@ void clear_cache(void) {
     preview_quiesce();
     int bad = storage_remove_tree(storage_path("PSP/PSPDX/CACHE/catalogs")) < 0;
     bad |= storage_remove_tree(storage_path("PSP/PSPDX/CACHE/media")) < 0;
+    asset_forget();
     sceIoMkdir(storage_path("PSP/PSPDX/CACHE"), 0777);
     sceIoMkdir(storage_path("PSP/PSPDX/CACHE/catalogs"), 0777);
     sceIoMkdir(storage_path("PSP/PSPDX/CACHE/media"), 0777);

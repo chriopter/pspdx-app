@@ -26,4 +26,15 @@ enum asset_kind {
 const void *asset_fetch(enum asset_kind kind, const char *id, const char *url,
                         int cached_only, size_t *len);
 
+/* The picture pack gone, on the stick and in memory: Clear Cache. The
+   media thread must be parked. */
+void asset_forget(void);
+
+/* Media thread: the pictures held in memory written to the stick, which
+   happens by itself every twenty; called when idle and before stopping. */
+void asset_flush(void);
+
+/* Whether a picture is in the pack already, without reading it. */
+int asset_have(enum asset_kind kind, const char *id, const char *url);
+
 #endif

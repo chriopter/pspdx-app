@@ -48,6 +48,40 @@ static volatile int g_want_count, g_want_visible;
 
 void icons_bind(const struct catalog *catalog) { g_catalog = catalog; }
 
+/* Rows further out, for fetching ahead, and which entries were tried
+   already this run, fetched or not, so none is asked for twice. */
+#define AHEAD 48
+static volatile int g_ahead[AHEAD];
+static volatile int g_ahead_count;
+static unsigned char g_tried[(MAX_APPS + 7) / 8];
+
+void icons_ahead(const int *index, int count) {
+    if (count > AHEAD) count = AHEAD;
+    g_ahead_count = 0;
+    for (int i = 0; i < count; i++) g_ahead[i] = index[i];
+    g_ahead_count = count;
+}
+
+int icons_prefetch_one(void) {
+    if (!g_catalog) return 0;
+    int count = g_ahead_count;
+    for (int i = 0; i < count && i < AHEAD; i++) {
+        int at = g_ahead[i];
+        if (at < 0 || at >= g_catalog->count || at >= MAX_APPS) continue;
+        if (g_tried[at >> 3] & (1 << (at & 7))) continue;
+        g_tried[at >> 3] |= (unsigned char)(1 << (at & 7));
+        const struct app_entry *e = &g_catalog->apps[at];
+        /* An installed app is pictured from its own EBOOT; an entry from a
+           saved catalog has no network to fetch from. */
+        if (e->state != APP_NOT_INSTALLED || e->media_cached_only || !txt(e->icon)[0]) continue;
+        if (asset_have(ASSET_ICON, e->id, txt(e->icon))) continue;
+        size_t len;
+        asset_fetch(ASSET_ICON, e->id, txt(e->icon), 0, &len);
+        return 1;
+    }
+    return 0;
+}
+
 void icons_reset(void) {
     for (int i = 0; i < MAX_APPS; i++) {
         g_state[i] = ICON_NONE;
@@ -59,6 +93,8 @@ void icons_reset(void) {
         g_slots[s].used = 0;
     }
     g_want_count = 0;
+    g_ahead_count = 0;
+    memset(g_tried, 0, sizeof(g_tried));
 }
 
 static int wanted_now(int index) {

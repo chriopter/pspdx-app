@@ -9,6 +9,8 @@ const char *storage_device(void);
 int storage_exists(const char *path);
 int storage_read(const char *path, char **text, size_t limit);
 int storage_write(const char *path, const void *data, size_t len);
+/* The same bytes to a file that may be lost (a cache): fast, not crash-safe. */
+int storage_write_cache(const char *path, const void *data, size_t len);
 int storage_remove(const char *path);
 /* A directory and everything under it. Returns 0 when nothing is left. */
 int storage_remove_tree(const char *path);

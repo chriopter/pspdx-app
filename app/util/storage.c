@@ -118,6 +118,43 @@ int storage_read(const char *path, char **text, size_t limit) {
     *text = buf;
     return (int)at;
 }
+/* A file that can be lost: written under a .part name and renamed once,
+   with none of storage_write's syncing and backing up. A power cut leaves
+   at most a .part that is never read. Two syncs of the whole stick per
+   file made a cached icon cost two seconds. */
+int storage_write_cache(const char *path, const void *data, size_t len) {
+    char tmp[512];
+    if (strlen(path) > 500)
+        return -1;
+    snprintf(tmp, sizeof(tmp), "%s.part", path);
+    int fd = sceIoOpen(tmp, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    if (fd < 0)
+        return -1;
+    size_t at = 0;
+    while (at < len) {
+        int n = sceIoWrite(fd, (const char *)data + at, len - at);
+        if (n <= 0) {
+            sceIoClose(fd);
+            sceIoRemove(tmp);
+            return -1;
+        }
+        at += n;
+    }
+    if (sceIoClose(fd) < 0) {
+        sceIoRemove(tmp);
+        return -1;
+    }
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    /* The rename will not replace a file; a name already there is the same
+       bytes under a hashed name, or a stale copy, and goes first. */
+    if (sceIoRename(tmp, base) < 0 && (sceIoRemove(path) < 0 || sceIoRename(tmp, base) < 0)) {
+        sceIoRemove(tmp);
+        return -1;
+    }
+    return 0;
+}
+
 int storage_write(const char *path, const void *data, size_t len) {
     char tmp[512], bak[512];
     if (strlen(path) > 480 || recover(path) < 0)

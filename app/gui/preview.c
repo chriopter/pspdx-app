@@ -104,12 +104,16 @@ static void load_still(const struct request *req, unsigned gen, struct gfx_textu
     }
     if (decoded != 0) {
         size_t len = 0;
+        unsigned t0 = now_us();
         const void *png = asset_fetch(ASSET_SHOT, req->id, req->shot_url, req->cached_only, &len);
+        unsigned t1 = now_us();
         if (stale(gen)) return;
         if (!png || image_decode_png(png, len, into) != 0) {
             g_still_state = STILL_FAILED;
             return;
         }
+        logline("shot: %u ms get, %u ms decode, %s", (t1 - t0) / 1000, (now_us() - t1) / 1000,
+                req->id);
     }
     g_still_pub = into;
     g_still_gen++;                          /* a new still: whoever caches it re-uploads */
@@ -260,9 +264,19 @@ static int media_thread(SceSize args, void *argp) {
     (void)args; (void)argp;
     unsigned served = 0;
     for (;;) {
-        sceKernelWaitSema(g_wake, 1, 0);
+        /* Nothing asked for two seconds: the rows around the ones on
+           screen are fetched ahead, one at a time and only while nothing
+           else is asked, and the pictures held in memory go to the stick. */
+        SceUInt idle = 2 * 1000 * 1000;
+        if (sceKernelWaitSema(g_wake, 1, &idle) < 0) {
+            unsigned gen = g_want.gen;
+            while (!stale(gen) && icons_prefetch_one())
+                ;
+            asset_flush();
+            continue;
+        }
         if (g_quit) break;
-        if (g_hold) { sceKernelSignalSema(g_idle, 1); continue; }
+        if (g_hold) { asset_flush(); sceKernelSignalSema(g_idle, 1); continue; }
         unsigned gen = g_want.gen;
         if (gen == served) { load_icons(gen); continue; }
         /* The strings, copied whole: the main thread writes them before it
@@ -337,6 +351,7 @@ static int media_thread(SceSize args, void *argp) {
     player_stop();
     free(g_psmf);
     g_psmf = 0;
+    asset_flush();
     sceKernelSignalSema(g_idle, 1);
     return 0;
 }

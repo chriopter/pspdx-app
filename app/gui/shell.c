@@ -593,6 +593,20 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
     }
     icons_bind(catalog);
     if (icons_want(wanted, want_count, visible)) preview_poke();
+    /* Further out for fetching ahead while nothing else is asked: nearest
+       first, alternating below and above, not while the list flies. */
+    if (!g_fast) {
+        enum { FAR = 24 };
+        int ahead[2 * FAR], ahead_count = 0;
+        for (int k = AHEAD + 1; k <= AHEAD + FAR; k++) {
+            int around[2] = {to - 1 + k, from - k};
+            for (int j = 0; j < 2; j++) {
+                int index = around[j] >= 0 && around[j] < count ? view_index(around[j]) : -1;
+                if (index >= 0) ahead[ahead_count++] = index;
+            }
+        }
+        icons_ahead(ahead, ahead_count);
+    }
 
     for (int i = from; i < to; i++) {
         int y = LIST_Y + (int)floorf(i * ITEM_H - g_scroll + 0.5f);

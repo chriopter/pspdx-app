@@ -2,6 +2,7 @@
 #include "pspiofilemgr.h"
 #include "session/manage_sources.h"
 #include "session/view.h"
+#include "update/assets.h"
 #include "update/catalog.h"
 #include "update/inbox.h"
 #include "update/presets.h"
@@ -213,6 +214,20 @@ int main(int argc, char **argv) {
         char line[96];
         catalog_folder_line(line, sizeof(line), argv[2], argv[3]);
         puts(line);
+        return 0;
+    }
+    if (!strcmp(argv[1], "asset")) {
+        /* asset <icon|shot|video> <id> <url> [cached]: what the media cache
+           hands back, size and first bytes, fetched or kept. */
+        enum asset_kind kind = !strcmp(argv[2], "icon") ? ASSET_ICON
+                             : !strcmp(argv[2], "shot") ? ASSET_SHOT : ASSET_VIDEO;
+        size_t len = 0;
+        const unsigned char *b = asset_fetch(kind, argv[3], argv[4], argc > 5, &len);
+        if (!b)
+            return 1;
+        printf("%lu %.*s\n", (unsigned long)len, (int)(len < 16 ? len : 16), (const char *)b);
+        /* What the media thread does when it parks: the batch to the stick. */
+        asset_flush();
         return 0;
     }
     if (!strcmp(argv[1], "listing")) {

@@ -24,6 +24,15 @@ void icons_reset(void);
    can wake the media thread. */
 int icons_want(const int *index, int count, int visible);
 
+/* Main thread: rows further out, nearest first, whose icons the media
+   thread fetches into the cache when it has nothing else to do -- not
+   decoded, only kept, so that scrolling there finds them on the stick. */
+void icons_ahead(const int *index, int count);
+
+/* Media thread: fetch one of those that is not kept yet. 0 when none is
+   left to try. */
+int icons_prefetch_one(void);
+
 /* Main thread: the icon of an entry, or NULL while it is not here. */
 const struct gfx_texture *icons_get(int index);
 
