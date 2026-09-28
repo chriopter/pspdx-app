@@ -146,10 +146,11 @@ static void cache_write(enum asset_kind kind, const char *id, const char *url,
    handful of names. The index is read once a run. A record whose bytes run
    past the end of the pack -- a write a power cut stopped -- is dropped
    when it is read. Past PACK_MAX the pack starts over rather than being
-   trimmed: a picture fetched again costs a fraction of a second. */
+   trimmed: a picture fetched again costs a fraction of a second. Room for
+   the whole catalog's icons (about 11 KB a thumbnail) beside the stills. */
 #define PACK_PATH storage_path("PSP/PSPDX/CACHE/media.pak")
 #define PACK_INDEX storage_path("PSP/PSPDX/CACHE/media.idx")
-#define PACK_MAX (24u * 1024u * 1024u)
+#define PACK_MAX (64u * 1024u * 1024u)
 struct pack_entry {
     unsigned long long key;
     unsigned off, len;

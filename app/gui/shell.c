@@ -2422,6 +2422,8 @@ void shell_status(const char *text) {
     pspdx_utf8_mend(g_status);
 }
 
+int shell_status_is(const char *text) { return strcmp(g_status, text ? text : "") == 0; }
+
 /* The foot is free for a view's keys while nothing else has it: no status
    line, and no question, options or install standing over the screen. */
 int shell_footer_free(void) {

@@ -20,6 +20,7 @@
 
 #include "gui/icons.h"
 #include "gui/image.h"
+#include "pspkit-https/https.h"
 #include "update/assets.h"
 #include "util/pbp.h"
 #include "util/runtime.h"
@@ -85,6 +86,47 @@ int icons_prefetch_one(void) {
     return 0;
 }
 
+/* Filling the cache: every entry of the catalog in turn, while the main
+   thread says PSPDX is idle. Where it got to stays across a pause. The
+   fetching has threads of their own (below), each downloading the next
+   icon into a buffer of its own while this one decodes the last: a
+   download is mostly waiting for the answer, a round trip of 150-350 ms,
+   and three waiting at once take what one does. */
+static volatile int g_fill_on, g_fill_at;
+#define FILL_BUFS 3
+#define FILL_MAX (96 * 1024)
+static struct fill_buf {
+    volatile int ready;         /* downloaded, waiting to be decoded */
+    int index;
+    size_t len;
+    unsigned char data[FILL_MAX];
+} g_fill[FILL_BUFS];
+static SceUID g_fill_lock = -1;
+
+void icons_fill(int on) { g_fill_on = on; }
+
+int icons_fill_progress(void) {
+    int count = g_catalog ? g_catalog->count : 0;
+    if (count <= 0 || g_fill_at >= count) return -1;
+    return g_fill_at * 100 / count;
+}
+
+/* Fill thread: the next entry whose icon is not kept yet, or -1. */
+static int fill_claim(void) {
+    for (;;) {
+        sceKernelWaitSema(g_fill_lock, 1, 0);
+        int at = g_fill_on && g_catalog && g_fill_at < g_catalog->count && g_fill_at < MAX_APPS
+                     ? g_fill_at++ : -1;
+        sceKernelSignalSema(g_fill_lock, 1);
+        if (at < 0) return -1;
+        const struct app_entry *e = &g_catalog->apps[at];
+        if (e->state != APP_NOT_INSTALLED || e->media_cached_only || !txt(e->icon)[0]) continue;
+        if (asset_thumb_have(e->id, txt(e->icon))) continue;
+        return at;
+    }
+    return -1;
+}
+
 void icons_reset(void) {
     for (int i = 0; i < MAX_APPS; i++) {
         g_state[i] = ICON_NONE;
@@ -97,6 +139,8 @@ void icons_reset(void) {
     }
     g_want_count = 0;
     g_ahead_count = 0;
+    g_fill_at = 0;
+    for (int i = 0; i < FILL_BUFS; i++) g_fill[i].ready = 0;
     memset(g_tried, 0, sizeof(g_tried));
 }
 
@@ -251,6 +295,25 @@ static int make_thumb(const struct app_entry *entry, struct gfx_texture *small) 
     return 0;
 }
 
+/* Icon thread: decode, shrink and keep an icon the fill thread fetched. 0
+   when none is waiting. */
+static int fill_one(void) {
+    struct fill_buf *f = 0;
+    for (int i = 0; i < FILL_BUFS && !f; i++)
+        if (g_fill[i].ready) f = &g_fill[i];
+    if (!f) return 0;
+    const struct app_entry *e = &g_catalog->apps[f->index];
+    struct gfx_texture big;
+    static struct gfx_texture small;
+    if (image_decode_png(f->data, f->len, &big) == 0) {
+        if (shrink(&big, &small) == 0)
+            asset_thumb_put(e->id, txt(e->icon), g_thumb, to_thumb(&small, g_thumb));
+        gfx_texture_free(&big);
+    }
+    f->ready = 0;
+    return 1;
+}
+
 /* The slot to fill, emptied of the entry it held. */
 static int claim_slot(void) {
     int s = take_slot();
@@ -353,6 +416,7 @@ static int icon_thread(SceSize args, void *argp) {
             icons_load(at);
             did = 1;
         }
+        while (!g_ihold && !g_iquit && icons_pending() < 0 && fill_one()) did = 1;
         if (timeout && !did)
             while (!g_ihold && !g_iquit && icons_pending() < 0 && icons_prefetch_one()) did = 1;
         quiet = did ? 0 : quiet + 1;
@@ -365,6 +429,50 @@ static int icon_thread(SceSize args, void *argp) {
 
 void icons_poke(void) { if (g_iwake >= 0) sceKernelSignalSema(g_iwake, 1); }
 
+/* The fill threads: download only, each into its own buffer, and wait
+   while it is not decoded yet, the fill is off or the icons are held. Busy
+   says downloads are under way, which a hold waits out. */
+static SceUID g_fthread[FILL_BUFS] = {-1, -1, -1};
+static volatile int g_fbusy[FILL_BUFS];
+
+static int fill_sink(void *ctx, const void *data, size_t len) {
+    struct fill_buf *f = ctx;
+    if (g_iquit || g_ihold || f->len + len > FILL_MAX) return -1;
+    memcpy(f->data + f->len, data, len);
+    f->len += len;
+    return 0;
+}
+
+static int fill_thread(SceSize args, void *argp) {
+    int me = args == sizeof(int) ? *(int *)argp : 0;
+    while (!g_iquit) {
+        g_fbusy[me] = 1;
+        struct fill_buf *f = &g_fill[me];
+        int at = -1;
+        if (!g_ihold && g_fill_on && !f->ready) at = fill_claim();
+        if (at < 0) {
+            g_fbusy[me] = 0;
+            sceKernelDelayThread(200 * 1000);
+            continue;
+        }
+        const struct app_entry *e = &g_catalog->apps[at];
+        struct https_result result;
+        f->len = 0;
+        unsigned t0 = now_ms();
+        int rc = https_get(txt(e->icon), fill_sink, f, 0, 0, &result);
+        if (rc == HTTPS_COMPLETE && result.status == 200 && f->len > 0) {
+            logline("fill: %lu bytes in %u ms, %s", (unsigned long)f->len, now_ms() - t0, e->id);
+            f->index = at;
+            f->ready = 1;
+            icons_poke();
+        } else {
+            logline("fill: rc=%d status=%ld, %s", rc, result.status, e->id);
+        }
+        g_fbusy[me] = 0;
+    }
+    return 0;
+}
+
 void icons_start(void) {
     g_iquit = g_ihold = 0;
     g_iwake = sceKernelCreateSema("icons_wake", 0, 0, 64, 0);
@@ -373,9 +481,23 @@ void icons_start(void) {
                                       PSP_THREAD_ATTR_USER, 0);
     if (g_ithread >= 0) sceKernelStartThread(g_ithread, 0, 0);
     else logline("icons: no thread %08x", (unsigned)g_ithread);
+    g_fill_lock = sceKernelCreateSema("icons_fill", 0, 1, 1, 0);
+    for (int i = 0; i < FILL_BUFS; i++) {
+        g_fthread[i] = sceKernelCreateThread("icons_fill", fill_thread, ICON_PRIORITY, ICON_STACK,
+                                             PSP_THREAD_ATTR_USER, 0);
+        if (g_fthread[i] >= 0) sceKernelStartThread(g_fthread[i], sizeof(i), &i);
+    }
 }
 
 void icons_stop(void) {
+    g_iquit = 1;
+    for (int i = 0; i < FILL_BUFS; i++)
+        if (g_fthread[i] >= 0) {
+            sceKernelWaitThreadEnd(g_fthread[i], 0);
+            sceKernelDeleteThread(g_fthread[i]);
+            g_fthread[i] = -1;
+        }
+    if (g_fill_lock >= 0) { sceKernelDeleteSema(g_fill_lock); g_fill_lock = -1; }
     if (g_ithread >= 0) {
         g_iquit = 1;
         icons_poke();
@@ -397,6 +519,9 @@ void icons_hold_begin(void) {
     icons_poke();
 }
 int icons_hold_ready(void) {
+    if (g_hold_ready) return 1;
+    for (int i = 0; i < FILL_BUFS; i++)
+        if (g_fbusy[i]) return 0;
     if (!g_hold_ready && sceKernelPollSema(g_iidle, 1) == 0) g_hold_ready = 1;
     return g_hold_ready;
 }

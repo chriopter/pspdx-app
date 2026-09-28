@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include "session/options.h"
 static const char *saved;
-static char written[16];
+static char written[32];
 static int actual;
 const char *storage_path(const char *p) {
     return p;
@@ -47,7 +47,7 @@ int main(void) {
     options_download_mode(0);
     assert(!actual);
     options_settings_save();
-    assert(!strcmp(written, "fps=60\n"));
+    assert(!strcmp(written, "fps=60\nfill=1\n"));
     options_fps_runtime_toggle();
     assert(actual);
     options_download_mode(1);
@@ -55,7 +55,17 @@ int main(void) {
     options_download_mode(0);
     assert(actual);
     options_settings_save();
-    assert(!strcmp(written, "fps=60\n"));
+    assert(!strcmp(written, "fps=60\nfill=1\n"));
+    assert(options_fill_cache());
+    options_fill_cache_toggle();
+    options_settings_save();
+    assert(!strcmp(written, "fps=60\nfill=0\n"));
+    saved = "fps=30\nfill=0\n";
+    options_settings_load();
+    assert(actual && !options_fill_cache());
+    saved = "fps=60\nfill=1\n";
+    options_settings_load();
+    assert(!actual && options_fill_cache());
     puts("settings: default 60, saved 30 and 60, temporary override, changes during download and "
          "persistence passed");
 }

@@ -43,6 +43,8 @@ void shell_shot_sync(const struct catalog *catalog, int cursor);
    returns to the key hints. Cleared by a cursor move, like the install
    result it also carries. */
 void shell_status(const char *text);
+/* Whether the status line says exactly this ("" for none). */
+int shell_status_is(const char *text);
 
 /* The word that stands in the room while there is no catalog: Connecting
    by default, or what the caller says the wait has become. */

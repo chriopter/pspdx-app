@@ -35,6 +35,10 @@ void sources_open(void);
 int menu_shown(void);
 /* Options' first row: the frame-rate mode flipped and remembered. */
 void options_fps_toggle_saved(void);
+/* Whether every icon of the catalog is fetched into the cache while PSPDX
+   is idle (Options, remembered), and its switch. */
+int options_fill_cache(void);
+void options_fill_cache_toggle(void);
 
 /* Options, the view the gear's second row opens in place of the list:
    the frame rate, the switches for development, the seed's renewal and

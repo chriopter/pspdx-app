@@ -776,6 +776,25 @@ int main(int argc, char *argv[]) {
             shell_rest(resting = 0);
         }
 
+        /* Left alone a few seconds, online and with nothing downloading,
+           PSPDX fetches the icon of every app it has not kept yet, so that
+           lists scrolled later show theirs at once; the foot says so, and
+           any key stops it at the next icon. Options can turn it off. */
+        static char fill_text[96];
+        int fill = synced && sync_state() == SYNC_DONE && options_fill_cache() && !modal && !info &&
+                   !downloads_busy() && now_ms() - idle_since > 4000 && icons_fill_progress() >= 0;
+        icons_fill(fill);
+        if (fill) {
+            keep_awake();
+            if (shell_status_is("") || (fill_text[0] && shell_status_is(fill_text))) {
+                snprintf(fill_text, sizeof(fill_text), T_FILLING, icons_fill_progress());
+                shell_status(fill_text);
+            }
+        } else if (fill_text[0]) {
+            if (shell_status_is(fill_text)) shell_status("");
+            fill_text[0] = '\0';
+        }
+
         /* Each tab remembers its category, selected app and detail scroll.
            Triggers leave nested pages; D-pad arrows switch tabs in lists. */
         unsigned tabs = PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_LEFT | PSP_CTRL_RIGHT;

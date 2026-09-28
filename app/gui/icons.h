@@ -33,6 +33,12 @@ void icons_ahead(const int *index, int count);
    left to try. */
 int icons_prefetch_one(void);
 
+/* Main thread: fill the cache with every icon of the catalog while idle
+   (on), or stop at the next icon (off). The progress through the catalog
+   in percent, or -1 once every entry has been gone through. */
+void icons_fill(int on);
+int icons_fill_progress(void);
+
 /* Main thread: the icon of this entry of the bound catalog, or NULL. */
 const struct gfx_texture *icons_get_entry(const struct app_entry *entry);
 

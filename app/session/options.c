@@ -34,6 +34,7 @@
 
 static int g_settings_dirty;
 static int g_settings_fps_cap30;
+static int g_fill_cache = 1;             /* fetch every icon ahead while idle */
 static int g_runtime_fps_cap30, g_download_mode;
 static void apply_fps(void) {
     gfx_set_fps_cap30(g_download_mode ? 0 : g_runtime_fps_cap30);
@@ -46,10 +47,11 @@ void options_download_mode(int on) {
 
 void options_settings_load(void) {
     char *text = NULL;
-    int n = storage_read(storage_path(SETTINGS_PATH), &text, 32);
-    /* Missing or invalid settings use Mercy UI at 60 FPS; keep an explicit
-       30 FPS choice. */
-    g_settings_fps_cap30 = n == 7 && !memcmp(text, "fps=30\n", 7);
+    int n = storage_read(storage_path(SETTINGS_PATH), &text, 64);
+    /* A line a setting. Missing or invalid settings use Mercy UI at 60 FPS
+       and fill the cache when idle; an explicit 30 FPS or fill=0 is kept. */
+    g_settings_fps_cap30 = n > 0 && strstr(text, "fps=30\n") == text;
+    g_fill_cache = !(n > 0 && strstr(text, "\nfill=0\n"));
     g_runtime_fps_cap30 = g_settings_fps_cap30;
     apply_fps();
     free(text);
@@ -58,9 +60,17 @@ void options_settings_load(void) {
 
 void options_settings_save(void) {
     if (!g_settings_dirty) return;
-    const char *text = g_settings_fps_cap30 ? "fps=30\n" : "fps=60\n";
-    if (storage_write(storage_path(SETTINGS_PATH), text, 7) == 0)
+    char text[32];
+    int n = snprintf(text, sizeof(text), "fps=%d\nfill=%d\n", g_settings_fps_cap30 ? 30 : 60,
+                     g_fill_cache);
+    if (storage_write(storage_path(SETTINGS_PATH), text, (size_t)n) == 0)
         g_settings_dirty = 0;
+}
+
+int options_fill_cache(void) { return g_fill_cache; }
+void options_fill_cache_toggle(void) {
+    g_fill_cache = !g_fill_cache;
+    g_settings_dirty = 1;
 }
 
 /* An installed package has more than one thing that can be done to it, so X
@@ -407,6 +417,7 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             if (row == SYS_FRAME_RATE) options_fps_toggle_saved();
             else if (row == SYS_SHOW_FPS) shell_toggle_fps();
             else if (row == SYS_UNRELEASED) view_show_unreleased(!view_unreleased_shown());
+            else if (row == SYS_FILL_CACHE) options_fill_cache_toggle();
             else { shell_toggle_dev(); fake_updates(shell_dev_updates()); }
             cues_post(CUE_MOVE, 0);
         }
