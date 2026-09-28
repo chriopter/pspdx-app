@@ -21,6 +21,18 @@ static sem_t answer;
 static atomic_int aborted, hold_prepare, prepare_entered, in_install, hold_install;
 static int completed, last_rc, forced, paused, pause_held, order[16], order_n;
 static int reject_folder, fail_start, snapshot_ok;
+/* A zip the installer read by the rule for more than one EBOOT.PBP: the
+   stub asks, as the installer would, and the answer given here stands. */
+static int layout_mode, layout_answer, layout_asked;
+static install_layout_cb layout_hook;
+void install_set_layout_check(install_layout_cb check) { layout_hook = check; }
+int actions_download_layout(const struct app_entry *e, const struct install_layout *l, int r) {
+    (void)e;
+    (void)r;
+    assert(l->eboots == 3 && !strcmp(l->dir, "Demo"));
+    layout_asked++;
+    return layout_answer;
+}
 static int drawn = -1;
 static void *start(void *unused) {
     (void)unused;
@@ -116,6 +128,24 @@ void entry_clear(struct app_entry *e) {
     free(e->release.raw);
     memset(e, 0, sizeof(*e));
 }
+/* The catalog's entries own only these two here; a copy owns its own. */
+int entry_copy(struct app_entry *dst, const struct app_entry *src) {
+    entry_clear(dst);
+    *dst = *src;
+    dst->description = src->description ? strdup(src->description) : NULL;
+    dst->release.raw = src->release.raw ? strdup(src->release.raw) : NULL;
+    return 0;
+}
+int entry_manifest(const struct app_entry *e, struct manifest *m) {
+    memset(m, 0, sizeof(*m));
+    snprintf(m->id, sizeof(m->id), "%s", e->id);
+    m->raw = e->release.raw ? strdup(e->release.raw) : NULL;
+    return 0;
+}
+void manifest_forget(struct manifest *m) {
+    free(m->raw);
+    m->raw = NULL;
+}
 void options_download_mode(int on) {
     forced = on;
 }
@@ -182,6 +212,14 @@ int install_release_to(const struct manifest *m, const char *d, struct install_r
             usleep(1000);
         usleep(1000);
     }
+    if (layout_mode) {
+        struct install_layout l = {.eboots = 3, .nested = 2};
+        strcpy(l.dir, "Demo");
+        if (!layout_hook || layout_hook(ctx, &l) != 0) {
+            atomic_fetch_sub(&in_install, 1);
+            return INSTALL_DECLINED;
+        }
+    }
     phase(ctx, "unpack");
     progress(ctx, 1, 1);
     atomic_fetch_sub(&in_install, 1);
@@ -215,6 +253,8 @@ static void ready(enum download_state want, int i) {
     }
 }
 int main(void) {
+    catalog.apps = calloc(3, sizeof(*catalog.apps));
+    catalog.capacity = 3;
     catalog.count = 3;
     for (int i = 0; i < 3; i++) {
         sprintf(catalog.apps[i].name, "Test %d", i);
@@ -336,6 +376,17 @@ int main(void) {
     drain();
     assert(last_rc == INSTALL_CANCELLED);
     reject_folder = 0;
+    /* Shown what goes where and turned down, then shown and taken. */
+    layout_mode = 1;
+    layout_answer = -1;
+    assert(downloads_enqueue(0) == 0);
+    drain();
+    assert(layout_asked == 1 && last_rc == INSTALL_DECLINED);
+    layout_answer = 0;
+    assert(downloads_enqueue(0) == 0);
+    drain();
+    assert(layout_asked == 2 && last_rc == 0);
+    layout_mode = 0;
     fail_start = 1;
     assert(downloads_enqueue(0) == 0);
     drain();
@@ -367,7 +418,7 @@ int main(void) {
     sceKernelDeleteSema(2);
     for (int i = 0; i < 3; i++)
         entry_clear(&catalog.apps[i]);
-    puts("downloads: FIFO, snapshots, background, cancellation, retry, folder refusal, start "
+    puts("downloads: FIFO, snapshots, background, cancellation, retry, folder refusal, layout question, start "
          "failure and shutdown passed");
     return 0;
 }

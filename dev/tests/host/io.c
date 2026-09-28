@@ -63,8 +63,24 @@ static long long room_left(void) {
     const char *size = getenv("STICK_BYTES");
     return size ? atoll(size) - tree_bytes("ms0:") - tree_bytes("ef0:") : -1;
 }
+/* Whether a name is UTF-8: the Memory Stick takes no file by one that is
+   not, as a zip with Shift-JIS names showed on a PSP-1000. */
+static int utf8(const unsigned char *p) {
+    while (*p) {
+        int n = *p < 0x80 ? 0 : (*p & 0xE0) == 0xC0 ? 1 : (*p & 0xF0) == 0xE0 ? 2
+              : (*p & 0xF8) == 0xF0 ? 3 : -1;
+        if (n < 0 || (n == 1 && *p < 0xC2))
+            return 0;
+        for (p++; n--; p++)
+            if ((*p & 0xC0) != 0x80)
+                return 0;
+    }
+    return 1;
+}
 int sceIoOpen(const char *p, int flags, int mode) {
     if ((flags & (O_WRONLY | O_RDWR | O_CREAT)) && fails())
+        return -1;
+    if ((flags & O_CREAT) && !utf8((const unsigned char *)p))
         return -1;
     return open(p, flags, mode);
 }

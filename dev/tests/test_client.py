@@ -1,7 +1,7 @@
 """Run actual client parsers, persistence and installer against a PSP I/O adapter.
 The adapter preserves same-directory rename semantics and supports power cuts.
 """
-import gzip, hashlib, json, os, pathlib, shutil, subprocess, tempfile, time, unittest, zipfile
+import gzip, hashlib, json, os, pathlib, random, shutil, subprocess, tempfile, time, unittest, zipfile
 BIN=os.environ.get('PSPDX_TEST_BIN','/tmp/pspdx-host-test')
 IMAGE_BIN=os.environ.get('PSPDX_IMAGE_BIN')
 SCHEMA='https://chriopter.github.io/pspdx/schema/pspdx-v1.json'
@@ -10,6 +10,16 @@ PRESETS=['https://chriopter.github.io/pspdx-catalog/','https://pspdev.github.io/
 SPEC=dict(schema=SCHEMA,source='https://github.com/test/demo',name='Demo',tags=['demo'],installdir='PSP/GAME/Demo',author='test',summary='Demo',license='MIT')
 # A catalog stamped now: one a day old is asked about at the origin, which is another test.
 NOW=lambda:time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())
+def raw_zip(entries):
+ """A stored zip whose names are the bytes given, with no UTF-8 flag: how a
+ zip made on an old Windows keeps a name in its code page."""
+ import struct,zlib
+ local=b'';central=b''
+ for name,data in entries.items():
+  crc=zlib.crc32(data);off=len(local)
+  local+=struct.pack('<IHHHHHIIIHH',0x04034b50,20,0,0,0,0,crc,len(data),len(data),len(name),0)+name+data
+  central+=struct.pack('<IHHHHHHIIIHHHHHII',0x02014b50,20,20,0,0,0,0,crc,len(data),len(data),len(name),0,0,0,0,0,off)+name
+ return local+central+struct.pack('<IHHHHIIH',0x06054b50,0,0,len(entries),len(entries),len(central),len(local),0)
 class ClientTests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.root=pathlib.Path(self.tmp.name);(self.root/'ms0:').mkdir();(self.root/'ef0:').mkdir()
@@ -254,7 +264,7 @@ class ClientTests(unittest.TestCase):
   self.fixtures();self.run_client('fetch');cache=next((self.root/'ms0:/PSP/PSPDX/CACHE/catalogs').glob('*.json'));saved=cache.read_bytes()
   catalog=json.loads((self.root/'catalog.json').read_text())
   self.write('catalog.json',dict(catalog,apps=[]));self.assertIn('names no apps',self.run_client('fetch',VERBOSE=1).stderr);self.assertEqual(cache.read_bytes(),saved)
-  self.write('catalog.json',dict(catalog,pad='x'*530000));r=self.run_client('fetch',VERBOSE=1);self.assertIn('larger than',r.stderr);self.assertNotIn('unreachable',r.stderr);self.assertEqual(cache.read_bytes(),saved)
+  self.write('catalog.json',dict(catalog,pad='x'*4200000));r=self.run_client('fetch',VERBOSE=1);self.assertIn('larger than',r.stderr);self.assertNotIn('unreachable',r.stderr);self.assertEqual(cache.read_bytes(),saved)
   cache.unlink();r=self.run_client('fetch',VERBOSE=1);self.assertIn('catalog too large',r.stderr);self.assertNotIn('unreachable',r.stderr)
   first=catalog['apps'][0];other=dict(first,id='io.github.test.other',source='https://github.com/test/other',releases=[dict(first['releases'][0],url='https://github.com/test/other/releases/download/v2/download.zip')]);self.write('catalog.json',dict(catalog,apps=[catalog['apps'][0],other]))
   r=self.run_client('fetch',VERBOSE=1);self.assertIn('wants PSP/GAME/Demo, which %s has; not listed'%ID,r.stderr);self.assertIn(ID,r.stdout);self.assertNotIn('io.github.test.other',r.stdout)
@@ -767,10 +777,10 @@ class ClientTests(unittest.TestCase):
   for why,env,kw in [('corrupt gzip',{},dict(flip=True)),('gzip cut short',{},dict(cut=5)),('no header announced',dict(GZIP_UNNAMED=1),{})]:
    self.gzip_catalog(**kw);r=self.run_client('fetch',VERBOSE=1,**env)
    self.assertIn(why,r.stderr);self.assertIn(ID,r.stdout);self.assertEqual(self.saved_catalog().read_bytes(),saved)
-  catalog=json.loads((self.root/'catalog.json').read_text());self.gzip_catalog(dict(catalog,pad='x'*530000))
+  catalog=json.loads((self.root/'catalog.json').read_text());self.gzip_catalog(dict(catalog,pad='x'*4200000))
   r=self.run_client('fetch',VERBOSE=1);self.assertIn('larger than',r.stderr);self.assertNotIn('unreachable',r.stderr);self.assertEqual(self.saved_catalog().read_bytes(),saved)
-  # The room is counted in inflated text, to the byte: all of the buffer but its terminator fits, one more does not.
-  room=512*1024-1;base=len(json.dumps(dict(catalog,pad='')))
+  # The room is counted in inflated text, to the byte: RESPONSE_MAX fits, one more does not.
+  room=4*1024*1024;base=len(json.dumps(dict(catalog,pad='')))
   for extra,fits in [(0,True),(1,False)]:
    self.gzip_catalog(dict(catalog,pad='x'*(room-base+extra)));r=self.run_client('fetch',VERBOSE=1)
    self.assertEqual('larger than' not in r.stderr,fits,r.stderr[-300:]);self.assertEqual('bytes gzipped' in r.stderr,fits)
@@ -854,6 +864,85 @@ class ClientTests(unittest.TestCase):
   # A package that does not hash to what the entry says is not installed.
   self.zip('new.zip',{'EBOOT.PBP':b'other','data.txt':b'other'})
   self.assertNotEqual(self.run_client('get','catalog.com.example.pspz2ddoom',ok=False).stdout.strip(),'0')
+ def test_a_failed_install_says_why(self):
+  # The status line names the cause instead of a number: a server that answers 500, and a zip with two EBOOT.PBP.
+  self.fixtures();catalog=self.catalog_app()
+  def listed():
+   package=(self.root/'new.zip').read_bytes()
+   return dict(catalog,apps=[dict(id='two',name='Two',category='game',summary='s',releases=[dict(tag='1',published_at='2020-01-01',size=len(package),sha256=hashlib.sha256(package).hexdigest(),url='https://archive.org/download/two/download.zip')])])
+  self.write('catalog.json',listed());(self.root/'map.txt').write_text('archive.org/download/two - 500\n')
+  r=self.run_client('get','catalog.com.example.two',ok=False,URL_MAP=self.root/'map.txt')
+  self.assertIn('why: the server answered 500',r.stderr)
+  self.zip('new.zip',{'a/EBOOT.PBP':b'a','b/EBOOT.PBP':b'b'});self.write('catalog.json',listed())
+  r=self.run_client('get','catalog.com.example.two',ok=False)
+  self.assertIn('why: its zip holds several EBOOT.PBP side by side',r.stderr)
+ def test_the_topmost_eboot_is_the_package(self):
+  # Built for today's firmware at the top, the 1.50 kernel's launchers under it: the top folder installs whole, what is beside it stays out, and a Mac's __MACOSX shadow is never read or written.
+  self.fixtures();catalog=self.catalog_app()
+  self.zip('new.zip',{'Game/EBOOT.PBP':b'new','Game/data.bin':b'd','Game/Game%/EBOOT.PBP':b'k1','Game/Game/EBOOT.PBP':b'k2','Other/EBOOT.PBP/x':b'','Extra/150/EBOOT.PBP':b'o','__MACOSX/Game/._EBOOT.PBP':b'm','__MACOSX/EBOOT.PBP':b'm'})
+  package=(self.root/'new.zip').read_bytes()
+  self.write('catalog.json',dict(catalog,apps=[dict(id='deep',name='Deep',category='game',summary='s',releases=[dict(tag='1',published_at='2020-01-01',size=len(package),sha256=hashlib.sha256(package).hexdigest(),url='https://archive.org/download/deep/download.zip')])]))
+  r=self.run_client('get','catalog.com.example.deep',VERBOSE=1)
+  self.assertEqual(r.stdout.strip(),'0',r.stderr[-500:]);self.assertIn('zip: 4 EBOOT.PBP; Game/ goes to PSP/GAME/Deep, 2 under it, 1 left out',r.stderr)
+  game=self.root/'ms0:/PSP/GAME/Deep'
+  self.assertEqual((game/'EBOOT.PBP').read_bytes(),b'new');self.assertTrue((game/'Game%/EBOOT.PBP').exists());self.assertTrue((game/'data.bin').exists())
+  self.assertFalse((self.root/'ms0:/PSP/GAME/Extra').exists());self.assertFalse(list(self.root.rglob('__MACOSX')))
+  # With the package at the very top of the zip, the shadow is beside it and still left out.
+  self.zip('new.zip',{'EBOOT.PBP':b'top','old%/EBOOT.PBP':b'k','__MACOSX/._EBOOT.PBP':b'm'});package=(self.root/'new.zip').read_bytes()
+  self.write('catalog.json',dict(catalog,apps=[dict(id='flat',name='Flat',category='game',summary='s',releases=[dict(tag='1',published_at='2020-01-01',size=len(package),sha256=hashlib.sha256(package).hexdigest(),url='https://archive.org/download/flat/download.zip')])]))
+  r=self.run_client('get','catalog.com.example.flat',VERBOSE=1)
+  self.assertEqual(r.stdout.strip(),'0',r.stderr[-500:]);self.assertIn('the top goes to PSP/GAME/Flat, 1 under it, 0 left out',r.stderr)
+  self.assertFalse(list(self.root.rglob('__MACOSX')))
+ def test_names_in_a_code_page_are_read_as_one(self):
+  # A zip made on a Japanese system names files in Shift-JIS, one made on an old Western system in CP437, neither flagged UTF-8: both go on the stick under their UTF-8 names, and the install says so.
+  self.fixtures();catalog=self.catalog_app()
+  sjis='\u30b7\u30b9\u30c6\u30e0'.encode('shift_jis')
+  z=self.root/'new.zip';z.write_bytes(raw_zip({b'EBOOT.PBP':b'a',b'RTP/'+sjis+b'.bmp':b'b',b'img/fontgro\xe1.png':b'c',b'img/Men\x81.png':b'd',b'Am\x82liorations.txt':b'e'}))
+  package=z.read_bytes()
+  self.write('catalog.json',dict(catalog,apps=[dict(id='cp',name='Code Page',category='game',summary='s',releases=[dict(tag='1',published_at='2020-01-01',size=len(package),sha256=hashlib.sha256(package).hexdigest(),url='https://archive.org/download/cp/download.zip')])]))
+  r=self.run_client('get','catalog.com.example.cp',VERBOSE=1)
+  self.assertEqual(r.stdout.strip(),'0',r.stderr[-600:]);self.assertIn('zip: 4 names in a code page, 1 of them Shift-JIS',r.stderr)
+  game=self.root/'ms0:/PSP/GAME/CodePage'
+  self.assertTrue((game/'RTP/\u30b7\u30b9\u30c6\u30e0.bmp').exists(),sorted(p.name for p in game.rglob('*')))
+  self.assertTrue((game/'img/fontgro\u00df.png').exists());self.assertTrue((game/'img/Men\u00fc.png').exists())
+  # é and a letter read as Shift-JIS too, as a full-width letter; that is not Japanese, and CP437 is taken.
+  self.assertTrue((game/'Am\u00e9liorations.txt').exists())
+ def test_an_archive_org_mirror_that_answers_500_is_gone_around(self):
+  # archive.org redirects to a mirror that answers 500; the item's metadata names its storage servers, and the zip comes from the first that has it. A server outside archive.org is never asked.
+  self.fixtures();catalog=self.catalog_app();package=(self.root/'new.zip').read_bytes()
+  self.write('catalog.json',dict(catalog,apps=[dict(id='fb',name='Fall Back',category='game',summary='s',releases=[dict(tag='1',published_at='2020-01-01',size=len(package),sha256=hashlib.sha256(package).hexdigest(),url='https://archive.org/download/fb.-7z/Fall%20Back.zip')])]))
+  self.write('meta.json',dict(d1='ia601.us.archive.org',d2='ia801.us.archive.org',dir='/9/items/fb.-7z',files=[dict(name='Fall Back.zip')]))
+  (self.root/'map.txt').write_text('archive.org/download/fb.-7z - 500\narchive.org/metadata/fb.-7z meta.json 200\nia601.us.archive.org - 500\nia801.us.archive.org/9/items/fb.-7z/Fall%20Back.zip new.zip 200\n')
+  r=self.run_client('get','catalog.com.example.fb',VERBOSE=1,URL_MAP=self.root/'map.txt')
+  self.assertEqual(r.stdout.strip(),'0',r.stderr[-800:]);self.assertIn('metadata named 2 storage servers',r.stderr)
+  self.assertIn('https://ia801.us.archive.org/9/items/fb.-7z/Fall%20Back.zip',(self.root/'requests.log').read_text())
+  self.write('meta.json',dict(d1='evil.example.com',dir='/9/items/fb.-7z'))
+  for f in (self.root/'ms0:/PSP/PSPDX/INSTALLED').glob('catalog.com.example.fb*'):f.unlink()
+  shutil.rmtree(self.root/'ms0:/PSP/GAME/FallBack',ignore_errors=True)
+  r=self.run_client('get','catalog.com.example.fb',VERBOSE=1,ok=False,URL_MAP=self.root/'map.txt')
+  self.assertIn('metadata named 0 storage servers',r.stderr);self.assertIn('why: the server answered 500',r.stderr)
+  self.assertNotIn('evil.example.com',(self.root/'requests.log').read_text())
+ def test_a_catalog_of_thousands_lists_every_app_newest_first(self):
+  # Past two thousand entries, every one is a row, held in memory, and the store lists the newest release first; one date shared keeps the catalog's order, and no date at all stands last.
+  self.fixtures();catalog=self.catalog_app();package=(self.root/'new.zip').read_bytes();rng=random.Random(7)
+  def app(n,day):
+   return dict(id=f'app_{n}',name=f'App {n}',category='game',tags=['game'],summary='s'*40,
+               releases=[dict(tag='1.0',published_at=day,size=len(package),sha256=hashlib.sha256(package).hexdigest(),url=f'https://archive.org/download/a{n}/download.zip')])
+  days=[f'{2005+rng.randrange(20)}-{1+rng.randrange(12):02d}-{1+rng.randrange(28):02d}' for _ in range(3000)]
+  apps=[app(n,d) for n,d in enumerate(days)]
+  self.write('catalog.json',dict(catalog,apps=apps))
+  r=self.run_client('fetch',VERBOSE=1);self.assertEqual(len(r.stdout.splitlines()),3001,r.stderr[-400:])
+  listed=[i for i in self.run_client('listing').stdout.split() if i!=ID]
+  want=[f'catalog.com.example.appz5f{n}' for n in sorted(range(3000),key=lambda n:(-int(days[n].replace('-','')),n))]
+  self.assertEqual(listed,want)
+  # The same list comes back from the saved copy, with the network gone.
+  self.assertEqual([i for i in self.run_client('listing',OFFLINE=1).stdout.split() if i!=ID],want)
+ def test_a_catalog_past_what_is_held_keeps_the_first(self):
+  # More entries than there are places: MAX_APPS rows, the installed one among them, are listed and the fetch still counts as done.
+  self.fixtures();catalog=self.catalog_app();package=(self.root/'new.zip').read_bytes()
+  apps=[dict(id=f'x{n}',name=f'X {n}',category='game',summary='s',releases=[dict(tag='1',published_at='2020-01-01',size=len(package),sha256=hashlib.sha256(package).hexdigest(),url=f'https://archive.org/download/x{n}/download.zip')]) for n in range(4200)]
+  self.write('catalog.json',dict(catalog,apps=apps));r=self.run_client('fetch',VERBOSE=1)
+  self.assertEqual(len(r.stdout.splitlines()),4096,r.stderr[-400:])
  def test_an_id_as_long_as_github_makes_one(self):
   # GitHub allows an owner of 39 characters and a repository of 100: the id is 150, and names the files on the stick whole.
   owner,repo='o'*39,'r'*100;source='https://github.com/%s/%s'%(owner,repo);long_id='io.github.%s.%s'%(owner,repo);self.assertEqual(len(long_id),150)
@@ -1584,7 +1673,7 @@ class ClientTests(unittest.TestCase):
   # The presets name a catalog by its directory, so catalog.txt is asked for after it, and a second source answers nothing: the status line still says the size was why.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text())
   for f in (self.root/'ms0:/PSP/PSPDX/INSTALLED').glob('*'):f.unlink()
-  self.write('catalog.json',dict(catalog,pad='x'*530000))
+  self.write('catalog.json',dict(catalog,pad='x'*4200000))
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/\nhttps://other.example/catalog.json\n')
   r=self.run_client('fetch',VERBOSE=1,ok=False,DOWN_HOST='other.example');self.assertIn('live catalog too large',r.stderr);self.assertIn('status: too large',r.stderr,r.stderr[-600:])
  def test_github_not_answering_is_no_missing_release_and_waits_six_hours(self):

@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
         int rc = catalog_fetch(&catalog);
         catalog_check_updates(&catalog);
         for (int i = 0; i < catalog.count; i++)
-            printf("%s %s %d %d %d\n", catalog.apps[i].id, catalog.apps[i].release.version,
+            printf("%s %s %d %d %d\n", catalog.apps[i].id, txt(catalog.apps[i].release.version),
                    catalog.apps[i].fresh, catalog.apps[i].state, catalog.apps[i].unsupported);
         /* What the status line says once the fetch is through. */
         if (catalog.collision[0])
@@ -142,8 +142,8 @@ int main(int argc, char **argv) {
         catalog_fetch(&catalog);
         for (int i = 0; i < catalog.count; i++)
             if (!strcmp(catalog.apps[i].id, argv[2])) {
-                printf("%s\n%s\n%s\n%s\n", catalog.apps[i].icon, catalog.apps[i].screenshot,
-                       catalog.apps[i].video, catalog.apps[i].sound);
+                printf("%s\n%s\n%s\n%s\n", txt(catalog.apps[i].icon), txt(catalog.apps[i].screenshot),
+                       txt(catalog.apps[i].video), txt(catalog.apps[i].sound));
                 return 0;
             }
         return 2;
@@ -153,7 +153,7 @@ int main(int argc, char **argv) {
         catalog_fetch(&catalog);
         for (int i = 0; i < catalog.count; i++)
             if (!strcmp(catalog.apps[i].id, argv[2])) {
-                printf("%s %s %d\n", catalog.apps[i].release.version, catalog.apps[i].release.url,
+                printf("%s %s %d\n", txt(catalog.apps[i].release.version), txt(catalog.apps[i].release.url),
                        catalog.apps[i].release.pinned);
                 return 0;
             }
@@ -165,12 +165,14 @@ int main(int argc, char **argv) {
         catalog_fetch(&catalog);
         for (int i = 0; i < catalog.count; i++)
             if (!strcmp(catalog.apps[i].id, argv[2])) {
-                const struct manifest *m = &catalog.apps[i].release;
-                if (manifest_has_sha256(m))
+                const struct entry_release *m = &catalog.apps[i].release;
+                int hashed = 0;
+                for (int k = 0; k < 32; k++) hashed |= m->sha256[k];
+                if (hashed)
                     for (int k = 0; k < 32; k++) printf("%02x", m->sha256[k]);
                 else
                     printf("-");
-                printf(" %s\n", m->url);
+                printf(" %s\n", txt(m->url));
                 return 0;
             }
         return 2;
@@ -211,6 +213,24 @@ int main(int argc, char **argv) {
         char line[96];
         catalog_folder_line(line, sizeof(line), argv[2], argv[3]);
         puts(line);
+        return 0;
+    }
+    if (!strcmp(argv[1], "listing")) {
+        /* listing [category]: the Homebrew tab's package rows, top to
+           bottom, by id; with a category, that category's rows. */
+        catalog_fetch(&catalog);
+        catalog_check_updates(&catalog);
+        view_rebuild(&catalog);
+        while (view_tab_kind() != VIEW_TAB_HOMEBREW) view_tab_move(1);
+        for (int c = 0; argc > 2 && c < view_category_count(); c++)
+            if (!strcmp(view_category(c), argv[2])) {
+                view_category_open(c);
+                break;
+            }
+        for (int row = 0; row < view_count(); row++) {
+            int at = view_index(row);
+            if (at >= 0) printf("%s\n", catalog.apps[at].id);
+        }
         return 0;
     }
     if (!strcmp(argv[1], "view")) {
@@ -313,7 +333,9 @@ int main(int argc, char **argv) {
         int count=inbox_scan(&catalog);
         for(int i=0;i<count;i++){
             struct app_entry *entry=&catalog.apps[inbox_index(i)];struct install_report report;
-            if(catalog_prepare(entry)==0 && install_release(&entry->release,&report,NULL,NULL,NULL)==0)inbox_installed(i);
+            struct manifest m;memset(&m,0,sizeof(m));
+            if(catalog_prepare(entry)==0 && entry_manifest(entry,&m)==0 && install_release(&m,&report,NULL,NULL,NULL)==0)inbox_installed(i);
+            manifest_forget(&m);
         }return 0;
     }
     if (!strcmp(argv[1], "inbox")) {
@@ -389,9 +411,15 @@ int main(int argc, char **argv) {
             if (!strcmp(catalog.apps[i].id, argv[2])) {
                 struct install_report report;
                 int rc = catalog_prepare(&catalog.apps[i]);
+                struct manifest m;
+                memset(&m, 0, sizeof(m));
                 if (rc == 0)
-                    rc = install_release(&catalog.apps[i].release, &report, NULL, NULL, NULL);
+                    rc = entry_manifest(&catalog.apps[i], &m) == 0
+                             ? install_release(&m, &report, NULL, NULL, NULL) : -1;
+                manifest_forget(&m);
                 printf("%d\n", rc);
+                if (rc < 0 && report.why[0])
+                    fprintf(stderr, "why: %s\n", report.why);
                 return rc < 0 ? 1 : 0;
             }
         return 2;
