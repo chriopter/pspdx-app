@@ -15,7 +15,11 @@ struct zipentry {
     uint16_t method;             /* 0 stored, 8 deflate */
     uint32_t csize, usize, crc, local_off;
     int encrypted, name_truncated;
+    /* The name was stored in a code page, not UTF-8, and is given here in
+       UTF-8: CP_SJIS read as Shift-JIS, CP_437 as the zip format's own. */
+    int name_converted;
 };
+enum { CP_NONE, CP_437, CP_SJIS };
 
 int zip_open(struct zipread *z, const char *path);
 void zip_close(struct zipread *z);

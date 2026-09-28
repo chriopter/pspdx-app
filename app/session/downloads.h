@@ -8,6 +8,7 @@ enum download_state {
     DOWNLOAD_QUEUED,
     DOWNLOAD_PREPARING,
     DOWNLOAD_CONFIRM,
+    DOWNLOAD_LAYOUT,            /* downloaded; what goes where waits to be seen */
     DOWNLOAD_RUNNING,
     DOWNLOAD_DONE,
     DOWNLOAD_FAILED,
@@ -20,6 +21,7 @@ struct download_status {
     unsigned order;
     char phase[24];
     int cancel_requested;
+    char why[64];               /* what a failed install gave as its reason */
 };
 /* Main-thread queue operations. One worker owns the network and installer. */
 /* Zero means queued (or already pending), not installed. */

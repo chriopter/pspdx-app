@@ -76,6 +76,94 @@ int zip_first(struct zipread *z, struct zipentry *e) {
     return zip_next(z, e);
 }
 
+#include "install/codepages.h"
+
+static int utf8_valid(const unsigned char *p) {
+    while (*p) {
+        int n = *p < 0x80 ? 0 : (*p & 0xE0) == 0xC0 && *p >= 0xC2 ? 1
+              : (*p & 0xF0) == 0xE0 ? 2 : (*p & 0xF8) == 0xF0 && *p <= 0xF4 ? 3 : -1;
+        if (n < 0)
+            return 0;
+        for (p++; n--; p++)
+            if ((*p & 0xC0) != 0x80)
+                return 0;
+    }
+    return 1;
+}
+
+static size_t put_utf8(char *out, size_t at, size_t size, unsigned c) {
+    unsigned char b[3];
+    size_t n = c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+    if (n == 1) b[0] = (unsigned char)c;
+    else if (n == 2) { b[0] = (unsigned char)(0xC0 | c >> 6); b[1] = (unsigned char)(0x80 | (c & 63)); }
+    else { b[0] = (unsigned char)(0xE0 | c >> 12); b[1] = (unsigned char)(0x80 | (c >> 6 & 63));
+           b[2] = (unsigned char)(0x80 | (c & 63)); }
+    if (at + n >= size)
+        return size;            /* no room: the caller sees the name did not fit */
+    memcpy(out + at, b, n);
+    return at + n;
+}
+
+/* The name as Shift-JIS, into out, when every byte of it reads as Shift-JIS,
+   something in it is Japanese -- kana or a kanji -- and nothing is a
+   full-width Latin letter or digit: "Am\x82liorations" reads as Shift-JIS
+   too, as "AmＭiorations", and is CP437's "Améliorations". 0 when it is not
+   Shift-JIS, -1 when it is but does not fit. */
+static int from_sjis(const unsigned char *in, char *out, size_t size) {
+    size_t at = 0;
+    int japanese = 0;
+    while (*in) {
+        unsigned c = *in++;
+        if (c < 0x80) {
+            /* as it is */
+        } else if (c >= 0xA1 && c <= 0xDF) {
+            c = 0xFF61 + (c - 0xA1);
+            japanese = 1;
+        } else if ((c >= 0x81 && c <= 0x9F) || (c >= 0xE0 && c <= 0xFC)) {
+            unsigned t = *in;
+            if (t < 0x40 || t > 0xFC || t == 0x7F)
+                return 0;
+            in++;
+            c = SJIS_DOUBLE[SJIS_LEAD(c) * 189 + (t - 0x40)];
+            if (!c || (c >= 0xFF10 && c <= 0xFF5A))
+                return 0;
+            japanese |= (c >= 0x3040 && c <= 0x30FF) || (c >= 0x4E00 && c <= 0x9FFF);
+        } else {
+            return 0;
+        }
+        if ((at = put_utf8(out, at, size, c)) >= size)
+            return -1;
+    }
+    out[at] = 0;
+    return japanese ? 1 : 0;
+}
+
+static int from_cp437(const unsigned char *in, char *out, size_t size) {
+    size_t at = 0;
+    for (; *in; in++)
+        if ((at = put_utf8(out, at, size, *in < 0x80 ? *in : CP437_HIGH[*in - 0x80])) >= size)
+            return -1;
+    out[at] = 0;
+    return 1;
+}
+
+/* A name not flagged UTF-8 and not UTF-8 either is in a code page: read as
+   Shift-JIS where it plainly is that, as CP437 -- what the zip format says
+   such a name is -- otherwise. A name that no longer fits is truncated. */
+static void convert_name(struct zipentry *e) {
+    char out[sizeof(e->name)];
+    const unsigned char *in = (const unsigned char *)e->name;
+    int rc = from_sjis(in, out, sizeof(out));
+    e->name_converted = rc ? CP_SJIS : CP_437;
+    if (!rc)
+        rc = from_cp437(in, out, sizeof(out));
+    if (rc < 0) {
+        e->name_truncated = 1;
+        return;
+    }
+    memcpy(e->name, out, strlen(out) + 1);
+}
+
 /* Reads one central directory record into e and advances. 1 = got one,
    0 = end, <0 = corrupt. */
 int zip_next(struct zipread *z, struct zipentry *e) {
@@ -98,6 +186,9 @@ int zip_next(struct zipread *z, struct zipentry *e) {
     if(memchr(e->name,0,take))return -1;
     e->name[take] = '\0';
     e->name_truncated = take != nlen;
+    e->name_converted = CP_NONE;
+    if (!(flags & 0x800) && !utf8_valid((const unsigned char *)e->name))
+        convert_name(e);
 
     unsigned long long next=(unsigned long long)z->cd_pos+46u+nlen+xlen+clen;
     if(next>(unsigned long long)z->cd_off+z->cd_size)return -1;

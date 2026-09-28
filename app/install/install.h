@@ -54,6 +54,9 @@ struct install_report {
     /* What the install wanted free on the stick, when that is why it
        stopped: INSTALL_NO_SPACE. */
     unsigned long long needed;
+    /* Why it stopped, in a few words for the status line, when a download
+       or the package is the reason; empty otherwise. */
+    char why[64];
 };
 
 /* What PSP/PSPDX/db/<id>.json remembers about an installed package. */
@@ -125,6 +128,45 @@ void install_recover(void);
    PSP/GAME stays and is named in line. Returns 0 when the journal is gone. */
 int install_discard(char *line, size_t size);
 
+/* A zip with more than one EBOOT.PBP -- mostly one built for today's
+   firmware at the top and the 1.50 kernel's launchers (X%, __SCE__X, 150/)
+   in folders under it -- installs the folder of the one nearest the top,
+   whole, when no other is as near. The installer is then going by a rule
+   rather than by what the zip plainly is, so it says what it would do and
+   asks before any file is written. */
+#define LAYOUT_SHOWN 3          /* paths named per list; the rest are counted */
+#define LAYOUT_GROUPS 16        /* groups told apart; past that they count as one more each file */
+struct install_layout {
+    char root[200];             /* the folder in the zip that is installed, "" for its top */
+    char dir[64];               /* PSP/GAME/<dir> it goes to */
+    int eboots;                 /* EBOOT.PBP in the whole zip */
+    unsigned files;             /* files that go in, and their size unpacked */
+    unsigned long long bytes;
+    /* EBOOT.PBP under root besides the package's own: copied along, never
+       started. Paths below root. */
+    int nested;
+    char nested_path[LAYOUT_SHOWN][64];
+    /* What is outside root and so not installed, by the first folder (or
+       file) of it that root is not in: EBOOT.PBP or not, it is lost. */
+    int left;                   /* EBOOT.PBP among it */
+    int left_groups;
+    char left_path[LAYOUT_GROUPS][64];
+    unsigned left_count[LAYOUT_GROUPS];
+    unsigned left_files;
+    unsigned long long left_bytes;
+    unsigned mac_files;         /* __MACOSX shadows, never read */
+    /* Files that go in under a name the zip stored in a code page, turned
+       into UTF-8 -- the app may still look for the old bytes. */
+    int renamed;
+    char renamed_path[2][64];
+    int sjis;                   /* of those, read as Shift-JIS rather than CP437 */
+    int review;                 /* something here is worth a look before installing */
+};
+/* 0 goes ahead, anything else calls the install off. With no check set, a
+   layout the rule decides goes ahead. */
+typedef int (*install_layout_cb)(void *ctx, const struct install_layout *layout);
+void install_set_layout_check(install_layout_cb check);
+
 /* What install_release returns when it was called off. */
 #define INSTALL_CANCELLED (-9)
 /* The Memory Stick has less room than the package needs; the report says
@@ -133,6 +175,8 @@ int install_discard(char *line, size_t size);
 /* What uninstall returns for the folder PSPDX runs from, whatever record
    names it. */
 #define INSTALL_SELF (-11)
+/* The layout a rule chose was shown and turned down. */
+#define INSTALL_DECLINED (-12)
 
 /* PSPDX up to 0.5 kept a record of itself as io.github.chriopter.pspdx, from
    the repository that is the standard alone now. Such a record for the folder

@@ -29,6 +29,11 @@ void screenshot_settled(int cursor, const char *path);
 int actions_download_device(const struct app_entry *entry, char out[5]);
 int actions_download_connect(void);
 int actions_download_folder(const struct app_entry *entry, const char *dev, int row);
+struct install_layout;
+/* What a zip with more than one EBOOT.PBP comes to, asked on the main
+   thread: 0 to install it so, -1 not to. */
+int actions_download_layout(const struct app_entry *entry, const struct install_layout *layout,
+                            int row);
 void actions_download_complete(int index, struct app_entry *prepared,
                                const struct install_report *report, int rc, unsigned seconds);
 

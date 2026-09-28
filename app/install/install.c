@@ -1,7 +1,9 @@
+#include "text.h"
 #include "install/state.h"
 #include "update/pspdx.h"
 #include "update/sources.h"
 #include "util/storage.h"
+#include <stdarg.h>
 #include <strings.h>
 /*
  * Installing a package: download, check, unpack, rename.
@@ -113,6 +115,9 @@ int manifest_dir_is_safe(const char *dir) {
 
 /* ------------------------------------------------------------- download */
 
+/* Set by install_abort, from any thread: every loop below checks it. */
+static volatile int g_abort;
+
 struct dl {
     int fd;
     wc_Sha256 sha;
@@ -140,32 +145,127 @@ static int file_sink(void *ctx, const void *data, size_t len) {
 
 /* got is the SHA-256 of what arrived, whether or not the release named one,
    so that the record can say which zip is on the stick. */
+static install_layout_cb g_layout_check;
+void install_set_layout_check(install_layout_cb check) { g_layout_check = check; }
+
+/* The first reason an install gave up, for its report: set where the cause
+   is known, read out when install_release_to returns. */
+static char g_why[64];
+static void why(const char *fmt, ...) {
+    if (g_why[0])
+        return;
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(g_why, sizeof(g_why), fmt, ap);
+    va_end(ap);
+}
+
+/* One attempt: the archive written afresh from url. The https result says
+   how the server answered; the return is https_get's. */
+static int fetch_archive(const char *url, struct dl *d, https_progress progress, void *pctx,
+                         struct https_result *r, int *close_rc) {
+    memset(r, 0, sizeof(*r));
+    d->written = 0;
+    *close_rc = 0;
+    if (wc_InitSha256(&d->sha) != 0)
+        return -1;
+    d->fd = sceIoOpen(ARCHIVE, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    if (d->fd < 0) {
+        logline("cannot create %s", ARCHIVE);
+        *close_rc = -1;
+        return -1;
+    }
+    unsigned start = now_ms();
+    int rc = https_get(url, file_sink, d, progress, pctx, r);
+    *close_rc = sceIoClose(d->fd);
+    unsigned ms = now_ms() - start;
+    logline("download: rc=%d status=%ld %lu bytes in %u.%us", rc, r->status,
+            (unsigned long)d->written, ms / 1000, (ms % 1000) / 100);
+    return rc;
+}
+
+/* archive.org answers a download with a redirect to a mirror, and some
+   mirrors answer 500 for files the item's own storage servers hold. The
+   item's metadata names those servers (d1, d2) and its folder on them
+   (dir): the file is then asked of each in turn, under the same name. */
+struct text_buf {
+    char *p;
+    size_t n, cap;
+};
+static int text_sink(void *ctx, const void *data, size_t len) {
+    struct text_buf *b = ctx;
+    if (b->n + len + 1 > b->cap)
+        return -1;
+    memcpy(b->p + b->n, data, len);
+    b->n += len;
+    b->p[b->n] = 0;
+    return 0;
+}
+#define ARCHIVE_ORG "https://archive.org/download/"
+static int archive_mirrors(const char *url, char out[2][512]) {
+    out[0][0] = out[1][0] = 0;
+    if (strncmp(url, ARCHIVE_ORG, sizeof(ARCHIVE_ORG) - 1))
+        return 0;
+    const char *item = url + sizeof(ARCHIVE_ORG) - 1;
+    const char *file = strchr(item, '/');
+    if (!file || file == item)
+        return 0;
+    char meta[256];
+    snprintf(meta, sizeof(meta), "https://archive.org/metadata/%.*s", (int)(file - item), item);
+    struct text_buf b = {malloc(512 * 1024), 0, 512 * 1024};
+    struct https_result r;
+    int found = 0;
+    if (b.p && https_get(meta, text_sink, &b, NULL, NULL, &r) == 0 && r.status == 200) {
+        cJSON *j = cJSON_Parse(b.p);
+        cJSON *dir = cJSON_GetObjectItemCaseSensitive(j, "dir");
+        const char *host[2] = {"d1", "d2"};
+        for (int i = 0; i < 2 && cJSON_IsString(dir); i++) {
+            cJSON *h = cJSON_GetObjectItemCaseSensitive(j, host[i]);
+            /* A host name and a path, nothing that could lead anywhere else. */
+            if (cJSON_IsString(h) && strspn(h->valuestring, "abcdefghijklmnopqrstuvwxyz0123456789.-") ==
+                                         strlen(h->valuestring) &&
+                strstr(h->valuestring, ".archive.org") && dir->valuestring[0] == '/' &&
+                !strstr(dir->valuestring, "..")) {
+                snprintf(out[found], 512, "https://%s%s%s", h->valuestring, dir->valuestring, file);
+                found++;
+            }
+        }
+        cJSON_Delete(j);
+    }
+    free(b.p);
+    logline("download: archive.org metadata named %d storage server%s", found, found == 1 ? "" : "s");
+    return found;
+}
+
 static int download(const struct manifest *m, https_progress progress, void *pctx,
                     unsigned char *got) {
     struct dl d;
     struct https_result r;
-    d.written = 0;
+    int close_rc;
     d.expected = m->size;
-    if (wc_InitSha256(&d.sha) != 0)
-        return -1;
-
-    d.fd = sceIoOpen(ARCHIVE, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
-    if (d.fd < 0) {
-        logline("cannot create %s", ARCHIVE);
-        return -2;
+    int rc = fetch_archive(m->url, &d, progress, pctx, &r, &close_rc);
+    if (!g_abort && close_rc >= 0 && r.status >= 500 && r.status < 600) {
+        char mirror[2][512];
+        int n = archive_mirrors(m->url, mirror);
+        for (int i = 0; i < n && !g_abort; i++) {
+            logline("download: %ld from the mirror; trying %s", r.status, mirror[i]);
+            rc = fetch_archive(mirror[i], &d, progress, pctx, &r, &close_rc);
+            if (rc == 0 && r.status == 200 && close_rc >= 0)
+                break;
+        }
     }
-
-    unsigned start = now_ms();
-    int rc = https_get(m->url, file_sink, &d, progress, pctx, &r);
-    int close_rc = sceIoClose(d.fd);
-    unsigned ms = now_ms() - start;
-    logline("download: rc=%d status=%ld %lu bytes in %u.%us", rc, r.status,
-            (unsigned long)d.written, ms / 1000, (ms % 1000) / 100);
+    if (close_rc < 0)
+        why(T_WHY_STICK);
+    else if (rc != 0 && !r.status)
+        why(T_WHY_NO_ANSWER);
+    else if (r.status != 200)
+        why(T_WHY_STATUS, r.status);
     if (rc != 0 || r.status != 200 || close_rc < 0)
-        return -3;
+        return close_rc < 0 && !r.status ? -2 : -3;
     if (d.written != m->size) {
         logline("download: size %lu, release says %lu", (unsigned long)d.written,
                 (unsigned long)m->size);
+        why(T_WHY_SIZE);
         return -4;
     }
 
@@ -181,6 +281,7 @@ static int download(const struct manifest *m, https_progress progress, void *pct
     }
     if (memcmp(digest, m->sha256, 32) != 0) {
         logline("download: sha256 MISMATCH");
+        why(T_WHY_HASH);
         return -5;
     }
     logline("download: sha256 ok");
@@ -288,8 +389,12 @@ static int ends_with_ours(const char *name) {
                       !strncasecmp(name + n - k, SUFFIX_OLD, k));
 }
 
+/* A Mac's zip carries a shadow of every file under __MACOSX/: never the
+   package, never unpacked. */
+static int mac_shadow(const char *name) { return !strncmp(name, "__MACOSX/", 9); }
+
 static int find_package(struct zipread *z, const struct manifest *m, char *root, size_t rootsz,
-                        char *dir, size_t dirsz) {
+                        char *dir, size_t dirsz, struct install_layout *layout) {
     struct zipentry e;
     if (z->entries > 8192)
         return -1;
@@ -323,10 +428,14 @@ static int find_package(struct zipread *z, const struct manifest *m, char *root,
         names[used++] = h;
     }
     free(names);
-    int rc, count = 0;
+    int rc, count = 0, depth = -1, level = 0;
     root[0] = 0;
+    memset(layout, 0, sizeof(*layout));
     if (!manifest_dir_is_safe(m->dir))
         return -1;
+    /* The package is the EBOOT.PBP nearest the top; another as near makes
+       two apps of equal standing, and which one was meant is not for the
+       installer to guess. */
     for (rc = zip_first(z, &e); rc > 0; rc = zip_next(z, &e)) {
         if (e.name_truncated)
             return -1;
@@ -337,12 +446,20 @@ static int find_package(struct zipread *z, const struct manifest *m, char *root,
             logline("zip: %s ends in a name PSPDX keeps for itself", e.name);
             return -1;
         }
-        if (!ends_with_eboot(e.name))
+        if (mac_shadow(e.name) || !ends_with_eboot(e.name))
             continue;
-        if (++count > 1) {
-            logline("zip: more than one EBOOT.PBP");
-            return -1;
+        count++;
+        int d = 0;
+        for (const char *p = e.name; *p; p++)
+            d += *p == '/';
+        if (depth >= 0 && d > depth)
+            continue;
+        if (d == depth) {
+            level++;
+            continue;
         }
+        depth = d;
+        level = 1;
         const char *slash = strrchr(e.name, '/');
         size_t n = slash ? (size_t)(slash - e.name + 1) : 0;
         if (n >= rootsz)
@@ -350,11 +467,80 @@ static int find_package(struct zipread *z, const struct manifest *m, char *root,
         memcpy(root, e.name, n);
         root[n] = 0;
     }
-    if (rc < 0 || count != 1) {
-        logline("zip: expected exactly one EBOOT.PBP");
+    if (rc < 0 || count == 0) {
+        logline("zip: expected an EBOOT.PBP");
+        why(rc < 0 ? T_WHY_ZIP : T_WHY_NO_EBOOT);
+        return -1;
+    }
+    if (level > 1) {
+        logline("zip: %d EBOOT.PBP, %d of them side by side at the top", count, level);
+        why(T_WHY_EBOOTS);
         return -1;
     }
     snprintf(dir, dirsz, "%s", m->dir);
+    layout->eboots = count;
+    {
+        size_t plen = strlen(root);
+        for (rc = zip_first(z, &e); rc > 0; rc = zip_next(z, &e)) {
+            slashes(e.name);
+            int folder = e.name[0] && e.name[strlen(e.name) - 1] == '/';
+            if (mac_shadow(e.name)) {
+                layout->mac_files += !folder;
+                continue;
+            }
+            if (!strncmp(e.name, root, plen)) {
+                if (folder)
+                    continue;
+                layout->files++;
+                layout->bytes += e.usize;
+                if (e.name_converted) {
+                    if (layout->renamed < 2)
+                        snprintf(layout->renamed_path[layout->renamed], 64, "%s", e.name + plen);
+                    layout->renamed++;
+                    layout->sjis += e.name_converted == CP_SJIS;
+                }
+                if (ends_with_eboot(e.name) && strlen(e.name) > plen + 9 &&
+                    layout->nested++ < LAYOUT_SHOWN)
+                    snprintf(layout->nested_path[layout->nested - 1], 64, "%s", e.name + plen);
+                continue;
+            }
+            /* Outside root: grouped by the first part of its path that root
+               does not share -- a folder beside the package, or a file. */
+            size_t common = 0;
+            for (size_t i = 0; root[i] && e.name[i] == root[i]; i++)
+                if (root[i] == '/')
+                    common = i + 1;
+            size_t end = strcspn(e.name + common, "/");
+            int whole = e.name[common + end] == '/';
+            char group[64];
+            snprintf(group, sizeof(group), "%.*s%s", (int)(common + end < 62 ? common + end : 62),
+                     e.name, whole ? "/" : "");
+            layout->left += ends_with_eboot(e.name);
+            if (folder)
+                continue;
+            layout->left_files++;
+            layout->left_bytes += e.usize;
+            int g = 0, kept = layout->left_groups < LAYOUT_GROUPS ? layout->left_groups : LAYOUT_GROUPS;
+            while (g < kept && strcmp(layout->left_path[g], group))
+                g++;
+            if (g == kept) {
+                layout->left_groups++;
+                if (g == LAYOUT_GROUPS)
+                    continue;
+                snprintf(layout->left_path[g], 64, "%s", group);
+            }
+            layout->left_count[g]++;
+        }
+        snprintf(layout->root, sizeof(layout->root), "%s", root);
+        layout->review = count > 1 || layout->renamed > 0;
+        snprintf(layout->dir, sizeof(layout->dir), "%s", dir);
+        if (count > 1)
+            logline("zip: %d EBOOT.PBP; %s goes to PSP/GAME/%s, %d under it, %d left out",
+                    count, root[0] ? root : "the top", dir, layout->nested, layout->left);
+        if (layout->renamed)
+            logline("zip: %d names in a code page, %d of them Shift-JIS, e.g. %s", layout->renamed,
+                    layout->sjis, layout->renamed_path[0]);
+    }
     return 0;
 }
 
@@ -391,7 +577,7 @@ static int walk_package(struct zipread *z, const char *root, package_fn fn, void
         if (strncmp(e.name, root, plen) != 0)
             continue; /* not ours */
         const char *rel = e.name + plen;
-        if (*rel == '\0')
+        if (*rel == '\0' || mac_shadow(e.name))
             continue;
         if (e.name_truncated || !safe_relative(rel)) {
             logline("unpack: refusing %s", e.name);
@@ -468,7 +654,6 @@ static int out_sink(void *ctx, const void *data, size_t len) {
    nothing after the name, the app's own folder of an update with SUFFIX_NEW.
    What the archive holds beside the package -- a readme at the top, a
    source tree -- stays in the archive. */
-static volatile int g_abort;
 
 void install_abort(void) {
     g_abort = 1;
@@ -516,6 +701,9 @@ static int unpack_one(void *ctx, const char *rel, const struct zipentry *e) {
     o.fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_EXCL, 0777);
     if (o.fd < 0) {
         logline("unpack: cannot create %s", rel);
+        /* A name in a code page other than UTF-8 -- Shift-JIS, from a zip
+           made on a Japanese system -- is one the stick takes no file by. */
+        why(pspdx_characters(rel, 0) < 0 ? T_WHY_NAME : T_WHY_STICK);
         return -1;
     }
     int xrc = zip_extract(u->z, e, out_sink, &o);
@@ -1172,8 +1360,18 @@ int install_release(const struct manifest *m, struct install_report *rep, instal
                     https_progress progress, void *ctx) {
     return install_release_to(m, storage_device(), rep, phase, progress, ctx);
 }
+static int release_to(const struct manifest *m, const char *dev, struct install_report *rep,
+                      install_phase_cb phase, https_progress progress, void *ctx);
 int install_release_to(const struct manifest *m, const char *dev, struct install_report *rep,
                        install_phase_cb phase, https_progress progress, void *ctx) {
+    g_why[0] = 0;
+    int rc = release_to(m, dev, rep, phase, progress, ctx);
+    if (rc < 0 && rc != INSTALL_CANCELLED && rc != INSTALL_NO_SPACE)
+        snprintf(rep->why, sizeof(rep->why), "%s", g_why);
+    return rc;
+}
+static int release_to(const struct manifest *m, const char *dev, struct install_report *rep,
+                      install_phase_cb phase, https_progress progress, void *ctx) {
     memset(rep, 0, sizeof(*rep));
     if (!storage_device_valid(dev)) return -1;
     install_recover();
@@ -1269,7 +1467,13 @@ int install_release_to(const struct manifest *m, const char *dev, struct install
     if (zip_open(&z, ARCHIVE) < 0)
         goto end;
     char root[200], dir[64];
-    rc = find_package(&z, m, root, sizeof(root), dir, sizeof(dir));
+    struct install_layout layout;
+    rc = find_package(&z, m, root, sizeof(root), dir, sizeof(dir), &layout);
+    /* Gone by the rule for more than one EBOOT.PBP: nothing is written until
+       whoever is installing has seen what goes where. */
+    if (rc == 0 && layout.review && g_layout_check &&
+        g_layout_check(ctx, &layout) != 0)
+        rc = g_abort ? INSTALL_CANCELLED : INSTALL_DECLINED;
     /* From here the journal names the package, and recovery can list what
        an update laid over the folder. */
     if (rc == 0 && (!cJSON_AddStringToObject(j, "root", root) || journal_save(j) < 0))

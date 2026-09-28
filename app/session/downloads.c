@@ -22,11 +22,18 @@ struct job {
     struct download_status status;
     struct install_report report;
     int rc, finished, approved;
+    struct install_layout layout;
+    int layout_ok;
     unsigned since;
     unsigned rate_since;
     size_t rate_bytes;
 };
-static struct job jobs[MAX_APPS];
+/* One job per package that has been queued since the list was last
+   cleared, on the heap, NULL for every other package: most of a catalog
+   of thousands is never downloaded. Freed only by
+   downloads_clear_finished, and never while pending, so the worker's
+   pointer to the current one stays good. */
+static struct job *jobs[MAX_APPS];
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static int current = -1, held, closing;
 static unsigned serial;
@@ -55,7 +62,10 @@ int downloads_status(int i, struct download_status *out) {
         return 0;
     }
     pthread_mutex_lock(&lock);
-    *out = jobs[i].status;
+    if (jobs[i])
+        *out = jobs[i]->status;
+    else
+        memset(out, 0, sizeof(*out));
     pthread_mutex_unlock(&lock);
     return out->state != DOWNLOAD_NONE;
 }
@@ -68,7 +78,7 @@ int downloads_pending_count(void) {
     int n = 0;
     pthread_mutex_lock(&lock);
     for (int i = 0; i < MAX_APPS; i++)
-        n += pending(jobs[i].status.state);
+        n += jobs[i] && pending(jobs[i]->status.state);
     pthread_mutex_unlock(&lock);
     return n;
 }
@@ -77,7 +87,7 @@ int downloads_count(void) {
     int n = 0;
     pthread_mutex_lock(&lock);
     for (int i = 0; i < MAX_APPS; i++)
-        n += jobs[i].status.state != DOWNLOAD_NONE;
+        n += jobs[i] && jobs[i]->status.state != DOWNLOAD_NONE;
     pthread_mutex_unlock(&lock);
     return n;
 }
@@ -90,6 +100,7 @@ const char *downloads_label(const struct download_status *s) {
     case DOWNLOAD_PREPARING:
         return "Preparing...";
     case DOWNLOAD_CONFIRM:
+    case DOWNLOAD_LAYOUT:
         return "Waiting for confirmation";
     case DOWNLOAD_RUNNING:
         return !strcmp(s->phase, "unpack")   ? "Installing..."
@@ -97,8 +108,14 @@ const char *downloads_label(const struct download_status *s) {
                                              : "Downloading...";
     case DOWNLOAD_DONE:
         return "Installed";
-    case DOWNLOAD_FAILED:
-        return "Failed - retry from Options";
+    case DOWNLOAD_FAILED: {
+        /* The reason, where the installer gave one, for the page that
+           shows the download and not only the status line. */
+        static char failed[96];
+        if (!s->why[0]) return "Failed - retry from Options";
+        snprintf(failed, sizeof(failed), "Failed: %s", s->why);
+        return failed;
+    }
     case DOWNLOAD_CANCELLED:
         return "Cancelled";
     default:
@@ -123,18 +140,19 @@ int downloads_enqueue(int i) {
     int rc = actions_download_device(&c->apps[i], device);
     if (rc < 0)
         return rc;
-    struct app_entry *e = malloc(sizeof(*e));
+    /* The job's own copy, text and all: the catalog may be fetched again
+       before the download is through. */
+    struct app_entry *e = calloc(1, sizeof(*e));
     if (!e)
         return -1;
-    *e = c->apps[i];
-    e->description = NULL;
-    e->release.raw = NULL;
-    if (c->apps[i].description && !(e->description = strdup(c->apps[i].description)))
-        goto fail;
-    if (c->apps[i].release.raw && !(e->release.raw = strdup(c->apps[i].release.raw)))
+    if (entry_copy(e, &c->apps[i]) < 0)
         goto fail;
     pthread_mutex_lock(&lock);
-    struct job *j = &jobs[i];
+    if (!jobs[i] && !(jobs[i] = calloc(1, sizeof(*jobs[i])))) {
+        pthread_mutex_unlock(&lock);
+        goto fail;
+    }
+    struct job *j = jobs[i];
     free_entry(j);
     memset(j, 0, sizeof(*j));
     j->entry = e;
@@ -175,10 +193,32 @@ static void phase(void *ctx, const char *name) {
     pthread_mutex_unlock(&lock);
     progress(ctx, 0, 0);
 }
+/* The installer, on the worker, found more than one EBOOT.PBP and went by
+   the rule: the job waits while the main thread shows what goes where. */
+static int layout_check(void *ctx, const struct install_layout *layout) {
+    struct job *j = ctx;
+    pthread_mutex_lock(&lock);
+    int cancel = j->status.cancel_requested || closing;
+    if (!cancel) {
+        j->layout = *layout;
+        j->layout_ok = -1;
+        j->status.state = DOWNLOAD_LAYOUT;
+    }
+    pthread_mutex_unlock(&lock);
+    if (cancel)
+        return -1;
+    sceKernelWaitSema(answer, 1, NULL);
+    pthread_mutex_lock(&lock);
+    int rc = j->status.cancel_requested || closing ? -1 : j->layout_ok;
+    j->status.state = DOWNLOAD_RUNNING;
+    pthread_mutex_unlock(&lock);
+    return rc;
+}
+
 static int run(SceSize size, void *arg) {
     (void)size;
     (void)arg;
-    struct job *j = &jobs[current];
+    struct job *j = jobs[current];
     int rc = catalog_prepare(j->entry);
     pthread_mutex_lock(&lock);
     int cancel = j->status.cancel_requested || closing;
@@ -193,8 +233,18 @@ static int run(SceSize size, void *arg) {
         if (rc == 0 && !cancel)
             j->status.state = DOWNLOAD_RUNNING;
         pthread_mutex_unlock(&lock);
-        if (rc == 0 && !cancel)
-            rc = install_release_to(&j->entry->release, j->device, &j->report, phase, progress, j);
+        if (rc == 0 && !cancel) {
+            /* The whole manifest, as the installer takes it, made of the
+               job's own copy of the entry. */
+            install_set_layout_check(layout_check);
+            struct manifest *m = malloc(sizeof(*m));
+            rc = m && entry_manifest(j->entry, m) == 0
+                     ? install_release_to(m, j->device, &j->report, phase, progress, j)
+                     : -1;
+            if (m)
+                manifest_forget(m);
+            free(m);
+        }
     }
     if (cancel)
         rc = INSTALL_CANCELLED;
@@ -208,7 +258,11 @@ void downloads_cancel(int i) {
     if (i < 0 || i >= MAX_APPS)
         return;
     pthread_mutex_lock(&lock);
-    struct job *j = &jobs[i];
+    struct job *j = jobs[i];
+    if (!j) {
+        pthread_mutex_unlock(&lock);
+        return;
+    }
     int running = i == current && pending(j->status.state);
     if (j->status.state == DOWNLOAD_QUEUED) {
         j->status.state = DOWNLOAD_CANCELLED;
@@ -227,7 +281,7 @@ int downloads_tick(int cursor, int modal) {
         return 0;
     int changed = 0;
     if (current >= 0) {
-        struct job *j = &jobs[current];
+        struct job *j = jobs[current];
         pthread_mutex_lock(&lock);
         unsigned elapsed = now_ms() - j->rate_since;
         if (!strcmp(j->status.phase, "download") && elapsed >= 500) {
@@ -237,6 +291,7 @@ int downloads_tick(int cursor, int modal) {
             j->rate_since += elapsed;
         }
         int done = j->finished, confirm = j->status.state == DOWNLOAD_CONFIRM;
+        int layout = j->status.state == DOWNLOAD_LAYOUT;
         int cancelled = j->status.cancel_requested;
         pthread_mutex_unlock(&lock);
         if (done) {
@@ -254,9 +309,11 @@ int downloads_tick(int cursor, int modal) {
             pthread_mutex_lock(&lock);
             j->status.state = j->rc == 0                   ? DOWNLOAD_DONE
                               : j->rc == INSTALL_CANCELLED ? DOWNLOAD_CANCELLED
+                              : j->rc == INSTALL_DECLINED  ? DOWNLOAD_CANCELLED
                                                            : DOWNLOAD_FAILED;
             j->status.cancel_requested = 0;
             j->status.bytes_per_second = 0;
+            snprintf(j->status.why, sizeof(j->status.why), "%s", j->rc ? j->report.why : "");
             free_entry(j);
             current = -1;
             view_download_running(-1);
@@ -268,6 +325,12 @@ int downloads_tick(int cursor, int modal) {
             pthread_mutex_lock(&lock);
             j->approved = rc;
             j->status.state = DOWNLOAD_RUNNING;
+            pthread_mutex_unlock(&lock);
+            sceKernelSignalSema(answer, 1);
+        } else if (layout && !modal) {
+            int ok = cancelled ? -1 : actions_download_layout(j->entry, &j->layout, cursor);
+            pthread_mutex_lock(&lock);
+            j->layout_ok = ok;
             pthread_mutex_unlock(&lock);
             sceKernelSignalSema(answer, 1);
         }
@@ -283,13 +346,14 @@ int downloads_tick(int cursor, int modal) {
         unsigned order = ~0u;
         pthread_mutex_lock(&lock);
         for (int i = 0; i < MAX_APPS; i++)
-            if (jobs[i].status.state == DOWNLOAD_QUEUED && jobs[i].status.order < order) {
+            if (jobs[i] && jobs[i]->status.state == DOWNLOAD_QUEUED &&
+                jobs[i]->status.order < order) {
                 at = i;
-                order = jobs[i].status.order;
+                order = jobs[i]->status.order;
             }
         pthread_mutex_unlock(&lock);
         if (at >= 0) {
-            struct job *j = &jobs[at];
+            struct job *j = jobs[at];
             j->since = now_ms();
             if (!actions_download_connect()) {
                 j->status.state = DOWNLOAD_FAILED;
@@ -335,9 +399,12 @@ int downloads_tick(int cursor, int modal) {
 void downloads_clear_finished(void) {
     pthread_mutex_lock(&lock);
     for (int i = 0; i < MAX_APPS; i++)
-        if (!pending(jobs[i].status.state)) {
-            free_entry(&jobs[i]);
-            memset(&jobs[i], 0, sizeof(jobs[i]));
+        if (!jobs[i] || !pending(jobs[i]->status.state)) {
+            if (jobs[i]) {
+                free_entry(jobs[i]);
+                free(jobs[i]);
+                jobs[i] = NULL;
+            }
             view_download_set(i, 0);
         }
     pthread_mutex_unlock(&lock);
@@ -349,8 +416,8 @@ void downloads_reset(void) {
 void downloads_shutdown(void) {
     pthread_mutex_lock(&lock);
     closing = 1;
-    if (current >= 0)
-        jobs[current].status.cancel_requested = 1;
+    if (current >= 0 && jobs[current])
+        jobs[current]->status.cancel_requested = 1;
     SceUID active = worker;
     pthread_mutex_unlock(&lock);
     if (active >= 0) {
@@ -374,9 +441,9 @@ void downloads_focus_queue(void) {
     unsigned order = ~0u;
     pthread_mutex_lock(&lock);
     for (int i = 0; i < MAX_APPS; i++)
-        if (pending(jobs[i].status.state) && jobs[i].status.order < order) {
+        if (jobs[i] && pending(jobs[i]->status.state) && jobs[i]->status.order < order) {
             next = i;
-            order = jobs[i].status.order;
+            order = jobs[i]->status.order;
         }
     pthread_mutex_unlock(&lock);
     if (next >= 0)

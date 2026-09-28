@@ -137,6 +137,37 @@
 #define T_UPDATED_SELF       "PSPDX was updated to %s."           /* version */
 #define T_CANCELLED          "Installation of %s was canceled."   /* name */
 #define T_INSTALL_FAILED     "Could not install %s (%d)."         /* name, code */
+#define T_INSTALL_FAILED_WHY "Could not install %s: %s."          /* name, reason */
+#define T_LAYOUT_HEAD        "Check before installing"
+#define T_LAYOUT_WHY         "%d EBOOT.PBP in the zip; the top one is the app."
+#define T_LAYOUT_INSTALLS    "Installs"
+#define T_LAYOUT_FROM        "from %s in the zip"                /* folder */
+#define T_LAYOUT_TOP_SHORT   "the top"
+#define T_LAYOUT_ALONG       "Comes along"
+#define T_LAYOUT_UNUSED      "copied along, never started"
+#define T_LAYOUT_NOTHING     "Nothing"
+#define T_LAYOUT_MORE        "and %d more EBOOT.PBP"
+#define T_LAYOUT_LEFT_OUT    "Left out"
+#define T_LAYOUT_WHY_NAMES   "Some file names in the zip are not UTF-8."
+#define T_LAYOUT_RENAMED     "Renamed"
+#define T_LAYOUT_MORE_NAMES  "and %d more names"
+#define T_LAYOUT_RENAMED_SJIS "read as Japanese (Shift-JIS)"
+#define T_LAYOUT_RENAMED_437 "read as DOS Latin (CP437)"
+#define T_LAYOUT_MORE_FILES  "and %d more folders"
+#define T_LAYOUT_MAC         "__MACOSX/  (Mac metadata)"
+#define T_LAYOUT_ONLY_MAC    "Only Mac metadata (__MACOSX/)"
+#define T_LAYOUT_YES         "Install"
+#define T_LAYOUT_NO          "Don't install"
+#define T_DECLINED           "%s was not installed."             /* name */
+#define T_WHY_STICK          "the Memory Stick could not be written"
+#define T_WHY_NO_ANSWER      "the server did not answer"
+#define T_WHY_STATUS         "the server answered %ld"           /* HTTP status */
+#define T_WHY_SIZE           "the download was the wrong size"
+#define T_WHY_HASH           "the download did not match its checksum"
+#define T_WHY_EBOOTS         "its zip holds several EBOOT.PBP side by side"
+#define T_WHY_NO_EBOOT       "its zip holds no EBOOT.PBP"
+#define T_WHY_ZIP            "its zip cannot be unpacked safely"
+#define T_WHY_NAME           "its zip names a file in a foreign code page"
 #define T_NO_SPACE           "Could not install %s. %lu.%lu MB of free space is needed." /* name, MB, tenths */
 #define T_INSTALL_UNSUPPORTED "%.60s cannot be installed yet."   /* name */
 #define T_REMOVED            "%s was deleted."                    /* name */

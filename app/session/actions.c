@@ -193,6 +193,32 @@ static int install_folder(const struct app_entry *entry, const char *dev, int ro
     return rc;
 }
 
+/* The rule for a zip with more than one EBOOT.PBP, put to whoever is
+   installing: which folder of the zip goes where, and what of the rest
+   comes along. The installer is sure of the zip but not of what its author
+   meant, so nothing is written until X. */
+int actions_download_layout(const struct app_entry *entry, const struct install_layout *layout,
+                            int row) {
+    (void)row;
+    logline("layout: asked for %s: %s to PSP/GAME/%s, %d along, %d groups left out",
+            entry->id, layout->root[0] ? layout->root : "the top", layout->dir, layout->nested,
+            layout->left_groups);
+    SceCtrlData pad;
+    sceCtrlPeekBufferPositive(&pad, 1);
+    unsigned last = pad.Buttons;
+    int rc = -1;
+    for (;;) {
+        shell_layout_draw(entry, layout);
+        sceCtrlPeekBufferPositive(&pad, 1);
+        unsigned pressed = pad.Buttons & ~last;
+        last = pad.Buttons;
+        if (pressed & PSP_CTRL_CIRCLE) break;
+        if (pressed & PSP_CTRL_CROSS) { rc = 0; break; }
+    }
+    logline("layout: %s", rc == 0 ? "installed so" : "declined");
+    return rc;
+}
+
 int actions_download_device(const struct app_entry *entry, char out[5]) {
     int row = view_row((int)(entry - g_catalog->apps));
     return install_device(entry, row < 0 ? 0 : row, out);
@@ -210,9 +236,7 @@ void actions_download_complete(int index, struct app_entry *prepared,
     struct app_entry *entry = &g_catalog->apps[index];
     struct install_report report = *result;
     if (rc == 0) {
-        manifest_forget(&entry->release);
-        entry->release = prepared->release;
-        prepared->release.raw = NULL;
+        entry_move_release(entry, prepared);
         entry->no_pspdx = prepared->no_pspdx;
         view_basket_forget(index);
     }
@@ -222,8 +246,7 @@ void actions_download_complete(int index, struct app_entry *prepared,
     if (rc == 0) {
         entry->state = APP_CURRENT;
         entry->local_rev = report.rev;
-        snprintf(entry->local_version, sizeof(entry->local_version), "%s", report.version);
-        entry->local_version[sizeof(entry->local_version) - 1] = '\0';
+        text_set(&entry->local_version, report.version);
         /* The client can fetch itself, and just has: the EBOOT that is running
            is the one in RAM, and the file it was loaded from has been renamed
            aside and replaced underneath it. Nothing on screen is the new
@@ -247,11 +270,15 @@ void actions_download_complete(int index, struct app_entry *prepared,
                 report.files, (unsigned long)(report.bytes / 1024), seconds);
     } else if (rc == INSTALL_CANCELLED) {
         snprintf(message, sizeof(message), T_CANCELLED, entry->name);
+    } else if (rc == INSTALL_DECLINED) {
+        snprintf(message, sizeof(message), T_DECLINED, entry->name);
     } else if (rc == INSTALL_NO_SPACE) {
         /* Tenths, rounded up: what is said to be needed has to be enough. */
         unsigned long long tenths = (report.needed * 10 + (1u << 20) - 1) >> 20;
         snprintf(message, sizeof(message), T_NO_SPACE, entry->name, (unsigned long)(tenths / 10),
                  (unsigned long)(tenths % 10));
+    } else if (report.why[0]) {
+        snprintf(message, sizeof(message), T_INSTALL_FAILED_WHY, entry->name, report.why);
     } else {
         snprintf(message, sizeof(message), T_INSTALL_FAILED, entry->name, rc);
     }
@@ -271,7 +298,7 @@ void uninstall_app(int index) {
            built from has just stopped existing. */
         entry->state = APP_NOT_INSTALLED;
         entry->local_rev = 0;
-        entry->local_version[0] = '\0';
+        text_free(&entry->local_version);
         snprintf(message, sizeof(message), T_REMOVED, entry->name);
     } else if (rc == INSTALL_SELF) {
         snprintf(message, sizeof(message), "%s", T_SELF_DELETE);
@@ -350,7 +377,8 @@ void launch_app(int index) {
    others unfetched. The basket keeps what did not arrive and lets go of what
    did. */
 void install_all(void) {
-    int list[MAX_APPS], n = 0;
+    static int list[MAX_APPS];
+    int n = 0;
     for (int row = 0; row < view_count() && n < MAX_APPS; row++) {
         int at = view_index(row);
         if (at < 0) continue;
