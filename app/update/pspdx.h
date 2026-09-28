@@ -47,6 +47,16 @@ struct pspdx_file {
    GitHub repository, and the id. */
 int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reason,
                 size_t reason_size);
+/* The fields of a .pspdx, in this order, for pspdx_check. */
+enum { PSPDX_SCHEMA_FIELD, PSPDX_SOURCE, PSPDX_NAME, PSPDX_TYPE, PSPDX_CATEGORY,
+       PSPDX_INSTALLDIR, PSPDX_AUTHOR, PSPDX_SUMMARY, PSPDX_LICENSE, PSPDX_DESCRIPTION,
+       PSPDX_FIELDS };
+/* The rules pspdx_parse holds a file's fields to, for a file not yet written:
+   value[i] NULL where it would leave a field out, tags newline-separated.
+   What pspdx_parse would say of the file with these fields and no release,
+   without the file being made. */
+int pspdx_check(const char *const value[PSPDX_FIELDS], const char *tags,
+                struct pspdx_file *out, char *reason, size_t reason_size);
 int pspdx_install_dir(const char *path);
 /* The folder a homebrew goes to when its file names none: the repository's
    name from GitHub (repo), or else the app's name with every character a
@@ -72,6 +82,10 @@ int pspdx_json_mark_nul(char *text, size_t len);
 /* "2026-09-12T08:29:23Z", or the day alone, "2024-12-20", to unix seconds;
    0 for anything that is not a time a release can have been published at. */
 unsigned pspdx_time(const char *text);
+/* bytes bytes out of twice as many hex digits, either case; -1 at the first
+   that is not one, with out filled that far. sscanf does this at some two
+   microseconds a byte on the console. */
+int pspdx_hex(const char *hex, unsigned char *out, size_t bytes);
 /* A string snprintf may have cut: a character left without its last bytes
    at the end is taken off, so what is drawn is never half a letter. */
 void pspdx_utf8_mend(char *s);

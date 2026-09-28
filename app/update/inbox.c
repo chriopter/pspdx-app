@@ -149,7 +149,7 @@ int inbox_scan(struct catalog *catalog) {
             continue;
         }
         struct app_entry *entry = &catalog->apps[at];
-        if (!sources_same_repo(entry->repo, spec.source)) {
+        if (!sources_same_repo(txt(entry->repo), spec.source)) {
             logline("INBOX: identity collision");
             free(raw);
             continue;
@@ -157,10 +157,11 @@ int inbox_scan(struct catalog *catalog) {
         /* A file that pins a release is installed from that release or not at
            all, and the tag is the tag: 0.1.3 is not v0.1.3. A row that knows
            no tag yet, an installed app nobody lists, asks GitHub for it. */
-        if (spec.release_tag[0] && !entry->tag[0])
+        if (spec.release_tag[0] && !txt(entry->tag)[0])
             catalog_ask_pinned(entry, raw);
-        if (spec.release_tag[0] && (strcmp(entry->tag, spec.release_tag) ||
-                                    (spec.release_url[0] && strcmp(entry->release.url, spec.release_url)))) {
+        if (spec.release_tag[0] &&
+            (strcmp(txt(entry->tag), spec.release_tag) ||
+             (spec.release_url[0] && strcmp(txt(entry->release.url), spec.release_url)))) {
             logline("INBOX: %s pins release %s, which its source does not offer; kept", it->id,
                     spec.release_tag);
             free(raw);
@@ -170,7 +171,7 @@ int inbox_scan(struct catalog *catalog) {
            repository for one of its own, which wins; an entry made of this
            very file needs no asking. */
         if (entry->no_pspdx != PSPDX_FROM_FILE) {
-            if (manifest_keep_raw(&entry->release, raw, strlen(raw)) < 0) {
+            if (entry_keep_raw(entry, raw, strlen(raw)) < 0) {
                 logline("INBOX: no memory for %s", it->id);
                 free(raw);
                 continue;
@@ -180,7 +181,7 @@ int inbox_scan(struct catalog *catalog) {
         free(entry->description);
         entry->description = pspdx_description(raw, strlen(raw));
         snprintf(entry->release.dir, sizeof(entry->release.dir), "%.32s", spec.installdir + 9);
-        snprintf(entry->release.added_from, sizeof(entry->release.added_from), "INBOX");
+        text_set(&entry->release.added_from, "INBOX");
         snprintf(entry->name, sizeof(entry->name), "%s", spec.name);
         queue[count].item = i;
         queue[count].index = at;

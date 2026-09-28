@@ -8,6 +8,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "session/view.h"
@@ -24,7 +25,7 @@ static int g_tab[TAB_COUNT];
 static int g_tabs;
 static int g_tab_at;                    /* index into g_tab */
 static const struct catalog *g_view_of;
-static unsigned char g_view[MAX_APPS];
+static unsigned short g_view[MAX_APPS];
 static int g_view_count;                /* packages; the action row is extra */
 static int g_view_action;               /* whether the view has an action row */
 static unsigned g_generation;           /* counted up when the rows stand for other packages */
@@ -112,7 +113,7 @@ static int has_tag(const char *tags, const char *word) {
     return 0;
 }
 int view_hidden(const struct app_entry *entry) {
-    return !g_show_unreleased && has_tag(entry->tags, "unreleased");
+    return !g_show_unreleased && has_tag(txt(entry->tags), "unreleased");
 }
 
 /* The row an entry stands under. "application" is what some catalogs call
@@ -167,6 +168,17 @@ void view_category_close(void) {
     build_view(1);
 }
 
+static unsigned published(int index) {
+    const struct app_entry *entry = &g_view_of->apps[index];
+    return entry->has_release ? entry->release.rev : 0;
+}
+static int newest_first(const void *a, const void *b) {
+    int x = *(const unsigned short *)a, y = *(const unsigned short *)b;
+    unsigned px = published(x), py = published(y);
+    if (px != py) return px > py ? -1 : 1;
+    return x - y;
+}
+
 static void build_view(int restart) {
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
     g_view_count = 0;
@@ -181,24 +193,28 @@ static void build_view(int restart) {
             take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_BASKET) take = view_basket_has(i) || g_downloads[i] != 0;
         else take = 0;      /* the gear's rows are not packages; the UMD has none */
-        if (take) g_view[g_view_count++] = (unsigned char)i;
+        if (take) g_view[g_view_count++] = (unsigned short)i;
     }
-    /* On the stick, what has something waiting for it stands first, in the
-       order the catalog has them; the rest after, likewise. */
+    /* Homebrew and the stick list the newest release first; what says no
+       release date stands last, and a tie keeps the catalog's order. */
+    if (tab == TAB_HOMEBREW || tab == TAB_STICK)
+        qsort(g_view, (size_t)g_view_count, sizeof(*g_view), newest_first);
+    /* On the stick, what has something waiting for it stands first, newest
+       first; the rest after, likewise. */
     if (tab == TAB_STICK) {
-        unsigned char sorted[MAX_APPS];
+        static unsigned short sorted[MAX_APPS];
         int n = 0;
         for (int pass = 0; pass < 2; pass++)
             for (int i = 0; i < g_view_count; i++) {
                 int waiting = g_view_of->apps[g_view[i]].state == APP_UPDATE;
                 if (waiting == !pass) sorted[n++] = g_view[i];
             }
-        memcpy(g_view, sorted, (size_t)n);
+        memcpy(g_view, sorted, (size_t)n * sizeof(*g_view));
     }
     /* The live transfer leads the cart, then queued jobs and its other apps. */
     if (tab == TAB_BASKET) {
         for (int i = 1; i < g_view_count; i++) {
-            unsigned char value = g_view[i];
+            unsigned short value = g_view[i];
             int j = i;
             while (j > 0 && g_view[j - 1] != g_download_running &&
                    (value == g_download_running ||

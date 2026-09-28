@@ -1,4 +1,5 @@
 #include "install/state.h"
+#include "update/pspdx.h"
 #include "update/sources.h"
 #include "util/runtime.h"
 #include "util/storage.h"
@@ -251,12 +252,7 @@ static void hex_bytes(const char *hex, unsigned char *out) {
     memset(out, 0, 32);
     if (strlen(hex) != 64 || strspn(hex, "0123456789abcdefABCDEF") != 64)
         return;
-    for (int i = 0; i < 32; i++) {
-        unsigned byte;
-        char pair[3] = {hex[2 * i], hex[2 * i + 1], 0};
-        sscanf(pair, "%x", &byte);
-        out[i] = (unsigned char)byte;
-    }
+    pspdx_hex(hex, out, 32);
 }
 int db_read(const char *id, struct installed *out) {
     if (!healthy)
@@ -474,13 +470,8 @@ int state_latest(const char *id, struct manifest *m) {
     if (*hex) {
         if (strlen(hex) != 64 || strspn(hex, "0") == 64)
             return -1;
-        for (int i = 0; i < 32; i++) {
-            unsigned byte;
-            char pair[3] = {hex[2 * i], hex[2 * i + 1], 0};
-            if (strspn(pair, "0123456789abcdefABCDEF") != 2 || sscanf(pair, "%x", &byte) != 1)
-                return -1;
-            m->sha256[i] = byte;
-        }
+        if (pspdx_hex(hex, m->sha256, 32) < 0)
+            return -1;
     }
     return 0;
 }

@@ -123,7 +123,7 @@ void menu_open(int index) {
     if (entry->state == APP_UPDATE) {
         /* The row is narrow: twenty bytes of the version, cut between letters. */
         char version[21];
-        snprintf(version, sizeof(version), "%s", entry->remote_version);
+        snprintf(version, sizeof(version), "%s", txt(entry->remote_version));
         pspdx_utf8_mend(version);
         if (catalog_new_build(entry))
             snprintf(g_choice_text[CHOICE_GET], sizeof(g_choice_text[0]), "%s", T_MENU_REBUILD);
@@ -187,15 +187,16 @@ static void fake_updates(int on) {
     struct catalog *c = actions_catalog();
     for (int i = 0; i < c->count; i++) {
         struct app_entry *e = &c->apps[i];
-        size_t n = strlen(e->remote_version);
-        int faked = n > 4 && !strcmp(e->remote_version + n - 4, "-dev");
+        const char *remote = txt(e->remote_version);
+        size_t n = strlen(remote);
+        int faked = n > 4 && !strcmp(remote + n - 4, "-dev");
         if (on && e->state == APP_CURRENT) {
             char v[VERSION_SIZE];
-            snprintf(v, sizeof(v), "%.*s-dev", (int)sizeof(v) - 5, e->local_version);
-            snprintf(e->remote_version, sizeof(e->remote_version), "%s", v);
+            snprintf(v, sizeof(v), "%.*s-dev", (int)sizeof(v) - 5, txt(e->local_version));
+            text_set(&e->remote_version, v);
             e->state = APP_UPDATE;
         } else if (!on && faked) {
-            snprintf(e->remote_version, sizeof(e->remote_version), "%s", e->local_version);
+            text_set(&e->remote_version, txt(e->local_version));
             e->state = APP_CURRENT;
         }
     }

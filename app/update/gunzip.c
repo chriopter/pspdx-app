@@ -1,5 +1,6 @@
 #include "update/gunzip.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -17,35 +18,57 @@ static int refuse(struct gunzip *g, const char *why) {
     return GUNZIP_CORRUPT;
 }
 
-static int copy(const unsigned char *data, size_t len, char *out, size_t room, size_t *out_len) {
-    if (len > room - *out_len)
+/* Room for at least need bytes of text, the buffer doubling towards max.
+   0, or GUNZIP_FULL when max or memory says no. */
+static int grow(char **out, size_t *room, size_t max, size_t need) {
+    if (need <= *room && *out)
+        return GUNZIP_OK;
+    if (need > max)
         return GUNZIP_FULL;
-    memcpy(out + *out_len, data, len);
+    size_t cap = *room ? *room : 64 * 1024;
+    while (cap < need)
+        cap = cap > max / 2 ? max : cap * 2;
+    char *bigger = realloc(*out, cap + 1);
+    if (!bigger)
+        return GUNZIP_FULL;
+    *out = bigger;
+    *room = cap;
+    return GUNZIP_OK;
+}
+
+static int copy(const unsigned char *data, size_t len, char **out, size_t *room, size_t max,
+                size_t *out_len) {
+    if (grow(out, room, max, *out_len + len) != GUNZIP_OK)
+        return GUNZIP_FULL;
+    memcpy(*out + *out_len, data, len);
     *out_len += len;
     return GUNZIP_OK;
 }
 
 /* Inflates what came into what is left of out. A full buffer does not yet
-   mean too much text: the stream may be at its end with only the trailer
-   still to come. So inflate is offered one spare byte, and only a byte
-   written there is text that does not fit. */
-static int pour(struct gunzip *g, const unsigned char *data, size_t len, char *out, size_t room,
-                size_t *out_len) {
+   mean more room: the stream may be at its end with only the trailer still
+   to come. So inflate is offered one spare byte, and only a byte written
+   there is text that needs the buffer to grow -- or, at max, text that does
+   not fit. */
+static int pour(struct gunzip *g, const unsigned char *data, size_t len, char **out, size_t *room,
+                size_t max, size_t *out_len) {
     g->z.next_in = (Bytef *)data;
     g->z.avail_in = (uInt)len;
     while (g->z.avail_in) {
         if (g->mode == ENDED)
             return refuse(g, "data after the end of the gzip");
         unsigned char spare;
-        int full = *out_len >= room;
-        g->z.next_out = full ? &spare : (Bytef *)out + *out_len;
-        g->z.avail_out = full ? 1 : (uInt)(room - *out_len);
+        int full = !*out || *out_len >= *room;
+        g->z.next_out = full ? &spare : (Bytef *)*out + *out_len;
+        g->z.avail_out = full ? 1 : (uInt)(*room - *out_len);
         uInt before = g->z.avail_out;
         int rc = inflate(&g->z, Z_NO_FLUSH);
         size_t made = before - g->z.avail_out;
-        if (full && made)
-            return GUNZIP_FULL;
-        if (!full)
+        if (full && made) {
+            if (grow(out, room, max, *out_len + 1) != GUNZIP_OK)
+                return GUNZIP_FULL;
+            (*out)[(*out_len)++] = (char)spare;
+        } else if (!full)
             *out_len += made;
         if (rc == Z_STREAM_END)
             g->mode = ENDED;
@@ -55,8 +78,8 @@ static int pour(struct gunzip *g, const unsigned char *data, size_t len, char *o
     return GUNZIP_OK;
 }
 
-int gunzip_feed(struct gunzip *g, const void *data, size_t len, char *out, size_t room,
-                size_t *out_len) {
+int gunzip_feed(struct gunzip *g, const void *data, size_t len, char **out, size_t *room,
+                size_t max, size_t *out_len) {
     const unsigned char *p = data;
     g->wire += len;
     if (g->mode == UNDECIDED) {
@@ -75,10 +98,10 @@ int gunzip_feed(struct gunzip *g, const void *data, size_t len, char *out, size_
                 return refuse(g, "no memory to inflate");
             g->live = 1;
             g->mode = PACKED;
-            rc = pour(g, g->lead, g->lead_len, out, room, out_len);
+            rc = pour(g, g->lead, g->lead_len, out, room, max, out_len);
         } else {
             g->mode = PLAIN;
-            rc = copy(g->lead, g->lead_len, out, room, out_len);
+            rc = copy(g->lead, g->lead_len, out, room, max, out_len);
         }
         if (rc != GUNZIP_OK)
             return rc;
@@ -86,8 +109,8 @@ int gunzip_feed(struct gunzip *g, const void *data, size_t len, char *out, size_
     if (!len)
         return GUNZIP_OK;
     if (g->mode == PLAIN)
-        return copy(p, len, out, room, out_len);
-    return pour(g, p, len, out, room, out_len);
+        return copy(p, len, out, room, max, out_len);
+    return pour(g, p, len, out, room, max, out_len);
 }
 
 const char *gunzip_end(struct gunzip *g, const char *content_encoding) {

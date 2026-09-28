@@ -14,7 +14,7 @@
 #define PSPDX_VERSION "dev"
 #endif
 
-void logline(const char *fmt, ...);
+void logline(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void log_dump(void);
 
 /* The same, from a thread of its own below everything else: a frame does

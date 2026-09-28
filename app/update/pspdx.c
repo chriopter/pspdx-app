@@ -130,6 +130,27 @@ int pspdx_json_mark_nul(char *text, size_t len) {
 }
 /* Days from the civil date by Howard Hinnant's arithmetic; the month lengths
    are only there to refuse a day no calendar has. */
+static int hex_digit(char c) {
+    return c >= '0' && c <= '9' ? c - '0'
+         : c >= 'a' && c <= 'f' ? c - 'a' + 10
+         : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+}
+int pspdx_hex(const char *hex, unsigned char *out, size_t bytes) {
+    for (size_t i = 0; i < bytes; i++) {
+        int hi = hex_digit(hex[2 * i]), lo = hi < 0 ? -1 : hex_digit(hex[2 * i + 1]);
+        if (lo < 0)
+            return -1;
+        out[i] = (unsigned char)(hi << 4 | lo);
+    }
+    return 0;
+}
+static int digits(const char *text, int n) {
+    int v = 0;
+    while (n--)
+        v = v * 10 + (*text++ - '0');
+    return v;
+}
+
 unsigned pspdx_time(const char *text) {
     int y, mo, d, h = 0, mi = 0, sec = 0;
     /* A release entered by hand may know only its day, "2024-12-20"; it
@@ -142,9 +163,15 @@ unsigned pspdx_time(const char *text) {
     for (size_t i = 0; i < (n == 20 ? 19 : 10); i++)
         if (i != 4 && i != 7 && i != 10 && i != 13 && i != 16 && (text[i] < '0' || text[i] > '9'))
             return 0;
-    if (n == 20 ? sscanf(text, "%d-%d-%dT%d:%d:%dZ", &y, &mo, &d, &h, &mi, &sec) != 6
-                : sscanf(text, "%d-%d-%d", &y, &mo, &d) != 3)
-        return 0;
+    /* Every one of them a digit, as checked above. */
+    y = digits(text, 4);
+    mo = digits(text + 5, 2);
+    d = digits(text + 8, 2);
+    if (n == 20) {
+        h = digits(text + 11, 2);
+        mi = digits(text + 14, 2);
+        sec = digits(text + 17, 2);
+    }
     static const unsigned char days_in[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     int leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
     if (mo < 1 || mo > 12 || d < 1 || d > days_in[mo - 1] + (mo == 2 && leap) || y < 1970 ||
@@ -276,6 +303,138 @@ int pspdx_has_tag(const char *tags, const char *word) {
     }
     return 0;
 }
+/* The fields of a .pspdx a file holds to the same rules whether it is read
+   from JSON or made from a catalog entry: their limits in characters, the
+   schema, the source, the type, the folder and the id they make. value[i] is
+   NULL where the file leaves a field out; present[i] and a NULL value is a
+   field there that is not a string. */
+static const struct field_rule {
+    const char *key;
+    int limit, required, newline;
+} FIELD_RULES[PSPDX_FIELDS] = {{"schema", 127, 1, 0},   {"source", 255, 1, 0},
+                               {"name", 40, 1, 0},      {"type", 11, 0, 0},
+                               {"category", 24, 0, 0},  {"installdir", 41, 0, 0},
+                               {"author", 60, 0, 0},    {"summary", 60, 0, 0},
+                               {"license", 60, 0, 0},   {"description", 2500, 0, 1}};
+
+static int check_fields(const char *const value[PSPDX_FIELDS], const int present[PSPDX_FIELDS],
+                        struct pspdx_file *out, char *reason, size_t cap) {
+    char schema[128];
+    /* The description has nowhere to go: it is held to its rules and dropped. */
+    struct {
+        char *dst;
+        size_t size;
+    } to[PSPDX_FIELDS] = {{schema, sizeof(schema)},
+                          {out->source, sizeof(out->source)},
+                          {out->name, sizeof(out->name)},
+                          {out->type, sizeof(out->type)},
+                          {out->category, sizeof(out->category)},
+                          {out->installdir, sizeof(out->installdir)},
+                          {out->author, sizeof(out->author)},
+                          {out->summary, sizeof(out->summary)},
+                          {out->license, sizeof(out->license)},
+                          {NULL, PSPDX_FILE_MAX + 1}};
+    for (int i = 0; i < PSPDX_FIELDS; i++) {
+        const struct field_rule *f = &FIELD_RULES[i];
+        const char *v = value[i];
+        if (!present[i] && !f->required)
+            continue;
+        int n = v ? pspdx_characters(v, f->newline) : -1;
+        if (n < 0 || n > f->limit || (f->required && !n) || strlen(v) >= to[i].size) {
+            snprintf(reason, cap, "invalid %s", f->key);
+            return -1;
+        }
+        if (to[i].dst)
+            strcpy(to[i].dst, v);
+    }
+    /* A category is a word: one of no characters names no group. */
+    if (present[PSPDX_CATEGORY] && !out->category[0]) {
+        snprintf(reason, cap, "invalid category");
+        return -1;
+    }
+    if (strcmp(schema, PSPDX_SCHEMA)) {
+        snprintf(reason, cap, "schema is not v1");
+        return -1;
+    }
+    /* Any https:// address may be where a project lives, since a mirror of
+       something abandoned is rarely on GitHub. One on github.com has to be
+       a repository: the id, the default folder and the releases are read
+       out of that. */
+    struct source_repo repo;
+    memset(&repo, 0, sizeof(repo));
+    int github = !strncmp(out->source, "https://github.com/", 19);
+    if (strncmp(out->source, "https://", 8) || !out->source[8] ||
+        (github && (!sources_parse_repo(out->source, &repo) || strchr(out->source, '@')))) {
+        snprintf(reason, cap, "invalid source");
+        return -1;
+    }
+    if (!present[PSPDX_TYPE])
+        strcpy(out->type, "homebrew");
+    if (strcmp(out->type, "homebrew") && strcmp(out->type, "plugin") && strcmp(out->type, "iso")) {
+        snprintf(reason, cap, "invalid type");
+        return -1;
+    }
+    /* A homebrew goes under PSP/GAME, into the folder the file names or the
+       one its repository's name makes, or its own name away from GitHub; a
+       plugin or an ISO goes elsewhere and names no folder there. */
+    int homebrew = !strcmp(out->type, "homebrew");
+    if (present[PSPDX_INSTALLDIR]) {
+        if (!homebrew || !pspdx_install_dir(out->installdir)) {
+            snprintf(reason, cap, "invalid installdir");
+            return -1;
+        }
+    } else if (homebrew) {
+        pspdx_default_dir(github ? repo.name : NULL, out->name, out->installdir,
+                          sizeof(out->installdir));
+        if (!pspdx_install_dir(out->installdir)) {
+            out->installdir[0] = 0;
+            snprintf(reason, cap, "no installdir");
+            return -1;
+        }
+    }
+    /* The id is the repository's on GitHub. An app a catalog lists without
+       a repository has the catalog for its source, and the id the catalog's
+       id makes there. Anywhere else it is the host of the source and the
+       app's name, so a file whose host and name leave nothing to make one
+       of is no app anyone could find again. */
+    if (github ? sources_repo_id(&repo, out->id, sizeof(out->id)) < 0
+        : sources_is_catalog_source(out->source)
+            ? sources_catalog_id(out->source, out->id, sizeof(out->id)) < 0
+            : sources_host_id(out->source, out->name, out->id, sizeof(out->id)) < 0) {
+        snprintf(reason, cap, "no id: the source's host and the name make none");
+        return -1;
+    }
+    return 0;
+}
+
+/* The tags, count of them, each NULL where one is not a string. */
+static int check_tags(const char *const *tag, int count, struct pspdx_file *out, char *reason,
+                      size_t cap) {
+    size_t used = 0;
+    if (count > PSPDX_TAGS) {
+        snprintf(reason, cap, "invalid tags");
+        return -1;
+    }
+    for (int i = 0; i < count; i++) {
+        int n = tag[i] ? pspdx_characters(tag[i], 0) : -1;
+        size_t k = n > 0 ? strlen(tag[i]) : 0;
+        if (n < 1 || n > 24 || used + (used > 0) + k >= sizeof(out->tags)) {
+            snprintf(reason, cap, "invalid tag");
+            return -1;
+        }
+        for (int j = 0; j < i; j++)
+            if (!strcmp(tag[j], tag[i])) {
+                snprintf(reason, cap, "duplicate tag");
+                return -1;
+            }
+        if (used)
+            out->tags[used++] = '\n';
+        memcpy(out->tags + used, tag[i], k + 1);
+        used += k;
+    }
+    return 0;
+}
+
 int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reason, size_t cap) {
     memset(out, 0, sizeof(*out));
     snprintf(reason, cap, "invalid manifest");
@@ -293,29 +452,13 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
         cJSON_Delete(root);
         return -1;
     }
-    struct field {
-        const char *key;
-        char *dst;
-        size_t size;
-        int limit, required, newline;
-    };
-    char schema[128];
-    /* The description has no dst: it is held to its rules and dropped. */
-    struct field fields[] = {{"schema", schema, sizeof(schema), 127, 1, 0},
-                             {"source", out->source, sizeof(out->source), 255, 1, 0},
-                             {"name", out->name, sizeof(out->name), 40, 1, 0},
-                             {"type", out->type, sizeof(out->type), 11, 0, 0},
-                             {"category", out->category, sizeof(out->category), 24, 0, 0},
-                             {"installdir", out->installdir, sizeof(out->installdir), 41, 0, 0},
-                             {"author", out->author, sizeof(out->author), 60, 0, 0},
-                             {"summary", out->summary, sizeof(out->summary), 60, 0, 0},
-                             {"license", out->license, sizeof(out->license), 60, 0, 0},
-                             {"description", NULL, PSPDX_FILE_MAX + 1, 2500, 0, 1}};
+    const char *value[PSPDX_FIELDS];
+    int present[PSPDX_FIELDS];
     cJSON *v;
     cJSON_ArrayForEach(v, root) {
         int found = !strcmp(v->string, "tags") || !strcmp(v->string, "release");
-        for (unsigned i = 0; i < sizeof(fields) / sizeof(*fields); i++)
-            if (!strcmp(v->string, fields[i].key))
+        for (unsigned i = 0; i < PSPDX_FIELDS; i++)
+            if (!strcmp(v->string, FIELD_RULES[i].key))
                 found = 1;
         /* A field this version does not know is passed over, not refused: a
            file written for a later version, or with a note of its own, still
@@ -329,76 +472,13 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
                 goto bad;
             }
     }
-    for (unsigned i = 0; i < sizeof(fields) / sizeof(*fields); i++) {
-        struct field *f = &fields[i];
-        v = cJSON_GetObjectItemCaseSensitive(root, f->key);
-        if (!v && !f->required)
-            continue;
-        int n = cJSON_IsString(v) ? pspdx_characters(v->valuestring, f->newline) : -1;
-        if (n < 0 || n > f->limit || (f->required && !n) || strlen(v->valuestring) >= f->size) {
-            snprintf(reason, cap, "invalid %s", f->key);
-            goto bad;
-        }
-        if (f->dst)
-            strcpy(f->dst, v->valuestring);
+    for (int i = 0; i < PSPDX_FIELDS; i++) {
+        v = cJSON_GetObjectItemCaseSensitive(root, FIELD_RULES[i].key);
+        present[i] = v != NULL;
+        value[i] = cJSON_IsString(v) ? v->valuestring : NULL;
     }
-    /* A category is a word: one of no characters names no group. */
-    if (cJSON_GetObjectItemCaseSensitive(root, "category") && !out->category[0]) {
-        snprintf(reason, cap, "invalid category");
+    if (check_fields(value, present, out, reason, cap) < 0)
         goto bad;
-    }
-    if (strcmp(schema, PSPDX_SCHEMA)) {
-        snprintf(reason, cap, "schema is not v1");
-        goto bad;
-    }
-    /* Any https:// address may be where a project lives, since a mirror of
-       something abandoned is rarely on GitHub. One on github.com has to be
-       a repository: the id, the default folder and the releases are read
-       out of that. */
-    struct source_repo repo;
-    memset(&repo, 0, sizeof(repo));
-    int github = !strncmp(out->source, "https://github.com/", 19);
-    if (strncmp(out->source, "https://", 8) || !out->source[8] ||
-        (github && (!sources_parse_repo(out->source, &repo) || strchr(out->source, '@')))) {
-        snprintf(reason, cap, "invalid source");
-        goto bad;
-    }
-    if (!cJSON_GetObjectItemCaseSensitive(root, "type"))
-        strcpy(out->type, "homebrew");
-    if (strcmp(out->type, "homebrew") && strcmp(out->type, "plugin") && strcmp(out->type, "iso")) {
-        snprintf(reason, cap, "invalid type");
-        goto bad;
-    }
-    /* A homebrew goes under PSP/GAME, into the folder the file names or the
-       one its repository's name makes, or its own name away from GitHub; a
-       plugin or an ISO goes elsewhere and names no folder there. */
-    int homebrew = !strcmp(out->type, "homebrew");
-    if (cJSON_GetObjectItemCaseSensitive(root, "installdir")) {
-        if (!homebrew || !pspdx_install_dir(out->installdir)) {
-            snprintf(reason, cap, "invalid installdir");
-            goto bad;
-        }
-    } else if (homebrew) {
-        pspdx_default_dir(github ? repo.name : NULL, out->name, out->installdir,
-                          sizeof(out->installdir));
-        if (!pspdx_install_dir(out->installdir)) {
-            out->installdir[0] = 0;
-            snprintf(reason, cap, "no installdir");
-            goto bad;
-        }
-    }
-    /* The id is the repository's on GitHub. An app a catalog lists without
-       a repository has the catalog for its source, and the id the catalog's
-       id makes there. Anywhere else it is the host of the source and the
-       app's name, so a file whose host and name leave nothing to make one
-       of is no app anyone could find again. */
-    if (github ? sources_repo_id(&repo, out->id, sizeof(out->id)) < 0
-        : sources_is_catalog_source(out->source)
-            ? sources_catalog_id(out->source, out->id, sizeof(out->id)) < 0
-            : sources_host_id(out->source, out->name, out->id, sizeof(out->id)) < 0) {
-        snprintf(reason, cap, "no id: the source's host and the name make none");
-        goto bad;
-    }
     v = cJSON_GetObjectItemCaseSensitive(root, "release");
     const char *why;
     if (v && pinned_release(v, out, &why) < 0) {
@@ -407,35 +487,21 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
     }
     /* GitHub says where a tag's zip is and when it was published; anywhere
        else the file has to. */
-    if (v && !github && (!out->release_url[0] || !out->release_published)) {
+    if (v && strncmp(out->source, "https://github.com/", 19) &&
+        (!out->release_url[0] || !out->release_published)) {
         snprintf(reason, cap, "invalid release: outside GitHub it needs url and published_at");
         goto bad;
     }
     v = cJSON_GetObjectItemCaseSensitive(root, "tags");
     if (v) {
-        size_t used = 0;
-        cJSON *tag;
-        if (!cJSON_IsArray(v) || cJSON_GetArraySize(v) > PSPDX_TAGS) {
-            snprintf(reason, cap, "invalid tags");
+        const char *tag[PSPDX_TAGS];
+        int count = cJSON_IsArray(v) ? cJSON_GetArraySize(v) : PSPDX_TAGS + 1;
+        cJSON *t;
+        int n = 0;
+        if (count <= PSPDX_TAGS)
+            cJSON_ArrayForEach(t, v) tag[n++] = cJSON_IsString(t) ? t->valuestring : NULL;
+        if (check_tags(tag, count, out, reason, cap) < 0)
             goto bad;
-        }
-        cJSON_ArrayForEach(tag, v) {
-            int n = cJSON_IsString(tag) ? pspdx_characters(tag->valuestring, 0) : -1;
-            size_t k = n > 0 ? strlen(tag->valuestring) : 0;
-            if (n < 1 || n > 24 || used + (used > 0) + k >= sizeof(out->tags)) {
-                snprintf(reason, cap, "invalid tag");
-                goto bad;
-            }
-            for (cJSON *w = v->child; w != tag; w = w->next)
-                if (!strcmp(w->valuestring, tag->valuestring)) {
-                    snprintf(reason, cap, "duplicate tag");
-                    goto bad;
-                }
-            if (used)
-                out->tags[used++] = '\n';
-            memcpy(out->tags + used, tag->valuestring, k + 1);
-            used += k;
-        }
     }
     cJSON_Delete(root);
     if (cap)
@@ -444,4 +510,29 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
 bad:
     cJSON_Delete(root);
     return -1;
+}
+
+int pspdx_check(const char *const value[PSPDX_FIELDS], const char *tags, struct pspdx_file *out,
+                char *reason, size_t cap) {
+    int present[PSPDX_FIELDS];
+    memset(out, 0, sizeof(*out));
+    for (int i = 0; i < PSPDX_FIELDS; i++)
+        present[i] = value[i] != NULL;
+    if (check_fields(value, present, out, reason, cap) < 0)
+        return -1;
+    char words[PSPDX_TAGS_TEXT];
+    const char *tag[PSPDX_TAGS + 1];
+    int count = 0;
+    snprintf(words, sizeof(words), "%s", tags ? tags : "");
+    for (char *p = words; *p && count <= PSPDX_TAGS;) {
+        tag[count++] = p;
+        p += strcspn(p, "\n");
+        if (*p)
+            *p++ = 0;
+    }
+    if (check_tags(tag, count, out, reason, cap) < 0)
+        return -1;
+    if (cap)
+        reason[0] = 0;
+    return 0;
 }

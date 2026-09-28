@@ -26,11 +26,14 @@ struct gunzip {
 /* Before the first feed of every transfer. */
 void gunzip_begin(struct gunzip *g);
 
-/* One piece of the body, appended at out[*out_len], which never grows past
-   room. GUNZIP_FULL when the plain or inflated text would, GUNZIP_CORRUPT
-   when the gzip is broken; a sink returning either ends the transfer. */
-int gunzip_feed(struct gunzip *g, const void *data, size_t len, char *out, size_t room,
-                size_t *out_len);
+/* One piece of the body, appended at (*out)[*out_len]. *out is on the heap
+   with room bytes of text and one more for a terminator, and is grown with
+   realloc as the text needs, never past max bytes of text. GUNZIP_FULL when
+   the plain or inflated text would pass max, or there is no memory for more;
+   GUNZIP_CORRUPT when the gzip is broken. A sink returning either ends the
+   transfer. */
+int gunzip_feed(struct gunzip *g, const void *data, size_t len, char **out, size_t *room,
+                size_t max, size_t *out_len);
 
 /* After the transfer, whatever became of it: releases zlib and returns NULL
    when the body was whole and what the Content-Encoding header named ("" or
