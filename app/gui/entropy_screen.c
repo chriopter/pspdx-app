@@ -150,6 +150,11 @@ int entropy_screen_run(void) {
     if (!replaying) trace_len = 0;
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
+    /* The water is what this screen is: it runs at 30 FPS with the full
+       wave simulation whatever the browser is set to, since the lighter
+       60 FPS mode draws the grid alone. The setting comes back after. */
+    int cap30 = gfx_fps_cap30();
+    gfx_set_fps_cap30(1);
 
     int frame = 0, left = 0;
     unsigned worst_us = 0, frame_us = now_us();
@@ -201,5 +206,6 @@ int entropy_screen_run(void) {
     trace_save();
     logline("sweep: %d frames, worst %u ms%s", frame, worst_us / 1000,
             left ? ", left with O" : "");
+    gfx_set_fps_cap30(cap30);
     return left ? 0 : entropy_get_bits();
 }
