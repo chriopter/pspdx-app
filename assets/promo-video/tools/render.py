@@ -946,7 +946,8 @@ class Scene:
                 self.draw_callout(v, gctx, o, t, rect)
             elif k == 'endcard':
                 self.draw_endcard(v, gctx, o, t, cam)
-        if rect and sh and sh.get('take') and self.fx.placeholder.get(sh['take']):
+        if rect and sh and sh.get('take') and self.fx.placeholder.get(sh['take']) \
+                and not os.environ.get('PROMO_UNTAGGED'):
             lay = self.type.layout(v, 'PLACEHOLDER · hardware still', 15, 'Medium', False, .12)
             v.set_source_rgba(1, .8, .3, .7)
             ty_ = (rect[1] + rect[3]) / S + 10
@@ -1009,8 +1010,12 @@ def main():
     ap.add_argument('--from', dest='t0', type=float, default=0.0)
     ap.add_argument('--to', dest='t1', type=float, default=None)
     ap.add_argument('--still', default=None, help='comma-separated seconds; writes PNGs next to --out')
+    ap.add_argument('--untagged', action='store_true',
+                    help='no PLACEHOLDER tag on stills (they are real hardware screenshots)')
     ap.add_argument('--jobs', type=int, default=max(1, (os.cpu_count() or 2) - 2))
     a = ap.parse_args()
+    if a.untagged:
+        os.environ["PROMO_UNTAGGED"] = "1"
 
     sb = json.load(open(a.storyboard))
     tokens = json.load(open(a.tokens))
