@@ -9,8 +9,8 @@
 
 #include "util/runtime.h"
 
-#define LOGLINES 40
-#define LOGCOLS 256           /* enough for one complete, batched perf record */
+#define LOGLINES 160
+#define LOGCOLS 320           /* enough for one complete, batched perf record */
 
 /* The last LOGLINES lines, as a ring: a session that runs for an hour
    still leaves behind what happened last, not what happened first. */

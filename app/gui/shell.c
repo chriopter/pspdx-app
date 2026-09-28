@@ -37,6 +37,7 @@
 #define PSPDX_BLOOM 0
 #endif
 #include "gui/marks.h"
+#include "install/install.h"
 #include "gui/title.h"
 #include "gui/wrap.h"
 #include "gui/palette.h"
@@ -141,6 +142,10 @@ int shell_show_fps(void) { return g_show_fps; }
 static int g_held;                      /* a direction is down this frame */
 
 void shell_hold(int held) { g_held = held; }
+/* Held long enough to be flying through the list: no icon is fetched for
+   rows gone again a frame later. */
+static int g_fast;
+void shell_scroll_fast(int fast) { g_fast = fast; }
 static const struct app_entry *g_details;   /* the package the page is about */
 /* The page slides in from the right and the browser goes off to the left
    to make room: 0 the browser in place, 1 the page in its place; the
@@ -412,7 +417,13 @@ static void draw_chrome(const struct catalog *catalog, float t) {
 
 /* ------------------------------------------------------------------- list */
 
+/* A rate only while bytes are arriving: one kept from before a question
+   or the unpack would say the download were still going. */
 static void download_speed(char text[24], const struct download_status *s) {
+    if (s->state != DOWNLOAD_RUNNING || strcmp(s->phase, "download")) {
+        text[0] = 0;
+        return;
+    }
     double rate = s->bytes_per_second;
     snprintf(text, 24, rate >= 1000000 ? "%.2f MB/s" : "%.1f kB/s",
              rate / (rate >= 1000000 ? 1000000 : 1000));
@@ -561,13 +572,27 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
        -- and the action row stands for none, so it asks for nothing. */
     int from = (int)(g_scroll / ITEM_H), to = from + VISIBLE + 1;
     if (to > count) to = count;
-    int wanted[VISIBLE + 2], want_count = 0;
-    for (int i = from; i < to; i++) {
-        int index = view_index(i);
-        if (index >= 0) wanted[want_count++] = index;
+    /* The rows on screen first, then three past either edge; nothing at
+       all while the list flies by, so that where it stops is fetched
+       first, and fetched at once. */
+    enum { AHEAD = 3 };
+    int wanted[VISIBLE + 2 + 2 * AHEAD], want_count = 0, visible = 0;
+    if (!g_fast) {
+        for (int i = from; i < to; i++) {
+            int index = view_index(i);
+            if (index >= 0) wanted[want_count++] = index;
+        }
+        visible = want_count;
+        for (int k = 1; k <= AHEAD; k++) {
+            int around[2] = {from - k, to - 1 + k};
+            for (int j = 0; j < 2; j++) {
+                int index = around[j] >= 0 && around[j] < count ? view_index(around[j]) : -1;
+                if (index >= 0) wanted[want_count++] = index;
+            }
+        }
     }
     icons_bind(catalog);
-    if (icons_want(wanted, want_count)) preview_poke();
+    if (icons_want(wanted, want_count, visible)) preview_poke();
 
     for (int i = from; i < to; i++) {
         int y = LIST_Y + (int)floorf(i * ITEM_H - g_scroll + 0.5f);
@@ -1151,7 +1176,7 @@ static int draw_chips(const struct app_entry *e, float x, int base, float width,
     int rows = 0;
     float cx = x;
     char word[24 * 4 + 1];
-    const char *p = e->tags;
+    const char *p = txt(e->tags);
     int category = e->category[0] != '\0';
     for (;;) {
         size_t n = 0;
@@ -1199,8 +1224,8 @@ static void card_text(const struct app_entry *entry) {
     g_card_of = entry;
     g_card_chip_rows = draw_chips(entry, 0, 0, SHOT_W, 0, 0);
     const char *about = entry->description ? entry->description : "";
-    snprintf(g_card_text, sizeof(g_card_text), "%s%s%s", entry->summary,
-             entry->summary[0] && about[0] ? "\n\n" : "", about);
+    snprintf(g_card_text, sizeof(g_card_text), "%s%s%s", txt(entry->summary),
+             txt(entry->summary)[0] && about[0] ? "\n\n" : "", about);
     pspdx_utf8_mend(g_card_text);
     g_card_count = wrap_text(g_card_text, SHOT_W, DETAIL_LINE_BYTES, detail_width,
                              NULL, g_card_lines, DETAIL_LINES);
@@ -1230,15 +1255,15 @@ static const char *state_line(const struct app_entry *entry, unsigned *color) {
         switch (entry->state) {
         case APP_UPDATE:
             if (catalog_new_build(entry))
-                snprintf(line, sizeof(line), T_PANEL_REBUILD, entry->remote_version, size);
+                snprintf(line, sizeof(line), T_PANEL_REBUILD, txt(entry->remote_version), size);
             else
-                snprintf(line, sizeof(line), T_PANEL_UPDATE, entry->remote_version, size);
+                snprintf(line, sizeof(line), T_PANEL_UPDATE, txt(entry->remote_version), size);
             break;
         case APP_UNKNOWN:
-            snprintf(line, sizeof(line), T_PANEL_INSTALLED, entry->local_version);
+            snprintf(line, sizeof(line), T_PANEL_INSTALLED, txt(entry->local_version));
             break;
         case APP_CURRENT:
-            snprintf(line, sizeof(line), T_PANEL_INSTALLED, entry->local_version);
+            snprintf(line, sizeof(line), T_PANEL_INSTALLED, txt(entry->local_version));
             break;
         default:
             snprintf(line, sizeof(line), "%s%s",
@@ -1810,17 +1835,19 @@ static float detail_fact_width(void *ctx, const char *text, size_t len) {
 static void detail_facts(const struct app_entry *e) {
     char value[2 * VERSION_SIZE + 32], size[24] = "", facts[sizeof(g_detail_facts)];
     if (catalog_new_build(e))
-        snprintf(value, sizeof(value), T_DETAIL_REBUILD, e->local_version);
+        snprintf(value, sizeof(value), T_DETAIL_REBUILD, txt(e->local_version));
     else if (e->state == APP_UPDATE)
-        snprintf(value, sizeof(value), T_DETAIL_UPDATE, e->local_version, e->remote_version);
+        snprintf(value, sizeof(value), T_DETAIL_UPDATE, txt(e->local_version),
+                 txt(e->remote_version));
     else if (e->state != APP_NOT_INSTALLED)
-        snprintf(value, sizeof(value), T_DETAIL_INSTALLED, e->local_version);
+        snprintf(value, sizeof(value), T_DETAIL_INSTALLED, txt(e->local_version));
     else if (e->has_release)
-        snprintf(value, sizeof(value), "%s", e->release.version);
+        snprintf(value, sizeof(value), "%s", txt(e->release.version));
     else
         snprintf(value, sizeof(value), T_UNKNOWN);
     if (e->has_release && e->release.size) size_mb(e->release.size, size, sizeof(size));
-    snprintf(facts, sizeof(facts), "%s  \xc2\xb7  %s  \xc2\xb7  %s%s%s", value, e->author, e->license,
+    snprintf(facts, sizeof(facts), "%s  \xc2\xb7  %s  \xc2\xb7  %s%s%s", value, txt(e->author),
+             txt(e->license),
              size[0] ? "  \xc2\xb7  " : "", size);
     pspdx_utf8_mend(facts);
     if (strcmp(g_detail_facts, facts)) {
@@ -1956,8 +1983,8 @@ void shell_details(const struct app_entry *entry) {
     /* The summary, then the description a blank line below it, either one
        alone when the other is missing; broken into lines here, once. */
     const char *about = entry->description ? entry->description : "";
-    snprintf(g_detail_text, sizeof(g_detail_text), "%s%s%s", entry->summary,
-             entry->summary[0] && about[0] ? "\n\n" : "", about);
+    snprintf(g_detail_text, sizeof(g_detail_text), "%s%s%s", txt(entry->summary),
+             txt(entry->summary)[0] && about[0] ? "\n\n" : "", about);
     pspdx_utf8_mend(g_detail_text);
     g_detail_count = wrap_text(g_detail_text, CINE_W, DETAIL_LINE_BYTES,
                                detail_width, NULL, g_detail_lines, DETAIL_LINES);
@@ -2325,7 +2352,21 @@ void shell_shot_sync(const struct catalog *catalog, int cursor) {
        entry from the basket slides the rows up under a cursor that has not
        moved, and the row then stands for another package. */
     static const struct app_entry *g_shown;
+    static int cleared;
+    if ((cursor != g_last_cursor || entry != g_shown) && g_held && g_last_cursor >= 0) {
+        /* Up or down still held: the card's words follow the cursor, but
+           nothing is fetched for a row it is only passing. The picture of
+           the row it left goes at once, not to stand beside another name;
+           the fetch comes when the key is let go. */
+        if (!cleared) {
+            preview_show(0, 0);
+            cleared = 1;
+        }
+        preview_tick();
+        return;
+    }
     if (cursor != g_last_cursor || entry != g_shown) {
+        cleared = 0;
         /* The first selection is the app starting up, not the user
            scrolling past: nothing to wait for. */
         int first = g_last_cursor < 0;
@@ -2446,6 +2487,120 @@ void shell_install_end(const char *message) {
 
 /* Deliberately static: the main loop redraws only the progress at ~6 Hz.
    No lattice simulation, video, scrolling text, bloom or audio advances. */
+static void files_size(char *out, size_t n, unsigned files, unsigned long long bytes) {
+    if (bytes >= 1048576)
+        snprintf(out, n, "%u file%s, %.1f MB", files, files == 1 ? "" : "s", bytes / 1048576.0);
+    else
+        snprintf(out, n, "%u file%s, %u KB", files, files == 1 ? "" : "s",
+                 (unsigned)((bytes + 1023) / 1024));
+}
+
+void shell_layout_draw(const struct app_entry *entry, const struct install_layout *l) {
+    gfx_veil(256);
+    gfx_frame_begin(RGB(8, 13, 25));
+    gfx_vgrad(0, 0, SCR_W, SCR_H, RGB(10, 19, 36), RGB(5, 9, 18));
+    gfx_glow(400, 32, 190, 120, RGBA(65, 140, 200, 35));
+    unsigned accent = RGB(114, 207, 246), text = RGB(235, 241, 249), dim = RGB(151, 171, 193);
+    unsigned lost = RGB(242, 190, 112);
+    char line[160];
+    mark_draw(MARK_DOWNLOAD, 47, 34, accent, MARK_PLAIN, 0, 0);
+    font_print(FONT_BODY, 64, 39, dim, T_LAYOUT_HEAD);
+    gfx_hgrad(40, 52, 400, 1, RGBA(115, 185, 220, 100), RGBA(115, 185, 220, 0));
+    font_print_clipped(FONT_TITLE, 40, 80, 400, text, entry->name);
+    if (l->eboots > 1)
+        snprintf(line, sizeof(line), T_LAYOUT_WHY, l->eboots);
+    else
+        snprintf(line, sizeof(line), "%s", T_LAYOUT_WHY_NAMES);
+    font_print_clipped(FONT_META, 40, 99, 400, dim, line);
+
+    /* A table: the word on the left, what it is on the right, one row
+       under the other, as many as have something to say. */
+    const int KEY = 40, VAL = 150, W = 290, STEP = 14, GAP = 7, END = 222;
+    int y = 124;
+
+    font_print(FONT_META, KEY, y, accent, T_LAYOUT_INSTALLS);
+    char size[48];
+    files_size(size, sizeof(size), l->files, l->bytes);
+    float sw = font_width(FONT_META, size);
+    font_print(FONT_META, VAL + W - sw, y, dim, size);
+    snprintf(line, sizeof(line), "PSP/GAME/%s", l->dir);
+    font_print_clipped(FONT_BODY, VAL, y, W - sw - 12, text, line);
+    snprintf(line, sizeof(line), T_LAYOUT_FROM, l->root[0] ? l->root : T_LAYOUT_TOP_SHORT);
+    font_print_clipped(FONT_META, VAL, y + 15, W, dim, line);
+    y += 15 + STEP + GAP;
+
+    if (l->eboots > 1) {
+        font_print(FONT_META, KEY, y, accent, T_LAYOUT_ALONG);
+        if (!l->nested) {
+            font_print(FONT_META, VAL, y, dim, T_LAYOUT_NOTHING);
+            y += STEP;
+        } else {
+            font_print_clipped(FONT_META, VAL, y, W, text, l->nested_path[0]);
+            y += STEP;
+            if (l->nested == 2) {
+                font_print_clipped(FONT_META, VAL, y, W, text, l->nested_path[1]);
+                y += STEP;
+            } else if (l->nested > 2) {
+                snprintf(line, sizeof(line), T_LAYOUT_MORE, l->nested - 1);
+                font_print_clipped(FONT_META, VAL, y, W, text, line);
+                y += STEP;
+            }
+            font_print_clipped(FONT_META, VAL, y, W, dim, T_LAYOUT_UNUSED);
+            y += STEP;
+        }
+        y += GAP;
+    }
+
+    if (l->renamed) {
+        font_print(FONT_META, KEY, y, accent, T_LAYOUT_RENAMED);
+        font_print_clipped(FONT_META, VAL, y, W, text, l->renamed_path[0]);
+        y += STEP;
+        if (l->renamed > 1 && y + STEP <= END) {
+            if (l->renamed == 2)
+                snprintf(line, sizeof(line), "%s", l->renamed_path[1]);
+            else
+                snprintf(line, sizeof(line), T_LAYOUT_MORE_NAMES, l->renamed - 1);
+            font_print_clipped(FONT_META, VAL, y, W, text, line);
+            y += STEP;
+        }
+        if (y + STEP <= END) {
+            font_print_clipped(FONT_META, VAL, y, W, dim,
+                               l->sjis ? T_LAYOUT_RENAMED_SJIS : T_LAYOUT_RENAMED_437);
+            y += STEP;
+        }
+        y += GAP;
+    }
+
+    int groups = l->left_groups < LAYOUT_GROUPS ? l->left_groups : LAYOUT_GROUPS;
+    if (l->eboots > 1 || groups) {
+        font_print(FONT_META, KEY, y, lost, T_LAYOUT_LEFT_OUT);
+        if (!groups) {
+            font_print(FONT_META, VAL, y, dim, l->mac_files ? T_LAYOUT_ONLY_MAC : T_LAYOUT_NOTHING);
+        } else {
+            for (int g = 0; g < groups && y <= END; g++) {
+                if (g == 1 && groups > 2) {
+                    snprintf(line, sizeof(line), T_LAYOUT_MORE_FILES, l->left_groups - 1);
+                    font_print_clipped(FONT_META, VAL, y, W, lost, line);
+                    y += STEP;
+                    break;
+                }
+                snprintf(line, sizeof(line), "%s  (%u file%s)", l->left_path[g], l->left_count[g],
+                         l->left_count[g] == 1 ? "" : "s");
+                font_print_clipped(FONT_META, VAL, y, W, lost, line);
+                y += STEP;
+            }
+            if (l->mac_files && y <= END)
+                font_print_clipped(FONT_META, VAL, y, W, dim, T_LAYOUT_MAC);
+        }
+    }
+
+    mark_draw(MARK_CROSS, 46, 231, text, MARK_PLAIN, 0, 0);
+    font_print(FONT_BODY, 60, 236, text, T_LAYOUT_YES);
+    mark_draw(MARK_CIRCLE, 46, 251, dim, MARK_PLAIN, 0, 0);
+    font_print(FONT_META, 60, 256, dim, T_LAYOUT_NO);
+    gfx_frame_end();
+}
+
 void shell_download_draw(const struct app_entry *entry, const struct download_status *s) {
     char amount[96], percent[16], speed[24];
     float f = s->total ? (float)s->done / s->total : 0;

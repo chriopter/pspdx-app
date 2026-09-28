@@ -97,6 +97,8 @@ else
 fi
 rm -f "$LOGS/pspdx.log" "$DBG/PSPDX.BMP" "$DBG/PSPDX0.BMP" "$DBG/PSPDX1.BMP" \
       "$DBG/PSPDX2.BMP" "$DBG/PSPDX.BENCH" "$DBG/PSPDX.KEYS" "$DBG/PSPDX.SLOW"
+# The client takes its screenshots only when asked to.
+touch "$DBG/PSPDX.SHOTS"
 [ -n "$KEYS" ] && cp "$KEYS" "$DBG/PSPDX.KEYS"
 # The emulator borrows the host's network; a PSP-1004 has 802.11b and its own
 # TCP stack, which together managed about 180 KB/s. --slow holds the client to

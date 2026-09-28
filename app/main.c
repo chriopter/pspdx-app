@@ -14,6 +14,7 @@
 #include <pspiofilemgr.h>
 #include <psppower.h>
 #include <ctype.h>
+#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -187,6 +188,37 @@ static void keys_load(void) {
     logline("keys: %d scripted", g_key_count);
 }
 
+/* The system sleeps after its idle minutes whatever is going on: a basket
+   of fifty installs left to run, or a catalog still coming, would be cut off
+   with the radio. While either is under way, and while a key is down --
+   which a key injected by a host tool does not tell the system on its own --
+   the console is kept awake. The screen may still dim. */
+static void keep_awake(void) {
+    static unsigned awake_ms;
+    if (now_ms() - awake_ms < 1000) return;
+    awake_ms = now_ms();
+    scePowerTick(PSP_POWER_TICK_SUSPEND);
+}
+
+/* The battery as the system reads it, -1 while it cannot: a battery that
+   stops answering -- being detected again, or gone -- is the line a sudden
+   power-off leaves behind. */
+static int battery_percent(void) {
+    int v = scePowerGetBatteryLifePercent();
+    return v < 0 ? -1 : v;
+}
+static int battery_mv(void) {
+    int v = scePowerGetBatteryVolt();
+    return v < 0 ? -1 : v;
+}
+
+/* Where in the main loop the last frame's time went, marked as it passes:
+   said with a frame slow enough to be logged. */
+static unsigned g_mark[5];
+static unsigned span(unsigned from, unsigned to) {
+    return (int)(to - from) > 0 ? (to - from) / 1000 : 0;
+}
+
 /* A direction held down scrolls: after a third of a second it repeats,
    slowly at first and then, as it is held, at a rate that gets through a
    long list -- twenty-five rows a second -- without ever skipping one. */
@@ -200,6 +232,35 @@ static unsigned repeat(unsigned held) {
     if (now - fired < interval) return 0;
     fired = now;
     return held;
+}
+
+/* Up or down held: how many rows to move this frame. After a pause that
+   leaves a single press a single row, the list picks up speed the longer
+   it is held -- from ten rows a second to 480, so that ten thousand
+   entries go by in under half a minute, and any row is still reached by
+   letting go and tapping. Counted in time, not frames, so 30 and 60 FPS
+   scroll alike. */
+static int g_scroll_fast;               /* held past the single-row pace */
+static int scroll_steps(unsigned held) {
+    static unsigned was, since, last;
+    static float owed;
+    unsigned now = now_ms();
+    if (held != was || !held) {
+        was = held;
+        since = last = now;
+        owed = 0;
+        g_scroll_fast = 0;
+        return 0;
+    }
+    unsigned t = now - since, dt = now - last;
+    g_scroll_fast = t >= 1200;
+    last = now;
+    float rate = t < 400 ? 0 : t < 1200 ? 10 : t < 2000 ? 20 : t < 3000 ? 60
+               : t < 4500 ? 120 : t < 6000 ? 240 : 480;
+    owed += rate * (dt < 100 ? dt : 100) / 1000.0f;
+    int steps = (int)owed;
+    owed -= steps;
+    return steps;
 }
 
 /* The rig's film of the browser: with PSPDX.RECORD on the stick, every
@@ -416,7 +477,12 @@ int main(int argc, char *argv[]) {
     unsigned idle_since = now_ms();     /* the last time a key was down */
     unsigned last_frame_ms = now_ms();  /* to notice the loop having been away */
     unsigned shell_since = now_ms();
-    int shot_connecting = 0;
+    /* The rig's screenshots, only when it asks with a PSPDX.SHOTS marker:
+       each is a BMP written to the stick from this thread, and the one of
+       the connecting screen held the first frames for a second and a half
+       on every start. */
+    int shots = storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.SHOTS"));
+    int shot_connecting = !shots;
     unsigned dumped_ms = now_ms();
     unsigned last_buttons = 0;
     /* Frame times, so a slow frame is a number and not a feeling: every
@@ -427,6 +493,7 @@ int main(int argc, char *argv[]) {
     unsigned bucket[4] = { 0, 0, 0, 0 };
     osk_frame(osk_draw, &cursor);
     for (;;) {
+        if (!synced || downloads_busy()) keep_awake();
         int download_modal = asking() || menu_shown() || popup_shown();
         if (synced && downloads_tick(cursor, download_modal)) view_settled(&cursor);
         /* The unattended rig's second screenshot belongs after completion,
@@ -455,15 +522,33 @@ int main(int argc, char *argv[]) {
             }
             frame_us = now_us();
             idle_since = now_ms();
+            /* The log still reaches the stick while the downloads have the
+               screen: a long batch is when there is most to read back. */
+            if (expired(dumped_ms, 10000)) {
+                dumped_ms = now_ms();
+                logline("downloads: %u queued, battery %d%% %d mV, heap %u KB",
+                        (unsigned)view_download_count(), battery_percent(), battery_mv(),
+                        (unsigned)mallinfo().uordblks / 1024);
+                log_dump_later();
+            }
             continue;
         }
         unsigned now = now_us(), took = now - frame_us;
+        unsigned began = frame_us;
         frame_us = now;
         frames++; total += took;
         if (took > worst) worst = took;
         if (took > 100000)
-            logline("frame %u: %u ms, %u ms since the shell came up",
-                    gfx_frames(), took / 1000, now_ms() - shell_since);
+            /* And where it went: the telemetry, the fetch's arrival, the
+               keys, the draw, the recording, and the top of this loop. */
+            logline("frame %u: %u ms, %u ms since the shell came up; %u %u %u %u %u %u ms",
+                    gfx_frames(), took / 1000, now_ms() - shell_since,
+                    span(began, g_mark[0]), span(g_mark[0], g_mark[1]),
+                    span(g_mark[1], g_mark[2]), span(g_mark[2], g_mark[3]),
+                    span(g_mark[3], g_mark[4]), span(g_mark[4], now));
+        /* A section a frame left early leaves its mark where the frame
+           began, and counts nothing. */
+        for (int i = 0; i < 5; i++) g_mark[i] = now;
         unsigned budget = gfx_fps_cap30() ? 34000u : 17000u;
         if (took > budget) late++;
         if (took > budget + 18000u) bucket[3]++;
@@ -486,19 +571,22 @@ int main(int argc, char *argv[]) {
                from manufacturing a periodic hitch of its own. */
             logline("perf %d: %u/10s avg %u us worst %u us late %u [%u %u %u %u] "
                     "miss %u; %s; tick %u us audio %u us out %u us %u Hz "
-                    "late %u dry %u err %u/%08x atrac %u us free %u KB",
+                    "late %u dry %u err %u/%08x atrac %u us free %u KB heap %u KB bat %d%% %d mV",
                     gfx_target_fps(), frames, frames ? total / frames : 0,
                     worst, late, bucket[0], bucket[1], bucket[2], bucket[3],
                     gfx_missed_presentations(), phases, g_worst_tick,
                     audio_worst_us(), audio_output,
                     audio_frames / 10, audio_late, audio_dry, audio_errors,
                     (unsigned)audio_error, audio_decode_worst_us(),
-                    (unsigned)sceKernelTotalFreeMemSize() / 1024);
+                    (unsigned)sceKernelTotalFreeMemSize() / 1024,
+                    (unsigned)mallinfo().uordblks / 1024,
+                    battery_percent(), battery_mv());
             g_worst_tick = 0;
             frames = worst = late = total = 0;
             bucket[0] = bucket[1] = bucket[2] = bucket[3] = 0;
             log_dump_later();
         }
+        g_mark[0] = now_us();
 
         if (!synced) {
             shell_status(sync_message());
@@ -571,7 +659,7 @@ int main(int argc, char *argv[]) {
                    the BMP, a bad first impression for anyone else. So it is
                    taken only when the rig asks for it with a PSPDX.SHOTS
                    marker; a normal boot goes straight to a live browser. */
-                if (storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.SHOTS")))
+                if (shots)
                     screenshot_settled(cursor, storage_path("PSP/PSPDX/DEBUG/PSPDX.BMP"));
                 dump_diagnostics();
                 automatic = catalog.count > 0 ? auto_install_index() : -1;
@@ -601,6 +689,7 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
+        g_mark[1] = now_us();
 
         SceCtrlData pad;
         int read = sceCtrlReadBufferPositive(&pad, 1);
@@ -620,10 +709,17 @@ int main(int argc, char *argv[]) {
             shell_details_scroll((pad.Ly - 128) / 127.0f);
         unsigned pressed = pad.Buttons & ~last_buttons;
         last_buttons = pad.Buttons;
+        if (pad.Buttons) keep_awake();
         shell_hold((pad.Buttons & (PSP_CTRL_UP | PSP_CTRL_DOWN)) != 0);
-        pressed |= repeat(pad.Buttons & (PSP_CTRL_UP | PSP_CTRL_DOWN |
-                                         PSP_CTRL_LEFT | PSP_CTRL_RIGHT |
+        pressed |= repeat(pad.Buttons & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT |
                                          PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER));
+        /* Up and down held move by as many rows as the hold has earned;
+           to everything else that reads keys it is one press. */
+        unsigned vertical = pad.Buttons & (PSP_CTRL_UP | PSP_CTRL_DOWN);
+        int steps = vertical == PSP_CTRL_UP || vertical == PSP_CTRL_DOWN ? scroll_steps(vertical)
+                                                                          : scroll_steps(0);
+        if (steps) pressed |= vertical;
+        shell_scroll_fast(g_scroll_fast);
         if (synced) pressed |= keys_pressed();
         if ((pressed & PSP_CTRL_SELECT) && !info) {
             options_fps_runtime_toggle();
@@ -700,11 +796,18 @@ int main(int argc, char *argv[]) {
             count = view_count();
         }
         modal = modal || info;
-        /* The list is a ring: past the last entry comes the first. */
-        if ((pressed & PSP_CTRL_DOWN) && count > 0 && !modal)
-            cues_post(CUE_MOVE, cursor = (cursor + 1) % count);
-        if ((pressed & PSP_CTRL_UP) && count > 0 && !modal)
-            cues_post(CUE_MOVE, cursor = (cursor + count - 1) % count);
+        /* The list is a ring for a press: past the last entry comes the
+           first. A hold stops at the end instead -- at hundreds of rows a
+           second the ring would be gone round before the eye saw it. */
+        if ((pressed & PSP_CTRL_DOWN) && count > 0 && !modal) {
+            int to = steps ? (cursor + steps < count ? cursor + steps : count - 1)
+                           : (cursor + 1) % count;
+            if (to != cursor) cues_post(CUE_MOVE, cursor = to);
+        }
+        if ((pressed & PSP_CTRL_UP) && count > 0 && !modal) {
+            int to = steps ? (cursor - steps > 0 ? cursor - steps : 0) : (cursor + count - 1) % count;
+            if (to != cursor) cues_post(CUE_MOVE, cursor = to);
+        }
         if (pressed & KEY_SHOT) {
             screenshot_settled(cursor, storage_path("PSP/PSPDX/DEBUG/PSPDX1.BMP"));
             logline("shot: PSPDX1.BMP at cursor %d", cursor);
@@ -853,12 +956,15 @@ int main(int argc, char *argv[]) {
         }
 
         unsigned tick0 = now_us();
+        g_mark[2] = tick0;
         shell_shot_sync(shown(), cursor);
         audio_duck(preview_playing());
         unsigned tick = now_us() - tick0;
         if (tick > g_worst_tick) g_worst_tick = tick;
         shell_draw(shown(), cursor);
+        g_mark[3] = now_us();
         record_frame();
+        g_mark[4] = now_us();
     }
     return 0;
 }

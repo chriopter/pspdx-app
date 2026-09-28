@@ -5,6 +5,12 @@
  * two, because a 144x80 picture in a 256x128 texture is 128 KB and sixty of
  * them would be a quarter of the machine, while 72x40 in 128x64 is 32 KB
  * and still twice what a row can show.
+ *
+ * A catalog can list thousands of apps, so an icon is not kept for every
+ * one that was ever on screen: SLOTS of them are, and the one not wanted for
+ * longest makes room for the next. A slot's pixels are allocated once and
+ * never freed while the list runs, so a texture the GE is still drawing from
+ * is never pulled out from under it; one that is refilled was off screen.
  */
 
 #include <malloc.h>
@@ -20,67 +26,117 @@
 
 enum icon_state { ICON_NONE, ICON_WANTED, ICON_READY, ICON_MISSING };
 
-/* At most a screenful is ever wanted at once, and the list holds six rows. */
-#define WANTED 8
+/* A screenful and three rows past either edge. */
+#define WANTED 16
+/* Four screens of rows: scrolling back a little finds them still there. */
+#define SLOTS 32
+
+struct slot {
+    struct gfx_texture tex;
+    int index;                  /* the entry it holds, -1 for none */
+    unsigned used;              /* when it was last wanted */
+};
 
 static const struct catalog *g_catalog;
-static struct gfx_texture g_icons[MAX_APPS];
-static volatile enum icon_state g_state[MAX_APPS];
+/* Per entry: its state, and the slot its icon is in when READY. */
+static volatile unsigned char g_state[MAX_APPS];
+static volatile signed char g_slot_of[MAX_APPS];
+static struct slot g_slots[SLOTS];
+static unsigned g_clock;
 static volatile int g_want[WANTED];
-static volatile int g_want_count;
+static volatile int g_want_count, g_want_visible;
 
 void icons_bind(const struct catalog *catalog) { g_catalog = catalog; }
 
 void icons_reset(void) {
     for (int i = 0; i < MAX_APPS; i++) {
-        gfx_texture_free(&g_icons[i]);
         g_state[i] = ICON_NONE;
+        g_slot_of[i] = -1;
+    }
+    for (int s = 0; s < SLOTS; s++) {
+        /* The pixels stay for the next list; only what they stood for goes. */
+        g_slots[s].index = -1;
+        g_slots[s].used = 0;
     }
     g_want_count = 0;
 }
 
-int icons_want(const int *index, int count) {
+static int wanted_now(int index) {
+    int count = g_want_count;
+    for (int i = 0; i < count && i < WANTED; i++)
+        if (g_want[i] == index) return 1;
+    return 0;
+}
+
+int icons_want(const int *index, int count, int visible) {
     if (!g_catalog) return 0;
     if (count > WANTED) count = WANTED;
-    int fresh = 0, n = 0;
+    int fresh = 0, n = 0, shown = 0;
+    g_clock++;
     /* The count goes to zero first: the media thread reads the two without
        a lock, and a stale index is worse than a short list for one frame. */
     g_want_count = 0;
     for (int i = 0; i < count; i++) {
         int at = index[i];
-        if (at < 0 || at >= g_catalog->count) continue;
+        if (at < 0 || at >= g_catalog->count || at >= MAX_APPS) continue;
+        shown += i < visible;
         g_want[n++] = at;
         if (g_state[at] == ICON_NONE) { g_state[at] = ICON_WANTED; fresh = 1; }
+        int s = g_slot_of[at];
+        if (g_state[at] == ICON_READY && s >= 0) g_slots[s].used = g_clock;
     }
+    g_want_visible = shown;
     g_want_count = n;
     return fresh;
 }
 
 const struct gfx_texture *icons_get(int index) {
     if (index < 0 || index >= MAX_APPS || g_state[index] != ICON_READY) return 0;
-    return &g_icons[index];
+    int s = g_slot_of[index];
+    return s >= 0 && s < SLOTS && g_slots[s].index == index ? &g_slots[s].tex : 0;
 }
 
-int icons_pending(void) {
-    int count = g_want_count;
+static int pending_among(int count) {
     for (int i = 0; i < count && i < WANTED; i++) {
         int at = g_want[i];
         if (at >= 0 && at < MAX_APPS && g_state[at] == ICON_WANTED) return at;
     }
     return -1;
 }
+int icons_pending(void) { return pending_among(g_want_count); }
+int icons_pending_visible(void) {
+    int count = g_want_count, visible = g_want_visible;
+    return pending_among(visible < count ? visible : count);
+}
 
-/* Every two by two of the source averaged into one texel of the result. */
+/* The slot to fill: a free one, else the one wanted longest ago that is
+   not on screen now. -1 when every slot is on screen, which WANTED < SLOTS
+   rules out. */
+static int take_slot(void) {
+    int best = -1;
+    for (int s = 0; s < SLOTS; s++) {
+        if (g_slots[s].index < 0) return s;
+        if (wanted_now(g_slots[s].index)) continue;
+        if (best < 0 || g_slots[s].used < g_slots[best].used) best = s;
+    }
+    return best;
+}
+
+/* Every two by two of the source averaged into one texel of the result,
+   into small's pixels, which are there already or allocated once here. */
 static int shrink(const struct gfx_texture *big, struct gfx_texture *small) {
-    memset(small, 0, sizeof(*small));
-    small->w = big->w / 2;
-    small->h = big->h / 2;
+    int w = big->w / 2, h = big->h / 2;
+    if (w > 128 || h > 64 || w == 0 || h == 0)
+        return -1;
+    if (!small->pixels) {
+        small->pixels = memalign(16, (size_t)128 * 64 * 4);
+        if (!small->pixels) return -1;
+    }
+    small->w = w;
+    small->h = h;
     small->tw = 128;
     small->th = 64;
-    if (small->w > small->tw || small->h > small->th || small->w == 0 || small->h == 0)
-        return -1;
-    small->pixels = memalign(16, (size_t)small->tw * small->th * 4);
-    if (!small->pixels) return -1;
+    small->opaque = 0;
     memset(small->pixels, 0, (size_t)small->tw * small->th * 4);
     const unsigned char *src = big->pixels;
     unsigned char *dst = small->pixels;
@@ -100,7 +156,7 @@ static int shrink(const struct gfx_texture *big, struct gfx_texture *small) {
 }
 
 void icons_load(int index) {
-    if (!g_catalog || index < 0 || index >= g_catalog->count) return;
+    if (!g_catalog || index < 0 || index >= g_catalog->count || index >= MAX_APPS) return;
     const struct app_entry *entry = &g_catalog->apps[index];
     struct gfx_texture big;
     int decoded = -1;
@@ -120,13 +176,34 @@ void icons_load(int index) {
     }
     if (decoded != 0) {
         size_t len = 0;
-        const void *png = asset_fetch(ASSET_ICON, entry->id, entry->icon, entry->media_cached_only, &len);
+        const void *png = asset_fetch(ASSET_ICON, entry->id, txt(entry->icon), entry->media_cached_only, &len);
         if (!png || image_decode_png(png, len, &big) != 0) {
             g_state[index] = ICON_MISSING;
             return;
         }
     }
-    int rc = shrink(&big, &g_icons[index]);
+    int s = take_slot();
+    if (s < 0) {
+        gfx_texture_free(&big);
+        g_state[index] = ICON_NONE;
+        return;
+    }
+    /* The entry the slot held has no icon from here on, before a pixel of
+       it changes. */
+    int old = g_slots[s].index;
+    if (old >= 0 && old < MAX_APPS) {
+        g_slot_of[old] = -1;
+        g_state[old] = ICON_NONE;
+    }
+    g_slots[s].index = -1;
+    int rc = shrink(&big, &g_slots[s].tex);
     gfx_texture_free(&big);
-    g_state[index] = rc == 0 ? ICON_READY : ICON_MISSING;
+    if (rc != 0) {
+        g_state[index] = ICON_MISSING;
+        return;
+    }
+    g_slots[s].index = index;
+    g_slots[s].used = g_clock;
+    g_slot_of[index] = (signed char)s;
+    g_state[index] = ICON_READY;
 }

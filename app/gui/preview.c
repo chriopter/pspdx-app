@@ -246,6 +246,12 @@ static void load_icons(unsigned gen) {
     int index;
     while (!stale(gen) && (index = icons_pending()) >= 0) icons_load(index);
 }
+/* Only the rows on screen: what a stopped list shows is fetched before
+   the card, which is one picture against six. */
+static void load_visible_icons(unsigned gen) {
+    int index;
+    while (!stale(gen) && (index = icons_pending_visible()) >= 0) icons_load(index);
+}
 
 /* One request at a time, the newest. Between requests the decoder is
    stopped and the last film let go of, so nothing here ever runs two
@@ -300,6 +306,8 @@ static int media_thread(SceSize args, void *argp) {
             continue;
         }
 
+        load_visible_icons(gen);
+        if (stale(gen)) continue;
         int slot = g_still_slot ^ 1;
         gfx_texture_vram_drop(&g_stills[slot]);    /* never sample a freed still from VRAM */
         gfx_texture_free(&g_stills[slot]);
@@ -307,6 +315,11 @@ static int media_thread(SceSize args, void *argp) {
         load_still(&req, gen, &g_stills[slot]);
         if (stale(gen)) { gfx_texture_free(&g_stills[slot]); continue; }
         g_still_slot = slot;
+        /* The rows just past the edges before the film and the sound:
+           those only start after a pause, and a scroll a little further
+           should find its icons. */
+        load_icons(gen);
+        if (stale(gen)) continue;
 
         /* The cache is tried even without a link, so this is asked of
            every entry; it comes back at once when there is nothing. */
@@ -428,11 +441,11 @@ void preview_show(const struct app_entry *entry, int immediately) {
     snprintf(g_want.id, sizeof(g_want.id), "%s", entry ? entry->id : "");
     g_want.cached_only = entry ? entry->media_cached_only : 1;
     snprintf(g_want.shot_url, sizeof(g_want.shot_url), "%s",
-             entry ? entry->screenshot : "");
+             entry ? txt(entry->screenshot) : "");
     snprintf(g_want.video_url, sizeof(g_want.video_url), "%s",
-             entry ? entry->video : "");
+             entry ? txt(entry->video) : "");
     snprintf(g_want.sound_url, sizeof(g_want.sound_url), "%s",
-             entry ? entry->sound : "");
+             entry ? txt(entry->sound) : "");
     g_want.installed = entry && entry->state != APP_NOT_INSTALLED;
     g_want.file[0] = '\0';
     g_nothing = !entry;

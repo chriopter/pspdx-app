@@ -16,16 +16,21 @@
 void icons_bind(const struct catalog *catalog);
 void icons_reset(void);
 
-/* Main thread: the entries the rows on screen stand for, which a filtered
-   list does not leave in one run. Returns 1 when that means there is
-   something new to fetch, so the caller can wake the media thread. */
-int icons_want(const int *index, int count);
+/* Main thread: the entries wanted, which a filtered list does not leave in
+   one run -- the first visible of them the rows on screen, the rest the
+   rows just past either edge, fetched after them so that scrolling on a
+   little finds its icons already there. None while the list flies by.
+   Returns 1 when that means there is something new to fetch, so the caller
+   can wake the media thread. */
+int icons_want(const int *index, int count, int visible);
 
 /* Main thread: the icon of an entry, or NULL while it is not here. */
 const struct gfx_texture *icons_get(int index);
 
-/* Media thread: the next row wanted and not yet tried, or -1. */
+/* Media thread: the next row wanted and not yet tried, or -1; the second
+   only among the rows on screen. */
 int icons_pending(void);
+int icons_pending_visible(void);
 
 /* Media thread: fetch, decode and shrink one entry's icon. Blocks. */
 void icons_load(int index);

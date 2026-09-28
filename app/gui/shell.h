@@ -21,6 +21,7 @@ void shell_draw(const struct catalog *catalog, int cursor);
    ends on when the key is let go. Rows flying by under a held key would
    otherwise each start a crossfade of their own. */
 void shell_hold(int held);
+void shell_scroll_fast(int fast);
 
 /* The list it draws is the view -- the catalog filtered to the open tab --
    which is session/view.h's: a cursor here is a row of that. */
@@ -127,5 +128,10 @@ void shell_install_end(const char *message);
 
 struct download_status;
 void shell_download_draw(const struct app_entry *entry, const struct download_status *status);
+/* The page before an install the installer went by its rule for: what of
+   the zip goes where, what comes along unused and what is left out, with
+   X to install and O not to. */
+struct install_layout;
+void shell_layout_draw(const struct app_entry *entry, const struct install_layout *layout);
 
 #endif
