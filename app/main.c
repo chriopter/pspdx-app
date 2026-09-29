@@ -892,6 +892,13 @@ int main(int argc, char *argv[]) {
                     }
                 }
             }
+        } else if ((pressed & PSP_CTRL_CIRCLE) && view_category_open_at() >= 0) {
+            /* O opens the store back up, on the row it was narrowed from --
+               from an empty category too, which has no row to stand on. */
+            int was = view_category_open_at();
+            view_category_close();
+            cues_post(CUE_MOVE, cursor = was);
+            count = view_count();
         } else if (count > 0) {
             int at = view_index(cursor);
             if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_CATEGORY && at > VIEW_ROW_SETTING) {
@@ -900,11 +907,6 @@ int main(int argc, char *argv[]) {
                    from. */
                 view_category_open(VIEW_ROW_CATEGORY - at);
                 cues_post(CUE_MOVE, cursor = 0);
-                count = view_count();
-            } else if ((pressed & PSP_CTRL_CIRCLE) && view_category_open_at() >= 0) {
-                int was = view_category_open_at();
-                view_category_close();
-                cues_post(CUE_MOVE, cursor = was);
                 count = view_count();
             } else if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_SETTING) {
                 /* A row under the gear does what it says: Sources, Options
