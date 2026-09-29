@@ -523,6 +523,10 @@ static int fill_thread(SceSize args, void *argp) {
 }
 
 void icons_start(void) {
+    /* Every slot empty and every entry in none: zeroed, the slots would
+       all read as holding entry 0, and while entry 0 is on screen none of
+       them could be taken. */
+    icons_reset();
     g_iquit = g_ihold = 0;
     g_iwake = sceKernelCreateSema("icons_wake", 0, 0, 64, 0);
     g_iidle = sceKernelCreateSema("icons_idle", 0, 0, 64, 0);
