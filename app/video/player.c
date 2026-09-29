@@ -92,9 +92,12 @@ static void stream_close(void);
 static int stream_open(void) {
     if (g_open) stream_close();
     if (g_disabled || g_info.stream_size < PSMF_PACK) return -1;
-    if (psmf_decoder_header(g_psmf, g_info.stream_offset + g_info.stream_size,
-                            g_header) != 0) {
-        logline("player: stream lacks PSP decoder index");
+    int layout = psmf_decoder_header(g_psmf, g_info.stream_offset + g_info.stream_size,
+                                     g_header);
+    if (layout != 0) {
+        logline("player: %s", layout == PSMF_BASELINE ? "Baseline stream, the PSP decodes Main" :
+                              layout == PSMF_MULTI_PES ? "more than one video PES in a pack" :
+                              "stream lacks PSP decoder index");
         return -1;
     }
     if (!modules_up()) return -1;

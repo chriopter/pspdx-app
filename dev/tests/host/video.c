@@ -307,10 +307,74 @@ static void mux_contiguous(void) {
     }
 }
 
+/* libx264 under ffmpeg puts its version SEI in front of the first
+   picture's delimiter. The delimiter must still open the access unit, or
+   the retail decoder sees a picture with no slice. */
+static void mux_delimiter_first(void) {
+    struct mp4_file f;
+    struct mp4 t;
+    make_mp4(&f);
+    assert(mp4_parse(f.data, f.pos, &t) == 0);
+    unsigned char raw[64];
+    size_t n = 0;
+    const unsigned char sei[] = {0x06, 0x05, 0x01, 0xaa, 0x80};
+    const unsigned char aud[] = {0x09, 0x10};
+    const unsigned char idr[] = {0x65, 0x88, 0x84, 0x21};
+    be32(raw + n, sizeof(sei)); memcpy(raw + n + 4, sei, sizeof(sei)); n += 4 + sizeof(sei);
+    be32(raw + n, sizeof(aud)); memcpy(raw + n + 4, aud, sizeof(aud)); n += 4 + sizeof(aud);
+    be32(raw + n, sizeof(idr)); memcpy(raw + n + 4, idr, sizeof(idr)); n += 4 + sizeof(idr);
+    t.count = 1;
+    t.sample[0].offset = 0;
+    t.sample[0].size = (unsigned)n;
+    t.sample[0].pts = 0;
+    t.sample[0].key = 1;
+    size_t cap = psmf_capacity(n);
+    unsigned char *out = calloc(1, cap);
+    assert(out);
+    size_t len = psmf_build(raw, &t, out, cap);
+    assert(len > PSMF_HEADER);
+    const unsigned char want[] = {0, 0, 0, 1, 0x09, 0x10, 0, 0, 0, 1, 0x67, 0, 0, 0, 1, 0x68,
+                                  0, 0, 0, 1, 0x06, 0x05, 0x01, 0xaa, 0x80,
+                                  0, 0, 0, 1, 0x65, 0x88, 0x84, 0x21};
+    const unsigned char *pack = out + PSMF_HEADER;
+    size_t pos = 14 + (pack[13] & 7);
+    while (pack[pos + 3] != 0xe0) pos += 6 + (((unsigned)pack[pos + 4] << 8) | pack[pos + 5]);
+    const unsigned char *pes = pack + pos;
+    assert(memcmp(pes + 9 + pes[8], want, sizeof(want)) == 0);
+    /* The index counts the unit as it was written. */
+    assert((((unsigned)pack[58] << 8) | pack[59]) == sizeof(want));
+    unsigned char header[PSMF_HEADER];
+    assert(psmf_decoder_header(out, len, header) == 0);
+    /* The padding after the picture, turned into a second video PES: the
+       layout sceMpeg's RingbufferPut refuses. */
+    unsigned char *pad = out + PSMF_HEADER + pos + 6 + (((unsigned)pes[4] << 8) | pes[5]);
+    assert(pad[3] == 0xbe);
+    pad[3] = 0xe0;
+    assert(psmf_decoder_header(out, len, header) == PSMF_MULTI_PES);
+    free(out);
+
+    /* A Baseline sequence parameter set is refused before the firmware sees
+       it; the same stream in Main goes through. */
+    const unsigned char baseline[] = {0x67, 66, 0xc0, 0x15};
+    const unsigned char main_sps[] = {0x67, 77, 0x40, 0x15};
+    const unsigned char *sps[] = {baseline, main_sps};
+    for (int k = 0; k < 2; k++) {
+        memcpy(t.sps, sps[k], sizeof(baseline));
+        t.sps_len = sizeof(baseline);
+        out = calloc(1, cap);
+        assert(out);
+        len = psmf_build(raw, &t, out, cap);
+        assert(len > PSMF_HEADER);
+        assert(psmf_decoder_header(out, len, header) == (k == 0 ? PSMF_BASELINE : 0));
+        free(out);
+    }
+}
+
 int main(int argc, char **argv) {
     mp4_bounds();
     mux_layout();
     mux_contiguous();
+    mux_delimiter_first();
     size_t len;
     unsigned char *p = one_frame(&len);
     struct psmf_info info;

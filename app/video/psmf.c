@@ -484,11 +484,48 @@ int psmf_parse(const unsigned char *data, size_t len, struct psmf_info *out) {
     return 0;
 }
 
+/* The rest of what sceMpeg on a PSP-1000 was seen to fail on, checked
+   before any of it reaches the firmware, where a failure poisons the
+   decoder: a pack carrying more than one video PES (RingbufferPut,
+   0x80618007), and a Baseline-profile stream (the first decode, 0x80628002;
+   Sony's own ICON1s are Main). The profile is read off the first sequence
+   parameter set in the first video PES; a stream that does not show one
+   there is let through. */
+static int decoder_packs(const unsigned char *s, size_t len) {
+    int profile = -1;
+    for (size_t at = 0; at + PSMF_PACK <= len; at += PSMF_PACK) {
+        const unsigned char *p = s + at, *end = p + PSMF_PACK;
+        if (p[0] != 0 || p[1] != 0 || p[2] != 1 || p[3] != 0xBA) break;
+        p += PACK_HEADER + (p[13] & 7);
+        int video = 0;
+        while (p + 6 <= end && p[0] == 0 && p[1] == 0 && p[2] == 1) {
+            unsigned id = p[3], size = get16(p + 4);
+            if (size > (unsigned)(end - p - 6)) break;
+            if (id == 0xE0) {
+                if (++video > 1) return PSMF_MULTI_PES;
+                if (profile < 0 && size >= 3 && 3u + p[8] <= size) {
+                    const unsigned char *es = p + 9 + p[8], *es_end = p + 6 + size;
+                    for (; es + 4 < es_end; es++)
+                        if (es[0] == 0 && es[1] == 0 && es[2] == 1 && (es[3] & 0x1F) == 7) {
+                            profile = es[4];
+                            break;
+                        }
+                    if (profile < 0) profile = 0;
+                }
+            }
+            p += 6 + size;
+        }
+    }
+    return profile == 66 ? PSMF_BASELINE : 0;
+}
+
 int psmf_decoder_header(const unsigned char *data, size_t len,
                         unsigned char out[PSMF_HEADER]) {
     struct psmf_info info;
     if (!out || psmf_parse(data, len, &info) != 0) return -1;
     if (!decoder_pack_layout(data + info.stream_offset)) return -1;
+    int packs = decoder_packs(data + info.stream_offset, info.stream_size);
+    if (packs) return packs;
 
     memcpy(out, data, PSMF_HEADER);
     return 0;

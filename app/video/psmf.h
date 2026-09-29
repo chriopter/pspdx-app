@@ -43,8 +43,12 @@ int psmf_is(const unsigned char *data, size_t len);
    stream does not fit in len. */
 int psmf_parse(const unsigned char *data, size_t len, struct psmf_info *out);
 
-/* Copy the header only when the first pack has the strict Sony system-header
-   and AU-index layout that real sceMpeg accepts. */
+/* Copy the header only when the stream has the strict Sony layout that
+   real sceMpeg accepts: the first pack's system header and AU index, one
+   video PES a pack, and not the Baseline profile. 0 when it has; -1 without
+   the index, or PSMF_MULTI_PES or PSMF_BASELINE. */
+#define PSMF_MULTI_PES (-2)
+#define PSMF_BASELINE (-3)
 int psmf_decoder_header(const unsigned char *data, size_t len,
                         unsigned char out[PSMF_HEADER]);
 
