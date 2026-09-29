@@ -55,6 +55,9 @@ void icons_poke(void);
    has been done, end lets it go on. */
 void icons_hold_begin(void);
 int icons_hold_ready(void);
+/* Held, but the rows on screen may still be shown from the cache (their
+   EBOOT or the pack), never from the network: while downloads run. */
+void icons_hold_soft(void);
 void icons_hold_end(void);
 
 #endif

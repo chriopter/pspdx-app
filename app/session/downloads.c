@@ -12,6 +12,7 @@
 #include "session/options.h"
 #include "session/view.h"
 #include "gui/preview.h"
+#include "gui/icons.h"
 #include "gui/shell.h"
 #include "update/inbox.h"
 #include "util/runtime.h"
@@ -342,6 +343,7 @@ int downloads_tick(int cursor, int modal) {
         }
         if (!preview_pause_ready())
             return changed;
+        icons_hold_soft();
         int at = -1;
         unsigned order = ~0u;
         pthread_mutex_lock(&lock);

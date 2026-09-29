@@ -162,6 +162,9 @@ void preview_pause_begin(void) {
 int preview_pause_ready(void) {
     return 1;
 }
+void icons_hold_soft(void) {
+    assert(pause_held);
+}
 void preview_resume(void) {
     assert(pause_held);
     pause_held = 0;

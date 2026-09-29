@@ -382,6 +382,35 @@ static void icons_load(int index) {
     ready(s, index);
 }
 
+/* Held softly (downloads running): an icon only from what is here already,
+   its EBOOT or the pack, nothing from the network. 0 when there was none,
+   and the entry is left wanted for when the hold ends. */
+static int icons_load_cached(int index) {
+    if (!g_catalog || index < 0 || index >= g_catalog->count || index >= MAX_APPS) return 0;
+    const struct app_entry *entry = &g_catalog->apps[index];
+    if (entry->state != APP_NOT_INSTALLED) {
+        char path[128];
+        void *png;
+        size_t len;
+        struct gfx_texture big;
+        if (pbp_installed_path(entry->id, path, sizeof(path)) == 0 &&
+            pbp_section(path, PBP_ICON0, &png, &len) == 0) {
+            int decoded = image_decode_png(png, len, &big);
+            free(png);
+            int s = decoded == 0 ? claim_slot() : -1;
+            int ok = s >= 0 && shrink(&big, &g_slots[s].tex) == 0;
+            if (decoded == 0) gfx_texture_free(&big);
+            if (ok) { ready(s, index); return 1; }
+        }
+    }
+    size_t n = txt(entry->icon)[0] ? asset_thumb_get(entry->id, txt(entry->icon), g_thumb, sizeof(g_thumb)) : 0;
+    if (!n) return 0;
+    int s = claim_slot();
+    if (s < 0 || from_thumb(&g_slots[s].tex, g_thumb, n) != 0) return 0;
+    ready(s, index);
+    return 1;
+}
+
 /* ------------------------------------------------------------ the thread */
 
 /* With the card's thread, below the main thread: the list keeps its frame
@@ -390,6 +419,11 @@ static void icons_load(int index) {
 #define ICON_STACK (32 * 1024)
 static SceUID g_ithread = -1, g_iwake = -1, g_iidle = -1;
 static volatile int g_iquit, g_ihold;
+/* A soft hold lets the rows on screen still be served from the cache;
+   every new hold is a hard one until it is made soft, and counts as new
+   so that the thread says it is idle again. */
+static volatile int g_isoft, g_ihold_gen;
+static unsigned char g_cache_miss[(MAX_APPS + 7) / 8];
 static int g_hold_ready;
 
 /* The rows on screen first, then the rows past the edges; with nothing
@@ -406,8 +440,23 @@ static int icon_thread(SceSize args, void *argp) {
         if (g_iquit) break;
         if (g_ihold) {
             asset_flush();
+            int gen = g_ihold_gen;
             sceKernelSignalSema(g_iidle, 1);
-            while (g_ihold && !g_iquit) sceKernelWaitSema(g_iwake, 1, 0);
+            while (g_ihold && !g_iquit) {
+                if (gen != g_ihold_gen) {
+                    gen = g_ihold_gen;
+                    sceKernelSignalSema(g_iidle, 1);
+                }
+                int count = g_want_visible < g_want_count ? g_want_visible : g_want_count;
+                for (int i = 0; g_isoft && g_ihold && i < count && i < WANTED; i++) {
+                    int at = g_want[i];
+                    if (at < 0 || at >= MAX_APPS || g_state[at] != ICON_WANTED) continue;
+                    if (g_cache_miss[at >> 3] & (1 << (at & 7))) continue;
+                    if (!icons_load_cached(at)) g_cache_miss[at >> 3] |= (unsigned char)(1 << (at & 7));
+                }
+                SceUInt wait = 200 * 1000;
+                sceKernelWaitSema(g_iwake, 1, &wait);
+            }
             continue;
         }
         int did = 0, at;
@@ -515,7 +564,13 @@ void icons_hold_begin(void) {
     if (g_ithread < 0) return;
     /* Only this hold's answer counts. */
     while (sceKernelPollSema(g_iidle, 1) == 0) {}
+    g_isoft = 0;
     g_ihold = 1;
+    g_ihold_gen++;
+    icons_poke();
+}
+void icons_hold_soft(void) {
+    g_isoft = 1;
     icons_poke();
 }
 int icons_hold_ready(void) {
@@ -526,6 +581,8 @@ int icons_hold_ready(void) {
     return g_hold_ready;
 }
 void icons_hold_end(void) {
+    g_isoft = 0;
+    memset(g_cache_miss, 0, sizeof(g_cache_miss));
     g_ihold = 0;
     g_hold_ready = 0;
     icons_poke();
