@@ -88,11 +88,17 @@ static void draw_row(int i, int y, int selected, float t) {
 }
 
 void system_view_draw(float t) {
-    float target = LIST_Y + g_cursor * ITEM_H;
+    /* More rows than fit above the foot: the list scrolls so the one the
+       cursor is on is always whole, and a row is drawn only while all of it
+       is clear of the foot. */
+    static int top;
+    if (g_cursor < top) top = g_cursor;
+    if (g_cursor >= top + VISIBLE) top = g_cursor - VISIBLE + 1;
+    float target = LIST_Y + (g_cursor - top) * ITEM_H;
     g_sel_y += (target - g_sel_y) * 0.25f;
-    draw_rows_light(SYS_COUNT, g_sel_y, t);
-    for (int i = 0; i < SYS_COUNT; i++)
-        draw_row(i, LIST_Y + i * ITEM_H, i == g_cursor, t);
+    draw_rows_light(SYS_COUNT < VISIBLE ? SYS_COUNT : VISIBLE, g_sel_y, t);
+    for (int i = top; i < SYS_COUNT && i < top + VISIBLE; i++)
+        draw_row(i, LIST_Y + (i - top) * ITEM_H, i == g_cursor, t);
 
     draw_setting_note(g_cursor == SYS_FRAME_RATE ? (options_fps_requested() ? T_SYS_BAKED : T_SYS_MERCY)
                       : WORD[g_cursor], g_cursor == SYS_FRAME_RATE && downloads_busy()
