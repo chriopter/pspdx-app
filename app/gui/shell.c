@@ -937,9 +937,12 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
         if (index < 0) continue;
         const struct app_entry *entry = &catalog->apps[index];
         if (!entry->has_release || !entry->release.size || entry->unsupported) continue;
+        /* On the stick the plan is the updates alone: the list names those. */
+        if (plan.updates && entry->state != APP_UPDATE) continue;
         if (line >= room) {
-            font_printf(FONT_META, PANEL_X, y + 40 + line * 17, g_dim,
-                        T_AND_MORE, plan.apps - line);
+            if (plan.apps > line)
+                font_printf(FONT_META, PANEL_X, y + 40 + line * 17, g_dim,
+                            T_AND_MORE, plan.apps - line);
             line++;
             break;
         }
