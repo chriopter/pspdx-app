@@ -17,6 +17,7 @@
 #include <pspkernel.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "gui/icons.h"
 #include "gui/image.h"
@@ -111,6 +112,8 @@ int icons_fill_progress(void) {
     return g_fill_at * 100 / count;
 }
 
+static int thumb_kept(const struct app_entry *e);
+
 /* Fill thread: the next entry whose icon is not kept yet, or -1. */
 static int fill_claim(void) {
     for (;;) {
@@ -121,7 +124,7 @@ static int fill_claim(void) {
         if (at < 0) return -1;
         const struct app_entry *e = &g_catalog->apps[at];
         if (e->state != APP_NOT_INSTALLED || e->media_cached_only || !txt(e->icon)[0]) continue;
-        if (asset_thumb_have(e->id, txt(e->icon))) continue;
+        if (thumb_kept(e)) continue;
         return at;
     }
     return -1;
@@ -213,10 +216,51 @@ static int take_slot(void) {
 
 /* Every two by two of the source averaged into one texel of the result,
    into small's pixels, which are there already or allocated once here. */
+/* Bigger than the ICON0 the catalog is meant to carry: fitted into the
+   72x40 an ICON0 comes to, each pixel the mean of the block it covers. */
+static int fit(const struct gfx_texture *big, struct gfx_texture *small) {
+    float sc = big->w / 72.0f > big->h / 40.0f ? big->w / 72.0f : big->h / 40.0f;
+    int w = (int)(big->w / sc), h = (int)(big->h / sc);
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+    if (!small->pixels && !(small->pixels = memalign(16, (size_t)128 * 64 * 4)))
+        return -1;
+    small->w = w;
+    small->h = h;
+    small->tw = 128;
+    small->th = 64;
+    small->opaque = 0;
+    memset(small->pixels, 0, (size_t)small->tw * small->th * 4);
+    const unsigned char *src = big->pixels;
+    unsigned char *dst = small->pixels;
+    for (int y = 0; y < h; y++) {
+        int y0 = (int)(y * sc), y1 = (int)((y + 1) * sc);
+        if (y1 > big->h) y1 = big->h;
+        if (y1 <= y0) y1 = y0 + 1;
+        for (int x = 0; x < w; x++) {
+            int x0 = (int)(x * sc), x1 = (int)((x + 1) * sc);
+            if (x1 > big->w) x1 = big->w;
+            if (x1 <= x0) x1 = x0 + 1;
+            unsigned sum[4] = {0, 0, 0, 0}, n = 0;
+            for (int yy = y0; yy < y1; yy++)
+                for (int xx = x0; xx < x1; xx++, n++) {
+                    const unsigned char *p = src + ((size_t)yy * big->tw + xx) * 4;
+                    sum[0] += p[0]; sum[1] += p[1]; sum[2] += p[2]; sum[3] += p[3];
+                }
+            unsigned char *d = dst + ((size_t)y * small->tw + x) * 4;
+            for (int c = 0; c < 4; c++) d[c] = (unsigned char)((sum[c] + n / 2) / n);
+        }
+    }
+    sceKernelDcacheWritebackRange(small->pixels, (size_t)small->tw * small->th * 4);
+    return 0;
+}
+
 static int shrink(const struct gfx_texture *big, struct gfx_texture *small) {
     int w = big->w / 2, h = big->h / 2;
-    if (w > 128 || h > 64 || w == 0 || h == 0)
+    if (w == 0 || h == 0)
         return -1;
+    if (w > 128 || h > 64)
+        return fit(big, small);
     if (!small->pixels) {
         small->pixels = memalign(16, (size_t)128 * 64 * 4);
         if (!small->pixels) return -1;
@@ -278,18 +322,50 @@ static size_t to_thumb(const struct gfx_texture *t, unsigned char *b) {
     return 4 + (size_t)t->w * t->h * 4;
 }
 
+/* An icon that cannot be had -- the server says it is not there, or what
+   it sends is no picture or too big a one -- is kept as a mark instead:
+   four zero bytes and when it was tried. The fill then does not fetch it
+   again on every start; after a week it is tried once more, in case the
+   catalog put it right. A network that did not answer marks nothing. */
+#define MISS_LEN 8
+static void mark_missing(const struct app_entry *e) {
+    if (!txt(e->icon)[0]) return;
+    unsigned char m[MISS_LEN] = {0};
+    unsigned t = (unsigned)time(NULL);
+    memcpy(m + 4, &t, 4);
+    asset_thumb_put(e->id, txt(e->icon), m, MISS_LEN);
+}
+static int marked_missing(const unsigned char *b, size_t n) {
+    if (n != MISS_LEN || b[0] || b[1]) return 0;
+    unsigned t, now = (unsigned)time(NULL);
+    memcpy(&t, b + 4, 4);
+    return now >= t && now - t < 7u * 86400u;
+}
+/* Kept already: a thumbnail, or a mark that is still fresh. */
+static int thumb_kept(const struct app_entry *e) {
+    if (!asset_thumb_have(e->id, txt(e->icon))) return 0;
+    unsigned char m[MISS_LEN];
+    size_t n = asset_thumb_get(e->id, txt(e->icon), m, sizeof(m));
+    return n == 0 || marked_missing(m, n);   /* 0: longer than a mark */
+}
+
 /* A catalog icon fetched, decoded and shrunk into small, then kept as a
    thumbnail. -1 when there is none to be had. */
 static int make_thumb(const struct app_entry *entry, struct gfx_texture *small) {
     size_t len = 0;
     const void *png = asset_fetch(ASSET_ICON, entry->id, txt(entry->icon), entry->media_cached_only, &len);
     struct gfx_texture big;
-    if (!png || image_decode_png(png, len, &big) != 0)
+    if (!png) return -1;
+    if (image_decode_png(png, len, &big) != 0) {
+        mark_missing(entry);
         return -1;
+    }
     int rc = shrink(&big, small);
     gfx_texture_free(&big);
-    if (rc != 0)
+    if (rc != 0) {
+        mark_missing(entry);
         return -1;
+    }
     if (txt(entry->icon)[0])
         asset_thumb_put(entry->id, txt(entry->icon), g_thumb, to_thumb(small, g_thumb));
     return 0;
@@ -308,7 +384,11 @@ static int fill_one(void) {
     if (image_decode_png(f->data, f->len, &big) == 0) {
         if (shrink(&big, &small) == 0)
             asset_thumb_put(e->id, txt(e->icon), g_thumb, to_thumb(&small, g_thumb));
+        else
+            mark_missing(e);
         gfx_texture_free(&big);
+    } else {
+        mark_missing(e);
     }
     f->ready = 0;
     return 1;
@@ -363,6 +443,10 @@ static void icons_load(int index) {
     }
     /* Kept from before: a copy into a slot. */
     size_t n = txt(entry->icon)[0] ? asset_thumb_get(entry->id, txt(entry->icon), g_thumb, sizeof(g_thumb)) : 0;
+    if (marked_missing(g_thumb, n)) {
+        g_state[index] = ICON_MISSING;
+        return;
+    }
     if (n) {
         int s = claim_slot();
         if (s >= 0 && from_thumb(&g_slots[s].tex, g_thumb, n) == 0) {
@@ -516,6 +600,12 @@ static int fill_thread(SceSize args, void *argp) {
             icons_poke();
         } else {
             logline("fill: rc=%d status=%ld, %s", rc, result.status, e->id);
+            /* Not there, or too big to be an icon: marked. A network that
+               did not answer, a server error or a hold: tried again. */
+            int held = g_iquit || g_ihold;
+            if (!held && ((result.status >= 400 && result.status < 500) ||
+                          (rc != HTTPS_FAILED && f->len > 0 && result.status == 200)))
+                mark_missing(e);
         }
         g_fbusy[me] = 0;
     }
