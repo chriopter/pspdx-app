@@ -485,6 +485,10 @@ int main(int argc, char *argv[]) {
     int shot_connecting = !shots;
     unsigned dumped_ms = now_ms();
     unsigned last_buttons = 0;
+    /* The newest pad sample already taken, by its timestamp, so that no
+       sample counts twice, whichever loop read it. */
+    unsigned pad_stamp = 0;
+    int pad_seen = 0;
     /* Frame times, so a slow frame is a number and not a feeling: every
        ten seconds the average, worst, and misses against the selected cap. */
     unsigned frame_us = now_us(), frames = 0, worst = 0, late = 0, total = 0;
@@ -508,6 +512,8 @@ int main(int argc, char *argv[]) {
             if (sceCtrlReadBufferPositive(&focus_pad, 1) > 0) {
                 unsigned focus_pressed = focus_pad.Buttons & ~last_buttons;
                 last_buttons = focus_pad.Buttons;
+                pad_stamp = focus_pad.TimeStamp;
+                pad_seen = 1;
                 /* The rig's scripted keys reach this screen too. */
                 if (synced) focus_pressed |= keys_pressed() & ~KEY_SHOT;
                 downloads_focus_frame(focus_pressed);
@@ -693,8 +699,27 @@ int main(int argc, char *argv[]) {
         }
         g_mark[1] = now_us();
 
+        /* Every sample since the last frame, not only the newest: a tap that
+           starts and ends inside one slow frame (a catalog parse, a PNG
+           decode, 100 ms and more) still counts. The first frame only
+           notes where the buffer stands, so a key held from the XMB is not
+           taken for a press. */
+        SceCtrlData pads[16];
+        int read = sceCtrlReadBufferPositive(pads, 16);
         SceCtrlData pad;
-        int read = sceCtrlReadBufferPositive(&pad, 1);
+        memset(&pad, 0, sizeof(pad));
+        if (read > 0) pad = pads[read - 1];
+        unsigned tapped = 0;
+        if (read > 0) {
+            unsigned prev = last_buttons;
+            for (int i = 0; pad_seen && i < read; i++)
+                if ((int)(pads[i].TimeStamp - pad_stamp) > 0) {
+                    tapped |= pads[i].Buttons & ~prev;
+                    prev = pads[i].Buttons;
+                }
+            pad_stamp = pads[read - 1].TimeStamp;
+            pad_seen = 1;
+        }
         /* A read that fails is logged once per failure, not once per frame:
            the one thing a report of the console not answering its keys is
            checked against. */
@@ -709,7 +734,7 @@ int main(int argc, char *argv[]) {
            to say, and the water goes on following it underneath. */
         if (details)
             shell_details_scroll((pad.Ly - 128) / 127.0f);
-        unsigned pressed = pad.Buttons & ~last_buttons;
+        unsigned pressed = (pad.Buttons & ~last_buttons) | tapped;
         last_buttons = pad.Buttons;
         if (pad.Buttons) keep_awake();
         shell_hold((pad.Buttons & (PSP_CTRL_UP | PSP_CTRL_DOWN)) != 0);
