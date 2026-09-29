@@ -1,0 +1,114 @@
+# The tour: one hardware take behind tour.json, ~270 s from launch.
+# Budget: the bench PSP powers off ~300 s after WLAN connects.
+#
+# Before: PSPLink up, remotejoy.prx loaded, PSPDX NOT running.
+#   Extreme Tux Racer, Rust Raytracer and PSP Graphics Demo not installed,
+#   Lux Aeterna installed at an older release (v0.2.4) so an update is real,
+#   the basket empty, WLAN200 first in the system connection dialog.
+# Tab order: Installed | Homebrews | UMDs | Basket (only while it has apps) | gear.
+
+sh ~/.local/opt/pspdev/bin/pspsh -e "ldstart ms0:/PSP/GAME/PSPDX/pspdx.prx"
+mark boot
+wait 6.0              # PSPDX comes up, the system WLAN dialog opens
+tap cross             # connect with WLAN200
+mark connect
+wait 16.0             # connecting, both catalogs load, the list appears
+
+# Prep, cut from the film: Options -> Show Unreleased (it lasts a run).
+tap right             # UMDs
+wait 0.5
+tap right             # gear
+wait 0.8
+tap down              # Options
+tap cross
+wait 0.8
+taps down 3
+tap cross             # Show Unreleased on
+wait 0.6
+tap circle
+wait 0.6
+tap left
+wait 0.5
+tap left              # Homebrews
+wait 1.0
+
+mark tabs
+tap left              # Installed: the update waiting
+wait 2.5
+tap right             # Homebrews
+wait 2.0
+tap right             # UMDs
+wait 2.0
+tap right             # gear
+wait 2.0
+tap left
+wait 0.4
+tap left              # Homebrews, cursor on Game
+wait 1.2
+
+mark store
+tap cross             # Game: Extreme Tux Racer on top
+mark film
+wait 7.0              # its film plays on the card
+tap cross             # its page
+mark page
+wait 2.5
+tap cross             # Install: the quiet progress screen
+mark install
+wait 5.0
+tap circle            # on in the background
+mark background
+wait 2.0
+
+tap circle            # back to the list
+wait 0.8
+tap circle            # Homebrews
+wait 0.8
+tap down              # Demo
+tap cross
+mark basket
+wait 1.5
+taps down 2           # Rust Raytracer
+wait 0.6
+tap triangle
+wait 0.7
+tap down              # Add to basket
+tap cross
+wait 1.2
+tap down              # PSP Graphics Demo
+wait 0.6
+tap triangle
+wait 0.7
+tap down
+tap cross
+wait 1.5
+tap right             # UMDs
+wait 0.5
+tap right             # Basket
+mark basket_tab
+wait 2.0
+tap cross             # Download all
+mark basket_go
+wait 3.0
+tap circle            # on in the background
+wait 1.5
+
+tap left              # UMDs
+wait 0.4
+tap left              # Homebrews
+wait 0.4
+tap left              # Installed
+mark update
+wait 1.5
+tap cross             # "1 update": Lux Aeterna
+mark update_go
+wait 3.0
+tap circle
+wait 1.0
+
+mark waiting
+wait 150.0            # Tux (43 MB), the basket and the update come in
+mark done
+taps down 4 0.5       # the list: all installed, current
+wait 3.0
+mark end

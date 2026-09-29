@@ -1,0 +1,121 @@
+{
+  "plate": "plate/psp-front-sony.png",
+  "plate_crop": [
+    60,
+    190,
+    880,
+    400
+  ],
+  "screen": [
+    270,
+    247,
+    460,
+    264
+  ],
+  "scale": 1.62,
+  "plate_top": 150,
+  "canvas": [
+    1920,
+    1080
+  ],
+  "background": "white",
+  "font": "fonts/Inter-Regular.ttf",
+  "size": 40,
+  "color": "0x3c3c3c",
+  "caption_y": 870,
+  "fade": 0.3,
+  "keep": [
+    [
+      38.9,
+      54.0
+    ],
+    [
+      57.0,
+      61.0
+    ],
+    [
+      65.4,
+      66.8
+    ],
+    [
+      74.4,
+      77.2
+    ],
+    [
+      80.4,
+      83.0
+    ],
+    [
+      86.9,
+      89.5
+    ],
+    [
+      94.6,
+      98.4
+    ],
+    [
+      134.5,
+      137.0
+    ],
+    [
+      149.2,
+      153.6
+    ],
+    [
+      157.8,
+      163.8
+    ]
+  ],
+  "captions": [
+    {
+      "from": 0.2,
+      "to": 10.7,
+      "text": "Every homebrew source. One list."
+    },
+    {
+      "from": 11.4,
+      "to": 14.9,
+      "text": "See every app in action."
+    },
+    {
+      "from": 15.3,
+      "to": 17.4,
+      "text": "Install with one button."
+    },
+    {
+      "from": 17.6,
+      "to": 20.3,
+      "text": "Downloads keep running in the background."
+    },
+    {
+      "from": 20.7,
+      "to": 25.7,
+      "text": "Fill your basket."
+    },
+    {
+      "from": 26.1,
+      "to": 28.3,
+      "text": "Get them all at once."
+    },
+    {
+      "from": 28.7,
+      "to": 32.1,
+      "text": "Updates in one press."
+    },
+    {
+      "from": 32.5,
+      "to": 34.6,
+      "text": "All installed."
+    },
+    {
+      "from": 35.0,
+      "to": 39.0,
+      "text": "Start it right from PSPDX."
+    },
+    {
+      "from": 39.4,
+      "to": 45.0,
+      "text": "PSPDX. Install and update homebrew, right on your PSP."
+    }
+  ]
+}

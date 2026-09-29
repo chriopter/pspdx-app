@@ -6,9 +6,9 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 
 **[→ Download PSPDX](https://github.com/chriopter/pspdx-app/releases/latest)**
 
-<img width="480" alt="A 60-second tour of PSPDX: scrolling the catalog, icons loading, installing an app through the review page, and its features" src="assets/pspdx-app.webp" />
+<img width="480" alt="PSPDX on a PSP: browsing the catalog, installing Extreme Tux Racer, a basket, an update, then starting the game" src="assets/pspdx-app.webp" />
 
-[▶ The tour with sound](https://github.com/chriopter/pspdx-app/releases/download/v0.9.0/pspdx-tour.mp4)
+[▶ The tour in full quality](https://github.com/chriopter/pspdx-app/releases/download/v0.9.1/pspdx-tour.mp4)
 
 ## How to use
 
