@@ -508,6 +508,8 @@ int main(int argc, char *argv[]) {
             if (sceCtrlReadBufferPositive(&focus_pad, 1) > 0) {
                 unsigned focus_pressed = focus_pad.Buttons & ~last_buttons;
                 last_buttons = focus_pad.Buttons;
+                /* The rig's scripted keys reach this screen too. */
+                if (synced) focus_pressed |= keys_pressed() & ~KEY_SHOT;
                 downloads_focus_frame(focus_pressed);
                 if ((focus_pressed & PSP_CTRL_CIRCLE) && view_download_count()) {
                     view_remember(cursor, details ? details_of : -1, shell_details_position());
