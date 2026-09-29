@@ -218,18 +218,30 @@ size_t psmf_capacity(size_t mp4_len) {
    and B slices rather than incorrectly declaring every picture I-only. */
 static const unsigned char AUD[6] = { 0, 0, 0, 1, 0x09, 0x50 };
 
-static int has_aud(const unsigned char *mp4, const struct mp4 *t, int i) {
+/* Where the encoder's delimiter starts in sample i, as an offset into the
+   sample, or -1 when it has none. Not always the first unit: libx264 under
+   ffmpeg puts its version SEI ahead of the first picture's delimiter, and a
+   delimiter left behind that SEI splits the first picture in two -- the
+   retail decoder then fails the first access unit with 0x80628002. */
+static long find_aud(const unsigned char *mp4, const struct mp4 *t, int i) {
     const struct mp4_sample *s = &t->sample[i];
-    const unsigned char *p = mp4 + s->offset;
-    if (s->size < (unsigned)t->nal_length_size + 1) return 0;
-    return (p[t->nal_length_size] & 0x1F) == 9;
+    const unsigned char *base = mp4 + s->offset, *p = base, *end = p + s->size;
+    while (p + t->nal_length_size < end) {
+        const unsigned char *at = p;
+        unsigned len = 0;
+        for (int k = 0; k < t->nal_length_size; k++) len = (len << 8) | *p++;
+        if (len == 0 || p + len > end) break;
+        if ((*p & 0x1F) == 9) return (long)(at - base);
+        p += len;
+    }
+    return -1;
 }
 
 /* How long assemble() will make sample i: what the index says before the
    unit is written. */
 static unsigned unit_size(const unsigned char *mp4, const struct mp4 *t, int i) {
     const struct mp4_sample *s = &t->sample[i];
-    size_t n = has_aud(mp4, t, i) ? 0 : sizeof(AUD);
+    size_t n = find_aud(mp4, t, i) >= 0 ? 0 : sizeof(AUD);
     if (i == 0) n += 8 + (size_t)t->sps_len + t->pps_len;
     const unsigned char *p = mp4 + s->offset, *end = p + s->size;
     while (p + t->nal_length_size <= end) {
@@ -243,23 +255,26 @@ static unsigned unit_size(const unsigned char *mp4, const struct mp4 *t, int i) 
 }
 
 /* A sample's length-prefixed NALs become start-code-delimited bytes: AUD,
-   initial parameter sets, then the original units. Keep later in-band
-   parameter sets; avcC describes the initial state only. Assemble in the
-   scratch area at the end of out. unit_size() predicts the exact length. */
+   initial parameter sets, then the original units in their order. Keep
+   later in-band parameter sets; avcC describes the initial state only.
+   Assemble in the scratch area at the end of out. unit_size() predicts the
+   exact length. */
 static size_t assemble(const unsigned char *mp4, const struct mp4 *t, int i,
                        unsigned char *scratch, size_t cap) {
     const struct mp4_sample *s = &t->sample[i];
     static const unsigned char start[4] = { 0, 0, 0, 1 };
-    const unsigned char *p = mp4 + s->offset, *end = p + s->size;
+    const unsigned char *base = mp4 + s->offset, *p = base, *end = p + s->size;
+    long aud = find_aud(mp4, t, i);
     size_t n = 0;
-    if (has_aud(mp4, t, i)) {
-        /* The encoder's own delimiter, kept as the first unit. */
+    if (aud >= 0) {
+        /* The encoder's own delimiter, moved to the front: an access unit
+           starts with it or the decoder starts a new one there. */
+        const unsigned char *q = base + aud;
         unsigned len = 0;
-        for (int k = 0; k < t->nal_length_size; k++) len = (len << 8) | *p++;
-        if (len == 0 || p + len > end || 4 + len > cap) return 0;
-        memcpy(scratch, start, 4); memcpy(scratch + 4, p, len);
+        for (int k = 0; k < t->nal_length_size; k++) len = (len << 8) | *q++;
+        if (4 + len > cap) return 0;
+        memcpy(scratch, start, 4); memcpy(scratch + 4, q, len);
         n = 4 + len;
-        p += len;
     } else {
         if (sizeof(AUD) > cap) return 0;
         memcpy(scratch, AUD, sizeof(AUD));
@@ -273,12 +288,15 @@ static size_t assemble(const unsigned char *mp4, const struct mp4 *t, int i,
         memcpy(scratch + n, start, 4); n += 4; memcpy(scratch + n, t->pps, t->pps_len); n += t->pps_len;
     }
     while (p + t->nal_length_size <= end) {
+        const unsigned char *at = p;
         unsigned len = 0;
         for (int k = 0; k < t->nal_length_size; k++) len = (len << 8) | *p++;
         if (len == 0 || p + len > end) break;
-        if (n + 4 + len > cap) return 0;
-        memcpy(scratch + n, start, 4); n += 4;
-        memcpy(scratch + n, p, len); n += len;
+        if (at - base != aud) {
+            if (n + 4 + len > cap) return 0;
+            memcpy(scratch + n, start, 4); n += 4;
+            memcpy(scratch + n, p, len); n += len;
+        }
         p += len;
     }
     return n;
