@@ -1,9 +1,0 @@
-# Desk-only take for fake_remotejoy.py: checks the capture -> footage path.
-mark start
-wait 1.0
-tap cross
-mark second
-wait 1.0
-hold down 1.2
-mark third
-wait 1.0
