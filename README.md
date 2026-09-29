@@ -17,7 +17,7 @@ Just install, start and search for homebrew! Updates are shown automatically. Ne
 Downloads open a quiet progress screen: **Circle** continues in the background,
 **Square** cancels. Background downloads live in the **Basket**, with a bouncing download icon
 while a job is running. Both individual and whole-basket downloads start in the quiet progress screen.
-Press **Cross** on **Downloads in progress** to open the quiet progress screen for the queue;
+Press **Cross** on **Downloading** to open the quiet progress screen for the queue;
 **Circle** returns to the basket. Each app's information page also shows its progress.
 
 The UI defaults to **Mercy mode at 60 FPS**, with an optional Baked mode at 30 FPS.

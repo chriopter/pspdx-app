@@ -226,6 +226,11 @@ unsigned faded(unsigned color, int alpha) {
 /* Megabytes to a tenth: whole megabytes call everything under one of them
    nothing, and a count of bytes is not a size anybody reads. */
 static void size_mb(unsigned long long bytes, char *out, size_t size) {
+    /* Under a tenth of a megabyte it would read 0.0 MB: kilobytes then. */
+    if (bytes < 100 * 1024) {
+        snprintf(out, size, "%lu KB", (unsigned long)((bytes + 1023) >> 10));
+        return;
+    }
     snprintf(out, size, "%lu.%lu MB", (unsigned long)(bytes >> 20),
              (unsigned long)((bytes * 10 >> 20) % 10));
 }
@@ -438,7 +443,7 @@ static const char *action_title(void) {
         struct view_plan plan;
         view_action_plan(&plan);
         if (!plan.apps && view_download_count())
-            return downloads_busy() ? "Downloads in progress" : "Clear finished";
+            return downloads_busy() ? "Downloading" : "Clear finished";
     }
     if (view_tab_kind() != VIEW_TAB_STICK) return T_DOWNLOAD_ALL;
     int waiting = view_updates_waiting();
@@ -892,7 +897,7 @@ static void draw_action_panel(const struct catalog *catalog, float t) {
         struct view_plan pending;
         view_action_plan(&pending);
         if (!pending.apps && view_download_count()) {
-            draw_setting_note(downloads_busy() ? "Downloads in progress" : "Clear finished",
+            draw_setting_note(downloads_busy() ? "Downloading" : "Clear finished",
                 downloads_busy() ? "Press X for quiet download progress. Music and background motion pause. Circle returns to the cart."
                                  : "Finished downloads stay here until you clear them. Installed apps are also in Installed.", 0);
             return;
