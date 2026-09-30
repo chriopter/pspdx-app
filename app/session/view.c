@@ -93,7 +93,7 @@ static int g_groups;
 static int g_group_open = -1;
 static int g_browse = -1;               /* the way open, -1 at the store's first rows */
 /* The rows of the way open, as group numbers, in their order. */
-static unsigned char g_way[VIEW_GROUPS];
+static unsigned char g_way[VIEW_GROUPS];     /* VIEW_GROUPS < 256 */
 static int g_ways;
 
 static int same_word(const char *a, const char *b) {
@@ -263,6 +263,18 @@ static void list_way(void) {
     g_ways = 0;
     for (int n = 0; g_browse >= 0 && n < g_groups; n++)
         if (g_group[n].kind == g_browse) g_way[g_ways++] = (unsigned char)n;
+    /* The cloud reads in the order of the words, the size of a chip saying
+       how many carry it; a few dozen, sorted by insertion. */
+    if (g_browse == VIEW_GROUP_TAG)
+        for (int i = 1; i < g_ways; i++) {
+            unsigned char v = g_way[i];
+            int j = i;
+            while (j > 0 && strcasecmp(g_group[g_way[j - 1]].word, g_group[v].word) > 0) {
+                g_way[j] = g_way[j - 1];
+                j--;
+            }
+            g_way[j] = v;
+        }
 }
 
 static void collect_groups(void) {
@@ -294,6 +306,37 @@ int view_browse_rows(int k) {
     return n;
 }
 int view_browse_at(void) { return g_browse; }
+int view_cloud(void) {
+    return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_HOMEBREW && g_browse == VIEW_GROUP_TAG &&
+           g_group_open < 0;
+}
+
+static unsigned published(int index);
+int view_newest(int n, int browse, int *out, int max) {
+    int got = 0;
+    if (!g_view_of || max <= 0) return 0;
+    for (int i = 0; i < g_view_of->count; i++) {
+        const struct app_entry *e = &g_view_of->apps[i];
+        if (view_hidden(e)) continue;
+        int in = 0;
+        if (n >= 0) in = view_in_group(e, n);
+        else if (browse == VIEW_GROUP_CATEGORY) in = category_of(e) >= 0;
+        else
+            for (int g = 0; !in && g < g_groups; g++)
+                in = g_group[g].kind == browse && view_in_group(e, g);
+        if (!in) continue;
+        /* Kept newest first, a tie in the catalog's order, as the store
+           lists them. */
+        unsigned rev = published(i);
+        int at = got;
+        while (at > 0 && published(out[at - 1]) < rev) at--;
+        if (at >= max) continue;
+        if (got < max) got++;
+        for (int k = got - 1; k > at; k--) out[k] = out[k - 1];
+        out[at] = i;
+    }
+    return got;
+}
 
 static int on_store(void) { return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_HOMEBREW; }
 /* The rows above the packages on the open tab: the three ways at the

@@ -9,6 +9,7 @@
 #include "update/reach.h"
 #include "update/sources.h"
 #include "gui/wrap.h"
+#include "gui/cloud.h"
 #include "util/storage.h"
 #include "util/pbp.h"
 #include <stdio.h>
@@ -277,6 +278,21 @@ int main(int argc, char **argv) {
             }
             printf("root %d\n", view_browse_close());
         }
+        return 0;
+    }
+    if (!strcmp(argv[1], "cloud")) {
+        /* cloud <room> <width>...: each chip's line and x, then where each
+           goes left, right, up and down. */
+        struct cloud_chip chip[64];
+        float w[64];
+        int n = argc - 3 < 64 ? argc - 3 : 64;
+        for (int i = 0; i < n; i++) w[i] = (float)atof(argv[3 + i]);
+        int lines = cloud_layout(chip, n, w, (float)atof(argv[2]), 6);
+        printf("lines %d\n", lines);
+        for (int i = 0; i < n; i++)
+            printf("%d %g  %d %d %d %d\n", chip[i].line, chip[i].x, cloud_step(chip, n, i, -1, 0),
+                   cloud_step(chip, n, i, 1, 0), cloud_step(chip, n, i, 0, -1),
+                   cloud_step(chip, n, i, 0, 1));
         return 0;
     }
     if (!strcmp(argv[1], "sourcename")) {

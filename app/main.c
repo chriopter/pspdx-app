@@ -829,6 +829,10 @@ int main(int argc, char *argv[]) {
         /* Each tab remembers its category, selected app and detail scroll.
            Triggers leave nested pages; D-pad arrows switch tabs in lists. */
         unsigned tabs = PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_LEFT | PSP_CTRL_RIGHT;
+        /* In the tag cloud the arrows walk the chips; L and R still turn
+           the tab. */
+        int cloud = shown()->count > 0 && view_cloud() && !modal;
+        if (cloud) tabs &= ~(unsigned)(PSP_CTRL_LEFT | PSP_CTRL_RIGHT);
         if ((pressed & tabs) && shown()->count > 0 && !modal) {
             if (!tab_departure_saved)
                 view_remember(cursor, details ? details_of : -1, shell_details_position());
@@ -849,12 +853,21 @@ int main(int argc, char *argv[]) {
         /* The list is a ring for a press: past the last entry comes the
            first. A hold stops at the end instead -- at hundreds of rows a
            second the ring would be gone round before the eye saw it. */
-        if ((pressed & PSP_CTRL_DOWN) && count > 0 && !modal) {
+        /* The cloud: a line up or down onto the nearest chip, one chip
+           along; a hold repeats a step at a time. */
+        if (view_cloud() && count > 0 && !modal && shown()->count > 0) {
+            int to = cursor;
+            if (pressed & PSP_CTRL_DOWN) to = shell_cloud_step(to, 0, 1);
+            if (pressed & PSP_CTRL_UP) to = shell_cloud_step(to, 0, -1);
+            if (pressed & PSP_CTRL_RIGHT) to = shell_cloud_step(to, 1, 0);
+            if (pressed & PSP_CTRL_LEFT) to = shell_cloud_step(to, -1, 0);
+            if (to != cursor) cues_post(CUE_MOVE, cursor = to);
+        } else if ((pressed & PSP_CTRL_DOWN) && count > 0 && !modal) {
             int to = steps ? (cursor + steps < count ? cursor + steps : count - 1)
                            : (cursor + 1) % count;
             if (to != cursor) cues_post(CUE_MOVE, cursor = to);
         }
-        if ((pressed & PSP_CTRL_UP) && count > 0 && !modal) {
+        if ((pressed & PSP_CTRL_UP) && count > 0 && !modal && !view_cloud()) {
             int to = steps ? (cursor - steps > 0 ? cursor - steps : 0) : (cursor + count - 1) % count;
             if (to != cursor) cues_post(CUE_MOVE, cursor = to);
         }

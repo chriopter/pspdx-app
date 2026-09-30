@@ -128,6 +128,10 @@ void shell_install_phase(void *ctx, const char *phase);
 void shell_install_progress(void *ctx, size_t done, size_t total);
 void shell_install_end(const char *message);
 
+/* The tag cloud: where the pad goes from chip cursor, dx along the chips
+   or dy a line up or down (gui/cloud.h), in the cloud as it is drawn. */
+int shell_cloud_step(int cursor, int dx, int dy);
+
 struct download_status;
 void shell_download_draw(const struct app_entry *entry, const struct download_status *status);
 /* The page before an install the installer went by its rule for: what of

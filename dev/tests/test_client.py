@@ -347,7 +347,7 @@ class ClientTests(unittest.TestCase):
  def test_view_tabs_come_and_go(self):
   # One app, installed with a newer one published: stick, Homebrew, the UMD, which has no rows, and the gear; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
   self.fixtures();r=self.run_client('view')
-  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 4 first -10 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 4 first -100 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
+  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 4 first -10 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 4 first -1000 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
  def test_catalog_offline_fallback(self):
   self.fixtures();r=self.run_client('fetch');self.assertIn(ID+' 2 1',r.stdout)
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)
@@ -757,7 +757,7 @@ class ClientTests(unittest.TestCase):
     # The store opens with its three ways to browse it by -- category, tag, source -- whatever the entry names, the package below them.
     self.assertEqual(self.run_client('view').stdout.splitlines()[:3],['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 4 first -10 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0'])
  def test_the_store_is_browsed_by_category_tag_and_source(self):
-  # Three rows above the packages, one a way to browse by, with how many rows it lists: the categories, the tags at least three shown apps carry (puzzle, two while the unreleased are hidden, has no row), most first, spelled as first met, "unreleased" never, and the sources by the name their catalog gives or their URL makes. Back out of a row lands on it, back out of a way on the way; a tag or a source narrows the list to its apps.
+  # Three rows above the packages, one a way to browse by, with how many rows it lists: the categories, the tags at least two shown apps carry (rare, one, has no chip), in the order of their words, spelled as first met, "unreleased" never, and the sources by the name their catalog gives or their URL makes. Back out of a row lands on it, back out of a way on the way; a tag or a source narrows the list to its apps.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]
   def entry(n,tags,category='game'):
    return dict(app,id=f'app_{n}',name=f'App {n}',tags=tags,category=category,source=f'https://github.com/test/app{n}',installdir=f'PSP/GAME/App{n}',
@@ -768,17 +768,21 @@ class ClientTests(unittest.TestCase):
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\nhttps://example.com/second.json\n')
   (self.root/'map.txt').write_text('https://example.com/second.json %s\n'%(self.root/'second.json'))
   r=self.run_client('groups',URL_MAP=self.root/'map.txt')
-  self.assertEqual(r.stdout.splitlines(),['Browse by Category 3','Browse by Tag 1','Browse by Source 2','then 1',
+  self.assertEqual(r.stdout.splitlines(),['Browse by Category 3','Browse by Tag 2','Browse by Source 2','then 1',
                                           '> Browse by Category','0 game 4','0 demo 0','0 app 0','apps 0 back 2','root 0',
-                                          '> Browse by Tag','1 Racing 3','root 1',
+                                          '> Browse by Tag','1 puzzle 2','1 Racing 3','apps 3 back 1','root 1',
                                           '> Browse by Source','2 example.com 4','2 PSPDX Community 1','apps 1 back 1','root 2'],r.stderr)
   # Shown, the unreleased count, puzzle has its row, and the switch itself is never a tag row.
   r=self.run_client('groups',URL_MAP=self.root/'map.txt',UNRELEASED=1)
   self.assertEqual(r.stdout.splitlines()[4:17],['> Browse by Category','0 game 7','0 demo 1','0 app 0','apps 0 back 2','root 0',
-                                                '> Browse by Tag','1 Racing 5','1 puzzle 4','apps 4 back 1','root 1','> Browse by Source','2 example.com 8'],r.stderr)
+                                                '> Browse by Tag','1 puzzle 4','1 Racing 5','apps 5 back 1','root 1','> Browse by Source','2 example.com 8'],r.stderr)
   ids=lambda *a:[i.rsplit('.',1)[-1] for i in self.run_client('listing',*a,URL_MAP=self.root/'map.txt').stdout.split()]
   self.assertEqual(sorted(ids('Racing')),['app1','app3','app8'])
   self.assertEqual(ids('PSPDX Community'),['app8'])
+ def test_the_tag_cloud_lays_out_and_walks(self):
+  # Chips fill a line of 100 with 6 between them and each line is centred; left and right go along the order, onto the next line at the end; up and down go to the chip on the next line whose middle is nearest, and nowhere past the edges. A chip wider than the room stands alone.
+  r=self.run_client('cloud',100,40,40,30,60,20,150,10)
+  self.assertEqual(r.stdout.splitlines(),['lines 5','0 7  0 1 0 2','0 53  0 2 1 3','1 2  1 3 0 4','1 38  2 4 1 4','2 40  3 5 3 5','3 0  4 6 4 6','4 45  5 6 5 6'])
  def test_a_source_is_named_by_its_url(self):
   urls=['https://pspdev.github.io/homebrew/','https://chriopter.github.io/pspdx-catalog/','https://chriopter.github.io/pspdx-catalog/catalog.json',
         'https://someone.github.io/','https://github.com/owner/repo@v1.2','https://raw.githubusercontent.com/owner/lists/main/psp.txt',

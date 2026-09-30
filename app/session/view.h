@@ -66,9 +66,9 @@ int view_updates_waiting(void);
 #define VIEW_BROWSE 3
 #define VIEW_IS_BROWSE(at) ((at) <= VIEW_ROW_BROWSE && (at) > VIEW_ROW_BROWSE - VIEW_BROWSE)
 #define VIEW_ROW_GROUP (-50)
-#define VIEW_GROUPS 40
-#define VIEW_TAGS 12            /* the most tag rows there are */
-#define VIEW_TAG_MIN 3          /* and the fewest apps one stands for */
+#define VIEW_TAGS 128           /* the most tags there are */
+#define VIEW_TAG_MIN 2          /* and the fewest apps one stands for */
+#define VIEW_GROUPS (3 + VIEW_TAGS + 16)
 enum view_group_kind { VIEW_GROUP_CATEGORY, VIEW_GROUP_TAG, VIEW_GROUP_SOURCE };
 int view_group_count(void);                 /* rows there are to browse by, of every way */
 const char *view_group_word(int n);         /* the word, as the catalogs write it */
@@ -89,6 +89,12 @@ int view_browse_rows(int k);
 int view_browse_at(void);
 void view_browse_open(int k);
 int view_browse_close(void);
+/* The tags stand open as a cloud, not as a list: their rows are the
+   chips, in the order of their words. */
+int view_cloud(void);
+/* The newest packages the store shows in group n, or with browse >= 0 in
+   any row of that way: up to max catalog indices, newest first. */
+int view_newest(int n, int browse, int *out, int max);
 
 /* That row. view_index() answers VIEW_ROW_ACTION for it, which is
    below zero like the no-such-row answer, so anything that only ever wanted
@@ -98,7 +104,7 @@ int view_browse_close(void);
 /* Under the gear the rows are not packages but the things this session can
    do to itself: view_index() answers VIEW_ROW_SETTING minus the
    row's number for them, so the one list draws and walks both kinds. */
-#define VIEW_ROW_SETTING (-100)
+#define VIEW_ROW_SETTING (-1000)     /* below every VIEW_ROW_GROUP */
 #define VIEW_SETTINGS 4
 
 /* The word on a row under the gear. */

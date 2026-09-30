@@ -40,6 +40,7 @@
 #include "install/install.h"
 #include "gui/title.h"
 #include "gui/wrap.h"
+#include "gui/cloud.h"
 #include "gui/palette.h"
 #include "gui/preview.h"
 #include "session/view.h"
@@ -509,6 +510,194 @@ static void draw_setting_row(int n, int y, int selected, float t) {
                        selected ? g_text : g_dim, setting_word(n));
 }
 
+/* ------------------------------------------------------------ previews */
+
+/* A few icons of what a row to browse by holds, so that it is worth
+   opening: the newest of it, those whose icon is here already or on the
+   stick first, so the preview stands at once. Chosen once a row, and only
+   these few asked of the icons -- never the whole of a large group. */
+#define PREVIEW_N 4
+static int g_pick[PREVIEW_N], g_picks;
+static int g_pick_code = -1;
+static unsigned g_pick_generation;
+
+/* A row's key for its preview: a group's number, a way's 1000 and more,
+   -1 for a row that has none. */
+static int preview_code(int index) {
+    if (VIEW_IS_BROWSE(index)) return 1000 + VIEW_ROW_BROWSE - index;
+    if (index <= VIEW_ROW_GROUP && index > VIEW_ROW_SETTING) return VIEW_ROW_GROUP - index;
+    return -1;
+}
+
+static void pick_preview(int code) {
+    if (code == g_pick_code && g_pick_generation == view_generation()) return;
+    g_pick_code = code;
+    g_pick_generation = view_generation();
+    g_picks = 0;
+    if (code < 0 || !g_catalog) return;
+    int cand[12];
+    int n = code >= 1000 ? view_newest(-1, code - 1000, cand, 12) : view_newest(code, -1, cand, 12);
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < n && g_picks < PREVIEW_N; i++) {
+            const struct app_entry *e = &g_catalog->apps[cand[i]];
+            int ready = icons_get(cand[i]) || e->state != APP_NOT_INSTALLED;
+            if (ready == !pass) g_pick[g_picks++] = cand[i];
+        }
+}
+
+/* The picked icons at w x h, cols to a line. */
+static void draw_preview(float x, float y, int cols, int w, int h, int gap) {
+    for (int i = 0; i < g_picks; i++) {
+        int px = (int)x + (i % cols) * (w + gap), py = (int)y + (i / cols) * (h + gap);
+        const struct gfx_texture *icon = icons_get(g_pick[i]);
+        if (icon) gfx_texture_draw(icon, px, py, w, h, RGB(255, 255, 255));
+        else gfx_rect(px, py, w, h, RGBA(255, 255, 255, 14));
+    }
+}
+
+/* ---------------------------------------------------------------- cloud */
+
+/* The tags as a cloud across the whole room: chips in three sizes by how
+   many apps carry them, the chosen one lit the way a row is, and under
+   the cloud a strip with the chosen tag's icons, count and names. */
+#define CLOUD_W (SCR_W - 2 * LIST_X)
+#define CLOUD_LINE 28
+#define CLOUD_CHIP_H 23
+#define CLOUD_VISIBLE 5
+#define CLOUD_STRIP_Y (LIST_Y + CLOUD_VISIBLE * CLOUD_LINE + 12)
+static struct cloud_chip g_chip[VIEW_TAGS];
+static unsigned char g_chip_tier[VIEW_TAGS];
+static int g_chips, g_chip_lines, g_chip_made;
+static unsigned g_chip_generation;
+static float g_cloud_scroll;
+static int g_cloud_first;
+static const enum font_style TIER_FONT[3] = { FONT_TITLE, FONT_BODY, FONT_CAPTION };
+
+static void chip_count(int n, char *out, size_t size) {
+    snprintf(out, size, "%d", view_group_apps(n));
+}
+
+static void cloud_ensure(void) {
+    if (g_chip_made && g_chip_generation == view_generation()) return;
+    g_chip_made = 1;
+    g_chip_generation = view_generation();
+    g_chips = view_cloud() ? view_count() : 0;
+    if (g_chips > VIEW_TAGS) g_chips = VIEW_TAGS;
+    /* The tiers by rank: the fifth most carried large, the next two fifths
+       plain, the rest small; a count shared goes with its best. */
+    int sorted[VIEW_TAGS];
+    for (int i = 0; i < g_chips; i++) {
+        int apps = view_group_apps(VIEW_ROW_GROUP - view_index(i)), j = i;
+        while (j > 0 && sorted[j - 1] < apps) { sorted[j] = sorted[j - 1]; j--; }
+        sorted[j] = apps;
+    }
+    int big = g_chips ? sorted[g_chips / 5 > 0 ? g_chips / 5 - 1 : 0] : 0;
+    int mid = g_chips ? sorted[3 * g_chips / 5 > 0 ? 3 * g_chips / 5 - 1 : 0] : 0;
+    float w[VIEW_TAGS];
+    for (int i = 0; i < g_chips; i++) {
+        int n = VIEW_ROW_GROUP - view_index(i), apps = view_group_apps(n);
+        g_chip_tier[i] = apps >= big ? 0 : apps >= mid ? 1 : 2;
+        char count[12];
+        chip_count(n, count, sizeof(count));
+        w[i] = 8 + font_width(TIER_FONT[g_chip_tier[i]], group_word(n)) + 5 +
+               font_width(FONT_CAPTION, count) + 8;
+        if (w[i] > CLOUD_W) w[i] = CLOUD_W;
+    }
+    g_chip_lines = cloud_layout(g_chip, g_chips, w, CLOUD_W, 6);
+    g_cloud_first = 0;
+    g_cloud_scroll = 0;
+}
+
+int shell_cloud_step(int cursor, int dx, int dy) {
+    cloud_ensure();
+    return cloud_step(g_chip, g_chips, cursor, dx, dy);
+}
+
+/* A chip: a pill of the room's light, its corners taken off. */
+static void draw_pill(int x, int y, int w, int h, unsigned color) {
+    gfx_rect(x + 2, y, w - 4, h, color);
+    gfx_rect(x, y + 2, 2, h - 4, color);
+    gfx_rect(x + 1, y + 1, 1, 1, color);
+    gfx_rect(x + 1, y + h - 2, 1, 1, color);
+    gfx_rect(x + w - 2, y + 2, 2, h - 4, color);
+    gfx_rect(x + w - 2, y + 1, 1, 1, color);
+    gfx_rect(x + w - 2, y + h - 2, 1, 1, color);
+}
+
+static const char *group_names(int n, int apps_only);
+static void draw_panel_preview(int code, int lines);
+
+static void draw_cloud(int cursor, float t) {
+    cloud_ensure();
+    float dx = g_page_dx;
+    if (g_chips <= 0) {
+        font_print(FONT_BODY, LIST_X + dx, LIST_Y + 24, g_dim, T_BROWSE_NONE);
+        return;
+    }
+    if (cursor >= g_chips) cursor = g_chips - 1;
+    int line = g_chip[cursor].line;
+    if (line < g_cloud_first) g_cloud_first = line;
+    if (line >= g_cloud_first + CLOUD_VISIBLE) g_cloud_first = line - CLOUD_VISIBLE + 1;
+    g_cloud_scroll += (g_cloud_first * CLOUD_LINE - g_cloud_scroll) * 0.25f;
+
+    /* The room darkened a little under the cloud, as under a list. */
+    draw_shade(SCR_W / 2 + (int)dx, LIST_Y + CLOUD_VISIBLE * CLOUD_LINE / 2, CLOUD_W,
+               CLOUD_VISIBLE * CLOUD_LINE);
+    gfx_clip(0, LIST_Y - 6, SCR_W, CLOUD_VISIBLE * CLOUD_LINE + 8);
+    float breathe = 0.85f + 0.15f * sinf(t * 2.2f);
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < g_chips; i++) {
+            int selected = i == cursor;
+            /* The chosen chip last, its light over its neighbours. */
+            if (selected != pass) continue;
+            int y = LIST_Y + (int)floorf(g_chip[i].line * CLOUD_LINE - g_cloud_scroll + 0.5f);
+            if (y < LIST_Y - CLOUD_LINE || y > LIST_Y + CLOUD_VISIBLE * CLOUD_LINE) continue;
+            int x = (int)(LIST_X + g_chip[i].x + dx), w = (int)g_chip[i].w;
+            int n = VIEW_ROW_GROUP - view_index(i), tier = g_chip_tier[i];
+            char count[12];
+            chip_count(n, count, sizeof(count));
+            unsigned word_rgb, count_rgb;
+            if (selected) {
+                gfx_glow(x + w / 2.0f, y + CLOUD_CHIP_H / 2.0f, w + 70, CLOUD_CHIP_H * 3.0f,
+                         rgb_pack(g_tint, (int)(150 * breathe)));
+                draw_pill(x, y, w, CLOUD_CHIP_H, rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.35f), 120));
+                gfx_glow(x + w / 2.0f, y + CLOUD_CHIP_H - 1, w + 20, 8,
+                         rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.7f), 200));
+                word_rgb = g_text;
+                count_rgb = faded(g_text, 210);
+            } else {
+                draw_pill(x, y, w, CLOUD_CHIP_H, RGBA(255, 255, 255, tier == 0 ? 26 : tier == 1 ? 18 : 12));
+                word_rgb = tier == 0 ? faded(g_text, 235) : tier == 1 ? g_dim : faded(g_dim, 175);
+                count_rgb = faded(g_dim, 140);
+            }
+            float cw = font_width(FONT_CAPTION, count);
+            /* Clipped only when the chip had to be cut to the room: a
+               measured word is given a little air, or its last letter
+               goes. */
+            font_print_clipped(TIER_FONT[tier], x + 8, y + (tier == 2 ? 16 : 17), w - 21 - cw + 6,
+                               word_rgb, group_word(n));
+            font_print(FONT_CAPTION, x + w - 8 - cw, y + 16, count_rgb, count);
+        }
+    gfx_unclip();
+
+    /* Under the cloud: a hairline, the chosen tag's newest icons at the
+       list's size, and what it holds. */
+    int n = VIEW_ROW_GROUP - view_index(cursor);
+    unsigned faint = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 110);
+    unsigned clear = rgb_pack(g_tint, 0);
+    int sy = CLOUD_STRIP_Y;
+    gfx_hgrad((int)(LIST_X + dx), sy - 5, CLOUD_W / 2, 1, clear, faint);
+    gfx_hgrad((int)(LIST_X + dx + CLOUD_W / 2), sy - 5, CLOUD_W / 2, 1, faint, clear);
+    pick_preview(n);
+    icons_bind(g_catalog);
+    if (icons_want(g_pick, g_picks, g_picks)) icons_poke();
+    draw_preview(LIST_X + dx, sy + 2, PREVIEW_N, ICON_W, ICON_H, 5);
+    float tx = LIST_X + dx + PREVIEW_N * (ICON_W + 5) + 6;
+    float tw = LIST_X + CLOUD_W + dx - tx;
+    font_print_clipped(FONT_META, tx, sy + 12, tw, g_text, group_names(n, 1));
+    font_print_clipped(FONT_CAPTION, tx, sy + 27, tw, g_dim, group_names(n, 0));
+}
+
 /* A row at the head of the store to browse it by: a sign where a package
    has its icon -- the category's own, a list for a tag, the network for a
    source -- the word, and at the row's end how many packages stand in it. */
@@ -567,28 +756,29 @@ static void draw_browse_panel(int k) {
         if (at >= sizeof(note) - 1) pspdx_utf8_mend(note);
         if (!at) snprintf(note, sizeof(note), "%s", T_BROWSE_NONE);
     }
-    draw_setting_note(view_browse_word(k), note, 0.0f);
+    int lines = draw_setting_note(view_browse_word(k), note, 0.0f);
+    draw_panel_preview(1000 + k, lines);
 }
 
-/* The right column while the cursor is on a row to browse by: the word,
-   and under it how many packages stand in it and which, as far as three
-   lines go. */
-static void draw_group_panel(int n) {
-    /* Made once a row, not once a frame: a tag three apps carry is
-       looked for through the whole catalog. */
-    static char note[256];
+/* What a row to browse by holds, said: apps_only the word and the count
+   ("Puzzle · 14 apps"), otherwise the count and the names of the first
+   of them, as far as a note goes. Made once a row, not once a frame: a
+   tag three apps carry is looked for through the whole catalog. */
+static const char *group_names(int n, int apps_only) {
+    static char note[256], head[160];
     static int note_of = -1;
     static unsigned note_generation;
     int apps = view_group_apps(n);
-    if (note_of == n && note_generation == view_generation() && apps) {
-        draw_setting_note(group_word(n), note, 0.0f);
-        return;
+    if (apps_only) {
+        snprintf(head, sizeof(head), "%s  \xc2\xb7  %d app%s", group_word(n), apps, apps == 1 ? "" : "s");
+        return head;
     }
+    if (note_of == n && note_generation == view_generation()) return note;
     note_of = n;
     note_generation = view_generation();
     if (apps == 0) {
-        draw_setting_note(group_word(n), T_CATEGORY_EMPTY, 0.0f);
-        return;
+        snprintf(note, sizeof(note), "%s", T_CATEGORY_EMPTY);
+        return note;
     }
     enum view_group_kind kind = view_group_kind(n);
     const char *says = kind == VIEW_GROUP_TAG ? T_TAG_NOTE
@@ -602,7 +792,22 @@ static void draw_group_panel(int n) {
         named++;
     }
     if (at >= sizeof(note) - 1) pspdx_utf8_mend(note);
-    draw_setting_note(group_word(n), note, 0.0f);
+    return note;
+}
+
+/* The preview in the right column, under the note of so many lines: two
+   by two at the size of the card's own icon. */
+static void draw_panel_preview(int code, int lines) {
+    pick_preview(code);
+    draw_preview(PANEL_X, SHOT_Y + 14 + 24 + 17 * lines + 10, 2, 72, 40, 8);
+}
+
+/* The right column while the cursor is on a row to browse by: the word,
+   under it how many packages stand in it and which, as far as three lines
+   go, and the newest of them. */
+static void draw_group_panel(int n) {
+    int lines = draw_setting_note(group_word(n), group_names(n, 0), 0.0f);
+    draw_panel_preview(n, lines);
 }
 
 /* How long the cursor has sat on what it sits on: the scrolling of a line
@@ -652,8 +857,14 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
     int wfrom = g_first, wto = wfrom + VISIBLE;
     if (wto > count) wto = count;
     enum { AHEAD = 3 };
-    int wanted[VISIBLE + 2 * AHEAD], want_count = 0, visible = 0;
+    int wanted[PREVIEW_N + VISIBLE + 2 * AHEAD], want_count = 0, visible = 0;
     if (!g_fast) {
+        /* A row to browse by shows a few icons of what it holds beside it:
+           those first, they are what is being looked at. */
+        if (cursor >= 0 && cursor < count && preview_code(view_index(cursor)) >= 0) {
+            pick_preview(preview_code(view_index(cursor)));
+            for (int i = 0; i < g_picks; i++) wanted[want_count++] = g_pick[i];
+        }
         /* From the row the cursor is on outwards -- it, then one above and
            one below, and so on -- so that what is being looked at comes
            first, and the rest of the screen after it. */
@@ -2363,6 +2574,8 @@ void shell_draw(const struct catalog *catalog, int cursor) {
            middle of the room under the header. */
         font_print(FONT_TITLE, SCR_W / 2.0f - font_width(FONT_TITLE, T_UMD_SOON) / 2.0f,
                    (HEADER_H + SCR_H) / 2.0f + 5, g_text, T_UMD_SOON);
+    } else if (catalog->count > 0 && view_cloud()) {
+        draw_cloud(cursor, t);
     } else if (catalog->count > 0 && view_count() > 0) {
         int rows = view_count();
         int index = view_index(cursor < rows ? cursor : 0);
@@ -2441,6 +2654,11 @@ void shell_draw(const struct catalog *catalog, int cursor) {
 }
 
 int shell_settled(void) {
+    if (g_catalog && g_catalog->count > 0 && view_cloud()) {
+        /* The cloud has no bar, only its scroll. */
+        float go = g_cloud_scroll - g_cloud_first * CLOUD_LINE;
+        return g_fade <= 0 && go > -1.0f && go < 1.0f;
+    }
     float slide = g_scroll - g_first * ITEM_H;
     float target = LIST_Y + (g_cursor - g_first) * ITEM_H;
     float bar = g_sel_y - target;
