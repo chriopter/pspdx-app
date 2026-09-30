@@ -12,17 +12,11 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 
 ## How to use
 
-Just install, start and search for homebrew! Updates are shown automatically. Needs ARK-5 for WPA2.
+Extract `pspdx.zip` to your PSP, start PSPDX and browse by category, tag or source. Updates appear on their own. WPA2 needs ARK-5.
 
-Downloads open a quiet progress screen: **Circle** continues in the background,
-**Square** cancels. Background downloads live in the **Basket**, with a bouncing download icon
-while a job is running. Both individual and whole-basket downloads start in the quiet progress screen.
-Press **Cross** on **Downloading** to open the quiet progress screen for the queue;
-**Circle** returns to the basket. Each app's information page also shows its progress.
-
-The UI defaults to **Mercy mode at 60 FPS**, with an optional Baked mode at 30 FPS.
-While downloads are queued or running, background browsing temporarily uses
-the lighter 60-FPS interface and returns to your chosen mode when the queue finishes.
+- **Install:** press **Cross** on an app. **Circle** keeps the download running in the background, **Square** cancels.
+- **Basket:** add apps with **Triangle**, then *Download all*. Running downloads are listed there too.
+- **Display:** 60 FPS by default; a calmer 30 FPS mode is in *Options*.
 
 Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 
