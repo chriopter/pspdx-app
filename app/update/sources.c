@@ -666,9 +666,10 @@ void sources_name(const char *url, char *out, size_t size) {
     static const char PAGES[] = ".github.io";
     size_t hl = strlen(host), pl = sizeof(PAGES) - 1;
     if (hl > pl && !strcmp(host + hl - pl, PAGES)) {
-        /* owner.github.io: the owner, and the repository the site is of. */
-        if (parts) snprintf(out, size, "%.*s / %s", (int)(hl - pl), host, part[0]);
-        else snprintf(out, size, "%.*s", (int)(hl - pl), host);
+        /* owner.github.io: the owner. The repository the site is of is
+           mostly a word like homebrew or catalog, and with it the name no
+           longer fits a row or the header on the console's font. */
+        snprintf(out, size, "%.*s", (int)(hl - pl), host);
         return;
     }
     if ((!strcmp(host, "github.com") || !strcmp(host, "www.github.com") ||

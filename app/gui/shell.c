@@ -392,6 +392,11 @@ static const char *group_word(int n) {
     return word;
 }
 
+/* A way to browse by, in short: the header of the list it opens, and the
+   row that opens it. The whole words head the panel beside the row; on the
+   console's own font they are wider than a row. */
+static const char *const BROWSE_HEAD[VIEW_BROWSE] = { T_HEAD_CATEGORIES, T_HEAD_TAGS, T_HEAD_SOURCES };
+
 static const char *tab_word(int tab) {
     if (files_view_shown()) return T_HEAD_FILES;
     if (sources_view_shown()) return T_HEAD_SOURCES;
@@ -399,11 +404,7 @@ static const char *tab_word(int tab) {
     if (g_info) return T_HEAD_ABOUT;
     if (tab == TAB_HOMEBREW && view_group_open_at() >= 0)
         return group_word(view_group_open_at());
-    if (tab == TAB_HOMEBREW && view_browse_at() >= 0) {
-        /* The short word: the header has less room than a row. */
-        static const char *const HEAD[VIEW_BROWSE] = { T_HEAD_CATEGORIES, T_HEAD_TAGS, T_HEAD_SOURCES };
-        return HEAD[view_browse_at()];
-    }
+    if (tab == TAB_HOMEBREW && view_browse_at() >= 0) return BROWSE_HEAD[view_browse_at()];
     switch (tab) {
     case TAB_GEAR: return T_HEAD_GEAR;
     case TAB_STICK: return T_HEAD_STICK;
@@ -724,7 +725,7 @@ static void draw_group_row(int n, int y, int selected, float t) {
 }
 
 /* One of the ways the store is browsed by, at its head: the sign of the
-   kind of row it lists and the words. No count: the words take the row,
+   kind of row it lists and its short word. No count: the words take the row,
    and what the way lists is said in the panel. */
 static const signed char BROWSE_SIGN[VIEW_BROWSE] = { MARK_STORE, MARK_LIST, MARK_GLOBE };
 static void draw_browse_row(int k, int y, int selected, float t) {
@@ -733,7 +734,7 @@ static void draw_browse_row(int k, int y, int selected, float t) {
     mark_draw((enum mark)BROWSE_SIGN[k], gx, gy, selected ? g_text : faded(g_dim, 170),
               selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     font_print_scrolling(FONT_TITLE, NAME_X + dx, y + 21, LIST_X + LIST_W - NAME_X,
-                         selected ? g_text : g_dim, view_browse_word(k),
+                         selected ? g_text : g_dim, BROWSE_HEAD[k],
                          selected ? hover_age(0, VIEW_ROW_BROWSE - k) : 0.0f);
 }
 

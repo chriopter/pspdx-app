@@ -118,7 +118,7 @@ void sources_repo_url(const struct source_repo *r, char *url, size_t size);
 
 /* What a source is called where the store is browsed by source, when its
    catalog names nothing: whose it is and which of theirs, from the URL.
-   https://pspdev.github.io/homebrew/ is "pspdev / homebrew", a GitHub
+   https://pspdev.github.io/homebrew/ is "pspdev", a GitHub
    repository "owner / repo", another host its name and the first folder
    of the path. A file at the end of the path says nothing and is left
    out. Always a string, empty only for something that is no URL. */

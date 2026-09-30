@@ -787,7 +787,7 @@ class ClientTests(unittest.TestCase):
   urls=['https://pspdev.github.io/homebrew/','https://chriopter.github.io/pspdx-catalog/','https://chriopter.github.io/pspdx-catalog/catalog.json',
         'https://someone.github.io/','https://github.com/owner/repo@v1.2','https://raw.githubusercontent.com/owner/lists/main/psp.txt',
         'https://www.example.com/catalog.json','https://user@files.example.net:8443/psp/apps/list.txt','nonsense']
-  self.assertEqual(self.run_client('sourcename',*urls).stdout.splitlines(),['pspdev / homebrew','chriopter / pspdx-catalog','chriopter / pspdx-catalog','someone','owner / repo','owner / lists','example.com','files.example.net / psp','nonsense'])
+  self.assertEqual(self.run_client('sourcename',*urls).stdout.splitlines(),['pspdev','chriopter','chriopter','someone','owner / repo','owner / lists','example.com','files.example.net / psp','nonsense'])
  def gzip_catalog(self,data=None,cut=0,flip=False):
   raw=(self.root/'catalog.json').read_bytes() if data is None else json.dumps(data).encode()
   packed=bytearray(gzip.compress(raw))
