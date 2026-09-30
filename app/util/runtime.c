@@ -1,7 +1,6 @@
 #include "util/storage.h"
 #include <pspkernel.h>
 #include <pspiofilemgr.h>
-#include <psprtc.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <pthread.h>
@@ -95,16 +94,15 @@ void log_dump(void) {
     pthread_mutex_unlock(&dump_lock);
 }
 
+/* Time since power-on, not the clock: the clock is set back and forth by
+   hand, and on a console that has lost it entirely it stands still, which
+   would stop every wait, fade and timeout with it. */
 unsigned now_ms(void) {
-    u64 tick = 0;
-    sceRtcGetCurrentTick(&tick);
-    return (unsigned)(tick / 1000);
+    return (unsigned)(sceKernelGetSystemTimeWide() / 1000);
 }
 
 unsigned now_us(void) {
-    u64 tick = 0;
-    sceRtcGetCurrentTick(&tick);
-    return (unsigned)tick;
+    return (unsigned)sceKernelGetSystemTimeWide();
 }
 
 int expired(unsigned start, unsigned budget_ms) {
