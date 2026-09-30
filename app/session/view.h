@@ -55,36 +55,40 @@ int view_tab_active(void);
    tab's own label and the reason it exists at all. */
 int view_updates_waiting(void);
 
-/* Under the store, before the packages, the rows it is browsed by: the
-   categories the catalogs name, the tags most apps carry, and the sources,
-   each with how many packages stand in it, in three groups under a heading
-   each; then a heading over the packages themselves. Taking a row narrows
-   the store to what stands in it until O opens it back up. view_index()
-   answers VIEW_ROW_GROUP minus the row's number for such a row, and
-   VIEW_ROW_HEADING minus the heading's for a heading, which is no place
-   for the cursor (view_selectable). */
+/* The store opens with three rows above its packages, one for each way
+   it is browsed by: the categories the catalogs name, the tags most apps
+   carry, and the sources. view_index() answers VIEW_ROW_BROWSE minus the
+   way's number for such a row. Taking one lists its rows in the store's
+   place, each with how many packages stand in it, and view_index() answers
+   VIEW_ROW_GROUP minus the row's number for those; taking one of them
+   narrows the store to what stands in it. O goes back a step at a time. */
+#define VIEW_ROW_BROWSE (-10)
+#define VIEW_BROWSE 3
+#define VIEW_IS_BROWSE(at) ((at) <= VIEW_ROW_BROWSE && (at) > VIEW_ROW_BROWSE - VIEW_BROWSE)
 #define VIEW_ROW_GROUP (-50)
 #define VIEW_GROUPS 40
 #define VIEW_TAGS 12            /* the most tag rows there are */
 #define VIEW_TAG_MIN 3          /* and the fewest apps one stands for */
-#define VIEW_ROW_HEADING (-10)
-#define VIEW_HEADINGS 4
-#define VIEW_IS_HEADING(at) ((at) <= VIEW_ROW_HEADING && (at) > VIEW_ROW_HEADING - VIEW_HEADINGS)
 enum view_group_kind { VIEW_GROUP_CATEGORY, VIEW_GROUP_TAG, VIEW_GROUP_SOURCE };
-int view_group_count(void);                 /* rows there are to browse by */
+int view_group_count(void);                 /* rows there are to browse by, of every way */
 const char *view_group_word(int n);         /* the word, as the catalogs write it */
 enum view_group_kind view_group_kind(int n);
 int view_group_apps(int n);                 /* packages in it */
 int view_in_group(const struct app_entry *entry, int n);
 int view_group_open_at(void);               /* the one the store is narrowed to, -1 if none */
+/* Narrowed to row n, the way it belongs to standing open behind it. */
 void view_group_open(int n);
-/* The store opened back up: the row the group stood on, -1 when none was
+/* Back to the way's rows: the row the group stood on, -1 when none was
    open. */
 int view_group_close(void);
-const char *view_heading(int h);
-/* row, or the nearest row from it walking by dir that is not a heading,
-   or failing that the nearest the other way. */
-int view_selectable(int row, int dir);
+/* The ways: the words on their rows, how many rows each lists, which one
+   stands open (-1 for none), and back to the store's first rows, where the
+   way stood on the row it answers. */
+const char *view_browse_word(int k);
+int view_browse_rows(int k);
+int view_browse_at(void);
+void view_browse_open(int k);
+int view_browse_close(void);
 
 /* That row. view_index() answers VIEW_ROW_ACTION for it, which is
    below zero like the no-such-row answer, so anything that only ever wanted

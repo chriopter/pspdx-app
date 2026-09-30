@@ -250,21 +250,33 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (!strcmp(argv[1], "groups")) {
-        /* The rows the Homebrew tab opens with, top to bottom, down to the
-           first package: "# heading", or kind, word and count. */
+        /* The Homebrew tab's first rows down to the first package, "way
+           rows" each; then each way opened: "> way", its rows as kind, word
+           and count, the row the first of them comes back to from inside,
+           and the row the way comes back to. */
         catalog_fetch(&catalog);
         view_rebuild(&catalog);
         if (getenv("UNRELEASED")) view_show_unreleased(1);
         while (view_tab_kind() != VIEW_TAB_HOMEBREW) view_tab_move(1);
-        for (int row = 0; row < view_count(); row++) {
-            int at = view_index(row);
-            if (at >= 0) break;
-            if (VIEW_IS_HEADING(at)) printf("# %s\n", view_heading(VIEW_ROW_HEADING - at));
-            else if (at <= VIEW_ROW_GROUP)
-                printf("%d %s %d\n", view_group_kind(VIEW_ROW_GROUP - at),
-                       view_group_word(VIEW_ROW_GROUP - at), view_group_apps(VIEW_ROW_GROUP - at));
+        int row = 0;
+        for (; row < view_count() && VIEW_IS_BROWSE(view_index(row)); row++)
+            printf("%s %d\n", view_browse_word(VIEW_ROW_BROWSE - view_index(row)),
+                   view_browse_rows(VIEW_ROW_BROWSE - view_index(row)));
+        printf("then %d\n", view_index(row) >= 0);
+        for (int k = 0; k < VIEW_BROWSE; k++) {
+            view_browse_open(k);
+            printf("> %s\n", view_browse_word(view_browse_at()));
+            for (int r = 0; r < view_count(); r++) {
+                int n = VIEW_ROW_GROUP - view_index(r);
+                printf("%d %s %d\n", view_group_kind(n), view_group_word(n), view_group_apps(n));
+            }
+            if (view_count() > 1) {
+                view_group_open(VIEW_ROW_GROUP - view_index(view_count() - 1));
+                int apps = view_count();
+                printf("apps %d back %d\n", apps, view_group_close());
+            }
+            printf("root %d\n", view_browse_close());
         }
-        printf("first %d\n", view_selectable(0, 1));
         return 0;
     }
     if (!strcmp(argv[1], "sourcename")) {

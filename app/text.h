@@ -297,11 +297,14 @@
 #define T_CATEGORY_EMPTY     "No apps in this category."
 #define T_TAG_NOTE           "%d app%s with this tag: "      /* n, "s"; the names follow */
 #define T_SOURCE_NOTE        "%d app%s from this source: "   /* n, "s"; the names follow */
-/* The headings the Homebrew tab opens with, and the one over its apps. */
+/* The three rows the Homebrew tab opens with, the ways it is browsed by. */
 #define T_BROWSE_CATEGORY    "Browse by Category"
 #define T_BROWSE_TAG         "Browse by Tag"
 #define T_BROWSE_SOURCE      "Browse by Source"
-#define T_BROWSE_ALL         "All Homebrew"
+/* The header over each way's rows. */
+#define T_HEAD_CATEGORIES    "Categories"
+#define T_HEAD_TAGS          "Tags"
+#define T_BROWSE_NONE        "Nothing to browse by yet."
 /* Every repository typed into Direct Install, as one source. */
 #define T_SOURCE_DIRECT      "Direct installs"
 #define T_DETAIL_SIZE        "Size"

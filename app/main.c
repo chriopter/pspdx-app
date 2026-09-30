@@ -849,22 +849,13 @@ int main(int argc, char *argv[]) {
         /* The list is a ring for a press: past the last entry comes the
            first. A hold stops at the end instead -- at hundreds of rows a
            second the ring would be gone round before the eye saw it. */
-        /* A heading is passed over, the way the cursor was going. */
         if ((pressed & PSP_CTRL_DOWN) && count > 0 && !modal) {
             int to = steps ? (cursor + steps < count ? cursor + steps : count - 1)
                            : (cursor + 1) % count;
-            if (steps) to = view_selectable(to, 1);
-            else
-                for (int k = 0; k < count && VIEW_IS_HEADING(view_index(to)); k++)
-                    to = (to + 1) % count;
             if (to != cursor) cues_post(CUE_MOVE, cursor = to);
         }
         if ((pressed & PSP_CTRL_UP) && count > 0 && !modal) {
             int to = steps ? (cursor - steps > 0 ? cursor - steps : 0) : (cursor + count - 1) % count;
-            if (steps) to = view_selectable(to, -1);
-            else
-                for (int k = 0; k < count && VIEW_IS_HEADING(view_index(to)); k++)
-                    to = (to + count - 1) % count;
             if (to != cursor) cues_post(CUE_MOVE, cursor = to);
         }
         if (pressed & KEY_SHOT) {
@@ -930,18 +921,26 @@ int main(int argc, char *argv[]) {
                     }
                 }
             }
-        } else if ((pressed & PSP_CTRL_CIRCLE) && view_group_open_at() >= 0) {
-            /* O opens the store back up, on the row it was narrowed from --
-               from an empty category too, which has no row to stand on. */
-            int was = view_group_close();
-            cues_post(CUE_MOVE, cursor = view_selectable(was, 1));
+        } else if ((pressed & PSP_CTRL_CIRCLE) &&
+                   (view_group_open_at() >= 0 || view_browse_at() >= 0)) {
+            /* O goes back a step, onto the row the step was taken from --
+               from an empty category too, which has no row to stand on:
+               from a category, tag or source to the way's rows, from those
+               to the store's first rows. */
+            int was = view_group_open_at() >= 0 ? view_group_close() : view_browse_close();
+            cues_post(CUE_MOVE, cursor = was);
             count = view_count();
         } else if (count > 0) {
             int at = view_index(cursor);
-            if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_GROUP && at > VIEW_ROW_SETTING) {
+            if ((pressed & PSP_CTRL_CROSS) && VIEW_IS_BROWSE(at)) {
+                /* A way to browse by lists its rows in the store's place. */
+                view_browse_open(VIEW_ROW_BROWSE - at);
+                cues_post(CUE_MOVE, cursor = 0);
+                count = view_count();
+            } else if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_GROUP && at > VIEW_ROW_SETTING) {
                 /* A category, tag or source row narrows the store to what
-                   stands in it; O opens the store back up, on the row it
-                   was narrowed from. */
+                   stands in it; O goes back to the way's rows, on the row
+                   it was narrowed from. */
                 view_group_open(VIEW_ROW_GROUP - at);
                 cues_post(CUE_MOVE, cursor = 0);
                 count = view_count();
@@ -1014,10 +1013,6 @@ int main(int argc, char *argv[]) {
             shell_word(T_WORD_CONNECTING);
             if (sync_start(&catalog) == 0) synced = 0;
         }
-
-        /* Whatever put the cursor where it is -- a tab, a refresh, a row
-           gone -- it never stands on a heading. */
-        if (shown()->count > 0 && view_count() > 0) cursor = view_selectable(cursor, 1);
 
         unsigned tick0 = now_us();
         g_mark[2] = tick0;

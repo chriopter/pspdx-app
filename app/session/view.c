@@ -91,10 +91,10 @@ struct group {
 static struct group g_group[VIEW_GROUPS];
 static int g_groups;
 static int g_group_open = -1;
-/* The store's rows above its packages, top to bottom: headings and
-   groups, as view_index() answers for them. */
-static short g_root[VIEW_GROUPS + VIEW_HEADINGS];
-static int g_roots;
+static int g_browse = -1;               /* the way open, -1 at the store's first rows */
+/* The rows of the way open, as group numbers, in their order. */
+static unsigned char g_way[VIEW_GROUPS];
+static int g_ways;
 
 static int same_word(const char *a, const char *b) {
     for (; *a && *b; a++, b++) {
@@ -259,9 +259,14 @@ static void collect_sources(void) {
     }
 }
 
+static void list_way(void) {
+    g_ways = 0;
+    for (int n = 0; g_browse >= 0 && n < g_groups; n++)
+        if (g_group[n].kind == g_browse) g_way[g_ways++] = (unsigned char)n;
+}
+
 static void collect_groups(void) {
     g_groups = 0;
-    g_roots = 0;
     for (size_t c = 0; c < sizeof(STORE_CATEGORIES) / sizeof(*STORE_CATEGORIES); c++) {
         memset(&g_group[g_groups], 0, sizeof(g_group[0]));
         snprintf(g_group[g_groups].word, sizeof(g_group[0].word), "%s", STORE_CATEGORIES[c]);
@@ -275,31 +280,31 @@ static void collect_groups(void) {
         collect_tags();
         collect_sources();
     }
-    /* A heading over each kind there are rows of, and one over the
-       packages. */
-    for (int kind = VIEW_GROUP_CATEGORY; kind <= VIEW_GROUP_SOURCE; kind++) {
-        int headed = 0;
-        for (int n = 0; n < g_groups; n++) {
-            if (g_group[n].kind != kind) continue;
-            if (!headed) g_root[g_roots++] = (short)(VIEW_ROW_HEADING - kind);
-            headed = 1;
-            g_root[g_roots++] = (short)(VIEW_ROW_GROUP - n);
-        }
-    }
-    g_root[g_roots++] = VIEW_ROW_HEADING - 3;
     if (g_group_open >= g_groups) g_group_open = -1;
+    list_way();
 }
 
-static const char *const HEADING[VIEW_HEADINGS] = {
-    T_BROWSE_CATEGORY, T_BROWSE_TAG, T_BROWSE_SOURCE, T_BROWSE_ALL,
+static const char *const BROWSE[VIEW_BROWSE] = {
+    T_BROWSE_CATEGORY, T_BROWSE_TAG, T_BROWSE_SOURCE,
 };
-const char *view_heading(int h) { return h >= 0 && h < VIEW_HEADINGS ? HEADING[h] : ""; }
+const char *view_browse_word(int k) { return k >= 0 && k < VIEW_BROWSE ? BROWSE[k] : ""; }
+int view_browse_rows(int k) {
+    int n = 0;
+    for (int g = 0; g < g_groups; g++) n += g_group[g].kind == k;
+    return n;
+}
+int view_browse_at(void) { return g_browse; }
 
-/* The rows above the packages on the open tab: the store's own, and only
-   while it is not narrowed to one of them. */
+static int on_store(void) { return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_HOMEBREW; }
+/* The rows above the packages on the open tab: the three ways at the
+   store's first rows, the way's rows while one is open and no row of it
+   is, nothing inside a row. */
 static int root_rows(void) {
-    int tab = g_tabs ? g_tab[g_tab_at] : 0;
-    return tab == TAB_HOMEBREW && g_group_open < 0 ? g_roots : 0;
+    if (!on_store() || g_group_open >= 0) return 0;
+    return g_browse < 0 ? VIEW_BROWSE : g_ways;
+}
+static int root_index(int row) {
+    return g_browse < 0 ? VIEW_ROW_BROWSE - row : VIEW_ROW_GROUP - g_way[row];
 }
 int view_group_count(void) { return g_groups; }
 const char *view_group_word(int n) { return n >= 0 && n < g_groups ? g_group[n].word : ""; }
@@ -310,8 +315,28 @@ int view_group_apps(int n) { return n >= 0 && n < g_groups ? g_group[n].apps : 0
 int view_group_open_at(void) { return g_group_open; }
 
 static void build_view(int restart);
+void view_browse_open(int k) {
+    if (k < 0 || k >= VIEW_BROWSE) return;
+    g_browse = k;
+    g_group_open = -1;
+    list_way();
+    build_view(1);
+}
+int view_browse_close(void) {
+    int was = g_browse;
+    if (was < 0) return -1;
+    g_browse = -1;
+    g_group_open = -1;
+    list_way();
+    build_view(1);
+    return was;
+}
 void view_group_open(int n) {
     if (n < 0 || n >= g_groups) return;
+    if (g_browse != g_group[n].kind) {
+        g_browse = g_group[n].kind;
+        list_way();
+    }
     g_group_open = n;
     build_view(1);
 }
@@ -320,21 +345,9 @@ int view_group_close(void) {
     if (was < 0) return -1;
     g_group_open = -1;
     build_view(1);
-    for (int row = 0; row < g_roots; row++)
-        if (g_root[row] == VIEW_ROW_GROUP - was) return row;
+    for (int row = 0; row < g_ways; row++)
+        if (g_way[row] == was) return row;
     return 0;
-}
-
-int view_selectable(int row, int dir) {
-    int count = view_count();
-    if (count <= 0) return 0;
-    if (row < 0) row = 0;
-    if (row >= count) row = count - 1;
-    dir = dir < 0 ? -1 : 1;
-    for (int pass = 0; pass < 2; pass++, dir = -dir)
-        for (int r = row; r >= 0 && r < count; r += dir)
-            if (!VIEW_IS_HEADING(view_index(r))) return r;
-    return row;
 }
 
 static unsigned published(int index) {
@@ -357,7 +370,8 @@ static void build_view(int restart) {
         int take;
         if (tab == TAB_HOMEBREW)
             take = !view_hidden(&g_view_of->apps[i]) &&
-                   (g_group_open < 0 || view_in_group(&g_view_of->apps[i], g_group_open));
+                   (g_group_open >= 0 ? view_in_group(&g_view_of->apps[i], g_group_open)
+                                      : g_browse < 0);
         else if (tab == TAB_STICK)
             take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_BASKET) take = view_basket_has(i) || g_downloads[i] != 0;
@@ -438,6 +452,7 @@ void view_rebuild(const struct catalog *catalog) {
     g_download_running = -1;
     g_view_of = catalog;
     g_group_open = -1;
+    g_browse = -1;
     collect_groups();
     collect_tabs(was);
     build_view(1);
@@ -446,7 +461,7 @@ void view_rebuild(const struct catalog *catalog) {
 void view_show_unreleased(int on) {
     g_show_unreleased = on;
     /* Other tags may lead now: the one open is found again by its word,
-       and the store opens back up if it has gone. */
+       and the way's rows stand in its place if it has gone. */
     struct group was = g_group_open >= 0 ? g_group[g_group_open] : (struct group){0};
     g_group_open = -1;
     collect_groups();
@@ -474,7 +489,7 @@ int view_index(int row) {
     if (g_tabs && g_tab[g_tab_at] == TAB_GEAR)
         return row >= 0 && row < VIEW_SETTINGS ? VIEW_ROW_SETTING - row : -1;
     int roots = root_rows();
-    if (row >= 0 && row < roots) return g_root[row];
+    if (row >= 0 && row < roots) return root_index(row);
     row -= roots;
     if (view_action(row)) return VIEW_ROW_ACTION;
     row -= g_view_action;
@@ -526,6 +541,8 @@ void view_tab_move(int step) {
     /* Leaving the store opens it back up: a category is a place inside
        the store, not a state the other tabs know about. */
     g_group_open = -1;
+    g_browse = -1;
+    list_way();
     build_view(1);
 }
 
@@ -563,7 +580,7 @@ static struct {
     int row, details;
     float scroll;
     char app[PSPDX_ID_SIZE], group[PSPDX_CATEGORY_SIZE];
-    int group_kind;
+    int group_kind, browse;
 } bookmarks[TAB_COUNT];
 
 void view_remember(int cursor, int details_index, float detail_scroll) {
@@ -578,6 +595,7 @@ void view_remember(int cursor, int details_index, float detail_scroll) {
     int open = view_tab_current() == TAB_HOMEBREW ? g_group_open : -1;
     snprintf(bookmarks[tab].group, sizeof(bookmarks[tab].group), "%s", view_group_word(open));
     bookmarks[tab].group_kind = view_group_kind(open);
+    bookmarks[tab].browse = view_tab_current() == TAB_HOMEBREW ? g_browse + 1 : 0;   /* 0: none */
 }
 
 void view_recall(int *cursor, int *details_index, float *detail_scroll) {
@@ -586,6 +604,8 @@ void view_recall(int *cursor, int *details_index, float *detail_scroll) {
     *details_index = -1;
     *detail_scroll = 0;
     if (tab < 0 || tab >= TAB_COUNT || !g_view_of) return;
+    if (view_tab_current() == TAB_HOMEBREW && bookmarks[tab].browse > 0)
+        view_browse_open(bookmarks[tab].browse - 1);
     if (view_tab_current() == TAB_HOMEBREW && bookmarks[tab].group[0]) {
         for (int i = 0; i < g_groups; i++)
             if (g_group[i].kind == bookmarks[tab].group_kind &&
@@ -597,7 +617,6 @@ void view_recall(int *cursor, int *details_index, float *detail_scroll) {
     int count = view_count();
     *cursor = bookmarks[tab].row < count ? bookmarks[tab].row : count - 1;
     if (*cursor < 0) *cursor = 0;
-    *cursor = view_selectable(*cursor, 1);
     if (!bookmarks[tab].app[0]) return;
     for (int i = 0; i < g_view_of->count; i++) {
         if (strcmp(g_view_of->apps[i].id, bookmarks[tab].app)) continue;

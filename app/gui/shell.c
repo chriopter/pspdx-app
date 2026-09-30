@@ -398,6 +398,11 @@ static const char *tab_word(int tab) {
     if (g_info) return T_HEAD_ABOUT;
     if (tab == TAB_HOMEBREW && view_group_open_at() >= 0)
         return group_word(view_group_open_at());
+    if (tab == TAB_HOMEBREW && view_browse_at() >= 0) {
+        /* The short word: the header has less room than a row. */
+        static const char *const HEAD[VIEW_BROWSE] = { T_HEAD_CATEGORIES, T_HEAD_TAGS, T_HEAD_SOURCES };
+        return HEAD[view_browse_at()];
+    }
     switch (tab) {
     case TAB_GEAR: return T_HEAD_GEAR;
     case TAB_STICK: return T_HEAD_STICK;
@@ -529,16 +534,40 @@ static void draw_group_row(int n, int y, int selected, float t) {
                          selected ? hover_age(0, VIEW_ROW_GROUP - n) : 0.0f);
 }
 
-/* A heading over the rows under it: the small type the facts are set in,
-   low in its row so that it belongs to what follows, over a line of the
-   room's light that fades out to the right the way the page's rule does.
-   Never a place for the cursor. */
-static void draw_heading_row(int h, int y) {
+/* One of the ways the store is browsed by, at its head: the sign of the
+   kind of row it lists and the words. No count: the words take the row,
+   and what the way lists is said in the panel. */
+static const signed char BROWSE_SIGN[VIEW_BROWSE] = { MARK_STORE, MARK_LIST, MARK_GLOBE };
+static void draw_browse_row(int k, int y, int selected, float t) {
     float dx = g_page_dx;
-    unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 120);
-    unsigned clear = rgb_pack(g_tint, 0);
-    font_print_clipped(FONT_META, LIST_X + dx, y + 23, LIST_W, faded(g_dim, 210), view_heading(h));
-    gfx_hgrad((int)(LIST_X + dx), y + 28, LIST_W, 1, bright, clear);
+    float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
+    mark_draw((enum mark)BROWSE_SIGN[k], gx, gy, selected ? g_text : faded(g_dim, 170),
+              selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+    font_print_scrolling(FONT_TITLE, NAME_X + dx, y + 21, LIST_X + LIST_W - NAME_X,
+                         selected ? g_text : g_dim, view_browse_word(k),
+                         selected ? hover_age(0, VIEW_ROW_BROWSE - k) : 0.0f);
+}
+
+/* The right column on a way: what it lists, by name, as far as three
+   lines go. */
+static void draw_browse_panel(int k) {
+    static char note[256];
+    static int note_of = -1;
+    static unsigned note_generation;
+    if (note_of != k || note_generation != view_generation()) {
+        note_of = k;
+        note_generation = view_generation();
+        size_t at = 0;
+        note[0] = '\0';
+        for (int n = 0; n < view_group_count() && at < sizeof(note) - 1; n++) {
+            if ((int)view_group_kind(n) != k) continue;
+            at += (size_t)snprintf(note + at, sizeof(note) - at, "%s%s", at ? ", " : "",
+                                   group_word(n));
+        }
+        if (at >= sizeof(note) - 1) pspdx_utf8_mend(note);
+        if (!at) snprintf(note, sizeof(note), "%s", T_BROWSE_NONE);
+    }
+    draw_setting_note(view_browse_word(k), note, 0.0f);
 }
 
 /* The right column while the cursor is on a row to browse by: the word,
@@ -679,8 +708,8 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
             draw_group_row(VIEW_ROW_GROUP - index, y, selected, t);
             continue;
         }
-        if (VIEW_IS_HEADING(index)) {
-            draw_heading_row(VIEW_ROW_HEADING - index, y);
+        if (VIEW_IS_BROWSE(index)) {
+            draw_browse_row(VIEW_ROW_BROWSE - index, y, selected, t);
             continue;
         }
         if (index < 0) continue;
@@ -2354,6 +2383,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
             if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
             else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
             else if (index <= VIEW_ROW_GROUP) draw_group_panel(VIEW_ROW_GROUP - index);
+            else if (VIEW_IS_BROWSE(index)) draw_browse_panel(VIEW_ROW_BROWSE - index);
             else if (index >= 0 && view_tab_kind() == VIEW_TAB_BASKET &&
                      downloads_active(index)) {
                 struct download_status s;
