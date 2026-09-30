@@ -757,7 +757,7 @@ class ClientTests(unittest.TestCase):
     # The store opens with its three ways to browse it by -- category, tag, source -- whatever the entry names, the package below them.
     self.assertEqual(self.run_client('view').stdout.splitlines()[:3],['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 4 first -10 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0'])
  def test_the_store_is_browsed_by_category_tag_and_source(self):
-  # Three rows above the packages, one a way to browse by, with how many rows it lists: the categories, the tags at least two shown apps carry (rare, one, has no chip), in the order of their words, spelled as first met, "unreleased" never, and the sources by the name their catalog gives or their URL makes. Back out of a row lands on it, back out of a way on the way; a tag or a source narrows the list to its apps.
+  # Three rows above the packages, one a way to browse by, with how many rows it lists: the categories, the tags at least two shown apps carry (rare, one, has no chip), the most carried first, spelled as first met, "unreleased" never, and the sources by the name their catalog gives or their URL makes. Back out of a row lands on it, back out of a way on the way; a tag or a source narrows the list to its apps.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]
   def entry(n,tags,category='game'):
    return dict(app,id=f'app_{n}',name=f'App {n}',tags=tags,category=category,source=f'https://github.com/test/app{n}',installdir=f'PSP/GAME/App{n}',
@@ -770,12 +770,12 @@ class ClientTests(unittest.TestCase):
   r=self.run_client('groups',URL_MAP=self.root/'map.txt')
   self.assertEqual(r.stdout.splitlines(),['Browse by Category 3','Browse by Tag 2','Browse by Source 2','then 1',
                                           '> Browse by Category','0 game 4','0 demo 0','0 app 0','apps 0 back 2','root 0',
-                                          '> Browse by Tag','1 puzzle 2','1 Racing 3','apps 3 back 1','root 1',
+                                          '> Browse by Tag','1 Racing 3','1 puzzle 2','apps 2 back 1','root 1',
                                           '> Browse by Source','2 example.com 4','2 PSPDX Community 1','apps 1 back 1','root 2'],r.stderr)
   # Shown, the unreleased count, puzzle has its row, and the switch itself is never a tag row.
   r=self.run_client('groups',URL_MAP=self.root/'map.txt',UNRELEASED=1)
   self.assertEqual(r.stdout.splitlines()[4:17],['> Browse by Category','0 game 7','0 demo 1','0 app 0','apps 0 back 2','root 0',
-                                                '> Browse by Tag','1 puzzle 4','1 Racing 5','apps 5 back 1','root 1','> Browse by Source','2 example.com 8'],r.stderr)
+                                                '> Browse by Tag','1 Racing 5','1 puzzle 4','apps 4 back 1','root 1','> Browse by Source','2 example.com 8'],r.stderr)
   ids=lambda *a:[i.rsplit('.',1)[-1] for i in self.run_client('listing',*a,URL_MAP=self.root/'map.txt').stdout.split()]
   self.assertEqual(sorted(ids('Racing')),['app1','app3','app8'])
   self.assertEqual(ids('PSPDX Community'),['app8'])

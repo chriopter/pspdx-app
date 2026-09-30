@@ -263,18 +263,8 @@ static void list_way(void) {
     g_ways = 0;
     for (int n = 0; g_browse >= 0 && n < g_groups; n++)
         if (g_group[n].kind == g_browse) g_way[g_ways++] = (unsigned char)n;
-    /* The cloud reads in the order of the words, the size of a chip saying
-       how many carry it; a few dozen, sorted by insertion. */
-    if (g_browse == VIEW_GROUP_TAG)
-        for (int i = 1; i < g_ways; i++) {
-            unsigned char v = g_way[i];
-            int j = i;
-            while (j > 0 && strcasecmp(g_group[g_way[j - 1]].word, g_group[v].word) > 0) {
-                g_way[j] = g_way[j - 1];
-                j--;
-            }
-            g_way[j] = v;
-        }
+    /* The cloud keeps the groups' order: the tags most apps carry first,
+       so the ones anybody still uses are at the top, not a 2007 contest. */
 }
 
 static void collect_groups(void) {
