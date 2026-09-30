@@ -711,6 +711,9 @@ int main(int argc, char *argv[]) {
         if (read > 0) pad = pads[read - 1];
         unsigned tapped = 0;
         if (read > 0) {
+            /* Keys already down at the first read were pressed before
+               PSPDX was listening: down, not pressed. */
+            if (!pad_seen) last_buttons = pad.Buttons;
             unsigned prev = last_buttons;
             for (int i = 0; pad_seen && i < read; i++)
                 if ((int)(pads[i].TimeStamp - pad_stamp) > 0) {
@@ -724,9 +727,10 @@ int main(int argc, char *argv[]) {
            the one thing a report of the console not answering its keys is
            checked against. */
         static int read_seen = 1;
-        if (read != read_seen) {
+        int read_state = read > 0 ? 1 : read;   /* how many samples is no news */
+        if (read_state != read_seen) {
             logline("pad: read %d buttons %08x", read, pad.Buttons);
-            read_seen = read;
+            read_seen = read_state;
         }
         /* The stick is a hand in the water, whenever it is off centre. */
         lattice_stir((pad.Lx - 128) / 127.0f, (pad.Ly - 128) / 127.0f);
