@@ -17,7 +17,6 @@
 #include <pspkernel.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "gui/icons.h"
 #include "gui/image.h"
@@ -331,13 +330,13 @@ static size_t to_thumb(const struct gfx_texture *t, unsigned char *b) {
 static void mark_missing(const struct app_entry *e) {
     if (!txt(e->icon)[0]) return;
     unsigned char m[MISS_LEN] = {0};
-    unsigned t = (unsigned)time(NULL);
+    unsigned t = wall_time();
     memcpy(m + 4, &t, 4);
     asset_thumb_put(e->id, txt(e->icon), m, MISS_LEN);
 }
 static int marked_missing(const unsigned char *b, size_t n) {
     if (n != MISS_LEN || b[0] || b[1]) return 0;
-    unsigned t, now = (unsigned)time(NULL);
+    unsigned t, now = wall_time();
     memcpy(&t, b + 4, 4);
     return now >= t && now - t < 7u * 86400u;
 }

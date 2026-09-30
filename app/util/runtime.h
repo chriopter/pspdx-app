@@ -28,4 +28,9 @@ unsigned now_ms(void);
 unsigned now_us(void);
 int expired(unsigned start, unsigned budget_ms);
 
+/* Seconds since 1970 by the console's clock. Not time(): on a PSP-1000
+   under ARK newlib's time() came back as the seconds since midnight, so
+   anything kept "for a week" or "a day old" was wrong by the date. */
+unsigned wall_time(void);
+
 #endif

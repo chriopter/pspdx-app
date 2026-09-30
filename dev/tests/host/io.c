@@ -1,3 +1,4 @@
+#include <time.h>
 #include "pspkit-https/https.h"
 #include "pspiofilemgr.h"
 #include <dirent.h>
@@ -201,6 +202,11 @@ int sceKernelUtilsSha1Digest(unsigned char *b, size_t n, unsigned char *out) {
 }
 /* A clock that stands still, or with CLOCK_STEP_MS moves that far every time
    it is read: what a server that sends a byte now and then looks like. */
+/* The console's clock: the host's. */
+unsigned wall_time(void) {
+    return (unsigned)time(NULL);
+}
+
 unsigned now_ms(void) {
     static unsigned now;
     const char *step = getenv("CLOCK_STEP_MS");

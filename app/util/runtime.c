@@ -1,6 +1,7 @@
 #include "util/storage.h"
 #include <pspkernel.h>
 #include <pspiofilemgr.h>
+#include <psputils.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <pthread.h>
@@ -103,6 +104,10 @@ unsigned now_ms(void) {
 
 unsigned now_us(void) {
     return (unsigned)sceKernelGetSystemTimeWide();
+}
+
+unsigned wall_time(void) {
+    return (unsigned)sceKernelLibcTime(NULL);
 }
 
 int expired(unsigned start, unsigned budget_ms) {

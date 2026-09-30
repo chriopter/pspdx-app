@@ -610,8 +610,8 @@ int main(int argc, char *argv[]) {
                    changed, so a stamp a day old means the list has stopped
                    being looked after; what it says about updates is then
                    worth less than a look at the repositories themselves. */
-                if (catalog.generated && catalog.generated + 24u * 3600u < (unsigned)time(NULL)) {
-                    unsigned days = ((unsigned)time(NULL) - catalog.generated) / 86400u;
+                if (catalog.generated && catalog.generated + 24u * 3600u < wall_time()) {
+                    unsigned days = (wall_time() - catalog.generated) / 86400u;
                     char stale[128];
                     snprintf(stale, sizeof(stale),
                              T_STALE,

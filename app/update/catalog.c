@@ -1084,7 +1084,7 @@ static int parse(struct catalog *catalog, const char *base) {
             }
             snprintf(m->added_from, sizeof(m->added_from), "%s", base);
             snprintf(m->checked_from, sizeof(m->checked_from), "%s", base);
-            m->checked_at = parsing_cached ? 0 : (unsigned)time(NULL);
+            m->checked_at = parsing_cached ? 0 : wall_time();
             entry->fresh = !parsing_cached;
             entry->media_cached_only = parsing_cached;
 #ifdef PSPDX_TEST_FIXTURES
@@ -1617,7 +1617,7 @@ static int origin_entry(struct app_entry *entry, const struct source_repo *repo,
     entry->description = pspdx_description(text, len);
     snprintf(m->checked_from, sizeof(m->checked_from), "%s", url);
     snprintf(m->added_from, sizeof(m->added_from), "%s", url);
-    m->checked_at = (unsigned)time(NULL);
+    m->checked_at = wall_time();
     if (entry_take_manifest(entry, m) < 0) {
         manifest_forget(m);
         entry_clear(entry);
@@ -1920,7 +1920,7 @@ static void note_latest(const struct app_entry *entry) {
 #define DIRECT_EVERY_S (6u * 3600u)
 
 static void restore_installed(struct catalog *catalog) {
-    unsigned now = (unsigned)time(NULL);
+    unsigned now = wall_time();
     int stale = catalog->generated && catalog->generated + 24u * 3600u < now;
     for (int i = 0; i < state_count(); i++) {
         char id[PSPDX_ID_SIZE];
@@ -2139,7 +2139,7 @@ int catalog_fetch(struct catalog *catalog) {
             answered++;
             if (g_took_saved)
                 reach_saved(sources.url[i]);
-            reach_loaded(sources.url[i], taken, g_took_saved ? 0 : (unsigned)time(NULL));
+            reach_loaded(sources.url[i], taken, g_took_saved ? 0 : wall_time());
         } else {
             reach_failed(sources.url[i]);
         }
