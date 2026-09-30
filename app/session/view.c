@@ -7,6 +7,7 @@
  * main.c walks it.
  */
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -174,6 +175,24 @@ static int same_len_word(const char *a, const char *b, size_t n) {
     return 1;
 }
 
+/* A tag with a year in it names a contest or an event -- "NEO Spring Compo
+   2007", "Homebrew Idol (2008)", "Scenery Beta 2009/2010" -- and says
+   nothing about the app to someone looking for one today. A year is four
+   digits from 1990 to 2039 standing alone; one after a dash is a model
+   ("PSP-2000+ only") and stays. */
+static int dated_tag(const char *p, size_t k) {
+    for (size_t i = 0; i + 4 <= k; i++) {
+        if (i && (isalnum((unsigned char)p[i - 1]) || p[i - 1] == '-')) continue;
+        if (i + 4 < k && isalnum((unsigned char)p[i + 4])) continue;
+        if (!isdigit((unsigned char)p[i]) || !isdigit((unsigned char)p[i + 1]) ||
+            !isdigit((unsigned char)p[i + 2]) || !isdigit((unsigned char)p[i + 3]))
+            continue;
+        int year = (p[i] - '0') * 1000 + (p[i + 1] - '0') * 100 + (p[i + 2] - '0') * 10 + p[i + 3] - '0';
+        if (year >= 1990 && year <= 2039) return 1;
+    }
+    return 0;
+}
+
 static void collect_tags(void) {
     memset(g_tag_place, 0, sizeof(g_tag_place));
     for (int i = 0; i < g_view_of->count; i++) {
@@ -181,7 +200,8 @@ static void collect_tags(void) {
         if (view_hidden(e)) continue;
         for (const char *p = txt(e->tags); *p; p += *p == '\n') {
             size_t k = strcspn(p, "\n");
-            if (k && k < PSPDX_CATEGORY_SIZE && !(k == 10 && same_len_word(p, "unreleased", 10))) {
+            if (k && k < PSPDX_CATEGORY_SIZE && !(k == 10 && same_len_word(p, "unreleased", 10)) &&
+                !dated_tag(p, k)) {
                 unsigned h = 2166136261u;
                 for (size_t j = 0; j < k; j++) h = (h ^ fold((unsigned char)p[j])) * 16777619u;
                 for (unsigned at = h % TAG_PLACES, tries = 0; tries < TAG_PLACES;
