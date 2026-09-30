@@ -55,18 +55,36 @@ int view_tab_active(void);
    tab's own label and the reason it exists at all. */
 int view_updates_waiting(void);
 
-/* Under the store, before the packages, the categories the catalogs name:
-   one row each, with how many packages stand in it. Taking one narrows the
-   store to that category until O opens it back up. view_index() answers
-   VIEW_ROW_CATEGORY minus the category's number for such a row. */
-#define VIEW_ROW_CATEGORY (-50)
-#define VIEW_CATEGORIES 32
-int view_category_count(void);              /* rows on the open store */
-const char *view_category(int n);           /* the word, as the catalogs write it */
-int view_category_apps(int n);              /* packages in it */
-int view_category_open_at(void);            /* the one the store is narrowed to, -1 if none */
-void view_category_open(int n);
-void view_category_close(void);
+/* Under the store, before the packages, the rows it is browsed by: the
+   categories the catalogs name, the tags most apps carry, and the sources,
+   each with how many packages stand in it, in three groups under a heading
+   each; then a heading over the packages themselves. Taking a row narrows
+   the store to what stands in it until O opens it back up. view_index()
+   answers VIEW_ROW_GROUP minus the row's number for such a row, and
+   VIEW_ROW_HEADING minus the heading's for a heading, which is no place
+   for the cursor (view_selectable). */
+#define VIEW_ROW_GROUP (-50)
+#define VIEW_GROUPS 40
+#define VIEW_TAGS 12            /* the most tag rows there are */
+#define VIEW_TAG_MIN 3          /* and the fewest apps one stands for */
+#define VIEW_ROW_HEADING (-10)
+#define VIEW_HEADINGS 4
+#define VIEW_IS_HEADING(at) ((at) <= VIEW_ROW_HEADING && (at) > VIEW_ROW_HEADING - VIEW_HEADINGS)
+enum view_group_kind { VIEW_GROUP_CATEGORY, VIEW_GROUP_TAG, VIEW_GROUP_SOURCE };
+int view_group_count(void);                 /* rows there are to browse by */
+const char *view_group_word(int n);         /* the word, as the catalogs write it */
+enum view_group_kind view_group_kind(int n);
+int view_group_apps(int n);                 /* packages in it */
+int view_in_group(const struct app_entry *entry, int n);
+int view_group_open_at(void);               /* the one the store is narrowed to, -1 if none */
+void view_group_open(int n);
+/* The store opened back up: the row the group stood on, -1 when none was
+   open. */
+int view_group_close(void);
+const char *view_heading(int h);
+/* row, or the nearest row from it walking by dir that is not a heading,
+   or failing that the nearest the other way. */
+int view_selectable(int row, int dir);
 
 /* That row. view_index() answers VIEW_ROW_ACTION for it, which is
    below zero like the no-such-row answer, so anything that only ever wanted
@@ -113,8 +131,6 @@ int view_tabs_refresh(void);
    turns it on, for this run. */
 void view_show_unreleased(int on);
 int view_unreleased_shown(void);
-/* Whether a package stands under category row n. */
-int view_in_category(const struct app_entry *entry, int n);
 /* Whether the store leaves this package out, by that switch. */
 int view_hidden(const struct app_entry *entry);
 

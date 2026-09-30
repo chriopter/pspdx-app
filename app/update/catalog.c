@@ -837,6 +837,9 @@ static void folder_taken(struct catalog *catalog, const char *from, const char *
         catalog_folder_line(catalog->collision, sizeof(catalog->collision), name, dir);
 }
 
+/* The "name" of the last catalog read for the source being fetched. */
+static char g_catalog_name[CATALOG_NAME_SIZE];
+
 /* A catalog.json in the response buffer, merged into the catalog. base is
    the URL it came from, for the assets it names relative to itself.
    Returns the entries taken, or -1 for something that is not a catalog. */
@@ -870,6 +873,20 @@ static int parse(struct catalog *catalog, const char *base) {
         char *said = named ? NULL : cJSON_PrintUnformatted(schema);
         logline("catalog: schema %.80s is not PSPDX's v1 URL; read as v1", named ? named : said ? said : "?");
         free(said);
+    }
+    /* What the catalog calls itself, if it says: one line of up to 40
+       characters, taken for the source it came from. Anything else is as
+       good as nothing, and the source is named by its URL. */
+    cJSON *name = cJSON_GetObjectItemCaseSensitive(root, "name");
+    if (cJSON_IsString(name)) {
+        const char *v = name->valuestring;
+        while (*v == ' ') v++;
+        int n = pspdx_characters(v, 0);
+        if (n >= 1 && n <= 40) {
+            snprintf(g_catalog_name, sizeof(g_catalog_name), "%s", v);
+            for (size_t k = strlen(g_catalog_name); k && g_catalog_name[k - 1] == ' '; k--)
+                g_catalog_name[k - 1] = '\0';
+        }
     }
     cJSON *apps = cJSON_GetObjectItemCaseSensitive(root, "apps");
     if (!cJSON_IsArray(apps)) {
@@ -2134,7 +2151,22 @@ int catalog_fetch(struct catalog *catalog) {
     reach_reset();
     int answered = 0;
     for (int i = 0; i < sources.count; i++) {
+        int before = catalog->count;
+        g_catalog_name[0] = '\0';
         int taken = fetch_source(catalog, i + 1, sources.url[i]);
+        /* Whatever came in with this line is its, and it is called what
+           its catalog calls itself, or what its URL says. */
+        for (int k = before; k < catalog->count; k++)
+            catalog->apps[k].source = (unsigned char)(i + 1);
+        if (sources_kind(sources.url[i]) == SOURCE_REPO)
+            snprintf(catalog->source_name[i], sizeof(catalog->source_name[i]), "%s",
+                     T_SOURCE_DIRECT);
+        else if (g_catalog_name[0])
+            snprintf(catalog->source_name[i], sizeof(catalog->source_name[i]), "%s",
+                     g_catalog_name);
+        else
+            sources_name(sources.url[i], catalog->source_name[i], sizeof(catalog->source_name[i]));
+        catalog->sources = i + 1;
         if (taken >= 0) {
             answered++;
             if (g_took_saved)

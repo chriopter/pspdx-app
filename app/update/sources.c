@@ -633,3 +633,50 @@ int sources_release_url(const char *source, const char *url) {
     const char *slash = strchr(tail, '/');
     return slash && slash != tail && slash[1] && !strpbrk(tail, "\r\n\t ");
 }
+
+void sources_name(const char *url, char *out, size_t size) {
+    if (!size) return;
+    out[0] = '\0';
+    const char *p = strstr(url, "://");
+    p = p ? p + 3 : url;
+    /* Who logs in is not whose the source is. */
+    const char *at = strchr(p, '@'), *slash = strchr(p, '/');
+    if (at && (!slash || at < slash)) p = at + 1;
+    size_t host_len = strcspn(p, "/:?#");
+    char host[128];
+    snprintf(host, sizeof(host), "%.*s", (int)(host_len < sizeof(host) ? host_len : sizeof(host) - 1), p);
+    for (char *c = host; *c; c++) *c = (char)tolower((unsigned char)*c);
+    /* The folders of the path, as far as two, and not the file it ends in. */
+    const char *q = p + strcspn(p, "/?#");
+    char part[2][101] = {"", ""};
+    int parts = 0;
+    while (*q == '/' && parts < 2) {
+        q++;
+        size_t n = strcspn(q, "/?#@");
+        if (!n) continue;
+        /* The last word, not followed by a slash, with a dot in it is a
+           file: catalog.json, list.txt. */
+        int last = q[n] != '/';
+        const char *dot = memchr(q, '.', n);
+        if (!(last && dot))
+            snprintf(part[parts++], sizeof(part[0]), "%.*s", (int)(n < 100 ? n : 100), q);
+        q += n;
+        if (*q == '@') q += strcspn(q, "/?#");
+    }
+    static const char PAGES[] = ".github.io";
+    size_t hl = strlen(host), pl = sizeof(PAGES) - 1;
+    if (hl > pl && !strcmp(host + hl - pl, PAGES)) {
+        /* owner.github.io: the owner, and the repository the site is of. */
+        if (parts) snprintf(out, size, "%.*s / %s", (int)(hl - pl), host, part[0]);
+        else snprintf(out, size, "%.*s", (int)(hl - pl), host);
+        return;
+    }
+    if ((!strcmp(host, "github.com") || !strcmp(host, "www.github.com") ||
+         !strcmp(host, "raw.githubusercontent.com")) && parts == 2) {
+        snprintf(out, size, "%s / %s", part[0], part[1]);
+        return;
+    }
+    const char *shown = !strncmp(host, "www.", 4) ? host + 4 : host;
+    if (parts) snprintf(out, size, "%s / %s", shown, part[0]);
+    else snprintf(out, size, "%s", shown);
+}

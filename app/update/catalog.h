@@ -4,12 +4,15 @@
 #include "pspkit-https/https.h"
 #include "install/install.h"
 #include "update/pspdx.h"
+#include "update/sources.h"
 
 /* How many apps one fetch may hold, all sources together: far above any
    catalog there is, and the bound for the tables that count by app. The
    entries themselves are on the heap and only as many as there are. */
 #define MAX_APPS 4096
 #define MAX_SUMMARY 241
+/* A source's name, from the catalog's own "name": up to 40 characters. */
+#define CATALOG_NAME_SIZE (40 * 4 + 1)
 
 /* PSPDX is an app in its own catalog, and a few things have to know which row
    is the client itself: the one that cannot be removed while it is running,
@@ -103,6 +106,10 @@ struct app_entry {
     unsigned char local_sha256[32];
     int local_has_sha;
     struct text local_version, remote_version;
+    /* The line of sources.txt the entry came from, counted from 1; 0 for
+       one that came from none this fetch -- an installed app no source
+       lists, a file from INBOX, a repository typed since. */
+    unsigned char source;
 };
 
 /* An entry lets go of what it holds on the heap and is all zeros again. Every
@@ -139,6 +146,12 @@ struct catalog {
     unsigned generated;             /* the oldest source's own stamp, unix seconds; 0 unknown */
     char generated_from[64];        /* that source's host, for the line that names it */
     int total;
+    /* What each line of sources.txt is called where the store is browsed
+       by source: the name its catalog gives itself, or one made of its URL
+       (sources_name); every repository typed into Direct Install is the
+       one word T_SOURCE_DIRECT. sources is how many lines there were. */
+    char source_name[SOURCES_MAX][CATALOG_NAME_SIZE];
+    int sources;
     /* The first entry left out because another has its folder under
        PSP/GAME, said on the status line once the fetch is through; empty
        when there was none. */

@@ -269,7 +269,7 @@ int main(void) {
     }
     view_rebuild(&catalog);
     /* A round trip restores the category, package and detail scroll. */
-    view_category_open(0);
+    view_group_open(0);
     view_remember(view_row(1), 1, 42.0f);
     view_tab_move(1);
     int saved_cursor, saved_details;
@@ -278,7 +278,7 @@ int main(void) {
     assert(saved_details == -1);
     view_tab_move(-1);
     view_recall(&saved_cursor, &saved_details, &saved_scroll);
-    assert(view_category_open_at() == 0 && view_index(saved_cursor) == 1);
+    assert(view_group_open_at() == 0 && view_index(saved_cursor) == 1);
     assert(saved_details == 1 && saved_scroll == 42.0f);
     /* A removed app must never restore a different package at its old row. */
     strcpy(catalog.apps[1].id, "replacement");
@@ -287,7 +287,7 @@ int main(void) {
     view_recall(&saved_cursor, &saved_details, &saved_scroll);
     assert(saved_details == -1);
     strcpy(catalog.apps[1].id, "test.1");
-    view_category_close();
+    view_group_close();
     view_remember(0, -1, 0);
     assert(downloads_enqueue(1) == 0 && forced && paused && downloads_focused());
     assert(downloads_enqueue(0) == 0 && downloads_enqueue(1) == 0 && downloads_count() == 2);

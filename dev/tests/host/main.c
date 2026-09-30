@@ -237,14 +237,42 @@ int main(int argc, char **argv) {
         catalog_check_updates(&catalog);
         view_rebuild(&catalog);
         while (view_tab_kind() != VIEW_TAB_HOMEBREW) view_tab_move(1);
-        for (int c = 0; argc > 2 && c < view_category_count(); c++)
-            if (!strcmp(view_category(c), argv[2])) {
-                view_category_open(c);
+        if (getenv("UNRELEASED")) view_show_unreleased(1);
+        for (int c = 0; argc > 2 && c < view_group_count(); c++)
+            if (!strcmp(view_group_word(c), argv[2])) {
+                view_group_open(c);
                 break;
             }
         for (int row = 0; row < view_count(); row++) {
             int at = view_index(row);
             if (at >= 0) printf("%s\n", catalog.apps[at].id);
+        }
+        return 0;
+    }
+    if (!strcmp(argv[1], "groups")) {
+        /* The rows the Homebrew tab opens with, top to bottom, down to the
+           first package: "# heading", or kind, word and count. */
+        catalog_fetch(&catalog);
+        view_rebuild(&catalog);
+        if (getenv("UNRELEASED")) view_show_unreleased(1);
+        while (view_tab_kind() != VIEW_TAB_HOMEBREW) view_tab_move(1);
+        for (int row = 0; row < view_count(); row++) {
+            int at = view_index(row);
+            if (at >= 0) break;
+            if (VIEW_IS_HEADING(at)) printf("# %s\n", view_heading(VIEW_ROW_HEADING - at));
+            else if (at <= VIEW_ROW_GROUP)
+                printf("%d %s %d\n", view_group_kind(VIEW_ROW_GROUP - at),
+                       view_group_word(VIEW_ROW_GROUP - at), view_group_apps(VIEW_ROW_GROUP - at));
+        }
+        printf("first %d\n", view_selectable(0, 1));
+        return 0;
+    }
+    if (!strcmp(argv[1], "sourcename")) {
+        /* sourcename <url>...: what each source is called, one a line. */
+        for (int i = 2; i < argc; i++) {
+            char name[CATALOG_NAME_SIZE];
+            sources_name(argv[i], name, sizeof(name));
+            puts(name);
         }
         return 0;
     }

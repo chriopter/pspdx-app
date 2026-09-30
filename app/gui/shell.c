@@ -380,12 +380,14 @@ static void draw_tabs(float t) {
 
 /* The open tab's word: what the list under it holds. A view standing over
    the gear's list is named instead. */
-/* A category as the store writes it: the catalogs' word, its first letter
-   raised, since it heads a list or names a row. */
-static const char *category_word(int n) {
+/* A row to browse the store by as it is written: a category or a tag the
+   catalogs' word, its first letter raised, since it heads a list or names
+   a row; a source its name as it stands. */
+static const char *group_word(int n) {
     static char word[PSPDX_CATEGORY_SIZE];
-    snprintf(word, sizeof(word), "%s", view_category(n));
-    if (word[0] >= 'a' && word[0] <= 'z') word[0] -= 'a' - 'A';
+    snprintf(word, sizeof(word), "%s", view_group_word(n));
+    if (view_group_kind(n) != VIEW_GROUP_SOURCE && word[0] >= 'a' && word[0] <= 'z')
+        word[0] -= 'a' - 'A';
     return word;
 }
 
@@ -394,8 +396,8 @@ static const char *tab_word(int tab) {
     if (sources_view_shown()) return T_HEAD_SOURCES;
     if (system_view_shown()) return T_HEAD_SYSTEM;
     if (g_info) return T_HEAD_ABOUT;
-    if (tab == TAB_HOMEBREW && view_category_open_at() >= 0)
-        return category_word(view_category_open_at());
+    if (tab == TAB_HOMEBREW && view_group_open_at() >= 0)
+        return group_word(view_group_open_at());
     switch (tab) {
     case TAB_GEAR: return T_HEAD_GEAR;
     case TAB_STICK: return T_HEAD_STICK;
@@ -416,7 +418,14 @@ static void draw_chrome(const struct catalog *catalog, float t) {
        among the others to the right, at the size the XMB gives a menu
        item and with nothing behind it but the room. Nothing is counted;
        the list is there to be looked at. */
-    font_print(FONT_TITLE, LIST_X, 25, g_text, tab_word(view_tab_current()));
+    /* A tag or a source can be a long word: it stops short of the signs. */
+    float room = SCR_W - 2 * LIST_X;
+    if (catalog->count > 0 && view_tab_count() > 1) {
+        room = TAB_X - TAB_GAP - 10 - LIST_X;
+        for (int i = 0; i < view_tab_count(); i++)
+            if (view_tab_at(i) == TAB_STICK) room -= tab_width(TAB_STICK) + TAB_GAP;
+    }
+    font_print_clipped(FONT_TITLE, LIST_X, 25, room, g_text, tab_word(view_tab_current()));
     if (catalog->count > 0) draw_tabs(t);
 }
 
@@ -495,46 +504,76 @@ static void draw_setting_row(int n, int y, int selected, float t) {
                        selected ? g_text : g_dim, setting_word(n));
 }
 
-/* A category at the head of the store: the store's own sign where a
-   package has its icon, the word, and at the row's end how many packages
-   stand in it. */
-static void draw_category_row(int n, int y, int selected, float t) {
+/* A row at the head of the store to browse it by: a sign where a package
+   has its icon -- the category's own, a list for a tag, the network for a
+   source -- the word, and at the row's end how many packages stand in it. */
+static void draw_group_row(int n, int y, int selected, float t) {
     float dx = g_page_dx;
     float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
-    const char *word = view_category(n);
-    enum mark sign = !strcmp(word, "game") ? MARK_GAMES
+    const char *word = view_group_word(n);
+    enum view_group_kind kind = view_group_kind(n);
+    enum mark sign = kind == VIEW_GROUP_TAG ? MARK_LIST
+                   : kind == VIEW_GROUP_SOURCE ? (!strcmp(word, T_SOURCE_DIRECT) ? MARK_HOME : MARK_GLOBE)
+                   : !strcmp(word, "game") ? MARK_GAMES
                    : !strcmp(word, "demo") ? MARK_DEMOS
                    : !strcmp(word, "app")  ? MARK_APPS : MARK_STORE;
     mark_draw(sign, gx, gy, selected ? g_text : faded(g_dim, 170),
               selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     char count[16];
-    snprintf(count, sizeof(count), "%d", view_category_apps(n));
+    snprintf(count, sizeof(count), "%d", view_group_apps(n));
     float cw = font_width(FONT_META, count);
     float right = LIST_X + LIST_W - 8 + dx;
     font_print(FONT_META, right - cw, y + 21, faded(g_dim, selected ? 230 : 150), count);
-    font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, right - cw - 8 - (NAME_X + dx),
-                       selected ? g_text : g_dim, category_word(n));
+    font_print_scrolling(FONT_TITLE, NAME_X + dx, y + 21, right - cw - 8 - (NAME_X + dx),
+                         selected ? g_text : g_dim, group_word(n),
+                         selected ? hover_age(0, VIEW_ROW_GROUP - n) : 0.0f);
 }
 
-/* The right column while the cursor is on a category: the word, and under
-   it how many packages it holds and which, as far as three lines go. */
-static void draw_category_panel(int n) {
-    char note[256];
-    int apps = view_category_apps(n);
-    if (apps == 0) {
-        draw_setting_note(category_word(n), T_CATEGORY_EMPTY, 0.0f);
+/* A heading over the rows under it: the small type the facts are set in,
+   low in its row so that it belongs to what follows, over a line of the
+   room's light that fades out to the right the way the page's rule does.
+   Never a place for the cursor. */
+static void draw_heading_row(int h, int y) {
+    float dx = g_page_dx;
+    unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 120);
+    unsigned clear = rgb_pack(g_tint, 0);
+    font_print_clipped(FONT_META, LIST_X + dx, y + 23, LIST_W, faded(g_dim, 210), view_heading(h));
+    gfx_hgrad((int)(LIST_X + dx), y + 28, LIST_W, 1, bright, clear);
+}
+
+/* The right column while the cursor is on a row to browse by: the word,
+   and under it how many packages stand in it and which, as far as three
+   lines go. */
+static void draw_group_panel(int n) {
+    /* Made once a row, not once a frame: a tag three apps carry is
+       looked for through the whole catalog. */
+    static char note[256];
+    static int note_of = -1;
+    static unsigned note_generation;
+    int apps = view_group_apps(n);
+    if (note_of == n && note_generation == view_generation() && apps) {
+        draw_setting_note(group_word(n), note, 0.0f);
         return;
     }
-    size_t at = (size_t)snprintf(note, sizeof(note), T_CATEGORY_NOTE, apps, apps == 1 ? "" : "s");
+    note_of = n;
+    note_generation = view_generation();
+    if (apps == 0) {
+        draw_setting_note(group_word(n), T_CATEGORY_EMPTY, 0.0f);
+        return;
+    }
+    enum view_group_kind kind = view_group_kind(n);
+    const char *says = kind == VIEW_GROUP_TAG ? T_TAG_NOTE
+                     : kind == VIEW_GROUP_SOURCE ? T_SOURCE_NOTE : T_CATEGORY_NOTE;
+    size_t at = (size_t)snprintf(note, sizeof(note), says, apps, apps == 1 ? "" : "s");
     int named = 0;
     for (int i = 0; g_catalog && i < g_catalog->count && at < sizeof(note) - 1; i++) {
         const struct app_entry *e = &g_catalog->apps[i];
-        if (view_hidden(e) || !view_in_category(e, n)) continue;
+        if (view_hidden(e) || !view_in_group(e, n)) continue;
         at += (size_t)snprintf(note + at, sizeof(note) - at, "%s%s", named ? ", " : "", e->name);
         named++;
     }
     if (at >= sizeof(note) - 1) pspdx_utf8_mend(note);
-    draw_setting_note(category_word(n), note, 0.0f);
+    draw_setting_note(group_word(n), note, 0.0f);
 }
 
 /* How long the cursor has sat on what it sits on: the scrolling of a line
@@ -636,8 +675,12 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
             draw_setting_row(VIEW_ROW_SETTING - index, y, selected, t);
             continue;
         }
-        if (index <= VIEW_ROW_CATEGORY) {
-            draw_category_row(VIEW_ROW_CATEGORY - index, y, selected, t);
+        if (index <= VIEW_ROW_GROUP) {
+            draw_group_row(VIEW_ROW_GROUP - index, y, selected, t);
+            continue;
+        }
+        if (VIEW_IS_HEADING(index)) {
+            draw_heading_row(VIEW_ROW_HEADING - index, y);
             continue;
         }
         if (index < 0) continue;
@@ -2310,7 +2353,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         if (!suppress_panel) {
             if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
             else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
-            else if (index <= VIEW_ROW_CATEGORY) draw_category_panel(VIEW_ROW_CATEGORY - index);
+            else if (index <= VIEW_ROW_GROUP) draw_group_panel(VIEW_ROW_GROUP - index);
             else if (index >= 0 && view_tab_kind() == VIEW_TAB_BASKET &&
                      downloads_active(index)) {
                 struct download_status s;
