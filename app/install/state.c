@@ -464,7 +464,9 @@ int state_latest(const char *id, struct manifest *m) {
         return -1;
     snprintf(m->checked_from, sizeof(m->checked_from), "%s", str(l, "checked_from"));
     double checked = number(l, "checked_at");
-    m->checked_at = manifest_rev_in_range(checked) ? checked : 0;
+    /* Builds before 0.9.1 took the time of day for a date on some
+       consoles; a check "in 1970" is one whose time is not known. */
+    m->checked_at = manifest_rev_in_range(checked) && checked >= 1577836800.0 ? checked : 0;
     m->pinned = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(l, "pinned"));
     const char *hex = str(l, "sha256");
     if (*hex) {
