@@ -354,11 +354,13 @@ size_t psmf_build(const unsigned char *mp4, const struct mp4 *t,
        of what follows each of them, out to the end of the stream table at
        0x92; the rate and the buffer bound are the ones the packs and the
        system header declare; the keyframe map is empty, as it is in
-       Sony's own files. Everything else stays zero. */
+       Sony's own files. Everything else stays zero. Version 0014, as on
+       Sony's ICON1s: the XMB (PSP-1000, 6.61) shows only ICON0 for an
+       otherwise identical ICON1 marked 0015, which sceMpeg in an app plays. */
     memset(out, 0, PSMF_HEADER);
     struct writer h = { out, PSMF_HEADER, 0, 0 };
     put(&h, "PSMF", 4);
-    put(&h, "0015", 4);
+    put(&h, "0014", 4);
     put32(&h, PSMF_HEADER);
     put32(&h, (unsigned)stream);
     h.pos = 0x50; put32(&h, 0x92 - 0x54);
