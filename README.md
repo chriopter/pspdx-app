@@ -16,7 +16,8 @@ Extract `pspdx.zip` to your PSP, start PSPDX and browse by category, tag or sour
 
 - **Install:** press **Cross** on an app. **Circle** keeps the download running in the background, **Square** cancels.
 - **Basket:** add apps with **Triangle**, then *Download all*. Running downloads are listed there too.
-- **Display:** 60 FPS by default; a calmer 30 FPS mode is in *Options*.
+- **Find:** *Search* on the first page looks through names, authors, tags and descriptions. **SELECT** sorts any list by newest or by name.
+- **Display:** 60 FPS by default; the first row under the wrench switches to a calmer 30 FPS mode.
 
 Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 
