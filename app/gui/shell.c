@@ -742,7 +742,8 @@ static void draw_group_row(int n, int y, int selected, float t) {
                    : kind == VIEW_GROUP_SOURCE ? (!strcmp(word, T_SOURCE_DIRECT) ? MARK_HOME : MARK_GLOBE)
                    : !strcmp(word, "game") ? MARK_GAMES
                    : !strcmp(word, "demo") ? MARK_DEMOS
-                   : !strcmp(word, "app")  ? MARK_APPS : MARK_STORE;
+                   : !strcmp(word, "app")  ? MARK_APPS
+                   : !strcmp(word, "emulator") ? MARK_EMULATORS : MARK_STORE;
     mark_draw(sign, gx, gy, selected ? g_text : faded(g_dim, 170),
               selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     char count[16];

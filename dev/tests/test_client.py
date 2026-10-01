@@ -768,13 +768,13 @@ class ClientTests(unittest.TestCase):
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\nhttps://example.com/second.json\n')
   (self.root/'map.txt').write_text('https://example.com/second.json %s\n'%(self.root/'second.json'))
   r=self.run_client('groups',URL_MAP=self.root/'map.txt')
-  self.assertEqual(r.stdout.splitlines(),['Browse by Category 3','Browse by Tag 3','Browse by Source 2','then 1',
-                                          '> Browse by Category','0 game 4','0 demo 0','0 app 0','apps 0 back 2','root 1',
+  self.assertEqual(r.stdout.splitlines(),['Browse by Category 4','Browse by Tag 3','Browse by Source 2','then 1',
+                                          '> Browse by Category','0 game 4','0 demo 0','0 app 0','0 emulator 0','apps 0 back 3','root 1',
                                           '> Browse by Tag','1 Racing 3','1 PSP-2000+ only 2','1 puzzle 2','apps 2 back 2','root 2',
                                           '> Browse by Source','2 example.com 4','2 PSPDX Community 1','apps 1 back 1','root 3'],r.stderr)
   # Shown, the unreleased count, puzzle has its row, and the switch itself is never a tag row.
   r=self.run_client('groups',URL_MAP=self.root/'map.txt',UNRELEASED=1)
-  self.assertEqual(r.stdout.splitlines()[4:18],['> Browse by Category','0 game 7','0 demo 1','0 app 0','apps 0 back 2','root 1',
+  self.assertEqual(r.stdout.splitlines()[4:19],['> Browse by Category','0 game 7','0 demo 1','0 app 0','0 emulator 0','apps 0 back 3','root 1',
                                                 '> Browse by Tag','1 Racing 5','1 puzzle 4','1 PSP-2000+ only 2','apps 2 back 2','root 2','> Browse by Source','2 example.com 8'],r.stderr)
   ids=lambda *a:[i.rsplit('.',1)[-1] for i in self.run_client('listing',*a,URL_MAP=self.root/'map.txt').stdout.split()]
   self.assertEqual(sorted(ids('Racing')),['app1','app3','app8'])

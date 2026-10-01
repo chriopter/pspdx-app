@@ -34,7 +34,7 @@ ORDER = [
     'plus', 'page', 'list', 'globe',
     'start', 'select', 'l', 'r', 'home', 'gear', 'world', 'sliders', 'folder',
     'pill', 'knob', 'key', 'restore',
-    'search',
+    'search', 'emulators',
 ]
 
 # Every glyph is drawn with a pixel of margin around it so the anti-aliasing

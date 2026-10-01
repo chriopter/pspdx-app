@@ -161,11 +161,10 @@ int view_in_group(const struct app_entry *entry, int n) {
     return entry->source > 0 && entry->source <= SOURCES_MAX && ((g->sources >> (entry->source - 1)) & 1);
 }
 
-/* The rows the store opens with, for now: the three groups the standard
-   names as the console's own, in this order, whatever else the catalogs
-   write. A package in another category stands in the list below them and
-   under no row. */
-static const char *const STORE_CATEGORIES[] = { "game", "demo", "app" };
+/* The categories every store has a row for, in this order, whether a
+   catalog fills them or not. Any other category a catalog writes gets a
+   row of its own after them, in the order the catalogs first name it. */
+static const char *const STORE_CATEGORIES[] = { "game", "demo", "app", "emulator" };
 
 /* The tags the most packages carry: every tag of every package the store
    shows counted once, in a table of places kept by the tag's letters,
@@ -301,9 +300,18 @@ static void collect_groups(void) {
         g_group[g_groups++].kind = VIEW_GROUP_CATEGORY;
     }
     if (g_view_of) {
+        int fixed = g_groups;
         for (int i = 0; i < g_view_of->count; i++) {
-            int c = category_of(&g_view_of->apps[i]);
-            if (c >= 0 && !view_hidden(&g_view_of->apps[i])) g_group[c].apps++;
+            const struct app_entry *e = &g_view_of->apps[i];
+            if (view_hidden(e)) continue;
+            int c = category_of(e);
+            if (c < 0 && e->category[0] && g_groups < fixed + VIEW_CATEGORIES_MORE) {
+                c = g_groups++;
+                memset(&g_group[c], 0, sizeof(g_group[c]));
+                snprintf(g_group[c].word, sizeof(g_group[c].word), "%s", e->category);
+                g_group[c].kind = VIEW_GROUP_CATEGORY;
+            }
+            if (c >= 0) g_group[c].apps++;
         }
         collect_tags();
         collect_sources();

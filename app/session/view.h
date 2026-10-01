@@ -68,7 +68,8 @@ int view_updates_waiting(void);
 #define VIEW_ROW_GROUP (-50)
 #define VIEW_TAGS 128           /* the most tags there are */
 #define VIEW_TAG_MIN 2          /* and the fewest apps one stands for */
-#define VIEW_GROUPS (3 + VIEW_TAGS + 16)
+#define VIEW_CATEGORIES_MORE 12  /* categories the catalogs name beyond the store's own four */
+#define VIEW_GROUPS (4 + VIEW_CATEGORIES_MORE + VIEW_TAGS + 16)
 enum view_group_kind { VIEW_GROUP_CATEGORY, VIEW_GROUP_TAG, VIEW_GROUP_SOURCE };
 int view_group_count(void);                 /* rows there are to browse by, of every way */
 const char *view_group_word(int n);         /* the word, as the catalogs write it */
