@@ -2062,19 +2062,22 @@ static void draw_info(void) {
 
 /* --------------------------------------------------------------- details */
 
-/* Prints text over at most `lines` lines of `width`, breaking at spaces,
-   the last line clipped. Returns the lines used. */
+/* Prints text over at most `lines` lines of `width`, breaking at spaces
+   and at every newline, the last line clipped. Returns the lines used.
+   A newline is never left to the font: intraFont steps down by its own,
+   tighter measure and the lines would crowd each other. */
 int draw_wrapped(enum font_style style, float x, float y, float width,
                  float step, int lines, unsigned color, const char *text) {
     char line[128];
     int used = 0;
     const char *p = text;
     while (*p && used < lines) {
+        size_t n = strcspn(p, "\n"), fit = n;
         if (used == lines - 1) {
-            font_print_clipped(style, x, y + used * step, width, color, p);
+            snprintf(line, sizeof(line), "%.*s", (int)n, p);
+            font_print_clipped(style, x, y + used * step, width, color, line);
             return used + 1;
         }
-        size_t n = strlen(p), fit = n;
         while (fit > 0) {
             snprintf(line, sizeof(line), "%.*s", (int)fit, p);
             if (font_width(style, line) <= width) break;
@@ -2083,8 +2086,13 @@ int draw_wrapped(enum font_style style, float x, float y, float width,
             fit = k;
         }
         if (fit == 0 || fit == n) {
-            font_print_clipped(style, x, y + used * step, width, color, p);
-            return used + 1;
+            snprintf(line, sizeof(line), "%.*s", (int)n, p);
+            font_print_clipped(style, x, y + used * step, width, color, line);
+            used++;
+            p += n;
+            if (*p != '\n') return used;
+            p++;
+            continue;
         }
         snprintf(line, sizeof(line), "%.*s", (int)fit, p);
         font_print(style, x, y + used * step, color, line);
@@ -2170,9 +2178,14 @@ static void detail_facts(const struct app_entry *e) {
     else
         snprintf(value, sizeof(value), T_UNKNOWN);
     if (e->has_release && e->release.size) size_mb(e->release.size, size, sizeof(size));
-    snprintf(facts, sizeof(facts), "%s  \xc2\xb7  %s  \xc2\xb7  %s%s%s", value, txt(e->author),
-             txt(e->license),
-             size[0] ? "  \xc2\xb7  " : "", size);
+    /* What a catalog leaves out -- a licence, often -- leaves no gap. */
+    const char *part[4] = { value, txt(e->author), txt(e->license), size };
+    size_t at = 0;
+    facts[0] = '\0';
+    for (int i = 0; i < 4 && at < sizeof(facts); i++)
+        if (part[i][0])
+            at += (size_t)snprintf(facts + at, sizeof(facts) - at, "%s%s",
+                                   at ? "  \xc2\xb7  " : "", part[i]);
     pspdx_utf8_mend(facts);
     if (strcmp(g_detail_facts, facts)) {
         snprintf(g_detail_facts, sizeof(g_detail_facts), "%s", facts);
@@ -2467,11 +2480,14 @@ void shell_profile(char *out, int size) {
 /* The right half while the cursor is on a row under the gear: the row's
    name at the size the panel gives a package, and under it what taking the
    row comes to. A name too long for the column walks, from age on. */
-int draw_setting_note(const char *title, const char *note, float age) {
+static int draw_note_lines(const char *title, const char *note, float age, int lines) {
     int y = SHOT_Y + 14;
     draw_shade(PANEL_X + SHOT_W / 2, y + 30, SHOT_W, 90);
     font_print_scrolling(FONT_H1, PANEL_X, y, SHOT_W, g_text, title, age);
-    return draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 17, 3, g_dim, note);
+    return draw_wrapped(FONT_META, PANEL_X, y + 24, SHOT_W, 17, lines, g_dim, note);
+}
+int draw_setting_note(const char *title, const char *note, float age) {
+    return draw_note_lines(title, note, age, 3);
 }
 
 static void draw_setting_panel(int n) {
@@ -2604,9 +2620,15 @@ void shell_draw(const struct catalog *catalog, int cursor) {
                 char note[160], speed[24];
                 downloads_status(index, &s);
                 download_speed(speed, &s);
-                if (s.total) snprintf(note, sizeof(note), "%s  %u%%\n%s\nX: App information\nTriangle: Options", downloads_label(&s), (unsigned)((unsigned long long)s.done * 100 / s.total), speed);
-                else snprintf(note, sizeof(note), "%s\n%s\nX: App information\nTriangle: Options", downloads_label(&s), speed);
-                draw_setting_note(catalog->apps[index].name, note, 0);
+                char state[64];
+                if (s.total) snprintf(state, sizeof(state), "%s  %u%%", downloads_label(&s), (unsigned)((unsigned long long)s.done * 100 / s.total));
+                else snprintf(state, sizeof(state), "%s", downloads_label(&s));
+                /* No rate while nothing arrives -- unpacking, waiting --
+                   and no empty line for it. */
+                snprintf(note, sizeof(note), "%s%s%s\nX: App information\nTriangle: Options",
+                         state, speed[0] ? "\n" : "", speed);
+                /* Four lines: nothing stands under them here. */
+                draw_note_lines(catalog->apps[index].name, note, 0, 4);
             } else if (index >= 0) draw_panel(&catalog->apps[index], t);
         }
     } else if (g_status[0]) {
