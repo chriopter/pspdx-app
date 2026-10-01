@@ -231,6 +231,8 @@ void gfx_card_draw(const struct gfx_texture *t, const struct gfx_card *c);
    scrolling line is cut off at. Nests once. */
 void gfx_clip(int x, int y, int w, int h);
 void gfx_unclip(void);
+/* The rows the cut laid last lets through: the whole screen when none is. */
+void gfx_clip_rows(int *y, int *h);
 
 /* Bloom over the frame as drawn so far: everything brighter than a floor
    bleeds softly into what is around it, strength 0..255. Inside a frame,

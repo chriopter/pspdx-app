@@ -108,7 +108,17 @@ void mark_draw(enum mark m, float cx, float cy, unsigned color, int state,
            when the mark is looked at. */
         float pulse = 0.88f + 0.12f * sinf(t * 2.2f);
         int a = (int)(110.0f * pulse * scale / 255.0f);
-        gfx_glow(cx, cy, g->w * 3.0f, g->h * 3.0f,
+        /* A mark near the top or bottom edge of what is drawn into -- the
+           screen, or the list a cut is laid around -- keeps its whole halo:
+           the light is flattened to the room it has rather than cut. */
+        int top, rows;
+        gfx_clip_rows(&top, &rows);
+        float above = cy - top, below = top + rows - cy;
+        float room = 2.0f * (above < below ? above : below);
+        if (room < g->h) room = g->h;
+        float gh = g->h * 3.0f;
+        if (gh > room) gh = room;
+        gfx_glow(cx, cy, g->w * 3.0f, gh,
                  (tint & 0x00FFFFFFu) | ((unsigned)a << 24));
     }
     if (state != MARK_DIM)

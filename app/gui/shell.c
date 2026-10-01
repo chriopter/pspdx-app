@@ -829,7 +829,9 @@ float hover_age(int list, int key) {
 static void draw_list(const struct catalog *catalog, int cursor, float t) {
     int count = view_count();
     float dx = g_page_dx;
-    int clip_w = LIST_X + LIST_W + 8 + (int)dx;
+    /* Past the column by the half of a lit mark's halo: the mark at a row's
+       end stands eight in from the edge, and its light is not to be cut. */
+    int clip_w = LIST_X + LIST_W + 30 + (int)dx;
     if (clip_w <= 0) return;            /* gone off the left edge under the page */
     if (cursor < g_first) g_first = cursor;
     if (cursor >= g_first + VISIBLE) g_first = cursor - VISIBLE + 1;

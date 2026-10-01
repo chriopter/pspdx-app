@@ -953,12 +953,20 @@ static void card_quad(float x0, float y0, float x1, float y1, float z,
     sceGumDrawArray(GU_TRIANGLE_STRIP, FMT3C, 4, 0, v);
 }
 
+static int g_clip_y, g_clip_h = SCR_H;
+void gfx_clip_rows(int *y, int *h) {
+    *y = g_clip_y;
+    *h = g_clip_h;
+}
+
 void gfx_clip(int x, int y, int w, int h) {
     flush_batch();
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (w < 0) w = 0;
     if (h < 0) h = 0;
+    g_clip_y = y;
+    g_clip_h = h;
     /* This SDK's sceGuScissor takes a width and a height, whatever older
        code (intraFont among it) passes it as a far corner. */
     sceGuScissor(x, y, w, h);
@@ -966,6 +974,8 @@ void gfx_clip(int x, int y, int w, int h) {
 
 void gfx_unclip(void) {
     flush_batch();
+    g_clip_y = 0;
+    g_clip_h = SCR_H;
     sceGuScissor(0, 0, SCR_W, SCR_H);
 }
 
