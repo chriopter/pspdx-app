@@ -528,9 +528,10 @@ static void draw_setting_row(int n, int y, int selected, float t) {
     int w = LIST_X + LIST_W - NAME_X;
     if (m == MARK_PILL) {
         /* The switch Options' rows have, its knob easing to the side it
-           is on -- right is 60 -- and the rate at the row's end. */
+           is on -- off is Mercy at 60, on is Baked at 30 -- and the rate
+           at the row's end. */
         static float at;
-        at += ((options_fps_requested() ? -4.6f : 4.6f) - at) * 0.45f;
+        at += ((options_fps_requested() ? 4.6f : -4.6f) - at) * 0.45f;
         mark_draw(MARK_KNOB, gx + at, gy, selected ? g_text : faded(g_dim, 170), MARK_PLAIN, 0, t);
         const char *value = options_fps_requested() ? T_VALUE_FPS30 : T_VALUE_FPS60;
         float vw = font_width(FONT_META, value);
