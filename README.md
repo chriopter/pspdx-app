@@ -8,7 +8,7 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 
 <img width="480" alt="PSPDX on a real PSP-1004: browsing by category and tag, installing an app, a basket, an update" src="assets/pspdx-app.webp" />
 
-[▶ The tour in full quality](https://github.com/chriopter/pspdx-app/releases/download/v0.9.2/pspdx-tour.mp4)
+[▶ The tour in full quality](https://github.com/chriopter/pspdx-app/releases/download/v1.0.0/pspdx-tour.mp4)
 
 ## How to use
 
