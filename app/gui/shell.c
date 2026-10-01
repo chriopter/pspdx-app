@@ -227,6 +227,16 @@ unsigned faded(unsigned color, int alpha) {
 
 /* Megabytes to a tenth: whole megabytes call everything under one of them
    nothing, and a count of bytes is not a size anybody reads. */
+/* The day a package's release was published, as the catalogs' own dates
+   read; empty where a catalog says none. */
+static void released_on(const struct app_entry *e, char *out, size_t size) {
+    out[0] = '\0';
+    if (!e->has_release || !e->release.rev) return;
+    time_t at = (time_t)e->release.rev;
+    struct tm *date = gmtime(&at);
+    if (date) strftime(out, size, "%Y-%m-%d", date);
+}
+
 static void size_mb(unsigned long long bytes, char *out, size_t size) {
     /* Under a tenth of a megabyte it would read 0.0 MB: kilobytes then. */
     if (bytes < 100 * 1024) {
@@ -1643,11 +1653,17 @@ static const char *state_line(const struct app_entry *entry, unsigned *color) {
         case APP_CURRENT:
             snprintf(line, sizeof(line), T_PANEL_INSTALLED, txt(entry->local_version));
             break;
-        default:
-            snprintf(line, sizeof(line), "%s%s",
+        default: {
+            /* Not on the stick: its size, and the day it came out. */
+            char when[16];
+            released_on(entry, when, sizeof(when));
+            int plain = !entry->unsupported && size[0] && when[0];
+            snprintf(line, sizeof(line), "%s%s%s%s",
                      entry->unsupported ? T_PANEL_UNSUPPORTED : size[0] ? size : T_PANEL_NO_RELEASE,
+                     plain ? "  \xc2\xb7  " : "", plain ? when : "",
                      in_basket ? T_PANEL_IN_BASKET : "");
             break;
+        }
         }
     }
     return line;
@@ -2234,10 +2250,12 @@ static void detail_facts(const struct app_entry *e) {
         snprintf(value, sizeof(value), T_UNKNOWN);
     if (e->has_release && e->release.size) size_mb(e->release.size, size, sizeof(size));
     /* What a catalog leaves out -- a licence, often -- leaves no gap. */
-    const char *part[4] = { value, txt(e->author), txt(e->license), size };
+    char when[16];
+    released_on(e, when, sizeof(when));
+    const char *part[5] = { value, when, txt(e->author), txt(e->license), size };
     size_t at = 0;
     facts[0] = '\0';
-    for (int i = 0; i < 4 && at < sizeof(facts); i++)
+    for (int i = 0; i < 5 && at < sizeof(facts); i++)
         if (part[i][0])
             at += (size_t)snprintf(facts + at, sizeof(facts) - at, "%s%s",
                                    at ? "  \xc2\xb7  " : "", part[i]);
