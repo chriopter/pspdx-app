@@ -68,9 +68,12 @@ void options_settings_save(void) {
 }
 
 int options_fill_cache(void) { return g_fill_cache; }
+/* A setting chosen in Options is on the stick at once: a console switched
+   off or run flat never passes through the exit that would save it. */
 void options_fill_cache_toggle(void) {
     g_fill_cache = !g_fill_cache;
     g_settings_dirty = 1;
+    options_settings_save();
 }
 
 /* An installed package has more than one thing that can be done to it, so X
@@ -221,6 +224,7 @@ void options_fps_toggle_saved(void) {
     apply_fps();
     g_settings_fps_cap30 = cap30;
     g_settings_dirty = 1;
+    options_settings_save();
 }
 
 void options_fps_runtime_toggle(void) {

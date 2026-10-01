@@ -42,8 +42,11 @@ int main(void) {
     options_download_mode(0);
     assert(actual);
     options_download_mode(1);
+    written[0] = 0;
     options_fps_toggle_saved();
     assert(!actual && !options_fps_requested());
+    /* On the stick at once, not only at a clean exit. */
+    assert(!strcmp(written, "fps=60\nfill=1\n"));
     options_download_mode(0);
     assert(!actual);
     options_settings_save();
@@ -58,7 +61,6 @@ int main(void) {
     assert(!strcmp(written, "fps=60\nfill=1\n"));
     assert(options_fill_cache());
     options_fill_cache_toggle();
-    options_settings_save();
     assert(!strcmp(written, "fps=60\nfill=0\n"));
     saved = "fps=30\nfill=0\n";
     options_settings_load();
@@ -67,5 +69,5 @@ int main(void) {
     options_settings_load();
     assert(!actual && options_fill_cache());
     puts("settings: default 60, saved 30 and 60, temporary override, changes during download and "
-         "persistence passed");
+         "persistence at once passed");
 }
