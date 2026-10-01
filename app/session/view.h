@@ -96,16 +96,37 @@ int view_cloud(void);
    any row of that way: up to max catalog indices, newest first. */
 int view_newest(int n, int browse, int *out, int max);
 
+/* The store's first row is the search: taken, a word is typed and the
+   store narrows to the packages it is found in -- name, author, tags,
+   category, summary or description, case aside. view_search_open()
+   answers how many those are and leaves the store as it was when none;
+   O goes back to the first rows, onto the search's. */
+#define VIEW_ROW_SEARCH (-4)
+#define VIEW_SEARCH_SIZE 40
+int view_search_open(const char *word);
+int view_search_close(void);            /* the row to stand on, -1 when none was open */
+const char *view_search(void);          /* the word the store is narrowed to, NULL when none */
+const char *view_search_last(void);     /* the word last typed, "" before the first */
+
+/* The order of every list of packages on the store and the stick, turned
+   by SELECT. */
+enum { VIEW_SORT_NEWEST, VIEW_SORT_NAME, VIEW_SORTS };
+int view_sort(void);
+void view_sort_set(int sort);
+/* The row of the first package on the open list, under whatever rows
+   head it. */
+int view_home(void);
+
 /* That row. view_index() answers VIEW_ROW_ACTION for it, which is
    below zero like the no-such-row answer, so anything that only ever wanted
    a package goes on being right by asking for one. */
 #define VIEW_ROW_ACTION (-2)
 
 /* Under the gear the rows are not packages but the things this session can
-   do to itself: view_index() answers VIEW_ROW_SETTING minus the
+   do to itself, the first of them the UI's mode, flipped where it stands: view_index() answers VIEW_ROW_SETTING minus the
    row's number for them, so the one list draws and walks both kinds. */
 #define VIEW_ROW_SETTING (-1000)     /* below every VIEW_ROW_GROUP */
-#define VIEW_SETTINGS 4
+#define VIEW_SETTINGS 5
 
 /* The word on a row under the gear. */
 const char *view_setting(int n);

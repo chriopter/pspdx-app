@@ -259,7 +259,7 @@ int main(int argc, char **argv) {
         view_rebuild(&catalog);
         if (getenv("UNRELEASED")) view_show_unreleased(1);
         while (view_tab_kind() != VIEW_TAB_HOMEBREW) view_tab_move(1);
-        int row = 0;
+        int row = view_index(0) == VIEW_ROW_SEARCH;
         for (; row < view_count() && VIEW_IS_BROWSE(view_index(row)); row++)
             printf("%s %d\n", view_browse_word(VIEW_ROW_BROWSE - view_index(row)),
                    view_browse_rows(VIEW_ROW_BROWSE - view_index(row)));

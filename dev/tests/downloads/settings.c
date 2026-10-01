@@ -5,7 +5,10 @@
 #include <stdio.h>
 #include "session/options.h"
 static const char *saved;
-static char written[32];
+static char written[48];
+static int sort;
+int view_sort(void) { return sort; }
+void view_sort_set(int s) { sort = s; }
 static int actual;
 const char *storage_path(const char *p) {
     return p;
@@ -46,11 +49,11 @@ int main(void) {
     options_fps_toggle_saved();
     assert(!actual && !options_fps_requested());
     /* On the stick at once, not only at a clean exit. */
-    assert(!strcmp(written, "fps=60\nfill=1\n"));
+    assert(!strcmp(written, "fps=60\nfill=1\nsort=new\n"));
     options_download_mode(0);
     assert(!actual);
     options_settings_save();
-    assert(!strcmp(written, "fps=60\nfill=1\n"));
+    assert(!strcmp(written, "fps=60\nfill=1\nsort=new\n"));
     options_fps_runtime_toggle();
     assert(actual);
     options_download_mode(1);
@@ -58,14 +61,14 @@ int main(void) {
     options_download_mode(0);
     assert(actual);
     options_settings_save();
-    assert(!strcmp(written, "fps=60\nfill=1\n"));
+    assert(!strcmp(written, "fps=60\nfill=1\nsort=new\n"));
     assert(options_fill_cache());
     options_fill_cache_toggle();
-    assert(!strcmp(written, "fps=60\nfill=0\n"));
+    assert(!strcmp(written, "fps=60\nfill=0\nsort=new\n"));
     saved = "fps=30\nfill=0\n";
     options_settings_load();
     assert(actual && !options_fill_cache());
-    saved = "fps=60\nfill=1\n";
+    saved = "fps=60\nfill=1\nsort=new\n";
     options_settings_load();
     assert(!actual && options_fill_cache());
     puts("settings: default 60, saved 30 and 60, temporary override, changes during download and "

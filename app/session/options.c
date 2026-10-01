@@ -52,6 +52,7 @@ void options_settings_load(void) {
        and fill the cache when idle; an explicit 30 FPS or fill=0 is kept. */
     g_settings_fps_cap30 = n > 0 && strstr(text, "fps=30\n") == text;
     g_fill_cache = !(n > 0 && strstr(text, "\nfill=0\n"));
+    view_sort_set(n > 0 && strstr(text, "\nsort=name\n") ? VIEW_SORT_NAME : VIEW_SORT_NEWEST);
     g_runtime_fps_cap30 = g_settings_fps_cap30;
     apply_fps();
     free(text);
@@ -60,11 +61,17 @@ void options_settings_load(void) {
 
 void options_settings_save(void) {
     if (!g_settings_dirty) return;
-    char text[32];
-    int n = snprintf(text, sizeof(text), "fps=%d\nfill=%d\n", g_settings_fps_cap30 ? 30 : 60,
-                     g_fill_cache);
+    char text[48];
+    int n = snprintf(text, sizeof(text), "fps=%d\nfill=%d\nsort=%s\n", g_settings_fps_cap30 ? 30 : 60,
+                     g_fill_cache, view_sort() == VIEW_SORT_NAME ? "name" : "new");
     if (storage_write(storage_path(SETTINGS_PATH), text, (size_t)n) == 0)
         g_settings_dirty = 0;
+}
+
+void options_sort_next(void) {
+    view_sort_set((view_sort() + 1) % VIEW_SORTS);
+    g_settings_dirty = 1;
+    options_settings_save();
 }
 
 int options_fill_cache(void) { return g_fill_cache; }
@@ -417,9 +424,8 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
         }
         else if (pressed & PSP_CTRL_CROSS) {
             /* A value or a switch flips and the view stays, its value or
-               tick with it. The frame rate is the one that is remembered. */
-            if (row == SYS_FRAME_RATE) options_fps_toggle_saved();
-            else if (row == SYS_SHOW_FPS) shell_toggle_fps();
+               tick with it. */
+            if (row == SYS_SHOW_FPS) shell_toggle_fps();
             else if (row == SYS_UNRELEASED) view_show_unreleased(!view_unreleased_shown());
             else if (row == SYS_FILL_CACHE) options_fill_cache_toggle();
             else { shell_toggle_dev(); fake_updates(shell_dev_updates()); }

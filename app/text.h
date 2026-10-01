@@ -202,6 +202,7 @@
 
 /* The four rows under the gear, the way the system names its own: a noun
    each, and on the right what taking the row comes to. */
+#define T_SET_UI             "UI Mode"
 #define T_SET_SOURCES        "Sources"
 #define T_SET_SYSTEM         "Options"
 #define T_SET_FILES          "Data"
@@ -242,7 +243,6 @@
 #define T_HINT_TOGGLE        "Toggle"
 #define T_HINT_RUN           "Run"
 #define T_HINT_RESTORE       "Restore"
-#define T_HINT_UI_MODE       "UI Mode"                          /* SELECT: the frame rate for this run */
 #define T_HINT_TABS          "Tabs"
 /* Data: the one action at the top of the areas. */
 #define T_SUB_CLEAR_CACHE    "Clear Cache"
@@ -298,6 +298,14 @@
 #define T_TAG_NOTE           "%d app%s with this tag: "      /* n, "s"; the names follow */
 #define T_SOURCE_NOTE        "%d app%s from this source: "   /* n, "s"; the names follow */
 /* The three rows the Homebrew tab opens with, the ways it is browsed by. */
+#define T_SEARCH             "Search"
+#define T_SEARCH_HEAD        "Search: %s"
+#define T_SEARCH_NOTE        "Find apps by name, author, tag or description."
+#define T_SEARCH_LAST        "Last search: %s"
+#define T_SEARCH_NONE        "No apps found for \"%s\""
+#define T_OSK_SEARCH         "Search apps"
+#define T_SORT_NEWEST        "Sorted by newest"
+#define T_SORT_NAME          "Sorted by name"
 #define T_BROWSE_CATEGORY    "Browse by Category"
 #define T_BROWSE_TAG         "Browse by Tag"
 #define T_BROWSE_SOURCE      "Browse by Source"

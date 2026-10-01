@@ -13,6 +13,8 @@ void menu_open(int index);
 
 /* The one popup under the gear: the two ways a .pspdx comes in directly. */
 enum sub { SUB_NONE, SUB_ADD };
+/* The lists' order turned to the next one, and kept on the stick. */
+void options_sort_next(void);
 void sub_open(enum sub which);
 
 /* A missing or malformed settings file means the 60 FPS

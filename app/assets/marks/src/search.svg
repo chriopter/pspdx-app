@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13">
+  <!-- A magnifying glass: looking for an app by a word. -->
+  <g fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round">
+    <circle cx="5.6" cy="5.6" r="3.8"/>
+    <path d="M8.5 8.5 L11.4 11.4"/>
+  </g>
+</svg>

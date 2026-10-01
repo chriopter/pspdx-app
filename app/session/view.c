@@ -93,6 +93,12 @@ static struct group g_group[VIEW_GROUPS];
 static int g_groups;
 static int g_group_open = -1;
 static int g_browse = -1;               /* the way open, -1 at the store's first rows */
+/* The store narrowed to what a typed word is found in, and the word last
+   typed, which the keyboard opens with again. */
+static char g_search[VIEW_SEARCH_SIZE];
+static int g_searching;
+/* The order of every list of packages: newest first, or by name. */
+static int g_sort = VIEW_SORT_NEWEST;
 /* The rows of the way open, as group numbers, in their order. */
 static unsigned char g_way[VIEW_GROUPS];     /* VIEW_GROUPS < 256 */
 static int g_ways;
@@ -349,15 +355,16 @@ int view_newest(int n, int browse, int *out, int max) {
 }
 
 static int on_store(void) { return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_HOMEBREW; }
-/* The rows above the packages on the open tab: the three ways at the
-   store's first rows, the way's rows while one is open and no row of it
-   is, nothing inside a row. */
+/* The rows above the packages on the open tab: the search and the three
+   ways at the store's first rows, the way's rows while one is open and no
+   row of it is, nothing inside a row or among what a search found. */
 static int root_rows(void) {
-    if (!on_store() || g_group_open >= 0) return 0;
-    return g_browse < 0 ? VIEW_BROWSE : g_ways;
+    if (!on_store() || g_group_open >= 0 || g_searching) return 0;
+    return g_browse < 0 ? 1 + VIEW_BROWSE : g_ways;
 }
 static int root_index(int row) {
-    return g_browse < 0 ? VIEW_ROW_BROWSE - row : VIEW_ROW_GROUP - g_way[row];
+    if (g_browse >= 0) return VIEW_ROW_GROUP - g_way[row];
+    return row == 0 ? VIEW_ROW_SEARCH : VIEW_ROW_BROWSE - (row - 1);
 }
 int view_group_count(void) { return g_groups; }
 const char *view_group_word(int n) { return n >= 0 && n < g_groups ? g_group[n].word : ""; }
@@ -382,7 +389,62 @@ int view_browse_close(void) {
     g_group_open = -1;
     list_way();
     build_view(1);
-    return was;
+    return 1 + was;     /* under the search's row */
+}
+
+/* Whether the word stands anywhere in the text, case aside. */
+static int found_in(const char *text, const char *word) {
+    if (!text) return 0;
+    for (; *text; text++) {
+        const char *a = text, *b = word;
+        while (*b && fold((unsigned char)*a) == fold((unsigned char)*b)) { a++; b++; }
+        if (!*b) return 1;
+    }
+    return 0;
+}
+static int matches(const struct app_entry *e) {
+    return found_in(e->name, g_search) || found_in(txt(e->author), g_search) ||
+           found_in(txt(e->tags), g_search) || found_in(e->category, g_search) ||
+           found_in(txt(e->summary), g_search) || found_in(e->description, g_search);
+}
+int view_search_open(const char *word) {
+    if (!word || !word[0] || !on_store()) return 0;
+    snprintf(g_search, sizeof(g_search), "%s", word);
+    int was_browse = g_browse, was_group = g_group_open;
+    g_searching = 1;
+    g_browse = -1;
+    g_group_open = -1;
+    list_way();
+    build_view(0);
+    if (g_view_count > 0) {
+        g_generation++;
+        return g_view_count;
+    }
+    /* Nothing found: the store stays as it was. */
+    g_searching = 0;
+    g_browse = was_browse;
+    g_group_open = was_group;
+    list_way();
+    build_view(0);
+    return 0;
+}
+int view_search_close(void) {
+    if (!g_searching) return -1;
+    g_searching = 0;
+    build_view(1);
+    return 0;
+}
+const char *view_search(void) { return g_searching ? g_search : NULL; }
+const char *view_search_last(void) { return g_search; }
+
+int view_sort(void) { return g_sort; }
+void view_sort_set(int sort) {
+    if (sort < 0 || sort >= VIEW_SORTS || sort == g_sort) return;
+    g_sort = sort;
+    build_view(1);
+}
+int view_home(void) {
+    return root_rows() + g_view_action;
 }
 void view_group_open(int n) {
     if (n < 0 || n >= g_groups) return;
@@ -413,6 +475,18 @@ static int newest_first(const void *a, const void *b) {
     if (px != py) return px > py ? -1 : 1;
     return x - y;
 }
+/* A name is filed under its first letter or digit: a quote, a bracket or
+   a space before it does not put it ahead of the alphabet. */
+static const char *filed(const char *name) {
+    const char *p = name;
+    while (*p && (unsigned char)*p < 0x80 && !isalnum((unsigned char)*p)) p++;
+    return *p ? p : name;
+}
+static int by_name(const void *a, const void *b) {
+    int x = *(const unsigned short *)a, y = *(const unsigned short *)b;
+    int order = strcasecmp(filed(g_view_of->apps[x].name), filed(g_view_of->apps[y].name));
+    return order ? order : x - y;
+}
 
 static void build_view(int restart) {
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
@@ -423,20 +497,23 @@ static void build_view(int restart) {
         int take;
         if (tab == TAB_HOMEBREW)
             take = !view_hidden(&g_view_of->apps[i]) &&
-                   (g_group_open >= 0 ? view_in_group(&g_view_of->apps[i], g_group_open)
-                                      : g_browse < 0);
+                   (g_searching ? matches(&g_view_of->apps[i])
+                    : g_group_open >= 0 ? view_in_group(&g_view_of->apps[i], g_group_open)
+                                        : g_browse < 0);
         else if (tab == TAB_STICK)
             take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_BASKET) take = view_basket_has(i) || g_downloads[i] != 0;
         else take = 0;      /* the gear's rows are not packages; the UMD has none */
         if (take) g_view[g_view_count++] = (unsigned short)i;
     }
-    /* Homebrew and the stick list the newest release first; what says no
-       release date stands last, and a tie keeps the catalog's order. */
+    /* Homebrew and the stick list the newest release first, or by name
+       where that was chosen; what says no release date stands last, and a
+       tie keeps the catalog's order. */
     if (tab == TAB_HOMEBREW || tab == TAB_STICK)
-        qsort(g_view, (size_t)g_view_count, sizeof(*g_view), newest_first);
-    /* On the stick, what has something waiting for it stands first, newest
-       first; the rest after, likewise. */
+        qsort(g_view, (size_t)g_view_count, sizeof(*g_view),
+              g_sort == VIEW_SORT_NAME ? by_name : newest_first);
+    /* On the stick, what has something waiting for it stands first, in
+       that order; the rest after, likewise. */
     if (tab == TAB_STICK) {
         static unsigned short sorted[MAX_APPS];
         int n = 0;
@@ -506,6 +583,7 @@ void view_rebuild(const struct catalog *catalog) {
     g_view_of = catalog;
     g_group_open = -1;
     g_browse = -1;
+    g_searching = 0;
     collect_groups();
     collect_tabs(was);
     build_view(1);
@@ -551,7 +629,7 @@ int view_index(int row) {
 
 int view_row(int index) {
     for (int row = 0; row < g_view_count; row++)
-        if (g_view[row] == index) return row + g_view_action + root_rows();
+        if (g_view[row] == index) return row + view_home();
     return -1;
 }
 
@@ -595,6 +673,7 @@ void view_tab_move(int step) {
        the store, not a state the other tabs know about. */
     g_group_open = -1;
     g_browse = -1;
+    g_searching = 0;
     list_way();
     build_view(1);
 }
@@ -618,6 +697,7 @@ unsigned view_generation(void) { return g_generation; }
    the band that says what it is. A row here is read and taken the way a
    package's row is, because at this depth nothing is deeper. */
 static const char *const SETTING[VIEW_SETTINGS] = {
+    T_SET_UI,
     T_SET_SOURCES,
     T_SET_SYSTEM,
     T_SET_FILES,

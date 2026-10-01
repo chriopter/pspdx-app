@@ -752,10 +752,17 @@ int main(int argc, char *argv[]) {
         if (steps) pressed |= vertical;
         shell_scroll_fast(g_scroll_fast);
         if (synced) pressed |= keys_pressed();
-        if ((pressed & PSP_CTRL_SELECT) && !info) {
-            options_fps_runtime_toggle();
-            cues_post(CUE_MOVE, 0);
-            logline("graphics: SELECT -> %d fps (session only)", gfx_target_fps());
+        /* SELECT over a list of packages turns its order, newest first or
+           by name, for every list and for good; the foot says which. The
+           cursor goes to the head of the list, where the new order starts. */
+        if ((pressed & PSP_CTRL_SELECT) && !info && shown()->count > 0 &&
+            (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK) &&
+            !view_cloud() && !asking() && !menu_shown() && !popup_shown() && !details &&
+            !gear_view_shown()) {
+            options_sort_next();
+            if (view_index(cursor) >= 0) cursor = view_home();
+            cues_post(CUE_MOVE, cursor);
+            pressed &= ~(unsigned)PSP_CTRL_SELECT;
         }
         /* Everything below counts in rows of the shell's view -- the
            catalog filtered to the active tab -- and there are none of those
@@ -934,6 +941,11 @@ int main(int argc, char *argv[]) {
                     }
                 }
             }
+        } else if ((pressed & PSP_CTRL_CIRCLE) && view_search()) {
+            /* O out of what a search found: back to the store's first
+               rows, on the search's. */
+            cues_post(CUE_MOVE, cursor = view_search_close());
+            count = view_count();
         } else if ((pressed & PSP_CTRL_CIRCLE) &&
                    (view_group_open_at() >= 0 || view_browse_at() >= 0)) {
             /* O goes back a step, onto the row the step was taken from --
@@ -945,7 +957,22 @@ int main(int argc, char *argv[]) {
             count = view_count();
         } else if (count > 0) {
             int at = view_index(cursor);
-            if ((pressed & PSP_CTRL_CROSS) && VIEW_IS_BROWSE(at)) {
+            if ((pressed & PSP_CTRL_CROSS) && at == VIEW_ROW_SEARCH) {
+                /* The search: a word typed, and the store narrowed to the
+                   packages it is found in. With none, the foot says so and
+                   the store stays. */
+                char word[VIEW_SEARCH_SIZE];
+                if (osk_read(T_OSK_SEARCH, view_search_last(), word, sizeof(word)) > 0 && word[0]) {
+                    if (view_search_open(word) > 0) {
+                        cues_post(CUE_MOVE, cursor = view_home());
+                        count = view_count();
+                    } else {
+                        char line[96];
+                        snprintf(line, sizeof(line), T_SEARCH_NONE, word);
+                        shell_status(line);
+                    }
+                }
+            } else if ((pressed & PSP_CTRL_CROSS) && VIEW_IS_BROWSE(at)) {
                 /* A way to browse by lists its rows in the store's place. */
                 view_browse_open(VIEW_ROW_BROWSE - at);
                 cues_post(CUE_MOVE, cursor = 0);
@@ -955,18 +982,22 @@ int main(int argc, char *argv[]) {
                    stands in it; O goes back to the way's rows, on the row
                    it was narrowed from. */
                 view_group_open(VIEW_ROW_GROUP - at);
-                cues_post(CUE_MOVE, cursor = 0);
+                cues_post(CUE_MOVE, cursor = view_home());
                 count = view_count();
             } else if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_SETTING) {
-                /* A row under the gear does what it says: Sources, Options
+                /* A row under the gear does what it says: the UI's mode a switch, Sources, Options
                    and Data are views in the list's place, About the band.
                    Sources waits for a sync, since what it lists is what
                    the last fetch read. */
                 int which = VIEW_ROW_SETTING - at;
-                if (which == 0 && synced) sources_open();
-                else if (which == 1) system_open();
-                else if (which == 2) files_view_open();
-                else if (which == 3) shell_info(info = 1);
+                if (which == 0) {
+                    /* The UI's mode flips where it stands, and is kept. */
+                    options_fps_toggle_saved();
+                    cues_post(CUE_MOVE, cursor);
+                } else if (which == 1 && synced) sources_open();
+                else if (which == 2) system_open();
+                else if (which == 3) files_view_open();
+                else if (which == 4) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X opens the package's page; the job rows do their job.
                    The options, with the same things and the rest, are on

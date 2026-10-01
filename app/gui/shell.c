@@ -45,6 +45,7 @@
 #include "gui/preview.h"
 #include "session/view.h"
 #include "session/downloads.h"
+#include "session/options.h"
 #include "update/pspdx.h"
 #include "update/sources.h"
 #include "util/runtime.h"
@@ -402,6 +403,11 @@ static const char *tab_word(int tab) {
     if (sources_view_shown()) return T_HEAD_SOURCES;
     if (system_view_shown()) return T_HEAD_SYSTEM;
     if (g_info) return T_HEAD_ABOUT;
+    if (tab == TAB_HOMEBREW && view_search()) {
+        static char head[16 + VIEW_SEARCH_SIZE];
+        snprintf(head, sizeof(head), T_SEARCH_HEAD, view_search());
+        return head;
+    }
     if (tab == TAB_HOMEBREW && view_group_open_at() >= 0)
         return group_word(view_group_open_at());
     if (tab == TAB_HOMEBREW && view_browse_at() >= 0) return BROWSE_HEAD[view_browse_at()];
@@ -491,7 +497,9 @@ static void draw_action_row(int y, int selected, float t) {
                          action_title(), selected ? hover_age(0, VIEW_ROW_ACTION) : 0.0f);
 }
 
+/* The first row is named by the side it is on: Baked at 30, Mercy at 60. */
 static const char *setting_word(int n) {
+    if (n == 0) return options_fps_requested() ? T_SYS_BAKED : T_SYS_MERCY;
     return view_setting(n);
 }
 
@@ -500,14 +508,27 @@ static const char *setting_word(int n) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[VIEW_SETTINGS] = {
-        MARK_WORLD, MARK_SLIDERS, MARK_FOLDER, MARK_INFO,
+        MARK_PILL, MARK_WORLD, MARK_SLIDERS, MARK_FOLDER, MARK_INFO,
     };
     float dx = g_page_dx;
     float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     enum mark m = (enum mark)SIGN[n];
     mark_draw(m, gx, gy, selected ? g_text : faded(g_dim, 170),
               selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
-    font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, LIST_X + LIST_W - NAME_X,
+    int w = LIST_X + LIST_W - NAME_X;
+    if (m == MARK_PILL) {
+        /* The switch Options' rows have, its knob easing to the side it
+           is on -- right is 60 -- and the rate at the row's end. */
+        static float at;
+        at += ((options_fps_requested() ? -4.6f : 4.6f) - at) * 0.45f;
+        mark_draw(MARK_KNOB, gx + at, gy, selected ? g_text : faded(g_dim, 170), MARK_PLAIN, 0, t);
+        const char *value = options_fps_requested() ? T_VALUE_FPS30 : T_VALUE_FPS60;
+        float vw = font_width(FONT_META, value);
+        font_print(FONT_META, LIST_X + LIST_W - 8 + dx - vw, y + 21,
+                   faded(g_dim, selected ? 230 : 150), value);
+        w -= (int)vw + 16;
+    }
+    font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, w,
                        selected ? g_text : g_dim, setting_word(n));
 }
 
@@ -738,6 +759,33 @@ static void draw_browse_row(int k, int y, int selected, float t) {
                          selected ? hover_age(0, VIEW_ROW_BROWSE - k) : 0.0f);
 }
 
+/* The store's first row, the search: a sign, the word, and at the row's
+   end the word last looked for. */
+static void draw_word_row(int y, int selected, float t) {
+    float dx = g_page_dx;
+    float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
+    mark_draw(MARK_SEARCH, gx, gy, selected ? g_text : faded(g_dim, 170),
+              selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+    const char *value = view_search_last();
+    float right = LIST_X + LIST_W - 8 + dx, room = right - (NAME_X + dx);
+    float vw = font_width(FONT_META, value);
+    if (value[0] && vw <= room - font_width(FONT_TITLE, T_SEARCH) - 12) {
+        font_print(FONT_META, right - vw, y + 21, faded(g_dim, selected ? 230 : 150), value);
+        room -= vw + 8;
+    }
+    font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, room, selected ? g_text : g_dim, T_SEARCH);
+}
+
+static void draw_word_panel(void) {
+    char note[160];
+    size_t at = (size_t)snprintf(note, sizeof(note), "%s", T_SEARCH_NOTE);
+    if (view_search_last()[0]) {
+        note[at++] = ' ';
+        snprintf(note + at, sizeof(note) - at, T_SEARCH_LAST, view_search_last());
+    }
+    draw_setting_note(T_SEARCH, note, 0.0f);
+}
+
 /* The right column on a way: what it lists, by name, as far as three
    lines go. */
 static void draw_browse_panel(int k) {
@@ -914,6 +962,10 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
         gfx_clip(0, LIST_Y, clip_w, VISIBLE * ITEM_H);
         int index = view_index(i);
         if (index == VIEW_ROW_ACTION) { draw_action_row(y, selected, t); continue; }
+        if (index == VIEW_ROW_SEARCH) {
+            draw_word_row(y, selected, t);
+            continue;
+        }
         if (index <= VIEW_ROW_SETTING) {
             draw_setting_row(VIEW_ROW_SETTING - index, y, selected, t);
             continue;
@@ -1986,6 +2038,7 @@ static void read_storage(void) {
 /* What each row does, said on the right while the cursor is on it: the
    list names the thing, the panel says what it comes to. */
 static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
+    T_SYS_FRAME_RATE_NOTE,
     T_NOTE_SOURCES,
     T_NOTE_SYSTEM,
     T_NOTE_FILES,
@@ -2392,23 +2445,30 @@ static void draw_footer(void) {
     /* Detail pages show their actions; modal views draw their own hints. */
     if (g_ask_title[0] || g_menu || g_menu_leaving || g_installing) return;
     /* The gear's own rows carry the legend the views under them carry:
-       X into a row, SELECT for the frame rate of this run, L and R across
-       the tabs. It is the one list that is about the client rather than
+       X into a row, L and R across the tabs. It is the one list that is about the client rather than
        about packages, and the place a hand learns its keys. */
     int gear = !g_details && !g_status[0] && !g_info && g_catalog && g_catalog->count > 0 &&
                view_tab_kind() == VIEW_TAB_GEAR && !files_view_shown() &&
                !sources_view_shown() && !system_view_shown();
-    if (!g_details && !g_status[0] && !gear) return;
+    /* Over a list of packages the foot names the one key no row shows:
+       SELECT, and the order it has put the lists in. */
+    int lists = !g_details && !g_status[0] && !g_info && g_catalog && g_catalog->count > 0 &&
+                (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK) &&
+                !view_cloud();
+    if (!g_details && !g_status[0] && !gear && !lists) return;
     /* No edge: the strip comes in as a shadow rising from the bottom, the
        way the PSP's own bars sit on their backgrounds. */
     gfx_vgrad(0, FOOTER_Y - 28, SCR_W, 28, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 120));
     gfx_vgrad(0, FOOTER_Y, SCR_W, SCR_H - FOOTER_Y, RGBA(0, 0, 0, 120),
               RGBA(0, 0, 0, 200));
     if (gear) {
-        float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_HINT_ENTER, g_dim);
-        x = draw_hint(x, FOOTER_BASE, MARK_SELECT, T_HINT_UI_MODE, g_dim);
+        float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS,
+                            g_cursor == 0 ? T_HINT_TOGGLE : T_HINT_ENTER, g_dim);
         x = draw_hint(x, FOOTER_BASE, MARK_L, "/", g_dim) - HINT_SPACE;
         draw_hint(x, FOOTER_BASE, MARK_R, T_HINT_TABS, g_dim);
+    } else if (lists) {
+        draw_hint(LIST_X, FOOTER_BASE, MARK_SELECT,
+                  view_sort() == VIEW_SORT_NAME ? T_SORT_NAME : T_SORT_NEWEST, g_dim);
     } else if (g_details) {
         const struct app_entry *e = g_details;
         float x = LIST_X;
@@ -2493,7 +2553,9 @@ int draw_setting_note(const char *title, const char *note, float age) {
 }
 
 static void draw_setting_panel(int n) {
-    draw_setting_note(setting_word(n), SETTING_NOTE[n], 0.0f);
+    draw_setting_note(setting_word(n), n == 0 && downloads_busy()
+                      ? "Downloads temporarily use the 60 FPS UI. Your selected mode returns when the queue is finished."
+                      : SETTING_NOTE[n], 0.0f);
 }
 
 void shell_draw(const struct catalog *catalog, int cursor) {
@@ -2613,6 +2675,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         if (g_page_dx <= -(SCR_W - 20) || g_info) suppress_panel = 1;
         if (!suppress_panel) {
             if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
+            else if (index == VIEW_ROW_SEARCH) draw_word_panel();
             else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
             else if (index <= VIEW_ROW_GROUP) draw_group_panel(VIEW_ROW_GROUP - index);
             else if (VIEW_IS_BROWSE(index)) draw_browse_panel(VIEW_ROW_BROWSE - index);
