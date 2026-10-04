@@ -12,14 +12,9 @@
 /* ltn8 is the sans-serif face the system shell uses; ltn0 is the serif one
    and only a fallback for firmware that lacks the first.
 
-   The ms0 path is for emulators, which have the font files but do not mount
-   flash0 for the guest. Nothing is shipped there -- the test rig copies the
-   emulator's own font in. */
-static const char *CANDIDATES[] = {
-    "flash0:/font/ltn8.pgf",
-    "flash0:/font/ltn0.pgf",
-    NULL,
-};
+   PPSSPP's flash0 file access can fail even when its fonts are installed.
+   The release carries a free replacement beside the EBOOT for that case;
+   the old test-rig override remains the last fallback. */
 
 static intraFont *g_font;
 
@@ -186,8 +181,17 @@ int font_init(void) {
         logline("font: intraFontInit failed");
         return 0;
     }
-    for (unsigned i = 0; i < sizeof(CANDIDATES) / sizeof(*CANDIDATES); i++) {
-        g_font = intraFontLoad((CANDIDATES[i] ? CANDIDATES[i] : storage_path("PSP/PSPDX/DEBUG/font/ltn8.pgf")), INTRAFONT_CACHE_ALL);
+    char bundled[256];
+    snprintf(bundled, sizeof(bundled), "%s/PSP/GAME/%s/font.pgf",
+             storage_device(), storage_self_dir());
+    const char *candidates[] = {
+        "flash0:/font/ltn8.pgf",
+        "flash0:/font/ltn0.pgf",
+        bundled,
+        storage_path("PSP/PSPDX/DEBUG/font/ltn8.pgf"),
+    };
+    for (unsigned i = 0; i < sizeof(candidates) / sizeof(*candidates); i++) {
+        g_font = intraFontLoad(candidates[i], INTRAFONT_CACHE_ALL);
         if (g_font) {
             /* Every string this client draws is UTF-8 -- the catalog, the
                .pspdx files, the stick's own names. Left at its default the
@@ -195,7 +199,7 @@ int font_init(void) {
                a glyph it lacks: an em dash or an e with an accent came out
                as nothing, measured nothing, and the row closed up over it. */
             intraFontSetEncoding(g_font, INTRAFONT_STRING_UTF8);
-            logline("font: %s", (CANDIDATES[i] ? CANDIDATES[i] : storage_path("PSP/PSPDX/DEBUG/font/ltn8.pgf")));
+            logline("font: %s", candidates[i]);
             g_styled = -1;
             forget_measurements();
             return 1;
@@ -275,4 +279,3 @@ float font_width(enum font_style style, const char *text) {
     use(style, g_color);
     return measure(style, text, -1.0f)->width;
 }
-
