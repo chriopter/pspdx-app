@@ -27,8 +27,7 @@
 # same prefix, which is what an install done from the mock catalog leaves;
 # never anything installed for real.
 #
-# The stick gets what a run needs and PPSSPP does not provide: the system
-# font (PPSSPP has it but does not mount flash0 for the guest), the clips
+# The stick gets the release's replacement font, the clips
 # from the catalog repo next door if there is one, and a seed, so the client
 # starts the way a PSP does after its first run. Nothing here is real
 # entropy; a PSP that has run this build is not one to sign with.
@@ -100,8 +99,7 @@ fi
 mkdir -p "$MS/PSP/PSPDX/CRYPTO" "$MS/PSP/PSPDX/LOGS" "$MS/PSP/PSPDX/DEBUG" "$MS/PSP/GAME/PSPDX" "$MS/PSP/PSPDX/DEBUG/font" "$MS/PSP/PSPDX/CACHE/media"
 cp "$APP/EBOOT.PBP" "$APP/presets.txt" "$MS/PSP/GAME/PSPDX/"
 
-FONTS="$(flatpak info --show-location org.ppsspp.PPSSPP 2>/dev/null)/files/share/ppsspp/assets/flash0/font"
-[ -f "$FONTS/ltn8.pgf" ] && cp "$FONTS/ltn8.pgf" "$MS/PSP/PSPDX/DEBUG/font/ltn8.pgf"
+cp "$APP/assets/font.pgf" "$MS/PSP/GAME/PSPDX/font.pgf"
 
 # The films out of a catalog site built next door, so a row has something to
 # play before anything is fetched.

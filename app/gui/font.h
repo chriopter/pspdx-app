@@ -1,9 +1,8 @@
 #ifndef PSPDX_FONT_H
 #define PSPDX_FONT_H
 
-/* The PSP's own system font, read off the firmware at flash0:/font. It is the
-   single thing that stops the UI looking like a terminal, and it costs
-   nothing to ship: the file is already on every PSP. */
+/* The PSP's own system font, or the bundled free replacement when an
+   emulator cannot expose the firmware font through flash0:/font. */
 
 enum font_style {
     FONT_DISPLAY,   /* a word standing in the room, rendered once to a texture */
@@ -14,7 +13,7 @@ enum font_style {
     FONT_CAPTION    /* compact facts below an app description */
 };
 
-/* Returns 0 if the firmware font could not be loaded; the caller should then
+/* Returns 0 if no font could be loaded; the caller should then
    stay on the debug screen rather than draw an empty UI. */
 int font_init(void);
 void font_shutdown(void);
