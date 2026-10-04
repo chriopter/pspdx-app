@@ -14,6 +14,11 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 
 Extract `pspdx.zip` to your PSP, start PSPDX and browse by category, tag or source. Updates appear on their own. WPA2 needs ARK-5.
 
+PPSSPP: extract the same ZIP to the emulator's Memory Stick directory. The
+package includes a free replacement font beside `EBOOT.PBP`, so no firmware
+font or debug override needs to be installed. A real PSP uses its firmware
+font first. Keep `font.pgf` beside the EBOOT when moving the app folder.
+
 - **Install:** press **Cross** on an app. **Circle** keeps the download running in the background, **Square** cancels.
 - **Basket:** add apps with **Triangle**, then *Download all*. Running downloads are listed there too.
 - **Find:** *Search* on the first page looks through names, authors, tags and descriptions. **SELECT** sorts any list by newest or by name.
@@ -307,7 +312,10 @@ ms0:/
     │   ├── PSPDX/                       # Downloader
     │   │   ├── EBOOT.PBP
     │   │   ├── .pspdx                   # Bundled for offline first start
-    │   │   └── presets.txt              # Sources offered once
+    │   │   ├── presets.txt              # Sources offered once
+    │   │   ├── font.pgf                 # Free emulator fallback
+    │   │   ├── font-NOTICE.txt
+    │   │   └── LICENSE
     │   ├── Cathedral/                   # Installed homebrew
     │   │   ├── EBOOT.PBP
     │   │   └── ...

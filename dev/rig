@@ -67,14 +67,8 @@ mkdir -p "$MS/PSP/GAME/PSPDX"
 cp "${EBOOT:-$APP/EBOOT.PBP}" "$MS/PSP/GAME/PSPDX/EBOOT.PBP"
 cp "$APP/presets.txt" "$MS/PSP/GAME/PSPDX/presets.txt"
 
-# PPSSPP ships the PSP system fonts but does not mount flash0 for the guest,
-# so put one where the client's fallback looks. Test rig only: on hardware the
-# font comes out of the PSP's own firmware and nothing is copied.
-FONTS="$(flatpak info --show-location org.ppsspp.PPSSPP 2>/dev/null)/files/share/ppsspp/assets/flash0/font"
-if [ -f "$FONTS/ltn8.pgf" ]; then
-	mkdir -p "$DBG/font"
-	cp "$FONTS/ltn8.pgf" "$DBG/font/ltn8.pgf"
-fi
+# Use the release's fallback, so the rig exercises the installed package.
+cp "$APP/assets/font.pgf" "$MS/PSP/GAME/PSPDX/font.pgf"
 
 # The films out of a catalog site built next door go into the client's
 # cache, which it consults before any URL, the same way dev/start plants

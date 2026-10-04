@@ -57,10 +57,17 @@ cp "$HERE/.pspdx" "$HERE/dist/PSP/GAME/PSPDX/.pspdx"
 # The catalogs the client offers once each; the EBOOT carries the same list
 # for a stick that loses this file.
 cp "$APP/presets.txt" "$HERE/dist/PSP/GAME/PSPDX/presets.txt"
+# A free replacement for emulators whose flash0 cannot be read by intraFont.
+cp "$APP/assets/font.pgf" "$HERE/dist/PSP/GAME/PSPDX/font.pgf"
+cp "$APP/assets/font-NOTICE.txt" "$HERE/dist/PSP/GAME/PSPDX/font-NOTICE.txt"
+cp "$HERE/LICENSE" "$HERE/dist/PSP/GAME/PSPDX/LICENSE"
 (cd "$HERE/dist" && zip -q -r "$HERE/pspdx.zip" PSP)
 unzip -tqq "$HERE/pspdx.zip"
 unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/.pspdx | cmp "$HERE/.pspdx" -
 unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/presets.txt | cmp "$APP/presets.txt" -
+unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/font.pgf | cmp "$APP/assets/font.pgf" -
+unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/font-NOTICE.txt | cmp "$APP/assets/font-NOTICE.txt" -
+unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/LICENSE | cmp "$HERE/LICENSE" -
 rm -rf "$HERE/dist"
 
 gh release create "v$VERSION" "$HERE/pspdx.zip" -t "v$VERSION" -n "$NOTES" \
