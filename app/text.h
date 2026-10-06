@@ -223,7 +223,7 @@
 #define T_NOTHING_TO_DOWNLOAD "There is nothing to download."
 #define T_NO_RECORD          "The install location of this app is unknown."
 #define T_NO_EBOOT           "This app cannot be started."
-#define T_START_REFUSED      "Could not start the app."
+#define T_START_REFUSED      "Could not start the app (%08x)."      /* the code the firmware gave */
 #define T_SELF_DELETE        "PSPDX cannot delete itself."
 
 /* Direct Install and sources. */

@@ -30,7 +30,7 @@ ASFLAGS = $(CFLAGS)
 LIBS = -lcjson -lintrafont -lpng -lz -lm \
        -lpspgu -lpspgum -lpspmpeg -lpspaudio -lpspsemaphore_660 -lpsppower \
        -lpspnet_resolver -lpspnet_apctl -lpspnet_inet -lpspnet -lpspwlan \
-       -lpsputility -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpspatrac3 -lpspkubridge
+       -lpsputility -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpspatrac3 -lpspkubridge -lpspsystemctrl_user
 
 EXTRA_TARGETS = EBOOT.PBP
 PSP_EBOOT_TITLE = PSPDX

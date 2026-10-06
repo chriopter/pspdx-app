@@ -11,6 +11,9 @@
 #include <pspkernel.h>
 #include <pspctrl.h>
 #include <pspiofilemgr.h>
+#include <pspinit.h>
+#include <psploadexec_kernel.h>
+#include <systemctrl.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -619,16 +622,34 @@ void launch_app(int index) {
     audio_stop();
     log_dump();
 
+    /* The firmware lets only a game from a disc start another program:
+       sceKernelLoadExec refuses an app that was started from the Memory
+       Stick or the Go's own storage (80020149). The custom firmware's own
+       call is what starts a homebrew from either, as the XMB does: by the
+       device the app is on. */
+    struct SceKernelLoadExecVSHParam vsh;
+    memset(&vsh, 0, sizeof(vsh));
+    vsh.size = sizeof(vsh);
+    vsh.args = strlen(path) + 1;
+    vsh.argp = path;
+    vsh.key = "game";
+    int rc = sctrlKernelLoadExecVSHWithApitype(strncmp(path, "ef0:", 4) ? PSP_INIT_APITYPE_MS2 : PSP_INIT_APITYPE_EF2,
+                                               path, &vsh);
+    logline("launch: the custom firmware refused %08x", rc);
+
+    /* Without that call (an emulator), the firmware's. */
     struct SceKernelLoadExecParam param;
     memset(&param, 0, sizeof(param));
     param.size = sizeof(param);
     param.args = strlen(path) + 1;
     param.argp = path;
     param.key = "game";
-    int rc = sceKernelLoadExec(path, &param);
-    /* Only reached when the firmware refused it. */
-    logline("launch: refused %08x", rc);
-    shell_status(T_START_REFUSED);
+    int plain = sceKernelLoadExec(path, &param);
+    /* Only reached when both refused it. */
+    logline("launch: refused %08x", plain);
+    char said[64];
+    snprintf(said, sizeof(said), T_START_REFUSED, (unsigned)rc);
+    shell_status(said);
 }
 
 /* The action row taken: everything the tab holds, one after another, in the
