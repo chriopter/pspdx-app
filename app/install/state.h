@@ -31,10 +31,20 @@ int state_target_owner(const char *dir, const char *id);
 int state_target_owner_on(const char *dir, const char *id, const char *device);
 int state_commit_on(const struct manifest *m, const char *dir, const unsigned char *sha256,
                     const char *file_dir, const char *device);
-/* The release in m installed as the plugin seplugins/<file> on device: the
-   .prx by its own SHA-256, and the line PSPDX added for it, "" for none. */
-int state_commit_plugin(const struct manifest *m, const char *file, const unsigned char *sha256,
-                        const char *device, const unsigned char *file_sha256, const char *line);
+/* The release in m installed as a plugin on device, where being
+   seplugins/<name>/<name>.prx: the main .prx by its own SHA-256, the line
+   PSPDX added for it, "" for none, files every file PSPDX put into the
+   folder, {"<path below it>": "<sha256>"}, and old the one file of PSPDX
+   1.1's layout still to be cleared away, or NULL. One write. */
+int state_commit_plugin(const struct manifest *m, const char *where, const unsigned char *sha256,
+                        const char *device, const unsigned char *file_sha256, const char *line,
+                        const cJSON *files, const struct plugin_old *old);
+/* A copy of the record's plugin_files for the caller to delete, NULL when
+   it has none. */
+cJSON *state_plugin_files(const char *id);
+/* What the record keeps of the old layout let go of: its line alone, once
+   that is out of the list, or all of it. */
+int state_plugin_old(const char *id, int line_only);
 /* What a plugin's record says of PLUGINS.TXT. write: the write about to be
    made, or NULL for none pending. line: the line PSPDX owns, "" for none,
    NULL to leave what the record says. */

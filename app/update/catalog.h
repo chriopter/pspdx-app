@@ -77,6 +77,9 @@ struct app_entry {
        of it, and is updated only through a catalog. */
     int unsupported;
     char type[12];              /* homebrew, plugin or iso */
+    /* The .prx a plugin's entry says its folder is loaded by; empty where
+       it names none, and one .prx in the folder is the one. */
+    struct text plugin;
     /* An installed plugin whose line in PLUGINS.TXT does not turn it on. */
     int plugin_off;
     /* The release the entry installs from, as a cache derived it or as

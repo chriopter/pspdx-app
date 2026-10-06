@@ -22,7 +22,7 @@
    device in it is beside the list, and paths are told apart without regard
    to case, as the stick tells its files apart.
 
-   path is the plugin's whole path, ms0:/seplugins/usbnet.prx.
+   path is the plugin's whole path, ms0:/seplugins/usbnet/usbnet.prx.
 
    Of the lines that name a path only one can be PSPDX's own, and only that
    one is ever written: the line PSPDX added, by its bytes. It is

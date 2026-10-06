@@ -107,7 +107,7 @@ static int load(void) {
     /* The installed copy where there is one: the one the firmware loads
        from the next start on. */
     if (recorded(&rec))
-        snprintf(path, sizeof(path), "%s/seplugins/%s", rec.device, rec.plugin);
+        plugin_path(&rec, path, sizeof(path));
     if (!recorded(&rec) || !storage_exists(path))
         beside(path, sizeof(path), CABLE_PRX);
     return storage_exists(path) ? usbnet_load(path) : -1;

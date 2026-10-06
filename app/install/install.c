@@ -21,11 +21,12 @@
  * beside it -- PSP/SYSTEM configs, LICENSES/, a build.json -- is the user's or
  * nobody's, and is never written.
  *
- * A plugin is the one exception to PSP/GAME: its one .prx goes to
- * seplugins/ on the device, the same way -- under a name of its own, then
- * renamed -- and, once it is turned on, one line of the PLUGINS.TXT there
- * is its own. Nothing else under seplugins/ is written, removed or renamed,
- * and the list is only ever written in place: see "plugin" below.
+ * A plugin is the one exception to PSP/GAME: the folder of its zip that
+ * holds the .prx goes to seplugins/<that .prx's name>/ on the device, file
+ * by file the way an update goes -- under a name of its own, then renamed
+ * -- and, once it is turned on, one line of the PLUGINS.TXT there is its
+ * own. Nothing else under seplugins/ is written, removed or renamed, and
+ * the list is only ever written in place: see "plugin" below.
  */
 
 #include <cjson/cJSON.h>
@@ -113,18 +114,14 @@ void manifest_forget(struct manifest *m) {
 }
 
 int manifest_dir_is_safe(const char *dir) {
-    char path[64];
+    char path[96];
     if (!dir || strlen(dir) > 32)
         return 0;
     snprintf(path, sizeof(path), "PSP/GAME/%s", dir);
     return pspdx_install_dir(path);
 }
 
-int manifest_plugin_is_safe(const char *name) {
-    size_t n = name ? strlen(name) : 0;
-    return n > 4 && n <= 32 && name[0] != '.' && !strcasecmp(name + n - 4, ".prx") &&
-           strspn(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") == n;
-}
+int manifest_plugin_is_safe(const char *name) { return pspdx_plugin_file(name); }
 
 /* ------------------------------------------------------------- download */
 
@@ -1377,36 +1374,62 @@ static cJSON *begin(const char *id, const char *dir, const char *op) {
 
 /* --------------------------------------------------------------- plugin */
 
-/* A plugin is one file where a homebrew is a folder: the one .prx at the
-   top of its zip, under seplugins/ on the device. Whether the custom
-   firmware loads it is another matter, and another step: a line in the
-   PLUGINS.TXT there, which is ARK-4's and its owner's, written only when
-   the plugin is turned on.
+/* A plugin is a folder like a homebrew, in another place: the folder of
+   its zip that holds the .prx nearest the top, with everything in it, as
+   seplugins/<that .prx's name without .prx>/ on the device. Whether the
+   custom firmware loads it is another matter, and another step: a line in
+   the PLUGINS.TXT there, which is ARK-4's and its owner's, written only
+   when the plugin is turned on.
 
-   What is PSPDX's under seplugins/ is what it can prove is: the .prx by the
-   SHA-256 the record took of it when it went in, a copy beside it by the
-   journal that says PSPDX made it, and one line of the list by its bytes
-   and the record's word that PSPDX added it. Everything else there is
-   somebody's -- a file of the same name copied over the plugin, a file
-   that only looks like one of PSPDX's copies, every other line -- and is
-   neither written nor removed, whatever a record or a journal says.
+   What is PSPDX's under seplugins/ is what it can prove is: the folder by
+   the record that names it, each file in it by the SHA-256 the record took
+   of it when it went in, a copy beside one by the journal that says PSPDX
+   made it, and one line of the list by its bytes and the record's word that
+   PSPDX added it. Everything else there is somebody's -- a folder of the
+   plugin's name that no record of PSPDX's names, a file put into the
+   plugin's own folder or copied over one of its files, a file that only
+   looks like one of PSPDX's copies, every other line -- and is neither
+   written nor removed, whatever a record or a journal says.
+
+   The files go in the way an update lays a release over a homebrew's
+   folder: each written beside its place under SUFFIX_NEW, the file it
+   replaces stepping aside under SUFFIX_OLD until the journal says
+   committed, and a first install the same into a folder made for it. What
+   is added here is the hash of every copy and of every file that steps
+   aside, in the journal, so that recovery goes by no archive and no
+   listing of a folder for what is PSPDX's.
 
    The list is never written anew: no copy of it is made, it is never
    renamed, cut short or deleted. A line is put after its end, the on or
    off of PSPDX's own line is written over itself, and the line is taken
    out by writing spaces over it, each of them the bytes there already
-   read first and read back afterwards. */
+   read first and read back afterwards.
+
+   PSPDX 1.1 installed a plugin as the one file seplugins/<name>.prx. Such a
+   record is turned on and off and deleted as it was; its next update moves
+   it into a folder, and what is left of the old layout -- that file, the
+   line for it -- is cleared afterwards, each by the same proof. */
 #define SEPLUGINS "seplugins"
 #define PLUGIN_LIST "PLUGINS.TXT"
 #define PLUGIN_LIST_MAX (64 * 1024)
 #define PLUGIN_PATH 112
+
+int manifest_plugin_path_is_safe(const char *rel) {
+    size_t n = rel ? strlen(rel) : 0;
+    return n && n <= PLUGIN_PATH_MAX && rel[n - 1] != '/' && safe_relative(rel) && !ends_with_ours(rel);
+}
+
+void plugin_path(const struct installed *rec, char *out, size_t size) {
+    snprintf(out, size, "%s/" SEPLUGINS "/%s%s%s", rec->device, rec->plugin_dir,
+             rec->plugin_dir[0] ? "/" : "", rec->plugin);
+}
 
 /* name among the entries of dir, without regard to case, as the stick tells
    names apart; an emulator's stick may not. 1 with the name as it is
    spelled there in found, 0 when there is none, -1 when the folder cannot
    be read or holds two: only a listing says that a name is free, a failed
    stat says nothing. */
-static int seen(const char *dir, const char *name, char found[64]) {
+static int seen(const char *dir, const char *name, char *found, size_t size) {
     SceUID d = sceIoDopen(dir);
     if (d < 0)
         return -1;
@@ -1414,7 +1437,7 @@ static int seen(const char *dir, const char *name, char found[64]) {
     int rc, hits = 0;
     memset(&e, 0, sizeof(e));
     while ((rc = sceIoDread(d, &e)) > 0) {
-        if (!strcasecmp(e.d_name, name) && strlen(e.d_name) < 64 && !hits++)
+        if (!strcasecmp(e.d_name, name) && strlen(e.d_name) < size && !hits++)
             strcpy(found, e.d_name);
         memset(&e, 0, sizeof(e));
     }
@@ -1428,22 +1451,80 @@ static int seen(const char *dir, const char *name, char found[64]) {
 static int plugin_dir(const char *dev, char dir[32]) {
     char root[8], found[64];
     snprintf(root, sizeof(root), "%s/", dev);
-    int there = seen(root, SEPLUGINS, found);
+    int there = seen(root, SEPLUGINS, found, sizeof(found));
     if (there >= 0)
         snprintf(dir, 32, "%s/%.16s", dev, there ? found : SEPLUGINS);
     return there;
 }
 
-/* The same for a file in it, and for one more name: name with suffix. */
+/* The same for a name in it -- a plugin's folder, the list, the one file of
+   the old layout -- and for one more name: name with suffix. */
 static int plugin_file(const char *dev, const char *name, const char *suffix, char path[PLUGIN_PATH]) {
     char dir[32], want[64], found[64];
     int there = plugin_dir(dev, dir);
     snprintf(want, sizeof(want), "%.40s%s", name, suffix);
     if (there > 0)
-        there = seen(dir, want, found);
+        there = seen(dir, want, found, sizeof(found));
     if (there >= 0)
         snprintf(path, PLUGIN_PATH, "%s/%s", dir, there ? found : want);
     return there;
+}
+
+/* The same for a file below a plugin's folder, rel with suffix after it,
+   part by part: there says whether the folder itself is. */
+static int plugin_at(const char *folder, int there, const char *rel, const char *suffix,
+                     char out[PATH_BUF]) {
+    char want[PLUGIN_PATH_MAX + 16], found[PLUGIN_PATH_MAX + 16];
+    size_t n = (size_t)snprintf(out, PATH_BUF, "%s", folder);
+    for (const char *p = rel; *p;) {
+        size_t k = strcspn(p, "/");
+        snprintf(want, sizeof(want), "%.*s%s", (int)k, p, p[k] ? "" : suffix);
+        if (there > 0)
+            there = seen(out, want, found, sizeof(found));
+        if (there < 0 || n + 1 + strlen(want) >= PATH_BUF)
+            return -1;
+        n += (size_t)snprintf(out + n, PATH_BUF - n, "/%s", there ? found : want);
+        p += k + (p[k] == '/');
+    }
+    return there;
+}
+
+/* 1 for a folder with nothing in it, 0 for one that holds something, -1
+   for none that can be read. */
+static int dir_empty(const char *path) {
+    SceUID d = sceIoDopen(path);
+    if (d < 0)
+        return -1;
+    SceIoDirent e;
+    int rc, held = 0;
+    memset(&e, 0, sizeof(e));
+    while ((rc = sceIoDread(d, &e)) > 0) {
+        held += strcmp(e.d_name, ".") && strcmp(e.d_name, "..");
+        memset(&e, 0, sizeof(e));
+    }
+    return sceIoDclose(d) < 0 || rc < 0 ? -1 : !held;
+}
+
+/* A folder PSPDX made, the plugin's own for sub "" or one below it, taken
+   away again once nothing is left in it; one that still holds something
+   holds somebody's, and stays. */
+static void drop_empty(const char *folder, const char *sub) {
+    char path[PATH_BUF];
+    if (!*sub)
+        snprintf(path, sizeof(path), "%s", folder);
+    else if (plugin_at(folder, 1, sub, "", path) != 1)
+        return;
+    if (dir_empty(path) == 1 && sceIoRmdir(path) < 0)
+        logline("plugins: the empty folder %s would not go", path);
+}
+/* The same for every folder a file was in, the deepest first. */
+static void drop_parents(const char *folder, const char *rel) {
+    char sub[PLUGIN_PATH_MAX + 1];
+    snprintf(sub, sizeof(sub), "%s", rel);
+    for (char *s; (s = strrchr(sub, '/'));) {
+        *s = '\0';
+        drop_empty(folder, sub);
+    }
 }
 
 /* A file's bytes, up to limit of them, on the heap: its length, or -1. A
@@ -1590,18 +1671,16 @@ static int list_put(const struct list *l, const struct pluginlist_write *w) {
     return ok ? 0 : -1;
 }
 
-/* The path a plugin's line names: always <device>/seplugins/<file>,
-   whatever case the folder has on the stick, since ARK and the stick tell
-   none apart. */
-static void line_path(const struct installed *rec, char out[64]) {
-    snprintf(out, 64, "%s/" SEPLUGINS "/%s", rec->device, rec->plugin);
-}
+/* The path a plugin's line names: always <device>/seplugins/ and the
+   record's folder and file, whatever case they have on the stick, since
+   ARK and the stick tell none apart. */
+static void line_path(const struct installed *rec, char out[96]) { plugin_path(rec, out, 96); }
 
 /* Whether the record says PSPDX added a line for this plugin: the path it
    wrote, which has to be the plugin's own. A record that names another is
    not believed about any line. */
 static int line_owned(const struct installed *rec) {
-    char path[64];
+    char path[96];
     line_path(rec, path);
     return !strcmp(rec->plugin_line, path);
 }
@@ -1609,7 +1688,7 @@ static int line_owned(const struct installed *rec) {
 int plugin_enabled(const char *id) {
     struct installed rec;
     struct list l;
-    char path[64];
+    char path[96];
     if (db_read(id, &rec) < 0 || !rec.plugin[0])
         return -1;
     line_path(&rec, path);
@@ -1644,6 +1723,54 @@ static int list_write(const char *id, const struct list *l, const struct pluginl
     return state_set_plugin(id, NULL, then);
 }
 
+/* What a move into a folder left of PSPDX 1.1's layout, cleared once the
+   record is the folder's: first the line PSPDX had added for the old file
+   -- where it says on, the folder's own line is put after the list's end
+   before spaces go over the old one, so the plugin is never without a line
+   in between -- then the file, only as the file the record has the hash of
+   and only when no line names it any more: one somebody else wrote for it
+   goes on loading it. Each step is one that can be made again, and the
+   record lets go of each once it is seen done; a list that cannot be
+   written leaves it for the next start. */
+static int old_settle(const char *id, int say) {
+    struct installed rec;
+    struct list l;
+    struct pluginlist_write w, on;
+    char flat[64], path[96], gone[PLUGIN_PATH];
+    if (db_read(id, &rec) < 0 || !rec.plugin_old.file[0])
+        return 0;
+    snprintf(flat, sizeof(flat), "%s/" SEPLUGINS "/%s", rec.device, rec.plugin_old.file);
+    line_path(&rec, path);
+    if ((say ? list_open_or_say(rec.device, &l) : list_open(rec.device, &l)) < 0)
+        return -1;
+    int rc = 0;
+    if (rec.plugin_old.line[0] && !strcmp(rec.plugin_old.line, flat) &&
+        pluginlist_blank(l.text, l.len, flat, &w) > 0) {
+        if (pluginlist_switch(l.text, l.len, flat, 1, &on) == 0 && !line_owned(&rec) &&
+            pluginlist_state(l.text, l.len, path) < 0) {
+            rc = pluginlist_add(l.text, l.len, path, &on) < 0 ? -1 : list_write(id, &l, &on, path);
+            free(l.text);
+            if (rc < 0 || list_open(rec.device, &l) < 0 || db_read(id, &rec) < 0)
+                return -1;
+        }
+        if (list_write(id, &l, &w, rec.plugin_line) < 0)
+            rc = -1;
+        else
+            memset(l.text + w.at, ' ', w.n);
+    }
+    if (rc == 0 && rec.plugin_old.line[0])
+        rc = state_plugin_old(id, 1);
+    if (rc == 0 && rec.plugin_old.hashed) {
+        int there = plugin_file(rec.device, rec.plugin_old.file, "", gone);
+        if (pluginlist_state(l.text, l.len, flat) >= 0)
+            logline("plugins: a line still names %s; the file is left to it", flat);
+        else if (there > 0 && file_is(gone, rec.plugin_old.sha256) && sceIoRemove(gone) < 0)
+            logline("plugins: %s would not go; delete it", gone);
+    }
+    free(l.text);
+    return rc == 0 ? state_plugin_old(id, 0) : rc;
+}
+
 /* What the record says of the list, held against the list, before anything
    else is done with either. A write that was begun is seen through: where
    its bytes are there it is done, where none are it never happened, and
@@ -1659,9 +1786,11 @@ static int line_settle(const char *id, int say) {
     struct installed rec;
     struct list l;
     struct pluginlist_write w;
-    char path[64];
-    if (db_read(id, &rec) < 0 || !rec.plugin[0] || (!rec.plugin_write.pending && !rec.plugin_line[0]))
+    char path[96];
+    if (db_read(id, &rec) < 0 || !rec.plugin[0])
         return 0;
+    if (!rec.plugin_write.pending && !rec.plugin_line[0])
+        return old_settle(id, say);
     line_path(&rec, path);
     if (list_open(rec.device, &l) < 0)
         return 0;
@@ -1705,14 +1834,14 @@ static int line_settle(const char *id, int say) {
             rc = state_set_plugin(id, NULL, "");
         free(l.text);
     }
-    return rc;
+    return rc == 0 ? old_settle(id, say) : rc;
 }
 
 int plugin_switch(const char *id, int on) {
     struct installed rec;
     struct list l;
     struct pluginlist_write w;
-    char path[64];
+    char path[96];
     g_why[0] = 0;
     if (line_settle(id, 1) < 0 || db_read(id, &rec) < 0 || !rec.plugin[0] ||
         !storage_device_available(rec.device))
@@ -1745,7 +1874,7 @@ static int line_blank(const char *id, int *left) {
     struct installed rec;
     struct list l;
     struct pluginlist_write w;
-    char path[64];
+    char path[96];
     *left = 0;
     if (line_settle(id, 1) < 0 || db_read(id, &rec) < 0)
         return -1;
@@ -1786,15 +1915,122 @@ static int hash_sink(void *ctx, const void *data, size_t len) {
                ? -1 : (d->written += len, 0);
 }
 
+/* Where every recovery of a plugin ends: the archive gone, the record and
+   the saved file put back unless the journal says committed, the journal
+   gone. */
+static int recover_plugin_end(cJSON *j, int committed) {
+    if (storage_remove(ARCHIVE) < 0)
+        return logline("recovery: the archive could not be removed"), -1;
+    if (!committed && (restore_manifest(j) < 0 ||
+                       state_restore_app(cJSON_GetObjectItemCaseSensitive(j, "old_state"), js(j, "id")) < 0))
+        return logline("recovery: the saved manifest or state could not be restored"), -1;
+    if (storage_remove(JOURNAL) < 0)
+        return logline("recovery: the journal could not be removed"), -1;
+    return 0;
+}
+
 /* Recovery of a plugin's transaction, which touches a file only where the
-   journal proves it is PSPDX's: the new copy by the journal's word that
-   PSPDX was about to make one where none was, the plugin's file by the
-   SHA-256 the journal has of it, and never a file whose bytes are another's.
-   The journal's phases, for an install: "prepared", nothing on the stick;
-   "staging", the new copy being written beside the plugin; "placed", the
-   two renames under way; "committed". A removal has no copies: its file
-   goes once it is committed. */
+   journal proves it is PSPDX's. The journal lists every file the
+   transaction writes -- its path below the folder, the SHA-256 and the size
+   of the copy, and the SHA-256 of the file it replaces, where it replaces
+   one -- and every folder it makes. A new copy goes by the journal's word
+   that PSPDX was about to make one where none was, a file by the hash the
+   journal has of it, a folder only when the journal says PSPDX made it and
+   nothing is in it, and never a file whose bytes are another's.
+   The phases of an install: "prepared", nothing on the stick; "staging",
+   the copies being written beside their places; "placed", the renames
+   under way; "committed". A removal has no copies: its files go once it is
+   committed, each while it is still the file the record knew. */
+static int recover_plugin_folder(cJSON *j) {
+    const char *id = js(j, "id"), *name = js(j, "plugin"), *dir = js(j, "dir"), *phase = js(j, "phase");
+    int staging = !strcmp(phase, "staging"), placed = !strcmp(phase, "placed"),
+        committed = !strcmp(phase, "committed"), removal = !strcmp(js(j, "op"), "remove");
+    const cJSON *files = cJSON_GetObjectItemCaseSensitive(j, "files"),
+                *made = cJSON_GetObjectItemCaseSensitive(j, "made"), *f;
+    int bad = !manifest_id_is_safe(id) || !manifest_plugin_is_safe(name) ||
+              strlen(dir) + 4 != strlen(name) || strncasecmp(dir, name, strlen(dir)) ||
+              (!staging && !placed && !committed && strcmp(phase, "prepared")) ||
+              (!removal && strcmp(js(j, "op"), "install")) || !cJSON_IsArray(files) ||
+              cJSON_GetArraySize(files) > PLUGIN_FILES_MAX || (made && !cJSON_IsArray(made));
+    cJSON_ArrayForEach(f, files)
+        bad = bad || !cJSON_IsObject(f) || !manifest_plugin_path_is_safe(js(f, "p"));
+    cJSON_ArrayForEach(f, made)
+        bad = bad || !cJSON_IsString(f) ||
+              (f->valuestring[0] && !manifest_plugin_path_is_safe(f->valuestring));
+    if (bad)
+        return logline("recovery: bad id, plugin, files or phase in the journal"), -1;
+    const cJSON *manifest = cJSON_GetObjectItemCaseSensitive(j, "old_manifest");
+    if (manifest && !cJSON_IsString(manifest))
+        return logline("recovery: the saved manifest in the journal is not text"), -1;
+    if (!state_validate(cJSON_GetObjectItemCaseSensitive(j, "old_state")))
+        return logline("recovery: the saved state does not validate"), -1;
+    char folder[PLUGIN_PATH], cur[PATH_BUF], fresh[PATH_BUF], old[PATH_BUF];
+    int there = plugin_file(target(), dir, "", folder);
+    if (there < 0)
+        return logline("recovery: " SEPLUGINS " cannot be read"), -1;
+    if (!there)
+        files = made = NULL;
+    cJSON_ArrayForEach(f, files) {
+        const char *rel = js(f, "p");
+        unsigned char sha[32], was[32];
+        int has_sha = journal_sha(f, "sha", sha), has_was = journal_sha(f, "was", was);
+        int c = plugin_at(folder, 1, rel, "", cur), n = plugin_at(folder, 1, rel, SUFFIX_NEW, fresh),
+            o = plugin_at(folder, 1, rel, SUFFIX_OLD, old);
+        if (c < 0 || n < 0 || o < 0)
+            return logline("recovery: " SEPLUGINS "/%s cannot be read", dir), -1;
+        if (removal) {
+            /* A file goes with the record, and only as the file the record
+               knew. */
+            if (committed && c && has_was && file_is(cur, was) && sceIoRemove(cur) < 0)
+                logline("recovery: " SEPLUGINS "/%s/%s would not go", dir, rel);
+        } else if (staging || placed) {
+            /* Under way: what stepped aside comes back, once the new file
+               that took its name is gone; a file the install added goes.
+               Each only as the file the journal has the hash of. */
+            if (placed && c && has_sha && file_is(cur, sha) && (o || !has_was)) {
+                if (sceIoRemove(cur) < 0)
+                    return logline("recovery: " SEPLUGINS "/%s/%s could not be cleared", dir, rel), -1;
+                c = 0;
+            }
+            if (placed && o && !c && has_was && file_is(old, was) && sceIoRename(old, base_name(cur)) < 0)
+                return logline("recovery: " SEPLUGINS "/%s/%s could not be put back", dir, rel), -1;
+            /* The copy PSPDX was making: whole, by its hash, or cut short,
+               and then shorter than it was going to be. Any other file
+               under that name is not it and stays. */
+            SceIoStat st;
+            memset(&st, 0, sizeof(st));
+            const cJSON *size = cJSON_GetObjectItemCaseSensitive(f, "size");
+            if (n && has_sha && (file_is(fresh, sha) || (cJSON_IsNumber(size) && sceIoGetstat(fresh, &st) >= 0 &&
+                                                         (double)st.st_size < size->valuedouble))) {
+                if (sceIoRemove(fresh) < 0)
+                    return logline("recovery: " SEPLUGINS "/%s/%s%s would not go", dir, rel, SUFFIX_NEW), -1;
+            } else if (n) {
+                logline("recovery: " SEPLUGINS "/%s/%s%s is not the copy PSPDX was making; left", dir,
+                        rel, SUFFIX_NEW);
+            }
+        } else if (committed && o && has_was && file_is(old, was) && sceIoRemove(old) < 0) {
+            logline("recovery: " SEPLUGINS "/%s/%s%s would not go; delete it", dir, rel, SUFFIX_OLD);
+        }
+    }
+    /* The folders: the ones an install that did not go through had made,
+       the last made first; after a removal the ones its files were in, and
+       the plugin's own. */
+    for (int i = cJSON_GetArraySize(made); !removal && (staging || placed) && i-- > 0;)
+        drop_empty(folder, cJSON_GetArrayItem(made, i)->valuestring);
+    if (removal && committed) {
+        cJSON_ArrayForEach(f, files)
+            drop_parents(folder, js(f, "p"));
+        drop_empty(folder, "");
+    }
+    return recover_plugin_end(j, committed);
+}
+
+/* The same for the journal PSPDX 1.1 wrote, of a plugin that is the one
+   file seplugins/<plugin>, and for this version's removal of such a one:
+   "sha" the copy's hash, "was" the file's. */
 static int recover_plugin(cJSON *j) {
+    if (cJSON_GetObjectItemCaseSensitive(j, "dir"))
+        return recover_plugin_folder(j);
     const char *id = js(j, "id"), *name = js(j, "plugin"), *phase = js(j, "phase");
     int staging = !strcmp(phase, "staging"), placed = !strcmp(phase, "placed"),
         committed = !strcmp(phase, "committed"), removal = !strcmp(js(j, "op"), "remove");
@@ -1849,17 +2085,11 @@ static int recover_plugin(cJSON *j) {
     } else if (committed && o && has_was && file_is(old, was) && sceIoRemove(old) < 0) {
         logline("recovery: " SEPLUGINS "/%s%s would not go; delete it", name, SUFFIX_OLD);
     }
-    if (storage_remove(ARCHIVE) < 0)
-        return logline("recovery: the archive could not be removed"), -1;
-    if (!committed && (restore_manifest(j) < 0 || state_restore_app(snapshot, id) < 0))
-        return logline("recovery: the saved manifest or state could not be restored"), -1;
-    if (storage_remove(JOURNAL) < 0)
-        return logline("recovery: the journal could not be removed"), -1;
-    return 0;
+    return recover_plugin_end(j, committed);
 }
 
 /* A plugin's journal, on the stick: "plugin" is what tells it from a
-   folder's, and is empty until the zip has named the file. */
+   homebrew's, and is empty until the zip has named the file. */
 static cJSON *plugin_begin(const char *id, const char *op, const char *name) {
     install_recover();
     if (!state_ok() || storage_exists(JOURNAL)) {
@@ -1875,33 +2105,139 @@ static cJSON *plugin_begin(const char *id, const char *op, const char *name) {
     return j;
 }
 
-/* The plugin in the archive: the one .prx at its top. A licence or a readme
-   beside it, and anything in a folder, is not installed. */
-static int find_plugin(struct zipread *z, struct zipentry *out) {
+/* One file of a plugin's package: its path below the folder, where its
+   bytes come from, what they hash to, and what is in its place. */
+struct plugin_file {
+    char rel[PLUGIN_PATH_MAX + 1];
     struct zipentry e;
-    int rc, count = 0;
+    unsigned char sha[32], was[32];
+    int has_was;                /* in its place is the file PSPDX installed, of this hash */
+    int keep;                   /* in its place is a file that is not PSPDX's: not written */
+};
+struct plugin_pack {
+    char main[40];              /* the .prx the firmware loads */
+    int count;
+    struct plugin_file file[PLUGIN_FILES_MAX];
+};
+
+/* Whether a main .prx names a folder that can be made beside the list:
+   not the list's own name, and not one that ends as PSPDX's copies do. */
+static int plugin_names_folder(const char *file) {
+    char name[40];
+    snprintf(name, sizeof(name), "%.*s", manifest_plugin_is_safe(file) ? (int)strlen(file) - 4 : 0, file);
+    return name[0] && strcasecmp(name, PLUGIN_LIST) && !ends_with_ours(name);
+}
+
+static int ends_with_prx(const char *name) {
+    size_t n = strlen(name);
+    return n > 4 && !strcasecmp(name + n - 4, ".prx");
+}
+
+/* The plugin in the archive, by the rule a homebrew's package is found by:
+   the folder of the .prx nearest the top is the package, every file in it
+   and below it -- the top of the zip where that .prx lies there. A .prx as
+   near the top in another folder makes two packages, and which was meant
+   is not for the installer to guess. The .prx the firmware loads is the
+   one in that folder; of several it is the one the .pspdx names, named,
+   and without that name none. A .prx further down is a file like any. */
+static int find_plugin(struct zipread *z, const char *named, struct plugin_pack *p) {
+    struct zipentry e;
+    char root[200] = "";
+    int rc, depth = -1, folders = 0, prxs = 0, at = -1;
     for (rc = zip_first(z, &e); rc > 0; rc = zip_next(z, &e)) {
-        size_t n = strlen(e.name);
-        if (strchr(e.name, '/') || strchr(e.name, '\\') || n < 4 ||
-            strcasecmp(e.name + n - 4, ".prx"))
+        slashes(e.name);
+        /* A zip with a path that walks anywhere but down is not unpacked
+           at all, as a homebrew's is not. */
+        if (e.name_truncated || !safe_relative(e.name)) {
+            logline("zip: refusing %s", e.name);
+            rc = -1;
+            break;
+        }
+        if (mac_shadow(e.name) || !ends_with_prx(e.name))
             continue;
-        if (!count++)
-            *out = e;
+        int d = 0;
+        for (const char *q = e.name; *q; q++)
+            d += *q == '/';
+        const char *slash = strrchr(e.name, '/');
+        size_t n = slash ? (size_t)(slash - e.name + 1) : 0;
+        if (depth >= 0 && d > depth)
+            continue;
+        if (d == depth) {
+            folders += strlen(root) != n || strncmp(root, e.name, n) != 0;
+            continue;
+        }
+        if (n >= sizeof(root)) {
+            rc = -1;
+            break;
+        }
+        depth = d;
+        folders = 0;
+        memcpy(root, e.name, n);
+        root[n] = '\0';
     }
-    if (rc < 0 || count != 1) {
-        logline("zip: expected one .prx at the top, found %d", count);
-        why(rc < 0 ? T_WHY_ZIP : count ? T_WHY_PRXS : T_WHY_NO_PRX);
+    if (rc < 0 || depth < 0) {
+        logline("zip: expected a .prx");
+        why(rc < 0 ? T_WHY_ZIP : T_WHY_NO_PRX);
         return -1;
     }
-    if (out->name_truncated || !manifest_plugin_is_safe(out->name)) {
-        logline("zip: %s is no name for a plugin's file", out->name);
+    if (folders) {
+        logline("zip: a .prx in %d folders beside %s, none nearer the top", folders,
+                root[0] ? root : "the top");
+        why(T_WHY_PRX_FOLDERS);
+        return -1;
+    }
+    size_t plen = strlen(root);
+    p->count = 0;
+    for (rc = zip_first(z, &e); rc > 0; rc = zip_next(z, &e)) {
+        slashes(e.name);
+        size_t n = strlen(e.name);
+        if (mac_shadow(e.name) || strncmp(e.name, root, plen) || n <= plen || e.name[n - 1] == '/')
+            continue;
+        const char *rel = e.name + plen;
+        int twice = 0;
+        for (int i = 0; i < p->count; i++)
+            twice |= !strcasecmp(p->file[i].rel, rel);
+        if (e.name_truncated || !manifest_plugin_path_is_safe(rel) || twice) {
+            logline("zip: refusing %s", e.name);
+            why(T_WHY_ZIP);
+            return -1;
+        }
+        if (p->count == PLUGIN_FILES_MAX) {
+            logline("zip: more than %d files beside the .prx", PLUGIN_FILES_MAX);
+            why(T_WHY_PRX_FILES);
+            return -1;
+        }
+        struct plugin_file *f = &p->file[p->count];
+        memset(f, 0, sizeof(*f));
+        strcpy(f->rel, rel);
+        f->e = e;
+        if (!strchr(rel, '/') && ends_with_prx(rel)) {
+            prxs++;
+            if (!named[0] || !strcasecmp(rel, named))
+                at = p->count;
+        }
+        p->count++;
+    }
+    if (rc < 0) {
+        why(T_WHY_ZIP);
+        return -1;
+    }
+    if (named[0] ? at < 0 : prxs != 1) {
+        logline("zip: %d .prx in %s, and the .pspdx names %s", prxs, root[0] ? root : "the top",
+                named[0] ? named : "none");
+        why(named[0] ? T_WHY_PRX_NAMED : T_WHY_PRXS);
+        return -1;
+    }
+    if (!plugin_names_folder(p->file[at].rel)) {
+        logline("zip: %s is no name for a plugin's file", p->file[at].rel);
         why(T_WHY_PRX_NAME);
         return -1;
     }
+    strcpy(p->main, p->file[at].rel);
     return 0;
 }
 
-/* Whether another app's record has seplugins/<name> on this device. */
+/* Whether another app's record has a plugin of this name on this device. */
 static int plugin_taken(const char *name, const char *id) {
     struct installed rec;
     for (int i = 0, n = state_count(); i < n; i++) {
@@ -1913,13 +2249,25 @@ static int plugin_taken(const char *name, const char *id) {
     return 0;
 }
 
-/* What the record's plugin is on the stick: PLUGIN_OURS the file PSPDX
+/* The plugin's folder as the record names it, on the stick: 1 with its
+   path, 0 with none there, -1 when the stick cannot say. A record of the
+   old layout has none. */
+static int plugin_folder(const struct installed *rec, char folder[PLUGIN_PATH]) {
+    return rec->plugin_dir[0] ? plugin_file(rec->device, rec->plugin_dir, "", folder) : 0;
+}
+
+/* What the record's main .prx is on the stick: PLUGIN_OURS the file PSPDX
    installed, by its SHA-256; PLUGIN_GONE no file of its name;
    PLUGIN_THEIRS a file of its name that is not the one installed, which is
    whoever put it there's; -1 when the stick cannot say. path is where. */
 enum { PLUGIN_GONE, PLUGIN_OURS, PLUGIN_THEIRS };
-static int plugin_owned(const struct installed *rec, char path[PLUGIN_PATH]) {
-    int there = plugin_file(rec->device, rec->plugin, "", path);
+static int plugin_owned(const struct installed *rec, char path[PATH_BUF]) {
+    char folder[PLUGIN_PATH];
+    int there = plugin_folder(rec, folder);
+    if (rec->plugin_dir[0])
+        there = there > 0 ? plugin_at(folder, 1, rec->plugin, "", path) : there;
+    else
+        there = plugin_file(rec->device, rec->plugin, "", path);
     if (there <= 0)
         return there < 0 ? -1 : PLUGIN_GONE;
     struct manifest hashed = {0};
@@ -1928,55 +2276,105 @@ static int plugin_owned(const struct installed *rec, char path[PLUGIN_PATH]) {
                                                                             : PLUGIN_THEIRS;
 }
 
+/* The member of a record's files that names rel, as the stick tells names
+   apart. */
+static cJSON *file_known(const cJSON *files, const char *rel) {
+    cJSON *f;
+    cJSON_ArrayForEach(f, files)
+        if (!strcasecmp(f->string, rel))
+            return f;
+    return NULL;
+}
+
 /* Forgets a plugin and takes what is PSPDX's of it off the stick: its own
    line out of the list first, then the record, then -- once that is
-   committed -- the file. The line goes before the journal is begun, so that
-   a removal that stops later leaves a plugin that is installed, turned off
-   and owns no line, which is what the stick then holds. A file under the
-   plugin's name that is not the one PSPDX installed is somebody's own
-   build: it stays, and so does the line that loads it; only the record
-   goes. Returns UNINSTALL_ flags, or -1. */
+   committed -- every file the record lists that is still the file
+   installed, and each folder that leaves empty, the plugin's own last. The
+   line goes before the journal is begun, so that a removal that stops
+   later leaves a plugin that is installed, turned off and owns no line,
+   which is what the stick then holds. A file in the folder the record does
+   not list, or one that is no longer the file installed, is somebody's:
+   it stays, and the folder with it. A main .prx that is not the one PSPDX
+   installed is somebody's own build: nothing of the folder goes, nor the
+   line that loads it; only the record does. Returns UNINSTALL_ flags, or
+   -1. */
 static int plugin_remove(const struct installed *rec) {
-    char cur[PLUGIN_PATH], path[256];
-    int owned = plugin_owned(rec, cur), left = 0;
-    if (owned < 0)
+    char cur[PATH_BUF], folder[PLUGIN_PATH], path[256], hex[65];
+    int owned = plugin_owned(rec, cur), left = 0, there = plugin_folder(rec, folder);
+    if (owned < 0 || there < 0)
         return -1;
-    if (owned == PLUGIN_OURS && writable(cur) != 1)
-        return why(T_WHY_PRX_READONLY), -1;
-    if (owned != PLUGIN_THEIRS && line_blank(rec->id, &left) < 0)
-        return -1;
-    cJSON *j = plugin_begin(rec->id, "remove", rec->plugin);
-    if (!j)
-        return -1;
+    /* The old layout's one file is the whole list. */
+    cJSON *files = rec->plugin_dir[0] ? state_plugin_files(rec->id) : NULL, *listed = NULL, *f;
+    if (!files && (files = cJSON_CreateObject()) && owned == PLUGIN_OURS) {
+        for (int i = 0; i < 32; i++)
+            sprintf(hex + 2 * i, "%02x", rec->plugin_sha256[i]);
+        cJSON_AddStringToObject(files, rec->plugin, hex);
+    }
     int rc = -1;
-    storage_app_path(rec->id, path, sizeof(path));
-    if ((owned == PLUGIN_OURS && !journal_add_sha(j, "was", rec->plugin_sha256)) ||
-        journal_save(j) < 0)
+    cJSON *j = NULL;
+    const cJSON *ours = owned == PLUGIN_OURS ? files : NULL, *gone = owned == PLUGIN_THEIRS ? NULL : files;
+    cJSON_ArrayForEach(f, ours) {
+        unsigned char sha[32];
+        int c = rec->plugin_dir[0] ? plugin_at(folder, there, f->string, "", cur)
+                                   : plugin_file(rec->device, f->string, "", cur);
+        if (c > 0 && pspdx_hex(f->valuestring, sha, 32) == 0 && file_is(cur, sha) && writable(cur) != 1) {
+            why(T_WHY_PRX_READONLY);
+            goto end;
+        }
+    }
+    if (owned != PLUGIN_THEIRS && line_blank(rec->id, &left) < 0)
         goto end;
-    if (state_forget(rec->id) < 0 || storage_remove(path) < 0)
+    if (!(j = plugin_begin(rec->id, "remove", rec->plugin)))
+        goto end;
+    storage_app_path(rec->id, path, sizeof(path));
+    if (!rec->plugin_dir[0]) {
+        if (owned == PLUGIN_OURS && !journal_add_sha(j, "was", rec->plugin_sha256))
+            goto end;
+    } else {
+        if (!(listed = cJSON_CreateArray()))
+            goto end;
+        cJSON_ArrayForEach(f, gone) {
+            cJSON *o = cJSON_CreateObject();
+            if (!o || !cJSON_AddItemToArray(listed, o) || !cJSON_AddStringToObject(o, "p", f->string) ||
+                !cJSON_AddStringToObject(o, "was", f->valuestring))
+                goto end;
+        }
+        if (!cJSON_AddStringToObject(j, "dir", rec->plugin_dir) ||
+            !cJSON_AddItemToObject(j, "files", listed))
+            goto end;
+        listed = NULL;
+    }
+    if (journal_save(j) < 0 || state_forget(rec->id) < 0 || storage_remove(path) < 0)
         goto end;
     if (journal_phase(j, "committed") < 0)
         goto end;
     rc = owned == PLUGIN_THEIRS ? UNINSTALL_FILE : left ? UNINSTALL_LINES : 0;
     if (owned != PLUGIN_OURS)
-        logline("remove: " SEPLUGINS "/%s is %s", rec->plugin,
-                owned == PLUGIN_GONE ? "already gone"
-                                     : "not the file PSPDX installed; left, with its line");
+        logline("remove: " SEPLUGINS "/%s%s%s is %s", rec->plugin_dir, rec->plugin_dir[0] ? "/" : "",
+                rec->plugin, owned == PLUGIN_GONE ? "already gone"
+                                                  : "not the file PSPDX installed; left, with its line");
 end:
     cJSON_Delete(j);
+    cJSON_Delete(listed);
+    cJSON_Delete(files);
     install_recover();
     if (storage_exists(JOURNAL))
         rc = -1;
+    /* What is still in the folder is not PSPDX's, and is said. */
+    if (rc >= 0 && !(rc & UNINSTALL_FILE) && plugin_folder(rec, folder) > 0) {
+        logline("remove: " SEPLUGINS "/%s holds files PSPDX did not install; left", rec->plugin_dir);
+        rc |= UNINSTALL_KEPT;
+    }
     return rc;
 }
 
-/* A plugin's .prx into sink: out of the zip that was downloaded, or, for a
-   plugin the release carries, out of the file beside the EBOOT. */
-static int plugin_feed(struct zipread *z, const struct zipentry *e, const char *bundled,
+/* A file of a plugin into sink: out of the zip that was downloaded, or, for
+   a plugin the release carries, out of the file beside the EBOOT. */
+static int plugin_feed(struct zipread *z, const struct plugin_file *f, const char *bundled,
                        int (*sink)(void *, const void *, size_t), void *ctx) {
     static unsigned char block[4096];
     if (!bundled)
-        return zip_extract(z, e, sink, ctx);
+        return zip_extract(z, &f->e, sink, ctx);
     int fd = sceIoOpen(bundled, PSP_O_RDONLY, 0777), n = -1;
     if (fd < 0)
         return -1;
@@ -1986,39 +2384,58 @@ static int plugin_feed(struct zipread *z, const struct zipentry *e, const char *
     return sceIoClose(fd) < 0 || n < 0 ? -1 : 0;
 }
 
-/* bundled: the .prx itself, where the plugin is not fetched but carried;
-   the release's zip is then known by m's hash alone. */
+static int add_hex(cJSON *o, const char *key, const unsigned char sha[32]) {
+    char hex[65];
+    for (int i = 0; i < 32; i++)
+        sprintf(hex + 2 * i, "%02x", sha[i]);
+    cJSON_DeleteItemFromObjectCaseSensitive(o, key);
+    return cJSON_AddStringToObject(o, key, hex) != NULL;
+}
+
+/* bundled: the .prx itself, where the plugin is not fetched but carried,
+   and is then the one file of its folder; the release's zip is known by m's
+   hash alone. named: the .prx the .pspdx says the firmware loads, "" where
+   it names none. */
 static int plugin_release(const struct manifest *m, const struct installed *existing,
-                          const char *bundled, struct install_report *rep,
+                          const char *bundled, const char *named, struct install_report *rep,
                           install_phase_cb phase, https_progress progress, void *ctx) {
-    char cur[PLUGIN_PATH], fresh[PLUGIN_PATH], old[PLUGIN_PATH], dir[32];
-    /* Before anything is fetched: a file of the plugin's name that is not
-       the one PSPDX installed is somebody's own build. An update leaves it,
-       its line and the record exactly as they are, and says why. */
+    char cur[PATH_BUF], fresh[PATH_BUF], old[PATH_BUF], folder[PLUGIN_PATH], dir[32], name[40],
+        where[96];
+    /* A record of PSPDX 1.1's is the one file seplugins/<plugin>, and this
+       install moves it into a folder. */
+    int moved = existing && !existing->plugin_dir[0];
+    /* Before anything is fetched: a main .prx that is not the one PSPDX
+       installed is somebody's own build. An update leaves it, its line and
+       the record exactly as they are, and says why. */
     int owned = existing ? plugin_owned(existing, cur) : PLUGIN_GONE;
     if (owned < 0)
         return why(T_WHY_STICK), -1;
     if (owned == PLUGIN_THEIRS) {
-        logline("install: " SEPLUGINS "/%s is not the file PSPDX installed; left", existing->plugin);
+        logline("install: %s is not the file PSPDX installed; left", cur);
         return why(T_WHY_PRX_CHANGED), -1;
     }
-    cJSON *j = plugin_begin(m->id, "install", "");
-    if (!j)
+    struct plugin_pack *p = calloc(1, sizeof(*p));
+    cJSON *j = p ? plugin_begin(m->id, "install", "") : NULL;
+    if (!j) {
+        free(p);
         return -1;
+    }
     g_abort = 0;
     int rc = -2, open = 0;
-    unsigned char got[32] = {0}, sha[32], put[32];
+    unsigned char got[32] = {0};
     struct zipread z;
-    struct zipentry e;
-    memset(&e, 0, sizeof(e));
+    cJSON *files = NULL, *listed = NULL, *made = NULL;
     if (bundled) {
         size_t size = 0;
         rc = -1;
         memcpy(got, m->sha256, 32);
-        snprintf(e.name, sizeof(e.name), "%s", base_name(bundled));
-        if (!manifest_plugin_is_safe(e.name) || file_sha(bundled, sha, &size) < 0 || !size)
+        if (!plugin_names_folder(base_name(bundled)) || file_sha(bundled, p->file[0].sha, &size) < 0 ||
+            !size)
             goto end;
-        e.usize = (uint32_t)size;
+        snprintf(p->main, sizeof(p->main), "%s", base_name(bundled));
+        strcpy(p->file[0].rel, p->main);
+        p->file[0].e.usize = (uint32_t)size;
+        p->count = 1;
     } else {
         if (phase)
             phase(ctx, "download");
@@ -2031,129 +2448,285 @@ static int plugin_release(const struct manifest *m, const struct installed *exis
             goto end;
         open = 1;
         rc = -1;
-        if (find_plugin(&z, &e) < 0)
+        if (find_plugin(&z, named, p) < 0)
             goto end;
     }
     /* An installed plugin keeps its file's name: a line in PLUGINS.TXT
        names it, and may be anybody's. */
-    if (existing && strcasecmp(existing->plugin, e.name)) {
-        logline("install: %s is installed as " SEPLUGINS "/%s and its zip now holds %s", m->id,
-                existing->plugin, e.name);
+    if (existing && strcasecmp(existing->plugin, p->main)) {
+        logline("install: %s is installed as %s and its zip now holds %s", m->id, existing->plugin,
+                p->main);
         why(T_WHY_PRX_RENAMED);
         goto end;
     }
-    /* Every name this install writes under has to be free, or the
-       plugin's own: a file there PSPDX did not put there is never adopted,
-       written over or cleared away, a copy from an earlier install
-       included, which only its own journal could vouch for. */
-    int c = plugin_file(target(), e.name, "", cur), f = plugin_file(target(), e.name, SUFFIX_NEW, fresh),
-        o = plugin_file(target(), e.name, SUFFIX_OLD, old);
-    if (c < 0 || f < 0 || o < 0) {
+    /* The folder is named after the main .prx, and is the plugin's own
+       only by its record: one that is there and that no record of this
+       plugin names is somebody's, and nothing is written into it. */
+    if (existing && !moved)
+        snprintf(name, sizeof(name), "%s", existing->plugin_dir);
+    else
+        snprintf(name, sizeof(name), "%.*s", (int)strlen(p->main) - 4, p->main);
+    snprintf(where, sizeof(where), SEPLUGINS "/%s/%s", name, existing && !moved ? existing->plugin : p->main);
+    int there = plugin_file(target(), name, "", folder);
+    SceIoStat st;
+    memset(&st, 0, sizeof(st));
+    if (there < 0) {
         why(T_WHY_STICK);
         goto end;
     }
-    if (f || o) {
-        logline("install: %s is in the way and not known to be PSPDX's; delete it", f ? fresh : old);
-        why(T_WHY_PRX_COPY);
-        goto end;
-    }
-    if (c && (owned != PLUGIN_OURS || plugin_taken(e.name, m->id))) {
-        logline("install: %s exists and is not this app's", cur);
+    if (plugin_taken(p->main, m->id) ||
+        (there && (!existing || moved || sceIoGetstat(folder, &st) < 0 || !FIO_S_ISDIR(st.st_mode)))) {
+        logline("install: %s exists and is not this app's", folder);
         why(T_WHY_PRX_THERE);
         goto end;
     }
-    if (!c && plugin_taken(e.name, m->id)) {
-        why(T_WHY_PRX_THERE);
-        goto end;
-    }
-    if (c && writable(cur) != 1) {
-        why(T_WHY_PRX_READONLY);
-        goto end;
-    }
+    /* Each file by what is in its place. Nothing there: it is added. The
+       file PSPDX installed, by the record's hash of it: it is replaced. Any
+       other file is somebody's -- put there, or one of the plugin's own
+       changed since -- and is left as it is; the main .prx is the one such
+       file an install stops at. A name this install writes under has to
+       be free, a copy from an earlier install included, which only its own
+       journal could vouch for. */
+    files = existing && !moved ? state_plugin_files(m->id) : NULL;
+    if (!files)
+        files = cJSON_CreateObject();
+    made = cJSON_CreateArray();
     unsigned cluster = 1;
     storage_free_bytes_on(target(), &cluster);
-    unsigned long long need = ((unsigned long long)e.usize + cluster - 1) / cluster * cluster;
-    if (!room_on(target(), need + ROOM_FOR_RECORDS, rep)) {
+    unsigned long long need = ROOM_FOR_RECORDS, total = 0;
+    if (!files || !made || (!there && !cJSON_AddItemToArray(made, cJSON_CreateString(""))))
+        goto end;
+    need += there ? 0 : cluster;
+    for (int i = 0; i < p->count; i++) {
+        struct plugin_file *f = &p->file[i];
+        const cJSON *known = file_known(files, f->rel);
+        int c = plugin_at(folder, there, f->rel, "", cur),
+            n = plugin_at(folder, there, f->rel, SUFFIX_NEW, fresh),
+            o = plugin_at(folder, there, f->rel, SUFFIX_OLD, old);
+        if (c < 0 || n < 0 || o < 0) {
+            why(T_WHY_STICK);
+            goto end;
+        }
+        if (c && known && pspdx_hex(known->valuestring, f->was, 32) == 0 && file_is(cur, f->was)) {
+            f->has_was = 1;
+        } else if (c && !strcasecmp(f->rel, p->main)) {
+            why(T_WHY_PRX_CHANGED);
+            goto end;
+        } else if (c) {
+            logline("install: %s is not a file PSPDX installed; left", cur);
+            f->keep = 1;
+            continue;
+        }
+        if (n || o) {
+            logline("install: %s is in the way and not known to be PSPDX's; delete it", n ? fresh : old);
+            why(T_WHY_PRX_COPY);
+            goto end;
+        }
+        if (c && writable(cur) != 1) {
+            why(T_WHY_PRX_READONLY);
+            goto end;
+        }
+        need += ((unsigned long long)f->e.usize + cluster - 1) / cluster * cluster;
+        total += f->e.usize;
+        /* The folders it lies in that are not there yet, the nearest first. */
+        for (const char *s = strchr(f->rel, '/'); s; s = strchr(s + 1, '/')) {
+            char sub[PLUGIN_PATH_MAX + 1];
+            const cJSON *k;
+            int listed_already = 0;
+            snprintf(sub, sizeof(sub), "%.*s", (int)(s - f->rel), f->rel);
+            int d = plugin_at(folder, there, sub, "", cur);
+            if (d < 0) {
+                why(T_WHY_STICK);
+                goto end;
+            }
+            cJSON_ArrayForEach(k, made)
+                listed_already |= !strcasecmp(k->valuestring, sub);
+            if (!d && !listed_already) {
+                if (!cJSON_AddItemToArray(made, cJSON_CreateString(sub)))
+                    goto end;
+                need += cluster;
+            }
+        }
+    }
+    if (total > MAX_PACKAGE_BYTES)
+        goto end;
+    if (!room_on(target(), need, rep)) {
         rc = INSTALL_NO_SPACE;
         goto end;
     }
-    /* Every check is through: the folder is made where there is none, and
-       from here the journal names the file and says a copy is being made
-       beside it, which is what lets recovery clear that copy away. */
-    int made = plugin_dir(target(), dir);
-    if (made < 0 || (!made && sceIoMkdir(dir, 0777) < 0))
+    /* Every check is through: seplugins/ is made where there is none. */
+    int root = plugin_dir(target(), dir);
+    if (root < 0 || (!root && sceIoMkdir(dir, 0777) < 0))
         goto end;
-    /* The copy about to be made, by the hash and the size it will have:
-       what recovery knows it by. */
-    struct dl hashed = {0};
-    hashed.expected = e.usize;
-    if (wc_InitSha256(&hashed.sha) != 0 || plugin_feed(&z, &e, bundled, hash_sink, &hashed) < 0)
+    /* Each copy about to be made, by the hash and the size it will have,
+       and each folder: from here the journal names them, which is what
+       lets recovery clear them away. */
+    if (!(listed = cJSON_CreateArray()))
         goto end;
-    wc_Sha256Final(&hashed.sha, sha);
-    if (!cJSON_ReplaceItemInObjectCaseSensitive(j, "plugin", cJSON_CreateString(e.name)) ||
-        (c && !journal_add_sha(j, "was", existing->plugin_sha256)) ||
-        !journal_add_sha(j, "sha", sha) || !cJSON_AddNumberToObject(j, "size", (double)e.usize) ||
-        journal_phase(j, "staging") < 0)
+    for (int i = 0; i < p->count; i++) {
+        struct plugin_file *f = &p->file[i];
+        struct dl hashed = {0};
+        cJSON *o;
+        if (f->keep)
+            continue;
+        hashed.expected = f->e.usize;
+        if (wc_InitSha256(&hashed.sha) != 0 || plugin_feed(&z, f, bundled, hash_sink, &hashed) < 0 ||
+            hashed.written != f->e.usize) {
+            logline("unpack: failed on %s", f->rel);
+            why(T_WHY_ZIP);
+            goto end;
+        }
+        wc_Sha256Final(&hashed.sha, f->sha);
+        if (!(o = cJSON_CreateObject()) || !cJSON_AddItemToArray(listed, o) ||
+            !cJSON_AddStringToObject(o, "p", f->rel) || !add_hex(o, "sha", f->sha) ||
+            !cJSON_AddNumberToObject(o, "size", (double)f->e.usize) ||
+            (f->has_was && !add_hex(o, "was", f->was)))
+            goto end;
+    }
+    if (!cJSON_ReplaceItemInObjectCaseSensitive(j, "plugin", cJSON_CreateString(p->main)) ||
+        !cJSON_AddStringToObject(j, "dir", name) || !cJSON_AddItemToObject(j, "files", listed))
+        goto end;
+    listed = NULL;
+    cJSON *making = cJSON_Duplicate(made, 1);
+    if (!making || !cJSON_AddItemToObject(j, "made", making)) {
+        cJSON_Delete(making);
+        goto end;
+    }
+    if (journal_phase(j, "staging") < 0)
         goto end;
     if (phase)
         phase(ctx, "unpack");
+    const cJSON *k;
+    cJSON_ArrayForEach(k, made) {
+        if (!k->valuestring[0])
+            snprintf(cur, sizeof(cur), "%s", folder);
+        else if (plugin_at(folder, 1, k->valuestring, "", cur) != 0)
+            goto end;
+        if (sceIoMkdir(cur, 0777) < 0) {
+            logline("unpack: cannot make %s", cur);
+            why(T_WHY_STICK);
+            goto end;
+        }
+    }
     size_t done = 0, size = 0;
-    struct out_file out = {sceIoOpen(fresh, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_EXCL, 0777), &done};
-    if (out.fd < 0) {
-        logline("unpack: cannot create %s", fresh);
-        why(T_WHY_STICK);
-        goto end;
-    }
-    int xrc = plugin_feed(&z, &e, bundled, out_sink, &out);
-    if (sceIoClose(out.fd) < 0 || xrc < 0) {
-        logline("unpack: failed on %s", e.name);
-        goto end;
-    }
+    int count = 0;
     if (progress)
-        progress(ctx, done, done);
-    if (g_abort) {
-        rc = INSTALL_CANCELLED;
-        goto end;
+        progress(ctx, 0, (size_t)total);
+    for (int i = 0; i < p->count; i++) {
+        struct plugin_file *f = &p->file[i];
+        if (f->keep)
+            continue;
+        struct out_file out = {-1, &done};
+        if (plugin_at(folder, 1, f->rel, SUFFIX_NEW, fresh) == 0)
+            out.fd = sceIoOpen(fresh, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_EXCL, 0777);
+        if (out.fd < 0) {
+            logline("unpack: cannot create %s", f->rel);
+            why(pspdx_characters(f->rel, 0) < 0 ? T_WHY_NAME : T_WHY_STICK);
+            goto end;
+        }
+        int xrc = plugin_feed(&z, f, bundled, out_sink, &out);
+        if (sceIoClose(out.fd) < 0 || xrc < 0) {
+            logline("unpack: failed on %s", f->rel);
+            goto end;
+        }
+        count++;
+        if (progress)
+            progress(ctx, done, (size_t)total);
+        if (g_abort) {
+            rc = INSTALL_CANCELLED;
+            goto end;
+        }
     }
     rc = -3;
     /* What went onto the stick, read back from it: the record's proof that
-       the file is PSPDX's, and the journal's. */
-    if (sceIoSync(target(), 0) < 0 || file_sha(fresh, put, &size) < 0 || size != done ||
-        memcmp(put, sha, 32))
+       a file is PSPDX's, and the journal's. */
+    if (sceIoSync(target(), 0) < 0)
         goto end;
+    for (int i = 0; i < p->count; i++) {
+        struct plugin_file *f = &p->file[i];
+        unsigned char put[32];
+        if (!f->keep && (plugin_at(folder, 1, f->rel, SUFFIX_NEW, fresh) != 1 ||
+                         file_sha(fresh, put, &size) < 0 || size != f->e.usize || memcmp(put, f->sha, 32)))
+            goto end;
+    }
     if (phase)
         phase(ctx, "commit");
     if (journal_phase(j, "placed") < 0)
         goto end;
     /* A rename takes no name that is taken: each is looked for again the
        moment before, rather than left to the rename to refuse. */
-    char name[64], look[PLUGIN_PATH];
-    snprintf(name, sizeof(name), "%s", base_name(cur));
-    if (c && (plugin_file(target(), e.name, SUFFIX_OLD, look) != 0 ||
-              sceIoRename(cur, base_name(old)) < 0))
-        goto end;
-    if (plugin_file(target(), e.name, "", look) != 0 || sceIoRename(fresh, name) < 0)
-        goto end;
+    const unsigned char *main_sha = NULL;
+    for (int i = 0; i < p->count; i++) {
+        struct plugin_file *f = &p->file[i];
+        char to[PATH_BUF];
+        cJSON *known = file_known(files, f->rel);
+        if (!strcasecmp(f->rel, p->main))
+            main_sha = f->sha;
+        if (f->keep)
+            continue;
+        int c = plugin_at(folder, 1, f->rel, "", cur);
+        if (c != f->has_was || plugin_at(folder, 1, f->rel, SUFFIX_NEW, fresh) != 1 ||
+            plugin_at(folder, 1, f->rel, SUFFIX_OLD, old) != 0)
+            goto end;
+        snprintf(to, sizeof(to), "%s", base_name(cur));
+        if (c && sceIoRename(cur, base_name(old)) < 0)
+            goto end;
+        if (sceIoRename(fresh, to) < 0)
+            goto end;
+        /* The record's list: every file PSPDX put into the folder, by the
+           name it has there. One an earlier release shipped and this one
+           does not stays in the folder and in the list. */
+        snprintf(to, sizeof(to), "%s", known ? known->string : f->rel);
+        if (!add_hex(files, to, f->sha))
+            goto end;
+    }
+    /* A list is no longer than a plugin may be: of what earlier releases
+       left, the record lets go first, and the files stay. */
+    for (cJSON *f = files->child, *next; f && cJSON_GetArraySize(files) > PLUGIN_FILES_MAX; f = next) {
+        next = f->next;
+        int shipped = 0;
+        for (int i = 0; i < p->count; i++)
+            shipped |= !p->file[i].keep && !strcasecmp(p->file[i].rel, f->string);
+        if (!shipped)
+            cJSON_Delete(cJSON_DetachItemViaPointer(files, f));
+    }
+    /* What a move out of the old layout leaves to clear: the file, while
+       it is the one PSPDX installed, and the line PSPDX added for it. */
+    struct plugin_old was;
+    memset(&was, 0, sizeof(was));
+    if (moved) {
+        snprintf(was.file, sizeof(was.file), "%s", existing->plugin);
+        was.hashed = owned == PLUGIN_OURS;
+        memcpy(was.sha256, existing->plugin_sha256, 32);
+        if (line_owned(existing))
+            snprintf(was.line, sizeof(was.line), "%.63s", existing->plugin_line);
+    } else if (existing) {
+        was = existing->plugin_old;
+    }
     char path[256];
     storage_app_path(m->id, path, sizeof(path));
-    if (storage_write(path, m->raw, strlen(m->raw)) < 0 ||
-        state_commit_plugin(m, existing ? existing->plugin : e.name, got, target(), sha,
-                            existing ? existing->plugin_line : "") < 0)
+    if (!main_sha || storage_write(path, m->raw, strlen(m->raw)) < 0 ||
+        state_commit_plugin(m, where, got, target(), main_sha,
+                            existing && !moved ? existing->plugin_line : "", files, &was) < 0)
         goto end;
     if (journal_phase(j, "committed") < 0)
         goto end;
     snprintf(rep->id, sizeof(rep->id), "%s", m->id);
-    snprintf(rep->plugin, sizeof(rep->plugin), "%.32s", e.name);
+    snprintf(rep->plugin, sizeof(rep->plugin), "%.32s", p->main);
     snprintf(rep->version, sizeof(rep->version), "%s", m->version);
     rep->rev = m->rev;
-    rep->files = 1;
+    rep->files = count;
     rep->bytes = done;
-    logline("unpack: " SEPLUGINS "/%s, %lu bytes", e.name, (unsigned long)done);
+    logline("unpack: %s, %d files, %lu bytes", where, count, (unsigned long)done);
     rc = 0;
 end:
     if (open)
         zip_close(&z);
     cJSON_Delete(j);
+    cJSON_Delete(files);
+    cJSON_Delete(listed);
+    cJSON_Delete(made);
+    free(p);
     install_recover();
     if (storage_exists(JOURNAL))
         return -8;
@@ -2232,7 +2805,7 @@ int install_bundled(const struct manifest *m, const char *prx, const char *dev,
         db_read(m->id, &existing) == 0)
         return -1;
     target_set(dev);
-    int rc = storage_device_available(dev) ? plugin_release(m, NULL, prx, rep, NULL, NULL, NULL) : -1;
+    int rc = storage_device_available(dev) ? plugin_release(m, NULL, prx, "", rep, NULL, NULL, NULL) : -1;
     if (rc < 0)
         snprintf(rep->why, sizeof(rep->why), "%s", g_why);
     return rc;
@@ -2279,7 +2852,7 @@ static int release_to(const struct manifest *m, const char *dev, struct install_
         logline("install: type %s cannot be installed yet", spec.type);
         return -1;
     }
-    /* A plugin names no folder, and its file is named by its zip. */
+    /* A plugin names no folder: its main .prx does, and its zip that. */
     int plugin = !strcmp(spec.type, "plugin");
     if (plugin ? m->dir[0] : !manifest_dir_is_safe(m->dir))
         return -1;
@@ -2326,7 +2899,7 @@ static int release_to(const struct manifest *m, const char *dev, struct install_
     if (!room_on(storage_device(), (m->size + cluster - 1) / cluster * cluster + ROOM_FOR_RECORDS, rep))
         return INSTALL_NO_SPACE;
     if (plugin)
-        return plugin_release(m, has ? &existing : NULL, NULL, rep, phase, progress, ctx);
+        return plugin_release(m, has ? &existing : NULL, NULL, spec.plugin, rep, phase, progress, ctx);
     char parent[32];
     snprintf(parent, sizeof(parent), "%s/PSP", target());
     sceIoMkdir(parent, 0777);

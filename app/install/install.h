@@ -47,9 +47,9 @@ struct manifest {
 struct install_report {
     char id[PSPDX_ID_SIZE];
     char dir[64];               /* PSP/GAME/<dir> actually written */
-    /* seplugins/<plugin> written instead, for a plugin, and whether it is
-       turned off afterwards, as a plugin is that no line of PLUGINS.TXT
-       turns on: an install writes no line. */
+    /* A plugin's main .prx instead, in seplugins/<its name without .prx>/,
+       and whether it is turned off afterwards, as a plugin is that no line
+       of PLUGINS.TXT turns on: an install writes no line. */
     char plugin[40];
     int plugin_off;
     char version[VERSION_SIZE];
@@ -80,16 +80,29 @@ struct installed {
        naming another one moves it. Empty for a record from before this was
        kept. */
     char file_dir[64];
-    /* A plugin is a file, not a folder: seplugins/<plugin> on the device,
-       and dir empty. Empty for everything else. */
-    char plugin[40];
-    /* The .prx as it was installed, by its SHA-256: a file of that name
-       with other bytes is not PSPDX's and is never written or removed. */
+    /* A plugin is a folder under seplugins/ on the device, and dir empty:
+       plugin the .prx the firmware loads, plugin_dir the folder it is in,
+       its name without the .prx. plugin_dir is empty for a plugin PSPDX 1.1
+       installed, which is the one file seplugins/<plugin>, until its next
+       update moves it. Both empty for everything else. */
+    char plugin[40], plugin_dir[40];
+    /* The main .prx as it was installed, by its SHA-256: a file of that
+       name with other bytes is not PSPDX's and is never written or removed.
+       The record holds the same of every file put into the folder. */
     unsigned char plugin_sha256[32];
     /* The path of the line PSPDX added to PLUGINS.TXT when the plugin was
-       turned on, <device>/seplugins/<plugin>; empty while it added none.
-       No other line of the list is ever written. */
-    char plugin_line[64];
+       turned on, <device>/seplugins/<plugin_dir>/<plugin>; empty while it
+       added none. No other line of the list is ever written. */
+    char plugin_line[96];
+    /* After the move into a folder, what is left to clear of the old
+       layout: the file seplugins/<file>, removed only while it has this
+       hash and no line names it, and the line PSPDX had added for it, taken
+       out once the folder's own stands in its place. file empty for none. */
+    struct plugin_old {
+        char file[40], line[64];
+        unsigned char sha256[32];
+        int hashed;
+    } plugin_old;
     /* A write to PLUGINS.TXT that was begun and not yet seen to be there:
        len the list's length before it, now the bytes meant for at, was the
        bytes there before (none for a line put after the end), then the
@@ -98,7 +111,7 @@ struct installed {
     struct plugin_write {
         int pending;
         size_t at, len;
-        char was[96], now[96], then[64];
+        char was[96], now[96], then[96];
     } plugin_write;
 };
 
@@ -110,11 +123,23 @@ int db_read(const char *id, struct installed *out);
    way an install writes one, through a rename, so it is never half a file. */
 int db_write_record(const struct installed *record);
 
-/* A plugin's file under seplugins/, wherever the name came from -- a zip, a
+/* A plugin's main .prx, wherever the name came from -- a zip, a .pspdx, a
    record on the stick, a journal: 5 to 32 of [A-Za-z0-9_.-] that end in
-   .prx and do not begin with a dot. It is joined to a path and written
-   into a line of PLUGINS.TXT, where a comma or a space would part it. */
+   .prx and do not begin with a dot. It names the folder, is joined to a
+   path and written into a line of PLUGINS.TXT, where a comma or a space
+   would part it. */
 int manifest_plugin_is_safe(const char *name);
+/* A file in a plugin's folder by its path below it, from a zip, a record
+   or a journal: one that only goes down, at most PLUGIN_PATH_MAX bytes,
+   and not one of the two names an update keeps its copies under. A plugin
+   is at most PLUGIN_FILES_MAX files: each is in the record by its hash,
+   and a zip with a .prx at the top of a source tree is not a package. */
+#define PLUGIN_FILES_MAX 64
+#define PLUGIN_PATH_MAX 96
+int manifest_plugin_path_is_safe(const char *rel);
+/* Where the firmware loads an installed plugin from, as its line names it:
+   <device>/seplugins/<folder>/<file>. */
+void plugin_path(const struct installed *rec, char *out, size_t size);
 
 /* Whether an installed plugin is turned on, as ARK-4 reads the
    seplugins/PLUGINS.TXT of its device: by the last line that names it. 1
@@ -141,13 +166,16 @@ const char *plugin_refused(void);
    directory comes from the record and is refused unless it is a plain name --
    nothing here may be talked into deleting a path of someone else's choosing.
    A plugin loses the line PSPDX added to PLUGINS.TXT, spaces written over
-   it, and its one file. Where that file is no longer the one PSPDX
-   installed it is somebody's own build: file and line both stay, so that it
-   goes on loading, and only the record goes. Nothing else under seplugins/
-   is touched. Returns 0 when the package is gone,
+   it, and the files PSPDX put into its folder, each only while it is the
+   file installed, by its hash; the folder goes when nothing is left in it.
+   Where the main .prx is no longer the one PSPDX installed it is
+   somebody's own build: folder and line both stay, so that it goes on
+   loading, and only the record goes. Nothing else under seplugins/ is
+   touched. Returns 0 when the package is gone,
    for a plugin with what was left of it that is not PSPDX's. */
 #define UNINSTALL_LINES 1       /* lines of PLUGINS.TXT that name it */
-#define UNINSTALL_FILE 2        /* a file of its name that PSPDX did not install */
+#define UNINSTALL_FILE 2        /* a main .prx that PSPDX did not install */
+#define UNINSTALL_KEPT 4        /* files in its folder that PSPDX did not install */
 int uninstall(const char *id);
 
 typedef void (*install_phase_cb)(void *ctx, const char *phase);
@@ -251,16 +279,18 @@ void install_abort(void);
 
 /* Download, verify, unpack, rename into place. Returns 0 on success;
    negative on the phase that failed. Nothing is left half-written. A
-   homebrew goes to PSP/GAME/<dir>; a plugin's one .prx to seplugins/,
-   turned off until plugin_switch turns it on. */
+   homebrew goes to PSP/GAME/<dir>; a plugin, the folder of its zip that
+   holds the .prx nearest the top, to seplugins/<that .prx's name>/, turned
+   off until plugin_switch turns it on. */
 int install_release_to(const struct manifest *release, const char *device,
                        struct install_report *rep, install_phase_cb phase,
                        https_progress progress, void *pctx);
 
 /* The first install of a plugin whose .prx is not fetched but there
    already, at prx: the copy of pspkit-usbnet the release carries beside the
-   EBOOT. Through the same installer as a download, with every check and
-   every refusal of it, and the same record: release says which release the
+   EBOOT, which is then the one file in its folder. Through the same
+   installer as a download, with every check and every refusal of it, and
+   the same record: release says which release the
    file is of -- its id, repository, version, the SHA-256 of that release's
    zip, by which an update is told, and the .pspdx -- so that the store
    updates the plugin from then on. Installed turned off, like any. */

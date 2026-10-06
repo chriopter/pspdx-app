@@ -29,16 +29,27 @@ static int unique_members(const cJSON *o) {
                 return 0;
     return 1;
 }
-/* Where a record says its app is: PSP/GAME/<dir>, or seplugins/<file> for a
-   plugin. The file of a plugin, NULL for a folder. */
+/* Where a record says its app is: PSP/GAME/<dir>, or for a plugin
+   seplugins/<name>/<name>.prx -- the folder is its main file's name without
+   the .prx, to the letter -- or seplugins/<file>, the one file PSPDX 1.1 put
+   there. The file of a plugin, NULL for a folder under PSP/GAME. */
 static const char *plugin_of(const char *where) {
-    return !strncmp(where, "seplugins/", 10) && manifest_plugin_is_safe(where + 10) ? where + 10
-                                                                                   : NULL;
+    if (strncmp(where, "seplugins/", 10))
+        return NULL;
+    const char *file = strchr(where + 10, '/');
+    if (!file)
+        return manifest_plugin_is_safe(where + 10) ? where + 10 : NULL;
+    size_t n = (size_t)(file++ - (where + 10));
+    return manifest_plugin_is_safe(file) && strlen(file) == n + 4 && !strncmp(where + 10, file, n)
+               ? file : NULL;
 }
-/* The line a record says PSPDX added: <device>/seplugins/<file>. */
+/* The line a record says PSPDX added: <device>/ and one of the two. */
 static int plugin_line_ok(const char *line) {
-    return (!strncmp(line, "ms0:/seplugins/", 15) || !strncmp(line, "ef0:/seplugins/", 15)) &&
-           manifest_plugin_is_safe(line + 15);
+    return (!strncmp(line, "ms0:/", 5) || !strncmp(line, "ef0:/", 5)) && plugin_of(line + 5);
+}
+static int hex64(const cJSON *v) {
+    return cJSON_IsString(v) && strlen(v->valuestring) == 64 &&
+           strspn(v->valuestring, "0123456789abcdef") == 64;
 }
 int state_validate(const cJSON *r) {
     if (!cJSON_IsObject(r))
@@ -70,9 +81,30 @@ int state_validate(const cJSON *r) {
         const cJSON *line = cJSON_GetObjectItemCaseSensitive(in, "plugin_line");
         const cJSON *hash = cJSON_GetObjectItemCaseSensitive(in, "plugin_sha256");
         if ((line && (!cJSON_IsString(line) || !plugin_line_ok(line->valuestring))) ||
-            (hash && (!cJSON_IsString(hash) || strlen(hash->valuestring) != 64 ||
-                      strspn(hash->valuestring, "0123456789abcdef") != 64)))
+            (hash && !hex64(hash)))
             return 0;
+        /* The files PSPDX put into the plugin's folder, each by its path
+           below the folder and its SHA-256: paths that only go down, and no
+           more of them than a plugin may have. */
+        const cJSON *files = cJSON_GetObjectItemCaseSensitive(in, "plugin_files"), *f;
+        if (files && (!cJSON_IsObject(files) || !unique_members(files) ||
+                      cJSON_GetArraySize(files) > PLUGIN_FILES_MAX))
+            return 0;
+        cJSON_ArrayForEach(f, files)
+            if (!manifest_plugin_path_is_safe(f->string) || !hex64(f))
+                return 0;
+        /* The one file of PSPDX 1.1's layout, left to be cleared away after
+           the move into a folder: a plain name, and its own line. */
+        const cJSON *was = cJSON_GetObjectItemCaseSensitive(in, "plugin_old");
+        if (was) {
+            const cJSON *sha = cJSON_GetObjectItemCaseSensitive(was, "sha256");
+            const char *file = str(was, "file"), *own = str(was, "line");
+            if (!cJSON_IsObject(was) || !unique_members(was) || !manifest_plugin_is_safe(file) ||
+                (sha && !hex64(sha)) ||
+                (*own && (!plugin_line_ok(own) || strncmp(own + 5, "seplugins/", 10) ||
+                          strcmp(own + 15, file))))
+                return 0;
+        }
         /* A write that was begun: a place inside what a list may be, and
            bytes of the few a line has. */
         const cJSON *begun = cJSON_GetObjectItemCaseSensitive(in, "plugin_write");
@@ -297,8 +329,18 @@ int db_read(const char *id, struct installed *out) {
     const char *where = str(in, "installdir"), *plugin = plugin_of(where);
     snprintf(out->dir, sizeof(out->dir), "%s", plugin ? "" : where + 9);
     snprintf(out->plugin, sizeof(out->plugin), "%s", plugin ? plugin : "");
+    if (plugin && plugin != where + 10)
+        snprintf(out->plugin_dir, sizeof(out->plugin_dir), "%.*s", (int)(plugin - 1 - (where + 10)),
+                 where + 10);
     hex_bytes(str(in, "plugin_sha256"), out->plugin_sha256);
     snprintf(out->plugin_line, sizeof(out->plugin_line), "%s", str(in, "plugin_line"));
+    const cJSON *was = cJSON_GetObjectItemCaseSensitive(in, "plugin_old");
+    if (was) {
+        snprintf(out->plugin_old.file, sizeof(out->plugin_old.file), "%s", str(was, "file"));
+        snprintf(out->plugin_old.line, sizeof(out->plugin_old.line), "%s", str(was, "line"));
+        out->plugin_old.hashed = *str(was, "sha256") != 0;
+        hex_bytes(str(was, "sha256"), out->plugin_old.sha256);
+    }
     const cJSON *w = cJSON_GetObjectItemCaseSensitive(in, "plugin_write");
     if (w) {
         out->plugin_write.pending = 1;
@@ -344,7 +386,7 @@ int state_commit(const struct manifest *m, const char *dir, const unsigned char 
 }
 /* The record written: where is PSP/GAME/<dir> or seplugins/<file>. */
 static int commit(const struct manifest *m, const char *where, const unsigned char *sha256,
-                  const char *file_dir, const char *dev) {
+                  const char *file_dir, const char *dev, cJSON *more) {
     if (!storage_device_valid(dev) || !healthy)
         return -1;
     cJSON *next = state_snapshot();
@@ -393,6 +435,11 @@ static int commit(const struct manifest *m, const char *where, const unsigned ch
         cJSON_DeleteItemFromObjectCaseSensitive(r, "latest");
         cJSON_AddItemToObject(r, "latest", latest_json(m));
     }
+    /* What only a plugin's record says, in the same one write. */
+    while (more && more->child) {
+        cJSON *item = cJSON_DetachItemViaPointer(more, more->child);
+        cJSON_AddItemToObject(in, item->string, item);
+    }
     int rc = state_restore(next);
     cJSON_Delete(next);
     return rc;
@@ -403,25 +450,53 @@ int state_commit_on(const struct manifest *m, const char *dir, const unsigned ch
     if (!manifest_dir_is_safe(dir) || (file_dir && !manifest_dir_is_safe(file_dir)))
         return -1;
     snprintf(where, sizeof(where), "PSP/GAME/%s", dir);
-    return commit(m, where, sha256, file_dir, dev);
+    return commit(m, where, sha256, file_dir, dev, NULL);
 }
-int state_commit_plugin(const struct manifest *m, const char *file, const unsigned char *sha256,
-                        const char *dev, const unsigned char *file_sha256, const char *line) {
-    char where[64], hex[65];
-    if (!manifest_plugin_is_safe(file) || (*line && !plugin_line_ok(line)))
+int state_commit_plugin(const struct manifest *m, const char *where, const unsigned char *sha256,
+                        const char *dev, const unsigned char *file_sha256, const char *line,
+                        const cJSON *files, const struct plugin_old *old) {
+    char hex[65];
+    if (!plugin_of(where) || strlen(where) >= 80 || (*line && !plugin_line_ok(line)))
         return -1;
-    snprintf(where, sizeof(where), "seplugins/%s", file);
-    if (commit(m, where, sha256, NULL, dev) < 0)
-        return -1;
+    cJSON *more = cJSON_CreateObject(), *copy = files ? cJSON_Duplicate(files, 1) : NULL;
+    for (int i = 0; i < 32; i++)
+        sprintf(hex + 2 * i, "%02x", file_sha256[i]);
+    int ok = more && cJSON_AddStringToObject(more, "plugin_sha256", hex) &&
+             (!*line || cJSON_AddStringToObject(more, "plugin_line", line)) && (!files || copy);
+    if (ok && copy) {
+        cJSON_AddItemToObject(more, "plugin_files", copy);
+        copy = NULL;
+    }
+    if (ok && old && old->file[0]) {
+        cJSON *was = cJSON_AddObjectToObject(more, "plugin_old");
+        for (int i = 0; i < 32; i++)
+            sprintf(hex + 2 * i, "%02x", old->sha256[i]);
+        ok = was && cJSON_AddStringToObject(was, "file", old->file) &&
+             (!old->hashed || cJSON_AddStringToObject(was, "sha256", hex)) &&
+             (!old->line[0] || cJSON_AddStringToObject(was, "line", old->line));
+    }
+    int rc = ok ? commit(m, where, sha256, NULL, dev, more) : -1;
+    cJSON_Delete(copy);
+    cJSON_Delete(more);
+    return rc;
+}
+cJSON *state_plugin_files(const char *id) {
+    const cJSON *in = cJSON_GetObjectItemCaseSensitive(
+        healthy ? cJSON_GetObjectItemCaseSensitive(records, id) : NULL, "installed");
+    return cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(in, "plugin_files"), 1);
+}
+int state_plugin_old(const char *id, int line_only) {
     cJSON *next = state_snapshot();
     if (!next)
         return -1;
-    cJSON *in = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(next, m->id),
+    cJSON *in = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(next, id),
                                                  "installed");
-    for (int i = 0; i < 32; i++)
-        sprintf(hex + 2 * i, "%02x", file_sha256[i]);
-    int rc = cJSON_AddStringToObject(in, "plugin_sha256", hex) &&
-             (!*line || cJSON_AddStringToObject(in, "plugin_line", line)) ? state_restore(next) : -1;
+    if (line_only)
+        cJSON_DeleteItemFromObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(in, "plugin_old"),
+                                                "line");
+    else
+        cJSON_DeleteItemFromObjectCaseSensitive(in, "plugin_old");
+    int rc = in ? state_restore(next) : -1;
     cJSON_Delete(next);
     return rc;
 }

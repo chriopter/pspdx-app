@@ -35,6 +35,7 @@ struct pspdx_file {
     char type[12];              /* homebrew, plugin or iso; homebrew when the file says nothing */
     char tags[PSPDX_TAGS_TEXT]; /* newline between them */
     char category[PSPDX_CATEGORY_SIZE]; /* the one group it names, empty when none */
+    char plugin[40];            /* the .prx a plugin's folder is loaded by, empty when it names none */
     char id[PSPDX_ID_SIZE];     /* derived, never written in the file */
     /* The release the file pins, when it has "release": its tag, and the
        asset and the time when it names them; empty and 0 when not. */
@@ -50,7 +51,7 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
 /* The fields of a .pspdx, in this order, for pspdx_check. */
 enum { PSPDX_SCHEMA_FIELD, PSPDX_SOURCE, PSPDX_NAME, PSPDX_TYPE, PSPDX_CATEGORY,
        PSPDX_INSTALLDIR, PSPDX_AUTHOR, PSPDX_SUMMARY, PSPDX_LICENSE, PSPDX_DESCRIPTION,
-       PSPDX_FIELDS };
+       PSPDX_PLUGIN, PSPDX_FIELDS };
 /* The rules pspdx_parse holds a file's fields to, for a file not yet written:
    value[i] NULL where it would leave a field out, tags newline-separated.
    What pspdx_parse would say of the file with these fields and no release,
@@ -58,12 +59,16 @@ enum { PSPDX_SCHEMA_FIELD, PSPDX_SOURCE, PSPDX_NAME, PSPDX_TYPE, PSPDX_CATEGORY,
 int pspdx_check(const char *const value[PSPDX_FIELDS], const char *tags,
                 struct pspdx_file *out, char *reason, size_t reason_size);
 int pspdx_install_dir(const char *path);
+/* A plugin's main .prx by its name alone: 5 to 32 of [A-Za-z0-9_.-] that
+   end in .prx and do not begin with a dot. */
+int pspdx_plugin_file(const char *name);
 /* The folder a homebrew goes to when its file names none: the repository's
    name from GitHub (repo), or else the app's name with every character a
    folder cannot hold left out; cut at 32 either way. Not checked here. */
 void pspdx_default_dir(const char *repo, const char *name, char *out, size_t size);
 /* Whether this client can install what a file of this type describes: a
-   homebrew, into its folder under PSP/GAME, and a plugin, into seplugins/. */
+   homebrew, into its folder under PSP/GAME, and a plugin, into its folder
+   under seplugins/. */
 int pspdx_type_installable(const char *type);
 /* Whether one of the newline-separated tags is exactly word. */
 int pspdx_has_tag(const char *tags, const char *word);

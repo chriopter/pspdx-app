@@ -162,7 +162,7 @@ void entry_clear(struct app_entry *entry) {
     struct text *texts[] = {&entry->author, &entry->summary, &entry->license, &entry->tags,
                             &entry->tag, &entry->repo, &entry->icon, &entry->screenshot,
                             &entry->video, &entry->sound, &entry->local_version,
-                            &entry->remote_version};
+                            &entry->remote_version, &entry->plugin};
     for (size_t i = 0; i < sizeof(texts) / sizeof(*texts); i++)
         text_free(texts[i]);
     memset(entry, 0, sizeof(*entry));
@@ -181,7 +181,7 @@ int entry_copy(struct app_entry *dst, const struct app_entry *src) {
                             &dst->video, &dst->sound, &dst->local_version,
                             &dst->remote_version, &dst->release.url, &dst->release.version,
                             &dst->release.added_from, &dst->release.checked_from,
-                            &dst->release.root};
+                            &dst->release.root, &dst->plugin};
     for (size_t i = 0; i < sizeof(texts) / sizeof(*texts); i++)
         texts[i]->s = NULL;
     dst->description = NULL;
@@ -191,7 +191,8 @@ int entry_copy(struct app_entry *dst, const struct app_entry *src) {
                                  &src->video, &src->sound, &src->local_version,
                                  &src->remote_version, &src->release.url,
                                  &src->release.version, &src->release.added_from,
-                                 &src->release.checked_from, &src->release.root};
+                                 &src->release.checked_from, &src->release.root,
+                                 &src->plugin};
     for (size_t i = 0; i < sizeof(texts) / sizeof(*texts); i++)
         if (text_copy(texts[i], *from[i]) < 0)
             goto fail;
@@ -968,6 +969,7 @@ static int parse(struct catalog *catalog, const char *base) {
         int homebrew = !strcmp(entry->type, "homebrew");
         int known_type = homebrew || !strcmp(entry->type, "plugin") || !strcmp(entry->type, "iso");
         copy_text(&entry->license, cJSON_GetObjectItemCaseSensitive(app, "license"), 241);
+        copy_text(&entry->plugin, cJSON_GetObjectItemCaseSensitive(app, "plugin"), 40);
         copy_text(&entry->repo, cJSON_GetObjectItemCaseSensitive(app, "source"), PSPDX_URL_SIZE);
         /* An entry with no repository of its own is the catalog's to name:
            its source is the catalog and the catalog's id for it, and so is
@@ -1491,6 +1493,7 @@ static int origin_entry(struct app_entry *entry, const struct source_repo *repo,
     text_set(&entry->author, file.author[0] ? file.author : repo->owner);
     text_set(&entry->summary, file.summary);
     text_set(&entry->license, file.license);
+    text_set(&entry->plugin, file.plugin);
 
     /* What the file says is all there is. A summary or a licence it leaves
        out stays empty rather than costing one of the sixty requests an
@@ -2090,6 +2093,7 @@ static void restore_installed(struct catalog *catalog) {
             text_set(&e->author, file.author);
             text_set(&e->summary, file.summary);
             text_set(&e->license, file.license);
+            text_set(&e->plugin, file.plugin);
             e->media_cached_only = 1;
             struct manifest latest;
             memset(&latest, 0, sizeof(latest));
@@ -2220,6 +2224,7 @@ static int entry_check(struct app_entry *entry, char *why, size_t cap) {
         [PSPDX_SUMMARY] = said[1][0] ? said[1] : NULL,
         [PSPDX_LICENSE] = said[2][0] ? said[2] : NULL,
         [PSPDX_DESCRIPTION] = said[3][0] ? said[3] : NULL,
+        [PSPDX_PLUGIN] = txt(entry->plugin)[0] ? txt(entry->plugin) : NULL,
     };
     struct pspdx_file file;
     int rc = pspdx_check(value, txt(entry->tags), &file, why, cap);
@@ -2271,6 +2276,8 @@ static int entry_pspdx(struct app_entry *entry) {
     for (unsigned i = 0; i < sizeof(said) / sizeof(*said); i++)
         if (said[i][1][0])
             cJSON_AddStringToObject(o, said[i][0], said[i][1]);
+    if (txt(entry->plugin)[0])
+        cJSON_AddStringToObject(o, "plugin", txt(entry->plugin));
     char *text = cJSON_PrintUnformatted(o);
     cJSON_Delete(o);
     int rc = text && strlen(text) <= PSPDX_FILE_MAX &&

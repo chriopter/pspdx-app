@@ -526,7 +526,8 @@ void uninstall_app(int index) {
         entry->plugin_off = 0;
         if (plugin && rc)
             snprintf(message, sizeof(message), "%s",
-                     rc & UNINSTALL_FILE ? T_PLUGIN_LEFT : T_PLUGIN_REMOVED_LINES);
+                     rc & UNINSTALL_FILE ? T_PLUGIN_LEFT : rc & UNINSTALL_LINES ? T_PLUGIN_REMOVED_LINES
+                                                                                  : T_PLUGIN_KEPT);
         else
             snprintf(message, sizeof(message), plugin ? T_PLUGIN_REMOVED : T_REMOVED, entry->name);
     } else if (rc == INSTALL_SELF) {

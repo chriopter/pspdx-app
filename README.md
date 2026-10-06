@@ -58,7 +58,7 @@ What PSPDX does on top:
 - **Pinned release:** `"release": {"tag": "v1.2"}` installs exactly that release, with no updates until the file changes.
 - **No `.pspdx` at the source:** GitHub's own 404 (not one after a redirect elsewhere). PSPDX installs from the catalog entry, your INBOX file or, typed into Direct Install, the repository's name. A live catalog keeps it updated; without one the latest release is asked at GitHub by the saved `.pspdx`, same ZIP rule and SHA-256. As soon as the author adds a `.pspdx`, that file counts.
 - **Catalog text:** CR LF and tabs in `description` and `summary` are read as meant; an entry with a NUL in its text is dropped, and a `sha256` of zeros is no hash.
-- **Types:** `homebrew` installs under `PSP/GAME/`; `plugin` installs its one `.prx` to `seplugins/` and, when you turn it on, adds one line to ARK-4's `PLUGINS.TXT`; `iso` is listed, not installed yet.
+- **Types:** `homebrew` installs under `PSP/GAME/`; `plugin` installs the folder of its `.prx` to `seplugins/<name>/` and, when you turn it on, adds one line to ARK-4's `PLUGINS.TXT`; `iso` is listed, not installed yet.
 - **`schema` field:** a `catalog.json` is read as v1 unless it names another PSPDX catalog version (`catalog-v2.json`); none, a relative path to a copy, or any other value is read as v1 and noted in the log.
 
 #### Text list
@@ -166,24 +166,28 @@ flowchart TD
 
 #### Plugins
 
-The one case in which PSPDX writes outside `PSP/GAME/<dir>/`: a plugin's `.prx` under `seplugins/` on the device chosen for the install, and, once the plugin is turned on, one line of the `PLUGINS.TXT` there. Installing and turning on are two steps, and PSPDX asks about the second.
+The one case in which PSPDX writes outside `PSP/GAME/<dir>/`: a plugin's folder under `seplugins/` on the device chosen for the install, and, once the plugin is turned on, one line of the `PLUGINS.TXT` there. Installing and turning on are two steps, and PSPDX asks about the second.
 
 ```text
-ZIP: exactly one .prx at the top  ->  <device>/seplugins/<same name>; PLUGINS.TXT is not touched
-"Do you want to turn it on?" Yes  ->  one line after the end of PLUGINS.TXT:  always, <device>/seplugins/<name>, on
+ZIP: the folder of the .prx nearest the top  ->  <device>/seplugins/<name>/, whole; PLUGINS.TXT is not touched
+"Do you want to turn it on?" Yes  ->  one line after the end of PLUGINS.TXT:  always, <device>/seplugins/<name>/<name>.prx, on
 Options -> Turn Off / Turn On     ->  the last field of that line written over itself:  off  /  on
-update                            ->  the file, never the line; refused if the file is no longer the one PSPDX installed
-Delete                            ->  spaces written over that line, and the file; a file changed by hand stays, with its line
+update                            ->  the files the release ships, never the line; refused if the .prx is no longer the one PSPDX installed
+Delete                            ->  spaces written over that line, and the files PSPDX installed; the folder too once it is empty
 ```
 
+- `<name>` is the `.prx`'s file name without `.prx`: `usbnet.prx` goes to `seplugins/usbnet/usbnet.prx`, with every file beside and below it in the ZIP. A `.prx` further down is copied along, never loaded; what lies beside the folder stays in the ZIP
+- Several `.prx` in that folder: the `.pspdx` names the one to load, `"plugin": "main.prx"`. Without it, or naming a file that is not there, nothing is installed. Nor with a `.prx` as near the top in a second folder, or more than 64 files
 - The list is [ARK-4](https://github.com/PSP-Archive/ARK-4)'s and yours. PSPDX never renames, shortens, deletes or rewrites it and makes no copy of it: it appends its line (the file's own line end, one before it where the list ends without), and afterwards only overwrites bytes of that line with as many bytes. Before each write the list is read again and must be unchanged; afterwards it is read back
 - Only PSPDX's own line is written: `always, <path>, on` or `off` as PSPDX wrote it, or as ARK's plugin managers write it out again, and only when the record says PSPDX added it. Any other line for the same file, another run level, a comment after it, `1` for `on`, two lines alike, is yours and is never changed or removed; the row then shows what ARK would do (the last line naming the file decides) and a switch says *other lines name it*
 - A plugin that was never turned on leaves no trace in the list. One that was leaves an empty line of spaces after **Delete**, which ARK skips
-- The `.prx` is PSPDX's by the SHA-256 the record took when it was installed. A file of the same name you copied over it is your build and goes on loading: an update is refused and changes nothing; a delete forgets PSPDX's record and leaves the file and its line, and says so
-- Refused, with the reason, and nothing written: a `.prx` of that name PSPDX did not install; a `<name>.pspdx-new` or `.pspdx-old` beside it; a read-only `.prx` or list; a list over 64 KB, with a NUL byte in it, or that cannot be read; a `.prx` named outside 5 to 32 characters of `[A-Za-z0-9_.-]`
+- Every file is PSPDX's by the SHA-256 the record took when it was installed. A `.prx` you copied over the installed one is your build and goes on loading: an update is refused and changes nothing; a delete forgets PSPDX's record and leaves the folder and its line, and says so
+- Any other file in the folder that is not as installed, one you added or settings you changed, is yours: an update does not write it, even where the release ships that name, and a delete leaves it, and the folder with it
+- Refused, with the reason, and nothing written: a `seplugins/<name>` PSPDX has no record of; a `.pspdx-new` or `.pspdx-old` beside a file the release ships; a read-only file of the plugin's or list; a list over 64 KB, with a NUL byte in it, or that cannot be read; a `.prx` named outside 5 to 32 characters of `[A-Za-z0-9_.-]`
 - `seplugins/` is made only when it is missing and every check has passed; one that is there under any spelling (`SEPLUGINS`) is used as it is
 - Everything takes effect when the PSP restarts. Hold **START** at power-on to start once without plugins
-- The file is swapped in under the journal, each copy removed only when the journal says PSPDX made it and its hash agrees. The record notes each write to the list before it is made: one a power cut left half written is finished in the same place at the next start, and where the bytes there are neither the old nor the new ones, nothing is written and the next switch says the list has changed. The record claims a line only once it has been read back, and drops the claim when the list no longer has it
+- The files are swapped in one by one under the journal, which lists each with its hash: a copy, a file or an empty folder is removed only when the journal says PSPDX made it, and a file only while its hash agrees. The record notes each write to the list before it is made: one a power cut left half written is finished in the same place at the next start, and where the bytes there are neither the old nor the new ones, nothing is written and the next switch says the list has changed. The record claims a line only once it has been read back, and drops the claim when the list no longer has it
+- A plugin PSPDX 1.1 installed as the one file `seplugins/<name>.prx` is switched and deleted as it was. Its next update moves it: the folder goes in, the new line is appended where the old one said on, spaces go over the old line, and the old `.prx` is removed if it is still the one installed and no other line names it
 - A plugin is never written into PSPDX's own folder. The `usbnet.prx` the release ships there is installed from, through the same installer and with the same refusals, when the USB cable is chosen (see Network); `usbnet.txt` beside it names the pspkit-usbnet release it is of and that release's ZIP hash, which go into the record so the store tells an update the usual way
 
 #### Check
@@ -339,7 +343,7 @@ Temporary and debug files appear only when used.
 ```text
 ms0:/
 ├── seplugins/
-│   ├── usbnet.prx                       # Installed plugin
+│   ├── usbnet/                          # Installed plugin: usbnet.prx and what its ZIP ships beside it
 │   └── PLUGINS.TXT                      # ARK-4's list; one line per plugin turned on is PSPDX's
 └── PSP/
     ├── GAME/
@@ -403,7 +407,7 @@ for an app installed from a catalog entry, it is the entry's words.
 | Field | Contents |
 |---|---|
 | `source`, `added_from` | Original repository and import route |
-| `installed` | Version, `published_at`, SHA-256, install directory (`seplugins/<file>` for a plugin, with `plugin_sha256` of that file, `plugin_line`, the path of the line PSPDX added, and `plugin_write` while a write to the list is under way), `device` (`ef0:` or `ms0:`), and `pspdx_installdir`: the folder the `.pspdx` named at install |
+| `installed` | Version, `published_at`, SHA-256, install directory (`seplugins/<name>/<name>.prx` for a plugin, with `plugin_sha256` of that file, `plugin_files`, every installed file with its SHA-256, `plugin_line`, the path of the line PSPDX added, `plugin_write` while a write to the list is under way, and `plugin_old` while a 1.1 file and line are still to be cleared), `device` (`ef0:` or `ms0:`), and `pspdx_installdir`: the folder the `.pspdx` named at install |
 | `latest` | Version, `published_at`, download URL, size, SHA-256, last successful check time and source |
 | `update_check`, `manifest_url` | Written by older versions; read and ignored |
 

@@ -290,6 +290,11 @@ void pspdx_default_dir(const char *repo, const char *name, char *out, size_t siz
         n--;
     out[n] = '\0';
 }
+int pspdx_plugin_file(const char *name) {
+    size_t n = name ? strlen(name) : 0;
+    return n > 4 && n <= 32 && name[0] != '.' && !strcasecmp(name + n - 4, ".prx") &&
+           strspn(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") == n;
+}
 int pspdx_type_installable(const char *type) {
     return type && (!strcmp(type, "homebrew") || !strcmp(type, "plugin"));
 }
@@ -317,7 +322,8 @@ static const struct field_rule {
                                {"name", 40, 1, 0},      {"type", 11, 0, 0},
                                {"category", 24, 0, 0},  {"installdir", 41, 0, 0},
                                {"author", 60, 0, 0},    {"summary", 60, 0, 0},
-                               {"license", 60, 0, 0},   {"description", 2500, 0, 1}};
+                               {"license", 60, 0, 0},   {"description", 2500, 0, 1},
+                               {"plugin", 32, 0, 0}};
 
 static int check_fields(const char *const value[PSPDX_FIELDS], const int present[PSPDX_FIELDS],
                         struct pspdx_file *out, char *reason, size_t cap) {
@@ -335,7 +341,8 @@ static int check_fields(const char *const value[PSPDX_FIELDS], const int present
                           {out->author, sizeof(out->author)},
                           {out->summary, sizeof(out->summary)},
                           {out->license, sizeof(out->license)},
-                          {NULL, PSPDX_FILE_MAX + 1}};
+                          {NULL, PSPDX_FILE_MAX + 1},
+                          {out->plugin, sizeof(out->plugin)}};
     for (int i = 0; i < PSPDX_FIELDS; i++) {
         const struct field_rule *f = &FIELD_RULES[i];
         const char *v = value[i];
@@ -374,6 +381,12 @@ static int check_fields(const char *const value[PSPDX_FIELDS], const int present
         strcpy(out->type, "homebrew");
     if (strcmp(out->type, "homebrew") && strcmp(out->type, "plugin") && strcmp(out->type, "iso")) {
         snprintf(reason, cap, "invalid type");
+        return -1;
+    }
+    /* Only a plugin has a .prx to name: the one of several in its folder
+       that the firmware loads, by its file name alone. */
+    if (present[PSPDX_PLUGIN] && (strcmp(out->type, "plugin") || !pspdx_plugin_file(out->plugin))) {
+        snprintf(reason, cap, "invalid plugin");
         return -1;
     }
     /* A homebrew goes under PSP/GAME, into the folder the file names or the

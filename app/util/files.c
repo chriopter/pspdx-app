@@ -400,8 +400,11 @@ static void describe_app(struct file_view *v) {
     at_path(v, rel);
     if (db_read(id, &rec) == 0) {
         put(v, T_APP_INSTALLED, rec.version);
-        if (rec.plugin[0])
-            put(v, T_APP_PLUGIN, rec.device, rec.plugin);
+        if (rec.plugin[0]) {
+            char file[96];
+            plugin_path(&rec, file, sizeof(file));
+            put(v, T_APP_PLUGIN, file);
+        }
         else
             put(v, T_APP_FOLDER, rec.device, rec.dir);
         put(v, T_APP_SOURCE, rec.repo);

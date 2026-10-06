@@ -155,7 +155,8 @@
 #define T_PLUGIN_UPDATED     "%s %s updated. Please restart." /* name, version: an update */
 #define T_PLUGIN_REMOVED     "%s was deleted. Off after restart." /* name */
 #define T_PLUGIN_REMOVED_LINES "Deleted. PLUGINS.TXT still names it."
-#define T_PLUGIN_LEFT        "No longer managed. Its .prx and line were left."
+#define T_PLUGIN_LEFT        "No longer managed. Its files and line stay."
+#define T_PLUGIN_KEPT        "Deleted. Your own files in its folder stay."
 #define T_PLUGIN_NOT_OURS    "Not changed: other lines name it."
 #define T_PLUGIN_FAILED      "Could not change PLUGINS.TXT."
 #define T_PLUGIN_FAILED_WHY  "Not changed: %s."                   /* reason */
@@ -195,13 +196,16 @@
 #define T_WHY_NO_EBOOT       "its zip holds no EBOOT.PBP"
 #define T_WHY_ZIP            "its zip cannot be unpacked safely"
 #define T_WHY_NAME           "its zip names a file in a foreign code page"
-#define T_WHY_NO_PRX         "its zip has no .prx on top"
-#define T_WHY_PRXS           "its zip has several .prx on top"
+#define T_WHY_NO_PRX         "its zip holds no .prx"
+#define T_WHY_PRXS           "its .pspdx must name a .prx"
+#define T_WHY_PRX_NAMED      "the .prx it names is missing"
+#define T_WHY_PRX_FOLDERS    "its zip has .prx in two folders"
+#define T_WHY_PRX_FILES      "its zip holds too many files"
 #define T_WHY_PRX_NAME       "its .prx has an unusable name"
 #define T_WHY_PRX_RENAMED    "its .prx has another name now"
-#define T_WHY_PRX_THERE      "a .prx of that name exists"
+#define T_WHY_PRX_THERE      "a folder of that name exists"
 #define T_WHY_PRX_COPY       "an old copy of it is in the way"
-#define T_WHY_PRX_READONLY   "its .prx is read-only"
+#define T_WHY_PRX_READONLY   "one of its files is read-only"
 #define T_WHY_PRX_CHANGED    "its .prx was changed by hand"
 #define T_WHY_LIST_READ      "PLUGINS.TXT cannot be read"
 #define T_WHY_LIST_LARGE     "PLUGINS.TXT is too large"
@@ -448,7 +452,7 @@
 #define T_STORAGE_MISSING    "The installation storage is not available."
 
 #define T_APP_FOLDER         "Folder: %s/PSP/GAME/%s"             /* device, dir */
-#define T_APP_PLUGIN         "File: %s/seplugins/%s"              /* device, file */
+#define T_APP_PLUGIN         "File: %s"                           /* ms0:/seplugins/<name>/<name>.prx */
 #define T_APP_SOURCE         "Source: %s"                         /* url */
 #define T_APP_CHECKED        "Checked: %s"                        /* when */
 #define T_APP_VIA            "Via: %s"                            /* host */

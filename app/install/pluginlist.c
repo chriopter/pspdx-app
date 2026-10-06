@@ -61,8 +61,10 @@ static int line_at(const char *t, size_t len, size_t at, struct line *l) {
 }
 
 static int names(const char *t, const struct line *l, const char *path) {
-    const char *slash = strrchr(path, '/');
-    /* The folder the list is in, for a path that names no device. */
+    const char *slash = strchr(path, '/');
+    slash = slash ? strchr(slash + 1, '/') : NULL;
+    /* The folder the list is in, <device>/seplugins/, for a path that names
+       no device: a plugin in a folder of its own is <folder>/<file> there. */
     size_t beside = memchr(t + l->path, ':', l->path_len) || !slash ? 0
                                                                    : (size_t)(slash + 1 - path);
     return l->plugin && strlen(path) == beside + l->path_len &&
