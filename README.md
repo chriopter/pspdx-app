@@ -4,6 +4,10 @@
 
 Install and update homebrew directly on your PlayStation Portable, using the [PSPDX standard](https://chriopter.github.io/pspdx/).
 
+- 📦 **Download & update** homebrew right on the PSP, no PC needed
+- 🧩 **Plugins too**: install, turn on and off, update
+- 🔌 **Works on the PSP Street (E1000)**: online over the USB cable with [USBNet](https://github.com/chriopter/pspkit-usbnet)
+
 **[→ Download PSPDX](https://github.com/chriopter/pspdx-app/releases/latest)**
 
 <img width="480" alt="PSPDX on a real PSP-1004: browsing by category and tag, installing an app, a basket, an update" src="assets/pspdx-app.webp" />
@@ -23,7 +27,7 @@ font first. Keep `font.pgf` beside the EBOOT when moving the app folder.
 - **Basket:** add apps with **Triangle**, then *Download all*. Running downloads are listed there too.
 - **Find:** *Search* on the first page looks through names, authors, tags and descriptions. **SELECT** sorts any list by newest or by name.
 - **Display:** 60 FPS by default; the first row under the wrench switches to a calmer 30 FPS mode.
-- **No Wi-Fi (PSP Street):** at its first start PSPDX asks whether to connect via Wi-Fi or the USB cable. *USB cable* installs the [pspkit-usbnet](https://github.com/chriopter/pspkit-usbnet) plugin the package carries and turns it on. Run its gateway on a PC, plug in the cable, and in the connection dialog choose [New Connection] → Scan → "Hi-Speed USB" the first time. **Options → Connect via USB** changes the answer later.
+- **No Wi-Fi (PSP Street):** at its first start PSPDX asks whether to connect via Wi-Fi or the USB cable. *USB cable* installs the [USBNet](https://github.com/chriopter/pspkit-usbnet) plugin the package carries and turns it on. Run its gateway on a PC, plug in the cable, and in the connection dialog choose [New Connection] → Scan → "Hi-Speed USB" the first time. **Options → Connect via USB** changes the answer later.
 
 Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 
