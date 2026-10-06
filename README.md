@@ -6,7 +6,7 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 
 - 📦 **Download & update** homebrew right on the PSP, no PC needed
 - 🧩 **Plugins too**: install, turn on and off, update
-- 🔌 **Works on the PSP Street (E1000)**: online over the USB cable with [USBNet](https://github.com/chriopter/pspkit-usbnet)
+- 🔌 **Works (soon!) on the PSP Street (E1000)**: online over the USB cable with [USBNet](https://github.com/chriopter/pspkit-usbnet)
 
 **[→ Download PSPDX](https://github.com/chriopter/pspdx-app/releases/latest)**
 
