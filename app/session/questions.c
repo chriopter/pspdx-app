@@ -49,15 +49,15 @@ void ask_remove(int index) {
         shell_status(T_SELF_DELETE);
         return;
     }
-    if (db_read(entry->id, &record) < 0 || !record.dir[0]) {
+    if (db_read(entry->id, &record) < 0 || (!record.dir[0] && !record.plugin[0])) {
         /* Without a record there is no directory to name, and nothing here
            guesses at one. */
         shell_status(T_NO_RECORD);
         return;
     }
-    char title[64], line[96];
+    char title[sizeof(entry->name) + 32], line[96];
     snprintf(title, sizeof(title), T_REMOVE_ASK, entry->name);
-    snprintf(line, sizeof(line), "%s", T_REMOVE_LINE);
+    snprintf(line, sizeof(line), "%s", record.plugin[0] ? T_PLUGIN_OFF_LINE : T_REMOVE_LINE);
     shell_ask(title, line);
     g_question = ASK_REMOVE;
     g_question_of = index;
@@ -141,6 +141,20 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         }
     }
 
+    /* A plugin has gone in for the first time. It is on the stick and
+       off, and nothing is written to PLUGINS.TXT unless the answer is yes. */
+    if (g_question == ASK_NOTHING) {
+        int of = plugin_installed_take();
+        if (of >= 0) {
+            char title[sizeof(actions_catalog()->apps[of].name) + 32];
+            snprintf(title, sizeof(title), T_PLUGIN_INSTALLED_ASK, actions_catalog()->apps[of].name);
+            pspdx_utf8_mend(title);
+            shell_ask(title, T_PLUGIN_TURN_ON_LINE);
+            g_question = ASK_PLUGIN;
+            g_question_of = of;
+        }
+    }
+
     /* A handshake turned down on a doubt -- a run-out certificate, an
        issuer not carried -- is put to the person, once, as soon as
        nothing else is being asked: a console that has lain in a drawer
@@ -168,6 +182,7 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         else if (asked == ASK_RESET) reset_completely();
         else if (asked == ASK_DISCARD) clear_cache();
         else if (asked == ASK_RUN || asked == ASK_RESTART) launch_app(index);
+        else if (asked == ASK_PLUGIN) switch_plugin(index);
         else if (asked == ASK_TRUST) {
             https_doubt_accept();
             refetch_now(*cursor, keep, keep_size, synced, refreshing);

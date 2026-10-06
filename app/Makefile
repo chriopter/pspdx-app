@@ -1,8 +1,8 @@
 TARGET = pspdx
 OBJS = main.o gui/screen.o gui/entropy_screen.o gui/gfx.o gui/font.o \
-       gui/image.o gui/lattice.o gui/title.o gui/preview.o gui/icons.o gui/marks.o gui/shell.o gui/wrap.o gui/cloud.o gui/files_view.o gui/sources_view.o gui/system_view.o gui/osk.o gui/netconf.o network/bench.o \
+       gui/image.o gui/lattice.o gui/title.o gui/preview.o gui/icons.o gui/marks.o gui/shell.o gui/wrap.o gui/cloud.o gui/files_view.o gui/sources_view.o gui/system_view.o gui/osk.o gui/netconf.o network/bench.o network/usbnet.o \
        update/catalog.o update/gunzip.o update/sources.o update/presets.o update/reach.o update/pspdx.o update/inbox.o update/assets.o update/sync.o \
-       install/install.o install/state.o util/storage.o util/files.o session/view.o session/actions.o session/downloads.o session/questions.o session/options.o session/manage_sources.o \
+       install/install.o install/pluginlist.o install/state.o util/storage.o util/files.o session/view.o session/actions.o session/downloads.o session/questions.o session/options.o session/cable.o session/manage_sources.o \
        install/zipread.o audio/audio.o audio/synth.o audio/music.o \
        audio/cues.o video/mp4.o video/psmf.o video/player.o util/runtime.o util/pbp.o
 
@@ -30,7 +30,7 @@ ASFLAGS = $(CFLAGS)
 LIBS = -lcjson -lintrafont -lpng -lz -lm \
        -lpspgu -lpspgum -lpspmpeg -lpspaudio -lpspsemaphore_660 -lpsppower \
        -lpspnet_resolver -lpspnet_apctl -lpspnet_inet -lpspnet -lpspwlan \
-       -lpsputility -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpspatrac3
+       -lpsputility -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpspatrac3 -lpspkubridge
 
 EXTRA_TARGETS = EBOOT.PBP
 PSP_EBOOT_TITLE = PSPDX

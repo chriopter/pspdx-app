@@ -5,6 +5,8 @@
 #include "install/install.h"
 #include "update/pspdx.h"
 #include "update/sources.h"
+#include <string.h>
+#include <strings.h>
 
 /* How many apps one fetch may hold, all sources together: far above any
    catalog there is, and the bound for the tables that count by app. The
@@ -70,11 +72,13 @@ struct app_entry {
     /* The file's description, on the heap and owned by the entry, or NULL
        when it has none: kilobytes that only the details band reads. */
     char *description;
-    /* Listed and not installable by this version: a plugin or an ISO. An
-       app from outside GitHub installs from its catalog entry, which is all
-       there is of it, and is updated only through a catalog. */
+    /* Listed and not installable by this version: an ISO. An app from
+       outside GitHub installs from its catalog entry, which is all there is
+       of it, and is updated only through a catalog. */
     int unsupported;
     char type[12];              /* homebrew, plugin or iso */
+    /* An installed plugin whose line in PLUGINS.TXT does not turn it on. */
+    int plugin_off;
     /* The release the entry installs from, as a cache derived it or as
        GitHub answered at the origin, so what is current is known without
        a fetch per app. repo is the repository it came from: it goes into
@@ -111,6 +115,16 @@ struct app_entry {
        lists, a file from INBOX, a repository typed since. */
     unsigned char source;
 };
+
+/* The one group an entry belongs in. What it is decides before what it
+   says: a plugin is in "plugin" whatever category its file names or leaves
+   out, and nothing else is, so that a plugin is known for one on its page
+   and a homebrew that merely writes the word is not taken for one. "" for
+   an entry in no group. */
+static inline const char *entry_category(const struct app_entry *entry) {
+    if (!strcmp(entry->type, "plugin")) return "plugin";
+    return strcasecmp(entry->category, "plugin") ? entry->category : "";
+}
 
 /* An entry lets go of what it holds on the heap and is all zeros again. Every
    slot of a catalog is either zeros or an entry that owns its text, so this

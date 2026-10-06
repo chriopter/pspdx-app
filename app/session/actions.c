@@ -28,8 +28,10 @@
 #include "pspkit-https/entropy.h"
 #include "pspkit-https/https.h"
 #include "session/actions.h"
+#include "session/cable.h"
 #include "session/downloads.h"
 #include "session/options.h"
+#include "session/questions.h"
 #include "session/view.h"
 #include "update/assets.h"
 #include "update/inbox.h"
@@ -97,6 +99,17 @@ static int connect_online(void) {
     return netconf_connect() == 0 && https_net_connect() == 0;
 }
 
+/* A plugin installed for the first time, and off: the row the loop asks
+   about once the downloads are through, as it asks about the restart. */
+static int g_installed_of = -1;
+
+int plugin_installed_take(void) {
+    if (downloads_busy()) return -1;
+    int of = g_installed_of;
+    g_installed_of = -1;
+    return of;
+}
+
 int restart_take(char *version, size_t size) {
     if (downloads_busy()) return -1;
     int of = g_restart_of;
@@ -153,6 +166,110 @@ static int install_device(const struct app_entry *entry, int row, char out[5]) {
     }
     shell_menu(NULL);
     return rc;
+}
+
+/* A question of the caller's standing over the room until X or O: 1 for X. */
+static int answer(const char *title, const char *line) {
+    SceCtrlData pad;
+    sceCtrlPeekBufferPositive(&pad, 1);
+    unsigned last = pad.Buttons;
+    int yes = -1;
+    shell_ask(title, line);
+    while (yes < 0) {
+        shell_draw(g_catalog, 0);
+        sceCtrlPeekBufferPositive(&pad, 1);
+        unsigned pressed = pad.Buttons & ~last;
+        last = pad.Buttons;
+        if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) yes = (pressed & PSP_CTRL_CROSS) != 0;
+    }
+    shell_ask(NULL, NULL);
+    return yes;
+}
+
+/* The cable chosen: its plugin installed, turned on and loaded, and the
+   choice remembered. said: what was refused on the way, or that the module
+   is not loaded; empty when the cable is ready. Returns whether it is. */
+static int cable_set_up(char *said, size_t size) {
+    int loaded = cable_use(said, size) == 0;
+    if (options_cable() < CABLE_USB) options_cable_set(CABLE_USB);
+    if (!loaded && !said[0]) snprintf(said, size, "%s", T_CABLE_NOT_LOADED);
+    return loaded;
+}
+
+void cable_choose(int usb) {
+    char said[96];
+    if (!usb) {
+        options_cable_set(CABLE_WIFI);
+        shell_status(T_CABLE_OFF);
+        return;
+    }
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    if (!cable_installed() && !answer(T_CABLE_INSTALL_ASK, T_CABLE_INSTALL_LINE)) return;
+    cable_set_up(said, sizeof(said));
+    shell_status(said[0] ? said : T_CABLE_ON);
+}
+
+int cable_at_start(void) {
+    if (cable_asks(options_cable())) {
+        static struct menu choice;
+        memset(&choice, 0, sizeof(choice));
+        memset(choice.key, -1, sizeof(choice.key));
+        choice.title = T_CABLE_ASK;
+        choice.item[0] = T_CABLE_WIFI;
+        choice.item[1] = T_CABLE_USB;
+        choice.on[0] = choice.on[1] = 1;
+        choice.count = 2;
+        SceCtrlData pad;
+        sceCtrlPeekBufferPositive(&pad, 1);
+        unsigned last = pad.Buttons;
+        shell_menu(&choice);
+        /* O answers nothing: Wi-Fi this once, and asked again next time. */
+        for (int chosen = 0; !chosen;) {
+            shell_draw(g_catalog, 0);
+            sceCtrlPeekBufferPositive(&pad, 1);
+            unsigned pressed = pad.Buttons & ~last;
+            last = pad.Buttons;
+            if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) choice.cursor ^= 1;
+            if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) {
+                shell_menu(NULL);
+                chosen = 1;
+                if (!(pressed & PSP_CTRL_CROSS)) break;
+                if (!choice.cursor) { options_cable_set(CABLE_WIFI); break; }
+                /* Said before anything is put on the stick; No is back at
+                   the choice. */
+                if (!answer(T_CABLE_INSTALL_ASK, T_CABLE_INSTALL_LINE)) {
+                    sceCtrlPeekBufferPositive(&pad, 1);
+                    last = pad.Buttons;
+                    shell_menu(&choice);
+                    chosen = 0;
+                    continue;
+                }
+                /* What was refused is said where it is read, the system's
+                   dialog being the next thing on the screen; and the cable
+                   still asked about where the session has it after all. */
+                char said[64];
+                int loaded = cable_set_up(said, sizeof(said));
+                if (said[0]) {
+                    int yes = answer(said, loaded ? T_CABLE_GO_ON_LINE : T_CABLE_CONNECT_ASK);
+                    if (!yes || !loaded) return yes;
+                }
+            }
+        }
+    } else {
+        cable_start((enum cable)options_cable());
+    }
+    /* Until the cable has connected once, the two things nobody can know
+       are said before the system's dialog opens: that the cable leads
+       nowhere without the gateway on the PC, and where that is to be had;
+       then what to choose in the dialog, which has no ready connection for
+       the cable. */
+    if (options_cable() != CABLE_USB || !cable_ready()) return 1;
+    return answer(T_CABLE_GATEWAY_ASK, T_CABLE_GATEWAY_LINE) &&
+           answer(T_CABLE_CONNECT_ASK, T_CABLE_CONNECT_LINE);
+}
+
+void cable_connected(void) {
+    if (options_cable() == CABLE_USB && cable_ready()) options_cable_set(CABLE_USB_KNOWN);
 }
 
 /* Checked against the selected device and the author's final directory,
@@ -244,6 +361,7 @@ void actions_download_complete(int index, struct app_entry *prepared,
     /* A name and a version of 64 characters whole; the status line cuts it
        to its own room, between letters. */
     char message[sizeof(entry->name) + VERSION_SIZE + 64];
+    int first = entry->state == APP_NOT_INSTALLED;
     if (rc == 0) {
         entry->state = APP_CURRENT;
         entry->local_rev = report.rev;
@@ -257,6 +375,8 @@ void actions_download_complete(int index, struct app_entry *prepared,
             snprintf(message, sizeof(message), T_UPDATED_SELF, report.version);
             snprintf(g_restart_version, sizeof(g_restart_version), "%s", report.version);
             g_restart_of = index;
+        } else if (report.plugin[0] && !report.plugin_off) {
+            snprintf(message, sizeof(message), T_PLUGIN_UPDATED, entry->name, report.version);
         } else {
             /* Said, since the next check will not find the author's words
                there either. */
@@ -266,6 +386,11 @@ void actions_download_complete(int index, struct app_entry *prepared,
                                                                 : T_INSTALLED,
                      entry->name, report.version);
         }
+        if (report.plugin[0]) {
+            snprintf(entry->type, sizeof(entry->type), "plugin");
+            entry->plugin_off = report.plugin_off;
+            if (first && report.plugin_off) g_installed_of = index;
+        }
         pspdx_utf8_mend(message);
         logline("installed %s %s: %d files, %luK, %us", entry->name, report.version,
                 report.files, (unsigned long)(report.bytes / 1024), seconds);
@@ -273,11 +398,16 @@ void actions_download_complete(int index, struct app_entry *prepared,
         snprintf(message, sizeof(message), T_CANCELLED, entry->name);
     } else if (rc == INSTALL_DECLINED) {
         snprintf(message, sizeof(message), T_DECLINED, entry->name);
+
     } else if (rc == INSTALL_NO_SPACE) {
         /* Tenths, rounded up: what is said to be needed has to be enough. */
         unsigned long long tenths = (report.needed * 10 + (1u << 20) - 1) >> 20;
         snprintf(message, sizeof(message), T_NO_SPACE, entry->name, (unsigned long)(tenths / 10),
                  (unsigned long)(tenths % 10));
+    } else if (report.why[0] && !strcmp(prepared->type, "plugin")) {
+        /* A plugin's reasons are sentences about the stick; the line has no
+           room for its name beside them. */
+        snprintf(message, sizeof(message), T_PLUGIN_NOT_INSTALLED, report.why);
     } else if (report.why[0]) {
         snprintf(message, sizeof(message), T_INSTALL_FAILED_WHY, entry->name, report.why);
     } else {
@@ -293,22 +423,51 @@ void uninstall_app(int index) {
     char message[96];
 
     cues_post(CUE_OPEN, 0);
+    int plugin = !strcmp(entry->type, "plugin");
     int rc = uninstall(entry->id);
-    if (rc == 0) {
+    if (rc >= 0) {
         /* The catalog entry is what the browser reads; the record it was
            built from has just stopped existing. */
         entry->state = APP_NOT_INSTALLED;
         entry->local_rev = 0;
         text_free(&entry->local_version);
-        snprintf(message, sizeof(message), T_REMOVED, entry->name);
+        entry->plugin_off = 0;
+        if (plugin && rc)
+            snprintf(message, sizeof(message), "%s",
+                     rc & UNINSTALL_FILE ? T_PLUGIN_LEFT : T_PLUGIN_REMOVED_LINES);
+        else
+            snprintf(message, sizeof(message), plugin ? T_PLUGIN_REMOVED : T_REMOVED, entry->name);
     } else if (rc == INSTALL_SELF) {
         snprintf(message, sizeof(message), "%s", T_SELF_DELETE);
+    } else if (plugin_refused()[0]) {
+        snprintf(message, sizeof(message), T_PLUGIN_NOT_DELETED, plugin_refused());
     } else {
         snprintf(message, sizeof(message), T_REMOVE_FAILED, entry->name, rc);
     }
     logline("%s", message);
     shell_status(message);
-    cues_post(rc == 0 ? CUE_DONE : CUE_FAIL, 0);
+    cues_post(rc >= 0 ? CUE_DONE : CUE_FAIL, 0);
+}
+
+/* An installed plugin turned on, or off again: PSPDX's own line in
+   PLUGINS.TXT, which the custom firmware reads when the PSP starts. A line
+   somebody else wrote for the plugin is theirs, so what was asked for may
+   not be what the list says afterwards, and then that is said. */
+void switch_plugin(int index) {
+    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    struct app_entry *entry = &g_catalog->apps[index];
+    char message[96];
+    int want = entry->plugin_off, on = plugin_switch(entry->id, want);
+    if (on >= 0) entry->plugin_off = !on;
+    if (on < 0 && plugin_refused()[0])
+        snprintf(message, sizeof(message), T_PLUGIN_FAILED_WHY, plugin_refused());
+    else
+        snprintf(message, sizeof(message), "%s",
+                 on < 0 ? T_PLUGIN_FAILED : on != want ? T_PLUGIN_NOT_OURS
+                 : on ? T_PLUGIN_ON : T_PLUGIN_OFF);
+    logline("%s: %s", entry->id, message);
+    shell_status(message);
+    cues_post(on == want ? CUE_DONE : CUE_FAIL, 0);
 }
 
 /* After anything that changes what is in the tabs rather than what is in the
@@ -335,7 +494,16 @@ void launch_app(int index) {
     struct installed record;
     char path[160];
 
-    if (db_read(entry->id, &record) < 0 || !record.dir[0]) {
+    /* A plugin is not started from here: the custom firmware loads it when
+       the PSP starts. What its row does is turn it off and on, asked first,
+       since nothing of either shows until then. */
+    int known = db_read(entry->id, &record) == 0;
+    if (known && record.plugin[0]) {
+        ask(ASK_PLUGIN, index, entry->plugin_off ? T_PLUGIN_ON_ASK : T_PLUGIN_OFF_ASK,
+            entry->plugin_off ? T_PLUGIN_ON_LINE : T_PLUGIN_OFF_LINE);
+        return;
+    }
+    if (!known || !record.dir[0]) {
         shell_status(T_NO_RECORD);
         return;
     }

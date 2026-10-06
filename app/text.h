@@ -62,6 +62,7 @@
 #define T_PANEL_UPDATE       "Update to %s   %s"                  /* version, size */
 #define T_PANEL_REBUILD      "Update to %s (new build)   %s"      /* version, size */
 #define T_PANEL_INSTALLED    "Version %s"                         /* version */
+#define T_PANEL_PLUGIN_OFF   "Version %s, off"                    /* version: an installed plugin */
 #define T_PANEL_NO_RELEASE   "No release"
 #define T_PANEL_UNSUPPORTED  "Not installable yet"
 #define T_PANEL_IN_BASKET    "   In basket"
@@ -74,6 +75,8 @@
 
 #define T_MENU_RUN           "Run"
 #define T_MENU_RESTART       "Restart"
+#define T_MENU_PLUGIN_ON     "Turn On"                            /* a plugin's row in place of Run */
+#define T_MENU_PLUGIN_OFF    "Turn Off"
 #define T_MENU_INSTALL       "Install"
 #define T_MENU_REINSTALL     "Reinstall"
 #define T_MENU_UPDATE        "Update to %s"                       /* version, at most 20 bytes */
@@ -105,12 +108,22 @@
 #define T_RENAME_FAILED      "Could not rename the folder %.32s." /* folder */
 #define T_REMOVE_ASK         "Do you want to delete %s?"          /* name */
 #define T_REMOVE_LINE        "Save data is not deleted."
+/* A plugin is installed and turned on in two steps, and asked about the
+   second: the custom firmware loads it only once it is turned on, and only
+   when the PSP starts. Every line here fits its band; dev/tests holds them
+   to it. */
+#define T_PLUGIN_INSTALLED_ASK "%s was installed."                /* name: the title, the next the question */
+#define T_PLUGIN_TURN_ON_LINE "Do you want to turn it on?"
+#define T_PLUGIN_ON_ASK      "Do you want to turn it on?"
+#define T_PLUGIN_OFF_ASK     "Do you want to turn it off?"
+#define T_PLUGIN_ON_LINE     "It is loaded after a restart. Hold START at power-on to skip plugins."
+#define T_PLUGIN_OFF_LINE    "It is unloaded after a restart."
 #define T_ALL_ASK_INSTALL    "Do you want to install %d app%s?"   /* n, "s" */
 #define T_ALL_ASK_UPDATE     "Do you want to update %d app%s?"    /* n, "s" */
 #define T_ALL_SIZE           "%s in total"                        /* size */
 #define T_ALL_AGAIN          ", %d again"                         /* n */
 #define T_ALL_SKIPPED        ", %d skipped"                       /* n */
-#define T_RUN_ASK            "Do you want to start %.40s?"        /* name */
+#define T_RUN_ASK            "Do you want to start %s?"           /* name */
 #define T_RUN_LINE           "PSPDX will close."
 #define T_RESTART_ASK        "Do you want to restart PSPDX now?"
 #define T_RESTART_LINE       "Version %s takes effect after restarting." /* version, at most 20 bytes */
@@ -135,6 +148,19 @@
 #define T_INSTALLED_NO_PSPDX "%s %s was installed. Its repository has no .pspdx." /* name, version */
 #define T_INSTALLED_FROM_FILE "%s %s was installed from your file; the repository has no .pspdx." /* name, version */
 #define T_UPDATED_SELF       "PSPDX was updated to %s."           /* version */
+/* A plugin, in the status line: when it takes effect, and once it is on
+   the way to start without it. */
+#define T_PLUGIN_ON          "On after restart. Hold START to skip plugins."
+#define T_PLUGIN_OFF         "Off after restart."
+#define T_PLUGIN_UPDATED     "%s %s updated. Please restart." /* name, version: an update */
+#define T_PLUGIN_REMOVED     "%s was deleted. Off after restart." /* name */
+#define T_PLUGIN_REMOVED_LINES "Deleted. PLUGINS.TXT still names it."
+#define T_PLUGIN_LEFT        "No longer managed. Its .prx and line were left."
+#define T_PLUGIN_NOT_OURS    "Not changed: other lines name it."
+#define T_PLUGIN_FAILED      "Could not change PLUGINS.TXT."
+#define T_PLUGIN_FAILED_WHY  "Not changed: %s."                   /* reason */
+#define T_PLUGIN_NOT_INSTALLED "Not installed: %s."               /* reason */
+#define T_PLUGIN_NOT_DELETED "Not deleted: %s."                   /* reason */
 #define T_CANCELLED          "Installation of %s was canceled."   /* name */
 #define T_INSTALL_FAILED     "Could not install %s (%d)."         /* name, code */
 #define T_INSTALL_FAILED_WHY "Could not install %s: %s."          /* name, reason */
@@ -160,6 +186,7 @@
 #define T_LAYOUT_NO          "Don't install"
 #define T_DECLINED           "%s was not installed."             /* name */
 #define T_WHY_STICK          "the Memory Stick could not be written"
+#define T_WHY_NO_ROOM        "the Memory Stick is full"
 #define T_WHY_NO_ANSWER      "the server did not answer"
 #define T_WHY_STATUS         "the server answered %ld"           /* HTTP status */
 #define T_WHY_SIZE           "the download was the wrong size"
@@ -168,6 +195,20 @@
 #define T_WHY_NO_EBOOT       "its zip holds no EBOOT.PBP"
 #define T_WHY_ZIP            "its zip cannot be unpacked safely"
 #define T_WHY_NAME           "its zip names a file in a foreign code page"
+#define T_WHY_NO_PRX         "its zip has no .prx on top"
+#define T_WHY_PRXS           "its zip has several .prx on top"
+#define T_WHY_PRX_NAME       "its .prx has an unusable name"
+#define T_WHY_PRX_RENAMED    "its .prx has another name now"
+#define T_WHY_PRX_THERE      "a .prx of that name exists"
+#define T_WHY_PRX_COPY       "an old copy of it is in the way"
+#define T_WHY_PRX_READONLY   "its .prx is read-only"
+#define T_WHY_PRX_CHANGED    "its .prx was changed by hand"
+#define T_WHY_LIST_READ      "PLUGINS.TXT cannot be read"
+#define T_WHY_LIST_LARGE     "PLUGINS.TXT is too large"
+#define T_WHY_LIST_TEXT      "PLUGINS.TXT is not plain text"
+#define T_WHY_LIST_READONLY  "PLUGINS.TXT is read-only"
+#define T_WHY_LIST_CHANGED   "PLUGINS.TXT has changed"
+#define T_WHY_LIST_WRITE     "PLUGINS.TXT was not written"
 #define T_NO_SPACE           "Could not install %s. %lu.%lu MB of free space is needed." /* name, MB, tenths */
 #define T_INSTALL_UNSUPPORTED "%.60s cannot be installed yet."   /* name */
 #define T_REMOVED            "%s was deleted."                    /* name */
@@ -228,6 +269,7 @@
 #define T_SYS_FPS            "Show FPS"
 #define T_SYS_DEV            "Fake Updates"                      /* every installed package is said to have an update */
 #define T_SYS_UNRELEASED     "Show Unreleased"                   /* catalog entries tagged "unreleased" */
+#define T_SYS_CABLE          "Connect via USB"                   /* off: Wi-Fi */
 #define T_SYS_SWEEP          "Renew TLS Seed"
 #define T_SYS_RESET_ALL      "Restore Defaults"
 #define T_SYS_FRAME_RATE_NOTE "Switches between baked UI at 30 FPS and performance UI at 60 FPS."
@@ -237,6 +279,7 @@
 #define T_SYS_FILL           "Fill Cache When Idle"
 #define T_SYS_FILL_NOTE      "While PSPDX is left alone, fetches every app's icon so lists show at once. Any key pauses it."
 #define T_FILLING            "Filling cache for faster browsing  %d%%"
+#define T_SYS_CABLE_NOTE     "Connects over the USB cable instead of Wi-Fi. Its plugin, USBNet, is managed under Installed like any other."
 #define T_SYS_SWEEP_NOTE     "Generates a new seed for secure connections."
 #define T_SYS_RESET_NOTE     "Restores all settings to their defaults. Installed apps are not deleted."
 #define T_HINT_CHANGE        "Change"
@@ -371,6 +414,24 @@
 #define T_KIND_REPO          "Repository"
 #define T_APP_INSTALLED      "Installed: %s"                      /* version */
 #define T_APP_LATEST         "Latest: %s"                         /* version */
+/* The first start with the cable's plugin beside the EBOOT, and the way
+   through the system's dialog the first time the cable is used. */
+#define T_CABLE_ASK          "Connect via"
+#define T_CABLE_WIFI         "Wi-Fi"
+#define T_CABLE_USB          "USB cable"
+/* The cable only works while the gateway runs on the PC: asked first, with
+   where it is to be had. The address in one piece, for whoever points at it. */
+#define T_CABLE_INSTALL_ASK  "Activate USB?"
+#define T_CABLE_INSTALL_LINE "This installs the USBNet plugin and turns it on."
+#define T_CABLE_GATEWAY_URL  "github.com/chriopter/pspkit-usbnet"
+#define T_CABLE_GATEWAY_ASK  "Is the gateway running on your PC?"
+#define T_CABLE_GATEWAY_LINE "Get it from " T_CABLE_GATEWAY_URL
+#define T_CABLE_GO_ON_LINE   "Do you want to go on with the cable?"
+#define T_CABLE_CONNECT_ASK  "Do you want to connect now?"
+#define T_CABLE_CONNECT_LINE "Choose [New Connection], then Scan, then \"Hi-Speed USB\"."
+#define T_CABLE_ON           "USB is ready. Choose \"Hi-Speed USB\"."
+#define T_CABLE_OFF          "Wi-Fi is used. The plugin stays installed."
+#define T_CABLE_NOT_LOADED   "The USB plugin could not be loaded."
 #define T_STORAGE_ASK        "Install to"
 #define T_STORAGE_INTERNAL   "System Storage"
 #define T_STORAGE_CARD       "Memory Stick"
@@ -378,6 +439,7 @@
 #define T_STORAGE_MISSING    "The installation storage is not available."
 
 #define T_APP_FOLDER         "Folder: %s/PSP/GAME/%s"             /* device, dir */
+#define T_APP_PLUGIN         "File: %s/seplugins/%s"              /* device, file */
 #define T_APP_SOURCE         "Source: %s"                         /* url */
 #define T_APP_CHECKED        "Checked: %s"                        /* when */
 #define T_APP_VIA            "Via: %s"                            /* host */

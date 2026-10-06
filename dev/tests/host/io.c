@@ -18,6 +18,7 @@
                                    and the free-space call counts what is left
      RO_MATCH=s                    a file whose path holds s is read-only: it cannot be removed
      WRITE_FAIL                    every write fails
+     TORN=n                        the write the power cut falls on puts n of its bytes down first
      DEVCTL_FAIL                   the stick does not say how much is free
      NET_DROP_AFTER=n              network stops after at least n body bytes
 
@@ -93,6 +94,14 @@ int sceIoWrite(int f, const void *b, size_t n) {
     long long left = room_left();
     if (left >= 0 && (long long)n > left)
         return -1;
+    /* A cut in the middle of a write: some of its bytes are on the stick. */
+    const char *torn = getenv("TORN");
+    if (torn && fault > 0 && operations + 1 == (unsigned)fault) {
+        size_t part = (size_t)atol(torn) < n ? (size_t)atol(torn) : n;
+        if (write(f, b, part) < 0)
+            _exit(78);
+        _exit(77);
+    }
     int rc = write(f, b, n);
     tick();
     return rc;

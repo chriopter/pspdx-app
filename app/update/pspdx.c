@@ -290,7 +290,9 @@ void pspdx_default_dir(const char *repo, const char *name, char *out, size_t siz
         n--;
     out[n] = '\0';
 }
-int pspdx_type_installable(const char *type) { return type && !strcmp(type, "homebrew"); }
+int pspdx_type_installable(const char *type) {
+    return type && (!strcmp(type, "homebrew") || !strcmp(type, "plugin"));
+}
 int pspdx_has_tag(const char *tags, const char *word) {
     size_t n = strlen(word);
     for (const char *p = tags; n && *p;) {

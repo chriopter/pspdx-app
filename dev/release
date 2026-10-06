@@ -33,6 +33,35 @@ cd "$HERE"
 [ -z "$(git status --porcelain)" ] || { echo "the tree has uncommitted changes" >&2; exit 1; }
 COMMIT="$(git rev-parse HEAD)"
 
+# Network over the USB cable for a console without Wi-Fi: pspkit-usbnet's
+# plugin goes beside the EBOOT, which offers to install it at the first start.
+# It is whatever pspkit-usbnet's latest release is the day this runs: the
+# release's own usbnet-psp.zip, the zip a catalog lists the plugin by, held to
+# the SHA-256 that release states for it in SHA256SUMS-linux. Which release
+# that was, and the zip's hash, are said here, in the notice that ships and
+# in usbnet.txt, which is how the client knows what it carries: the hash is
+# what makes the same release current in the store and a newer one an update.
+USBNET="$(mktemp -d)"
+trap 'rm -rf "$USBNET"' EXIT
+USBNET_TAG="$(gh release view --repo chriopter/pspkit-usbnet --json tagName -q .tagName)"
+[ -n "$USBNET_TAG" ] || { echo "pspkit-usbnet has no latest release" >&2; exit 1; }
+gh release download "$USBNET_TAG" --repo chriopter/pspkit-usbnet --pattern usbnet-psp.zip \
+	--pattern SHA256SUMS-linux --dir "$USBNET"
+[ -f "$USBNET/usbnet-psp.zip" ] || { echo "pspkit-usbnet $USBNET_TAG has no usbnet-psp.zip" >&2; exit 1; }
+USBNET_SHA256="$(sha256sum "$USBNET/usbnet-psp.zip" | cut -d' ' -f1)"
+USBNET_STATED="$(awk '$2 == "usbnet-psp.zip" || $2 == "*usbnet-psp.zip" { print $1 }' \
+	"$USBNET/SHA256SUMS-linux" 2>/dev/null || true)"
+if [ -z "$USBNET_STATED" ]; then
+	echo "usbnet: pspkit-usbnet $USBNET_TAG states no SHA-256 for usbnet-psp.zip; not verified against the release" >&2
+elif [ "$USBNET_STATED" != "$USBNET_SHA256" ]; then
+	echo "usbnet-psp.zip of pspkit-usbnet $USBNET_TAG is not the zip its SHA256SUMS-linux states" >&2
+	exit 1
+fi
+unzip -tqq "$USBNET/usbnet-psp.zip"
+unzip -q "$USBNET/usbnet-psp.zip" usbnet.prx LICENSE THIRD_PARTY_PSPLINK_LICENSE -d "$USBNET"
+printf 'tag=%s\nzip=%s\n' "$USBNET_TAG" "$USBNET_SHA256" > "$USBNET/usbnet.txt"
+echo "usbnet: pspkit-usbnet $USBNET_TAG, usbnet-psp.zip sha256 $USBNET_SHA256"
+
 # The Docker build mounts app/ alone and so sees no .git of its own: the
 # version goes in on the command line rather than out of git describe.
 BUILD_LOG="$(mktemp)"
@@ -61,6 +90,14 @@ cp "$APP/presets.txt" "$HERE/dist/PSP/GAME/PSPDX/presets.txt"
 cp "$APP/assets/font.pgf" "$HERE/dist/PSP/GAME/PSPDX/font.pgf"
 cp "$APP/assets/font-NOTICE.txt" "$HERE/dist/PSP/GAME/PSPDX/font-NOTICE.txt"
 cp "$HERE/LICENSE" "$HERE/dist/PSP/GAME/PSPDX/LICENSE"
+# The USB network module, and the licences it is passed on under.
+cp "$USBNET/usbnet.prx" "$HERE/dist/PSP/GAME/PSPDX/usbnet.prx"
+cp "$USBNET/usbnet.txt" "$HERE/dist/PSP/GAME/PSPDX/usbnet.txt"
+{
+	printf 'usbnet.prx is pspkit-usbnet %s, https://github.com/chriopter/pspkit-usbnet\n' "$USBNET_TAG"
+	printf 'out of usbnet-psp.zip, SHA-256 %s\n\n' "$USBNET_SHA256"
+	cat "$USBNET/LICENSE" "$USBNET/THIRD_PARTY_PSPLINK_LICENSE"
+} > "$HERE/dist/PSP/GAME/PSPDX/usbnet-NOTICE.txt"
 (cd "$HERE/dist" && zip -q -r "$HERE/pspdx.zip" PSP)
 unzip -tqq "$HERE/pspdx.zip"
 unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/.pspdx | cmp "$HERE/.pspdx" -
@@ -68,9 +105,12 @@ unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/presets.txt | cmp "$APP/presets.txt" -
 unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/font.pgf | cmp "$APP/assets/font.pgf" -
 unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/font-NOTICE.txt | cmp "$APP/assets/font-NOTICE.txt" -
 unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/LICENSE | cmp "$HERE/LICENSE" -
+unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/usbnet.prx | cmp "$USBNET/usbnet.prx" -
+unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/usbnet.txt | cmp "$USBNET/usbnet.txt" -
 rm -rf "$HERE/dist"
 
 gh release create "v$VERSION" "$HERE/pspdx.zip" -t "v$VERSION" -n "$NOTES" \
 	--target "$COMMIT"
 
 echo "v$VERSION is out; the catalog derives it on its next build"
+echo "it carries pspkit-usbnet $USBNET_TAG"

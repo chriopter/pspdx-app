@@ -1,5 +1,7 @@
+#include "install/pluginlist.h"
 #include "install/state.h"
 #include "pspiofilemgr.h"
+#include "session/cable.h"
 #include "session/manage_sources.h"
 #include "session/view.h"
 #include "update/assets.h"
@@ -102,6 +104,58 @@ int main(int argc, char **argv) {
         }
         free(text);
         return 0;
+    }
+    if (!strcmp(argv[1], "pluginlist")) {
+        /* pluginlist <state|add|on|off|blank> <file> <path>: the one write
+           the unit works out for a PLUGINS.TXT on the host, put into the
+           file where it says and nowhere else; then what the unit
+           answered, and what the list says of the plugin at path. */
+        char *text = calloc(1, 1 << 20);
+        FILE *f = fopen(argv[3], "rb");
+        size_t len = f ? fread(text, 1, 1 << 20, f) : 0;
+        if (f) fclose(f);
+        struct pluginlist_write w = {0};
+        int rc = !strcmp(argv[2], "add")     ? pluginlist_add(text, len, argv[4], &w)
+                 : !strcmp(argv[2], "on")    ? pluginlist_switch(text, len, argv[4], 1, &w)
+                 : !strcmp(argv[2], "off")   ? pluginlist_switch(text, len, argv[4], 0, &w)
+                 : !strcmp(argv[2], "blank") ? pluginlist_blank(text, len, argv[4], &w) : -9;
+        if (rc == (strcmp(argv[2], "add") ? 1 : 0)) {
+            f = fopen(argv[3], len ? "r+b" : "wb");
+            fseek(f, (long)w.at, SEEK_SET);
+            fwrite(w.bytes, 1, w.n, f);
+            fclose(f);
+            memcpy(text + w.at, w.bytes, w.n);
+            if (w.at + w.n > len) len = w.at + w.n;
+        }
+        printf("%d %d\n", rc, pluginlist_state(text, len, argv[4]));
+        free(text);
+        return 0;
+    }
+    if (!strcmp(argv[1], "cable")) {
+        /* cable <choice 0-3> [use]: whether the start would ask how to
+           connect, with that answer remembered; with "use", the cable chosen:
+           what came of it, and the line it said. */
+        enum cable choice = (enum cable)atoi(argv[2]);
+        cable_init(getenv("DEVICE") ? getenv("DEVICE") : "ms0:/PSP/GAME/PSPDX/EBOOT.PBP");
+        if (argc > 3) {
+            char said[96];
+            int rc = cable_use(said, sizeof(said));
+            printf("%d %d %s\n", rc, cable_ready(), said);
+            return 0;
+        }
+        int asks = cable_asks(choice);
+        if (!asks) cable_start(choice);
+        printf("%d %d %d\n", asks, cable_installed(), cable_ready());
+        return 0;
+    }
+    if (!strcmp(argv[1], "plugin")) {
+        /* plugin <id> [on|off]: whether an installed plugin is turned on,
+           after turning it on or off where the test says so. */
+        int rc = argc > 3 ? plugin_switch(argv[2], !strcmp(argv[3], "on")) : plugin_enabled(argv[2]);
+        printf("%d\n", rc);
+        if (rc < 0 && argc > 3 && plugin_refused()[0])
+            fprintf(stderr, "why: %s\n", plugin_refused());
+        return rc < 0 ? 1 : 0;
     }
     if (!strcmp(argv[1], "recover")) {
         if (argc > 2)
@@ -229,6 +283,15 @@ int main(int argc, char **argv) {
         printf("%lu %.*s\n", (unsigned long)len, (int)(len < 16 ? len : 16), (const char *)b);
         /* What the media thread does when it parks: the batch to the stick. */
         asset_flush();
+        return 0;
+    }
+    if (!strcmp(argv[1], "categories")) {
+        /* categories: each entry and the one group it stands in, "-" for
+           none: what its page shows first and the store lists it under. */
+        catalog_fetch(&catalog);
+        for (int i = 0; i < catalog.count; i++)
+            printf("%s %s\n", catalog.apps[i].id,
+                   entry_category(&catalog.apps[i])[0] ? entry_category(&catalog.apps[i]) : "-");
         return 0;
     }
     if (!strcmp(argv[1], "listing")) {
@@ -433,6 +496,8 @@ int main(int argc, char **argv) {
         /* uninstall <id>: Delete on any row, and what it returned. */
         int rc = uninstall(argv[2]);
         printf("%d\n", rc);
+        if (rc < 0 && plugin_refused()[0])
+            fprintf(stderr, "why: %s\n", plugin_refused());
         return rc < 0 ? 1 : 0;
     }
     if (!strcmp(argv[1], "retire")) {
@@ -454,7 +519,7 @@ int main(int argc, char **argv) {
         sources_parse_repo(spec.source, &repo);
         sources_repo_id(&repo, m.id, sizeof(m.id));
         strcpy(m.repo, spec.source);
-        strcpy(m.dir, spec.installdir[0] ? spec.installdir + 9 : "Demo");
+        strcpy(m.dir, !strcmp(spec.type, "plugin") ? "" : spec.installdir[0] ? spec.installdir + 9 : "Demo");
         snprintf(m.url, sizeof(m.url), "%s/releases/download/v2/download.zip", spec.source);
         strcpy(m.version, getenv("VERSION") ? getenv("VERSION") : "2");
         m.rev = atoi(m.version);
@@ -472,6 +537,10 @@ int main(int argc, char **argv) {
                                     &report, test_phase, test_progress, NULL);
         manifest_forget(&m);
         printf("%d %u %llu\n", rc, host_operations(), report.needed);
+        if (rc < 0 && report.why[0])
+            fprintf(stderr, "why: %s\n", report.why);
+        if (rc == 0 && report.plugin[0])
+            fprintf(stderr, "plugin: %s %s\n", report.plugin, report.plugin_off ? "off" : "on");
         return rc < 0 ? 1 : 0;
     }
     if (!strcmp(argv[1], "get")) {

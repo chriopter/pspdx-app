@@ -62,7 +62,8 @@ int pspdx_install_dir(const char *path);
    name from GitHub (repo), or else the app's name with every character a
    folder cannot hold left out; cut at 32 either way. Not checked here. */
 void pspdx_default_dir(const char *repo, const char *name, char *out, size_t size);
-/* Whether this client can install what a file of this type describes. */
+/* Whether this client can install what a file of this type describes: a
+   homebrew, into its folder under PSP/GAME, and a plugin, into seplugins/. */
 int pspdx_type_installable(const char *type);
 /* Whether one of the newline-separated tags is exactly word. */
 int pspdx_has_tag(const char *tags, const char *word);

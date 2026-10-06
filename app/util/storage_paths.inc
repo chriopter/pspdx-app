@@ -19,6 +19,7 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX/DEBUG/PSPDX.BENCH", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.BMP", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.INSTALL", ""},
+    {"PSP/PSPDX/DEBUG/PSPDX.CABLE", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.KEYS", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.OFFLINE", ""},   /* skip the radio: saved catalogs only */
     {"PSP/PSPDX/DEBUG/PSPDX.RECORD", ""},

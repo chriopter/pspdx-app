@@ -30,6 +30,7 @@
 #include "gui/lattice.h"
 #include "gui/osk.h"
 #include "gui/netconf.h"
+#include "session/cable.h"
 #include "gui/shell.h"
 #include "install/install.h"
 #include "pspkit-https/entropy.h"
@@ -341,6 +342,7 @@ int main(int argc, char *argv[]) {
     /* Full speed: the film decodes and the piano plays on the same CPU
        the interface draws with. The default is two thirds of it. */
     storage_init(argc > 0 ? argv[0] : NULL);
+    cable_init(argc > 0 ? argv[0] : NULL);
     options_settings_load();
     state_load();
     scePowerSetClockFrequency(333, 333, 166);
@@ -458,7 +460,11 @@ int main(int argc, char *argv[]) {
     audio_start();
     actions_init(&catalog);
     int offline = storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.OFFLINE"));
+    /* Before anything connects: how, where the release's copy of the
+       cable's plugin makes that a question, and the cable set up if so. */
+    if (!offline) offline = !cable_at_start();
     if (!offline) offline = netconf_connect() < 0;
+    if (!offline) cable_connected();
     sync_set_offline(offline);
     sync_start(&catalog);
 
@@ -913,8 +919,9 @@ int main(int argc, char *argv[]) {
                 if (downloads_active(details_of)) downloads_focus(details_of);
                 else if (e->state == APP_NOT_INSTALLED || e->state == APP_UPDATE)
                     downloads_enqueue(details_of);
+                else if (!strcmp(e->type, "plugin")) launch_app(details_of);
                 else {
-                    char title[64];
+                    char title[sizeof(e->name) + 32];
                     snprintf(title, sizeof(title), T_RUN_ASK, e->name);
                     ask(ASK_RUN, details_of, title, T_RUN_LINE);
                 }

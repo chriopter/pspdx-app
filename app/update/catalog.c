@@ -493,6 +493,7 @@ static void settle_state(struct app_entry *entry) {
         entry->local_has_sha = 0;
         for (int i = 0; i < 32; i++)
             entry->local_has_sha |= installed.sha256[i];
+        entry->plugin_off = installed.plugin[0] && plugin_enabled(entry->id) != 1;
     } else {
         entry->state = APP_NOT_INSTALLED;
     }
@@ -956,8 +957,8 @@ static int parse(struct catalog *catalog, const char *base) {
         int letters = cJSON_IsString(group) ? pspdx_characters(group->valuestring, 0) : -1;
         if (letters >= 1 && letters <= 24 && strlen(group->valuestring) < sizeof(entry->category))
             snprintf(entry->category, sizeof(entry->category), "%s", group->valuestring);
-        /* What the app is decides what may be done with it: a homebrew is
-           installed, a plugin or an ISO only listed, and a type this version
+        /* What the app is decides what may be done with it: a homebrew and
+           a plugin are installed, an ISO only listed, and a type this version
            has never heard of is not an app it can say anything true about. */
         cJSON *kind = cJSON_GetObjectItemCaseSensitive(app, "type");
         if (kind)
@@ -1155,7 +1156,7 @@ static int parse(struct catalog *catalog, const char *base) {
         if (!manifest_id_is_safe(entry->id) ||
             (github && !sources_release_url(repo, txt(entry->release.url))))
             continue;
-        entry->unsupported = !homebrew;
+        entry->unsupported = !pspdx_type_installable(entry->type);
         if (indexed_id(catalog, entry->id))
             continue;
         /* An app is one row: a repository an earlier entry listed under
@@ -2203,14 +2204,18 @@ int catalog_fetch(struct catalog *catalog) {
 static int entry_check(struct app_entry *entry, char *why, size_t cap) {
     char folder[42];
     snprintf(folder, sizeof(folder), "PSP/GAME/%.32s", entry->release.dir);
+    /* A homebrew names its folder and leaves its type to the rule; anything
+       else names its type and no folder. */
+    int homebrew = !strcmp(entry->type, "homebrew");
     const char *said[] = {txt(entry->author), txt(entry->summary), txt(entry->license),
                           entry->description ? entry->description : ""};
     const char *value[PSPDX_FIELDS] = {
         [PSPDX_SCHEMA_FIELD] = PSPDX_SCHEMA,
         [PSPDX_SOURCE] = txt(entry->repo),
         [PSPDX_NAME] = entry->name,
+        [PSPDX_TYPE] = homebrew ? NULL : entry->type,
         [PSPDX_CATEGORY] = entry->category[0] ? entry->category : NULL,
-        [PSPDX_INSTALLDIR] = folder,
+        [PSPDX_INSTALLDIR] = homebrew ? folder : NULL,
         [PSPDX_AUTHOR] = said[0][0] ? said[0] : NULL,
         [PSPDX_SUMMARY] = said[1][0] ? said[1] : NULL,
         [PSPDX_LICENSE] = said[2][0] ? said[2] : NULL,
@@ -2256,7 +2261,10 @@ static int entry_pspdx(struct app_entry *entry) {
     }
     if (entry->category[0])
         cJSON_AddStringToObject(o, "category", entry->category);
-    cJSON_AddStringToObject(o, "installdir", folder);
+    if (!strcmp(entry->type, "homebrew"))
+        cJSON_AddStringToObject(o, "installdir", folder);
+    else
+        cJSON_AddStringToObject(o, "type", entry->type);
     const char *said[][2] = {{"author", txt(entry->author)}, {"summary", txt(entry->summary)},
                              {"license", txt(entry->license)},
                              {"description", entry->description ? entry->description : ""}};
@@ -2340,7 +2348,7 @@ int catalog_prepare(struct app_entry *entry) {
         }
     }
     if (pspdx_parse(entry->release.raw, strlen(entry->release.raw), &file, why, sizeof(why)) < 0 ||
-        !sources_same_repo(file.source, txt(entry->repo)) || !file.installdir[0]) {
+        !sources_same_repo(file.source, txt(entry->repo)) || !pspdx_type_installable(file.type)) {
         logline("install: manifest and selected catalog entry disagree%s%s; refresh sources",
                 why[0] ? ": " : "", why);
         release_forget_raw(&entry->release);
@@ -2354,6 +2362,7 @@ int catalog_prepare(struct app_entry *entry) {
         logline("install: %s goes to PSP/GAME/%s, the entry named %s", entry->id, folder,
                 entry->release.dir);
     snprintf(entry->release.dir, sizeof(entry->release.dir), "%s", folder);
+    snprintf(entry->type, sizeof(entry->type), "%s", file.type);
     return 0;
 }
 int catalog_validate_source(const char *url, int repository) {

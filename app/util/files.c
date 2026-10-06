@@ -400,7 +400,10 @@ static void describe_app(struct file_view *v) {
     at_path(v, rel);
     if (db_read(id, &rec) == 0) {
         put(v, T_APP_INSTALLED, rec.version);
-        put(v, T_APP_FOLDER, rec.device, rec.dir);
+        if (rec.plugin[0])
+            put(v, T_APP_PLUGIN, rec.device, rec.plugin);
+        else
+            put(v, T_APP_FOLDER, rec.device, rec.dir);
         put(v, T_APP_SOURCE, rec.repo);
     }
     if (state_latest(id, &latest) == 0) {

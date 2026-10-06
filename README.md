@@ -23,6 +23,7 @@ font first. Keep `font.pgf` beside the EBOOT when moving the app folder.
 - **Basket:** add apps with **Triangle**, then *Download all*. Running downloads are listed there too.
 - **Find:** *Search* on the first page looks through names, authors, tags and descriptions. **SELECT** sorts any list by newest or by name.
 - **Display:** 60 FPS by default; the first row under the wrench switches to a calmer 30 FPS mode.
+- **No Wi-Fi (PSP Street):** at its first start PSPDX asks whether to connect via Wi-Fi or the USB cable. *USB cable* installs the [pspkit-usbnet](https://github.com/chriopter/pspkit-usbnet) plugin the package carries and turns it on. Run its gateway on a PC, plug in the cable, and in the connection dialog choose [New Connection] → Scan → "Hi-Speed USB" the first time. **Options → Connect via USB** changes the answer later.
 
 Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 
@@ -53,7 +54,7 @@ What PSPDX does on top:
 - **Pinned release:** `"release": {"tag": "v1.2"}` installs exactly that release, with no updates until the file changes.
 - **No `.pspdx` at the source:** GitHub's own 404 (not one after a redirect elsewhere). PSPDX installs from the catalog entry, your INBOX file or, typed into Direct Install, the repository's name. A live catalog keeps it updated; without one the latest release is asked at GitHub by the saved `.pspdx`, same ZIP rule and SHA-256. As soon as the author adds a `.pspdx`, that file counts.
 - **Catalog text:** CR LF and tabs in `description` and `summary` are read as meant; an entry with a NUL in its text is dropped, and a `sha256` of zeros is no hash.
-- **Types:** `homebrew` installs under `PSP/GAME/`; `plugin` and `iso` are listed, not installed yet.
+- **Types:** `homebrew` installs under `PSP/GAME/`; `plugin` installs its one `.prx` to `seplugins/` and, when you turn it on, adds one line to ARK-4's `PLUGINS.TXT`; `iso` is listed, not installed yet.
 - **`schema` field:** a `catalog.json` is read as v1 unless it names another PSPDX catalog version (`catalog-v2.json`); none, a relative path to a copy, or any other value is read as v1 and noted in the log.
 
 #### Text list
@@ -159,6 +160,28 @@ flowchart TD
 - A leftover that won't delete (a read-only file in `<dir>.old`) is retried at every start and blocks only that app; a folder deleted by hand installs fresh
 - PSPDX never deletes the folder it runs from, whatever record names it
 
+#### Plugins
+
+The one case in which PSPDX writes outside `PSP/GAME/<dir>/`: a plugin's `.prx` under `seplugins/` on the device chosen for the install, and, once the plugin is turned on, one line of the `PLUGINS.TXT` there. Installing and turning on are two steps, and PSPDX asks about the second.
+
+```text
+ZIP: exactly one .prx at the top  ->  <device>/seplugins/<same name>; PLUGINS.TXT is not touched
+"Do you want to turn it on?" Yes  ->  one line after the end of PLUGINS.TXT:  always, <device>/seplugins/<name>, on
+Options -> Turn Off / Turn On     ->  the last field of that line written over itself:  off  /  on
+update                            ->  the file, never the line; refused if the file is no longer the one PSPDX installed
+Delete                            ->  spaces written over that line, and the file; a file changed by hand stays, with its line
+```
+
+- The list is [ARK-4](https://github.com/PSP-Archive/ARK-4)'s and yours. PSPDX never renames, shortens, deletes or rewrites it and makes no copy of it: it appends its line (the file's own line end, one before it where the list ends without), and afterwards only overwrites bytes of that line with as many bytes. Before each write the list is read again and must be unchanged; afterwards it is read back
+- Only PSPDX's own line is written: `always, <path>, on` or `off` as PSPDX wrote it, or as ARK's plugin managers write it out again, and only when the record says PSPDX added it. Any other line for the same file, another run level, a comment after it, `1` for `on`, two lines alike, is yours and is never changed or removed; the row then shows what ARK would do (the last line naming the file decides) and a switch says *other lines name it*
+- A plugin that was never turned on leaves no trace in the list. One that was leaves an empty line of spaces after **Delete**, which ARK skips
+- The `.prx` is PSPDX's by the SHA-256 the record took when it was installed. A file of the same name you copied over it is your build and goes on loading: an update is refused and changes nothing; a delete forgets PSPDX's record and leaves the file and its line, and says so
+- Refused, with the reason, and nothing written: a `.prx` of that name PSPDX did not install; a `<name>.pspdx-new` or `.pspdx-old` beside it; a read-only `.prx` or list; a list over 64 KB, with a NUL byte in it, or that cannot be read; a `.prx` named outside 5 to 32 characters of `[A-Za-z0-9_.-]`
+- `seplugins/` is made only when it is missing and every check has passed; one that is there under any spelling (`SEPLUGINS`) is used as it is
+- Everything takes effect when the PSP restarts. Hold **START** at power-on to start once without plugins
+- The file is swapped in under the journal, each copy removed only when the journal says PSPDX made it and its hash agrees. The record notes each write to the list before it is made: one a power cut left half written is finished in the same place at the next start, and where the bytes there are neither the old nor the new ones, nothing is written and the next switch says the list has changed. The record claims a line only once it has been read back, and drops the claim when the list no longer has it
+- A plugin is never written into PSPDX's own folder. The `usbnet.prx` the release ships there is installed from, through the same installer and with the same refusals, when the USB cable is chosen (see Network); `usbnet.txt` beside it names the pspkit-usbnet release it is of and that release's ZIP hash, which go into the record so the store tells an update the usual way
+
 #### Check
 
 Runs at startup and on **Check for updates**, the top row of the stick tab: **×** is the quick check, **□** the full one.
@@ -229,6 +252,10 @@ download  ->  release ZIP, following GitHub asset redirects
 ```
 
 - At startup the PSP system network dialog lets you select or create a Wi-Fi connection
+- Over the USB cable: asked once, at the first start, where the release's `usbnet.prx` is beside the EBOOT, custom firmware can load it and no cable plugin is there yet (a record of it, or the module loaded by the firmware). The answer is kept in `PSP/PSPDX/settings.txt` (`cable=wifi`, `cable=usb`) and changed under **Options → Connect via USB**
+- *USB cable* installs that copy through the plugin installer as `io.github.chriopter.pspkitusbnet`, turns it on and loads it for the session, so no restart is needed; from then on the store updates it like any plugin. What the installer refuses is said in one line, and the copy beside the EBOOT is then loaded for the session instead. *Wi-Fi* installs and loads nothing; switching back to Wi-Fi later only stores the choice
+- With the cable chosen, and until a connection has been made once, PSPDX asks two things before the system's dialog opens: *Is the gateway running on your PC? Get it from github.com/chriopter/pspkit-usbnet* (the cable leads nowhere without the [gateway](https://github.com/chriopter/pspkit-usbnet)), then *Do you want to connect now?* with what to pick in the dialog: [New Connection] → Scan → "Hi-Speed USB". No to either leaves PSPDX offline for now
+- A plugin that is installed is left alone at start, turned on or off: nothing is asked and nothing loaded
 - Cancel to browse offline; checking again or installing can reopen the dialog
 - Everything over HTTPS
 - A catalog, `.pspdx` or API answer has 120 s in all; a response head 30 s
@@ -307,6 +334,9 @@ Temporary and debug files appear only when used.
 
 ```text
 ms0:/
+├── seplugins/
+│   ├── usbnet.prx                       # Installed plugin
+│   └── PLUGINS.TXT                      # ARK-4's list; one line per plugin turned on is PSPDX's
 └── PSP/
     ├── GAME/
     │   ├── PSPDX/                       # Downloader
@@ -315,6 +345,9 @@ ms0:/
     │   │   ├── presets.txt              # Sources offered once
     │   │   ├── font.pgf                 # Free emulator fallback
     │   │   ├── font-NOTICE.txt
+    │   │   ├── usbnet.prx               # pspkit-usbnet, installed from when the cable is chosen
+    │   │   ├── usbnet.txt               # Which release of it, and its ZIP's SHA-256
+    │   │   ├── usbnet-NOTICE.txt
     │   │   └── LICENSE
     │   ├── Cathedral/                   # Installed homebrew
     │   │   ├── EBOOT.PBP
@@ -366,7 +399,7 @@ for an app installed from a catalog entry, it is the entry's words.
 | Field | Contents |
 |---|---|
 | `source`, `added_from` | Original repository and import route |
-| `installed` | Version, `published_at`, SHA-256, install directory, `device` (`ef0:` or `ms0:`), and `pspdx_installdir`: the folder the `.pspdx` named at install |
+| `installed` | Version, `published_at`, SHA-256, install directory (`seplugins/<file>` for a plugin, with `plugin_sha256` of that file, `plugin_line`, the path of the line PSPDX added, and `plugin_write` while a write to the list is under way), `device` (`ef0:` or `ms0:`), and `pspdx_installdir`: the folder the `.pspdx` named at install |
 | `latest` | Version, `published_at`, download URL, size, SHA-256, last successful check time and source |
 | `update_check`, `manifest_url` | Written by older versions; read and ignored |
 
@@ -418,7 +451,7 @@ make -C app
 dev/start             ->  build in Docker -> install on the PPSSPP stick -> launch
 dev/start --no-build  ->  launch the existing build (a mock-catalog build is rebuilt anyway)
 dev/start --mock      ->  the same against the local mock catalog
-dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh release
+dev/release <version> [notes]  ->  clean master -> latest pspkit-usbnet -> build -> pspdx.zip -> gh release
 ```
 
 - Needs Linux, Docker, the PPSSPP Flatpak, Python, a systemd user session and Wayland; `dev/release` also `gh`
@@ -448,8 +481,9 @@ dev/release <version> [notes]  ->  clean master -> build -> pspdx.zip -> gh rele
 | `app/session/questions.c` | The questions that stand before those: put into words, and answered from the pad, X doing the thing and O leaving it |
 | `app/session/options.c` | The one menu the shell draws: the package's options on triangle and the popups under the gear, their rows built and walked here |
 | `app/update/` | Manifests, sources, catalogs, INBOX, media cache and synchronization |
-| `app/install/` | ZIP reader, installation transactions and persistent app state |
-| `app/network/` | The cipher benchmark the rig asks for |
+| `app/install/` | ZIP reader, installation transactions, the in-place `PLUGINS.TXT` writes and persistent app state |
+| `app/network/` | The cipher benchmark the rig asks for, and what the kernel does for `usbnet.prx` |
+| `app/session/cable.c` | Wi-Fi or the USB cable: when to ask, and the carried plugin installed, turned on and loaded |
 | [`app/lib/pspkit-https/`](https://github.com/chriopter/pspkit-https) | HTTPS, the entropy pool and the sweep's stick step, as a submodule |
 | `app/audio/`, `app/video/` | Audio and video playback |
 | `app/util/` | Storage paths, PBP access and runtime helpers |

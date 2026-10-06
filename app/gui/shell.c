@@ -127,7 +127,7 @@ static char g_status[96];
    cursor on one of its choices, or the info band. All of it is set from
    outside and only drawn here -- what is pressed in answer, and which row the
    cursor is on, is the main loop's business. */
-static char g_ask_title[64], g_ask_line[200];
+static char g_ask_title[200], g_ask_line[200];
 #define MENU_MAX 7                      /* rows the panel has room for */
 static const struct menu *g_menu;       /* the caller's, while it is up */
 static struct menu g_menu_gone;         /* its last rows, while it slides out */
@@ -744,7 +744,8 @@ static void draw_group_row(int n, int y, int selected, float t) {
                    : !strcmp(word, "game") ? MARK_GAMES
                    : !strcmp(word, "demo") ? MARK_DEMOS
                    : !strcmp(word, "app")  ? MARK_APPS
-                   : !strcmp(word, "emulator") ? MARK_EMULATORS : MARK_STORE;
+                   : !strcmp(word, "emulator") ? MARK_EMULATORS
+                   : !strcmp(word, "plugin") ? MARK_PLUGINS : MARK_STORE;
     mark_draw(sign, gx, gy, selected ? g_text : faded(g_dim, 170),
               selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     char count[16];
@@ -1567,12 +1568,12 @@ static int draw_chips(const struct app_entry *e, float x, int base, float width,
     float cx = x;
     char word[24 * 4 + 1];
     const char *p = txt(e->tags);
-    int category = e->category[0] != '\0';
+    int category = entry_category(e)[0] != '\0';
     for (;;) {
         size_t n = 0;
         int lit = category;
         if (category) {
-            snprintf(word, sizeof(word), "%s", e->category);
+            snprintf(word, sizeof(word), "%s", entry_category(e));
             category = 0;
         } else {
             if (!*p) break;
@@ -1650,10 +1651,9 @@ static const char *state_line(const struct app_entry *entry, unsigned *color) {
                 snprintf(line, sizeof(line), T_PANEL_UPDATE, txt(entry->remote_version), size);
             break;
         case APP_UNKNOWN:
-            snprintf(line, sizeof(line), T_PANEL_INSTALLED, txt(entry->local_version));
-            break;
         case APP_CURRENT:
-            snprintf(line, sizeof(line), T_PANEL_INSTALLED, txt(entry->local_version));
+            snprintf(line, sizeof(line), entry->plugin_off ? T_PANEL_PLUGIN_OFF : T_PANEL_INSTALLED,
+                     txt(entry->local_version));
             break;
         default: {
             /* Not on the stick: its size, and the day it came out. */
@@ -1809,18 +1809,27 @@ static int break_lines(enum font_style style, const char *text, float width,
 }
 
 /* The question in the middle, its line under it wrapped and centred, the
-   band grown by a row for every line past the first. */
+   band grown by a row for every line past the first. The question itself
+   takes a second line, or a third, where a long name makes it wider than
+   the band, and
+   what is wider still -- a name of one long word -- is cut at the band's
+   edge, never drawn past it. */
 static void draw_ask(void) {
-    char lines[3][128];
+    char lines[3][128], head[3][128];
+    int heads = break_lines(FONT_TITLE, g_ask_title, SCR_W - 40, head, 3);
     int n = break_lines(FONT_TITLE, g_ask_line, SCR_W - 80, lines, 3);
-    int h = BAND_H + 20 * (n - 1), y = (SCR_H - h) / 2;
+    int more = 20 * (heads - 1);
+    int h = BAND_H + more + 20 * (n - 1), y = (SCR_H - h) / 2;
     draw_band(y, h);
-    float w = font_width(FONT_TITLE, g_ask_title);
-    font_print_clipped(FONT_TITLE, SCR_W / 2 - w / 2, y + 44, SCR_W - 40,
-                       g_text, g_ask_title);
+    float w;
+    for (int i = 0; i < heads; i++) {
+        w = font_width(FONT_TITLE, head[i]);
+        font_print_clipped(FONT_TITLE, w > SCR_W - 40 ? 20 : SCR_W / 2 - w / 2, y + 44 + 20 * i,
+                           SCR_W - 40, g_text, head[i]);
+    }
     for (int i = 0; i < n; i++) {
         w = font_width(FONT_TITLE, lines[i]);
-        font_print(FONT_TITLE, SCR_W / 2 - w / 2, y + 68 + 20 * i, g_dim, lines[i]);
+        font_print(FONT_TITLE, SCR_W / 2 - w / 2, y + 68 + more + 20 * i, g_dim, lines[i]);
     }
     draw_answers(y + h - 22, T_YES, T_NO);
 }
@@ -2494,7 +2503,9 @@ static void draw_footer(void) {
         float x = LIST_X;
         const char *word = g_catalog && downloads_active((int)(e - g_catalog->apps)) ? "Download"
                          : e->state == APP_UPDATE ? T_HINT_UPDATE
-                         : e->state == APP_NOT_INSTALLED ? T_MENU_INSTALL : T_MENU_RUN;
+                         : e->state == APP_NOT_INSTALLED ? T_MENU_INSTALL
+                         : strcmp(e->type, "plugin") ? T_MENU_RUN
+                         : e->plugin_off ? T_MENU_PLUGIN_ON : T_MENU_PLUGIN_OFF;
         if (!(e->state == APP_NOT_INSTALLED && e->unsupported))
             x = draw_hint(x, FOOTER_BASE, MARK_CROSS, word, g_dim);
         x = draw_hint(x, FOOTER_BASE, MARK_TRIANGLE, T_HINT_OPTIONS, g_dim);
@@ -2843,6 +2854,7 @@ void shell_ask(const char *title, const char *line) {
     /* The last install's result has been overtaken by a new question. */
     if (g_ask_title[0]) g_status[0] = '\0';
 }
+
 
 void shell_menu(const struct menu *menu) {
     /* Closing is a slide out, so the rows stay until the panel is off the

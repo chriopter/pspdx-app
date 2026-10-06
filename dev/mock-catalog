@@ -146,9 +146,9 @@ DESCRIPTIONS = {"Chronicles of the Dawnbringer Saga II": "\n\n".join([
 # their own room.
 LONG_TAGS = {"Master System": "v2.0.0-beta.3+build.20260911.gitabcdef0123456789-rc2-final-final"}
 
-# Plugins by their type, which is what the plugins tab goes by. They name no
-# folder under PSP/GAME; the catalog lists them and the console will not
-# install them.
+# Plugins by their type. They name no folder under PSP/GAME: the package of
+# one holds a .prx at its top, which the console installs to seplugins/ and
+# turns on with a line in the PLUGINS.TXT there.
 PLUGINS = ("CPU Clock", "Battery Meter")
 
 AUTHORS = ["chriopter", "Homebrew Collective", "anon"]
@@ -242,14 +242,24 @@ def assets(work):
     return have, eboot
 
 
-def package(site, entry_id, dirname, payload):
+def prx_name(dirname):
+    """A plugin's file, named like its folder would be and inside the 32
+    characters a plugin's file may have."""
+    return dirname[:28] + ".prx"
+
+
+def package(site, entry_id, dirname, payload, plugin=False):
     """One package per entry, with the EBOOT one directory down under the
     name that directory will have on the stick, so thirty installs do not
-    land on top of each other."""
+    land on top of each other. A plugin's is one .prx at the top: not a
+    module anything could load, which no emulator is asked to."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as w:
         w.writestr("README.md", "%s, from the mock catalog.\n" % dirname)
-        w.writestr("%s/EBOOT.PBP" % dirname, payload)
+        if plugin:
+            w.writestr(prx_name(dirname), b"mock plugin " + entry_id.encode())
+        else:
+            w.writestr("%s/EBOOT.PBP" % dirname, payload)
     blob = buf.getvalue()
     rel = "pkgs/%s.zip" % entry_id
     out = os.path.join(site, rel)
@@ -295,7 +305,7 @@ def make(work, ms, base):
         version = "%d.%d.%d" % (1 + i // 10, i % 10, i % 3)
         if name in LONG_TAGS:
             version = LONG_TAGS[name][1:]
-        rel, sha, size = package(site, entry_id, dirname, payload)
+        rel, sha, size = package(site, entry_id, dirname, payload, plugin)
 
         # The shape catalog-v1.json gives an entry, which is what
         # update/catalog.c reads: the releases newest first, each a tag, when
@@ -368,6 +378,22 @@ def make(work, ms, base):
         with open(rec_path,"w") as output:json.dump(manifest,output)
         installed[entry_id]=dict(source=app["source"],added_from=base,installed=dict(version=record["version"],published_at=record["rev"],installdir="PSP/GAME/"+dirname))
         planted.append("db " + rec_path)
+        if plugin:
+            # An installed plugin is its file, known by its hash, and the
+            # line the console adds when the plugin is turned on.
+            body = b"mock plugin, planted"
+            line = "ms0:/seplugins/" + prx_name(dirname)
+            installed[entry_id]["installed"].update(
+                installdir="seplugins/" + prx_name(dirname),
+                plugin_sha256=hashlib.sha256(body).hexdigest(), plugin_line=line)
+            prx = os.path.join(ms, "seplugins", prx_name(dirname))
+            os.makedirs(os.path.dirname(prx), exist_ok=True)
+            with open(prx, "wb") as output:
+                output.write(body)
+            with open(os.path.join(ms, "seplugins", "PLUGINS.TXT"), "a") as output:
+                output.write("always, %s, on \n" % line)
+            planted.append("dir " + prx)
+            continue
 
         # An installed app is a directory with an EBOOT in it, or START has
         # nothing to launch.
@@ -439,13 +465,16 @@ def restore_sources(ms):
 def clean(work, ms, quiet=False):
     """What make wrote down, and what an install done from the mock catalog
     in the client added next to it: a record whose id carries the mock
-    prefix, a PSP/GAME directory named with it, a cached asset under one of
-    those ids; and the user's sources.txt and presets.seen, back in place. Every path is checked for the prefix and for the directory it
+    prefix, a PSP/GAME directory named with it, a plugin under seplugins
+    named with it and its line in the PLUGINS.TXT there, a cached asset
+    under one of those ids; and the user's sources.txt and presets.seen,
+    back in place. Every path is checked for the prefix and for the directory it
     is supposed to sit in before anything is removed -- the user's real
     installs are in the same two directories and carry neither."""
     db_dir = os.path.realpath(os.path.join(ms, "PSP/PSPDX/INSTALLED"))
     game_dir = os.path.realpath(os.path.join(ms, "PSP/GAME"))
     cache_dir = os.path.realpath(os.path.join(ms, "PSP/PSPDX/CACHE/media"))
+    plugin_dir = os.path.realpath(os.path.join(ms, "seplugins"))
 
     # The manifest names what make planted; the sweep of the three
     # directories catches what the client planted afterwards.
@@ -458,7 +487,7 @@ def clean(work, ms, quiet=False):
                 if kind in ("db", "dir") and path:
                     found.append(path)
         os.remove(listing)
-    for directory in (db_dir, game_dir, cache_dir):
+    for directory in (db_dir, game_dir, cache_dir, plugin_dir):
         for name in sorted(os.listdir(directory)) if os.path.isdir(directory) else []:
             found.append(os.path.join(directory, name))
 
@@ -466,7 +495,7 @@ def clean(work, ms, quiet=False):
     for path in found:
         real = os.path.realpath(path)
         parent, base = os.path.split(real)
-        if parent == game_dir:
+        if parent in (game_dir, plugin_dir):
             if not base.startswith(DIR_PREFIX):
                 continue
         elif parent in (db_dir, cache_dir):
@@ -481,6 +510,15 @@ def clean(work, ms, quiet=False):
         else:
             continue
         gone += 1
+    # The lines of the mock's plugins, and no other line of the list.
+    listed = os.path.join(plugin_dir, "PLUGINS.TXT")
+    if os.path.isfile(listed):
+        with open(listed, "rb") as f:
+            lines = f.read().splitlines(keepends=True)
+        kept = [l for l in lines if b"/seplugins/" + DIR_PREFIX.encode() not in l]
+        if kept != lines:
+            with open(listed, "wb") as f:
+                f.writelines(kept)
     if gone and not quiet:
         print("mock catalog: %d planted records, directories and assets removed"
               % gone)

@@ -22,6 +22,7 @@
 #include "session/actions.h"
 #include "session/downloads.h"
 #include "session/manage_sources.h"
+#include "session/cable.h"
 #include "session/options.h"
 #include "session/questions.h"
 #include "session/view.h"
@@ -34,6 +35,7 @@
 
 static int g_settings_dirty;
 static int g_settings_fps_cap30;
+static int g_cable;
 static int g_fill_cache = 1;             /* fetch every icon ahead while idle */
 static int g_runtime_fps_cap30, g_download_mode;
 static void apply_fps(void) {
@@ -47,12 +49,16 @@ void options_download_mode(int on) {
 
 void options_settings_load(void) {
     char *text = NULL;
-    int n = storage_read(storage_path(SETTINGS_PATH), &text, 64);
+    int n = storage_read(storage_path(SETTINGS_PATH), &text, 96);
     /* A line a setting. Missing or invalid settings use Mercy UI at 60 FPS
        and fill the cache when idle; an explicit 30 FPS or fill=0 is kept. */
     g_settings_fps_cap30 = n > 0 && strstr(text, "fps=30\n") == text;
     g_fill_cache = !(n > 0 && strstr(text, "\nfill=0\n"));
     view_sort_set(n > 0 && strstr(text, "\nsort=name\n") ? VIEW_SORT_NAME : VIEW_SORT_NEWEST);
+    /* How to connect, once it has been answered; no line while it has not. */
+    g_cable = n <= 0 ? CABLE_UNASKED : strstr(text, "\ncable=wifi\n") ? CABLE_WIFI
+              : strstr(text, "\ncable=usb\n") ? CABLE_USB
+              : strstr(text, "\ncable=usb,known\n") ? CABLE_USB_KNOWN : CABLE_UNASKED;
     g_runtime_fps_cap30 = g_settings_fps_cap30;
     apply_fps();
     free(text);
@@ -61,11 +67,20 @@ void options_settings_load(void) {
 
 void options_settings_save(void) {
     if (!g_settings_dirty) return;
-    char text[48];
-    int n = snprintf(text, sizeof(text), "fps=%d\nfill=%d\nsort=%s\n", g_settings_fps_cap30 ? 30 : 60,
-                     g_fill_cache, view_sort() == VIEW_SORT_NAME ? "name" : "new");
+    static const char *const cable[] = {"", "cable=wifi\n", "cable=usb\n", "cable=usb,known\n"};
+    char text[72];
+    int n = snprintf(text, sizeof(text), "fps=%d\nfill=%d\nsort=%s\n%s", g_settings_fps_cap30 ? 30 : 60,
+                     g_fill_cache, view_sort() == VIEW_SORT_NAME ? "name" : "new", cable[g_cable]);
     if (storage_write(storage_path(SETTINGS_PATH), text, (size_t)n) == 0)
         g_settings_dirty = 0;
+}
+
+int options_cable(void) { return g_cable; }
+void options_cable_set(int cable) {
+    if (cable == g_cable) return;
+    g_cable = cable;
+    g_settings_dirty = 1;
+    options_settings_save();
 }
 
 void options_sort_next(void) {
@@ -138,8 +153,11 @@ void menu_open(int index) {
        fetches the package, and says which fetch it would be: Install for
        one not on the stick, Update to the newer version where one waits,
        Reinstall for the one already current. */
+    /* A plugin is not run: its first row turns it off, or on again. */
     snprintf(g_choice_text[CHOICE_RUN], sizeof(g_choice_text[0]), "%s",
-             strcmp(entry->id, PSPDX_SELF_ID) == 0 ? T_MENU_RESTART : T_MENU_RUN);
+             strcmp(entry->id, PSPDX_SELF_ID) == 0 ? T_MENU_RESTART
+             : strcmp(entry->type, "plugin") ? T_MENU_RUN
+             : entry->plugin_off ? T_MENU_PLUGIN_ON : T_MENU_PLUGIN_OFF);
     if (entry->state == APP_UPDATE) {
         /* The row is narrow: twenty bytes of the version, cut between letters. */
         char version[21];
@@ -428,6 +446,7 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             if (row == SYS_SHOW_FPS) shell_toggle_fps();
             else if (row == SYS_UNRELEASED) view_show_unreleased(!view_unreleased_shown());
             else if (row == SYS_FILL_CACHE) options_fill_cache_toggle();
+            else if (row == SYS_CABLE) cable_choose(options_cable() < CABLE_USB);
             else { shell_toggle_dev(); fake_updates(shell_dev_updates()); }
             cues_post(CUE_MOVE, 0);
         }

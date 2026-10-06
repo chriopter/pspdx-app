@@ -42,8 +42,27 @@ void actions_download_complete(int index, struct app_entry *prepared,
    over the catalog index and the version once, -1 while none waits. */
 int restart_take(char *version, size_t size);
 
+/* The same for a plugin installed for the first time, which goes in turned
+   off and is asked about: the catalog index once, -1 while none waits. */
+int plugin_installed_take(void);
+
+/* How to connect, asked at the first start that can offer the cable, before
+   anything connects: the question, and what the answer leads to. Then,
+   while the cable is chosen and no connection has been made with it yet,
+   the way through the system's dialog is said and asked about: 0 when the
+   answer is not to connect now. */
+int cable_at_start(void);
+/* The cable has connected: the way through the dialog is not said again. */
+void cable_connected(void);
+/* Options' row: the cable chosen, or Wi-Fi again, and said in the status
+   line. Wi-Fi only remembers the choice; the plugin stays as it is. */
+void cable_choose(int usb);
+
 void uninstall_app(int index);
+/* Starts an app. A plugin is not started: it is asked whether to turn it
+   on or off, which switch_plugin then does. */
 void launch_app(int index);
+void switch_plugin(int index);
 
 /* The action row taken: everything the tab holds, one after another. */
 void install_all(void);

@@ -5,6 +5,11 @@
 #
 #   dev/start            build if needed, start
 #   dev/start --reset    also forget the seed: the sweep runs, as on a new PSP
+#   dev/start --fresh    first start without the sweep: the settings are forgotten
+#                        (kept as settings.txt.before), the test seed stays, and
+#                        the cable is asked about as on a PSP: pspkit-usbnet's
+#                        latest release beside the client, its record and its
+#                        .prx off the stick, its loading only played
 #   dev/start --no-build
 #   dev/start --quiet    no speakers: the emulator gets no audio socket
 #   dev/start --owner X  whose instance this is (default: the shell's user).
@@ -36,6 +41,7 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$HERE/app"
 MS="$HOME/.var/app/org.ppsspp.PPSSPP/config/ppsspp"
 RESET=0
+FRESH=0
 BUILD=1
 AUDIO=""
 SLOW=0
@@ -45,6 +51,7 @@ while [ $# -gt 0 ]; do
 	arg="$1"
 	case "$arg" in
 		--reset) RESET=1 ;;
+		--fresh) FRESH=1 ;;
 		--no-build) BUILD=0 ;;
 		--quiet) AUDIO="--nosocket=pulseaudio" ;;
 		--owner) OWNER="$2"; shift ;;
@@ -109,6 +116,20 @@ rm -f "$MS/PSP/PSPDX/DEBUG/PSPDX.REPLAY" "$MS/PSP/PSPDX/DEBUG/PSPDX.KEYS" "$MS/P
 # The host's network is ten times a PSP's; with the file there the client
 # holds every fetch to what the 1004's radio and stack actually deliver.
 [ "$SLOW" = 1 ] && printf '180' >"$MS/PSP/PSPDX/DEBUG/PSPDX.SLOW"
+rm -f "$MS/PSP/PSPDX/DEBUG/PSPDX.CABLE"
+if [ "$FRESH" = 1 ]; then
+	[ -f "$MS/PSP/PSPDX/settings.txt" ] && mv "$MS/PSP/PSPDX/settings.txt" "$MS/PSP/PSPDX/settings.txt.before"
+	rm -f "$MS/PSP/PSPDX/INSTALLED"/io.github.chriopter.pspkitusbnet.* "$MS/seplugins/usbnet.prx"
+	if [ ! -f "$WORK/usbnet/usbnet.txt" ]; then
+		mkdir -p "$WORK/usbnet"
+		TAG="$(gh release view --repo chriopter/pspkit-usbnet --json tagName -q .tagName)"
+		gh release download "$TAG" --repo chriopter/pspkit-usbnet --pattern usbnet-psp.zip --dir "$WORK/usbnet" --clobber
+		unzip -oq "$WORK/usbnet/usbnet-psp.zip" usbnet.prx -d "$WORK/usbnet"
+		printf 'tag=%s\nzip=%s\n' "$TAG" "$(sha256sum "$WORK/usbnet/usbnet-psp.zip" | cut -d' ' -f1)" >"$WORK/usbnet/usbnet.txt"
+	fi
+	cp "$WORK/usbnet/usbnet.prx" "$WORK/usbnet/usbnet.txt" "$MS/PSP/GAME/PSPDX/"
+	: >"$MS/PSP/PSPDX/DEBUG/PSPDX.CABLE"
+fi
 if [ "$RESET" = 1 ]; then
 	rm -f "$MS/PSP/PSPDX/CRYPTO/seed.bin"
 else

@@ -37,6 +37,11 @@ void sources_open(void);
 int menu_shown(void);
 /* Options' first row: the frame-rate mode flipped and remembered. */
 void options_fps_toggle_saved(void);
+/* How to connect, as session/cable.h's enum cable: asked once, at the first
+   start that can offer the cable, and changed under Options. Remembered at
+   once. */
+int options_cable(void);
+void options_cable_set(int cable);
 /* Whether every icon of the catalog is fetched into the cache while PSPDX
    is idle (Options, remembered), and its switch. */
 int options_fill_cache(void);

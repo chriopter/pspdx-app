@@ -147,8 +147,9 @@ int view_hidden(const struct app_entry *entry) {
 /* The row an entry stands under. "application" is what some catalogs call
    an app, and stands under the same row. */
 static int category_of(const struct app_entry *entry) {
-    if (!entry->category[0]) return -1;
-    const char *word = same_word(entry->category, "application") ? "app" : entry->category;
+    const char *named = entry_category(entry);
+    if (!named[0]) return -1;
+    const char *word = same_word(named, "application") ? "app" : named;
     for (int c = 0; c < g_groups; c++)
         if (g_group[c].kind == VIEW_GROUP_CATEGORY && same_word(g_group[c].word, word)) return c;
     return -1;
@@ -305,10 +306,10 @@ static void collect_groups(void) {
             const struct app_entry *e = &g_view_of->apps[i];
             if (view_hidden(e)) continue;
             int c = category_of(e);
-            if (c < 0 && e->category[0] && g_groups < fixed + VIEW_CATEGORIES_MORE) {
+            if (c < 0 && entry_category(e)[0] && g_groups < fixed + VIEW_CATEGORIES_MORE) {
                 c = g_groups++;
                 memset(&g_group[c], 0, sizeof(g_group[c]));
-                snprintf(g_group[c].word, sizeof(g_group[c].word), "%s", e->category);
+                snprintf(g_group[c].word, sizeof(g_group[c].word), "%s", entry_category(e));
                 g_group[c].kind = VIEW_GROUP_CATEGORY;
             }
             if (c >= 0) g_group[c].apps++;
@@ -412,7 +413,7 @@ static int found_in(const char *text, const char *word) {
 }
 static int matches(const struct app_entry *e) {
     return found_in(e->name, g_search) || found_in(txt(e->author), g_search) ||
-           found_in(txt(e->tags), g_search) || found_in(e->category, g_search) ||
+           found_in(txt(e->tags), g_search) || found_in(entry_category(e), g_search) ||
            found_in(txt(e->summary), g_search) || found_in(e->description, g_search);
 }
 int view_search_open(const char *word) {

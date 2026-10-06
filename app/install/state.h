@@ -31,4 +31,12 @@ int state_target_owner(const char *dir, const char *id);
 int state_target_owner_on(const char *dir, const char *id, const char *device);
 int state_commit_on(const struct manifest *m, const char *dir, const unsigned char *sha256,
                     const char *file_dir, const char *device);
+/* The release in m installed as the plugin seplugins/<file> on device: the
+   .prx by its own SHA-256, and the line PSPDX added for it, "" for none. */
+int state_commit_plugin(const struct manifest *m, const char *file, const unsigned char *sha256,
+                        const char *device, const unsigned char *file_sha256, const char *line);
+/* What a plugin's record says of PLUGINS.TXT. write: the write about to be
+   made, or NULL for none pending. line: the line PSPDX owns, "" for none,
+   NULL to leave what the record says. */
+int state_set_plugin(const char *id, const struct plugin_write *write, const char *line);
 #endif

@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include "session/options.h"
 static const char *saved;
-static char written[48];
+static char written[96];
 static int sort;
 int view_sort(void) { return sort; }
 void view_sort_set(int s) { sort = s; }
@@ -71,6 +71,24 @@ int main(void) {
     saved = "fps=60\nfill=1\nsort=new\n";
     options_settings_load();
     assert(!actual && options_fill_cache());
-    puts("settings: default 60, saved 30 and 60, temporary override, changes during download and "
-         "persistence at once passed");
+    /* How to connect: no line until it is answered, then on the stick at
+       once and read back; a line nobody wrote is no answer. */
+    assert(options_cable() == 0);
+    options_cable_set(2);
+    assert(!strcmp(written, "fps=60\nfill=1\nsort=new\ncable=usb\n"));
+    for (int c = 1; c <= 3; c++) {
+        options_cable_set(c);
+        static char kept[96];
+        strcpy(kept, written);
+        saved = kept;
+        options_cable_set(c == 1 ? 2 : 1);
+        options_settings_load();
+        assert(options_cable() == c);
+    }
+    assert(!strcmp(written, "fps=60\nfill=1\nsort=new\ncable=wifi\n"));
+    saved = "fps=60\nfill=1\nsort=new\ncable=both\n";
+    options_settings_load();
+    assert(options_cable() == 0);
+    puts("settings: default 60, saved 30 and 60, temporary override, changes during download, "
+         "persistence at once and the connection's answer passed");
 }

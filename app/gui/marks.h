@@ -26,7 +26,7 @@ enum mark {
     MARK_WORLD, MARK_SLIDERS, MARK_FOLDER,     /* the gear's rows: Sources, Options, Data, at the header's size */
     MARK_PILL, MARK_KNOB, MARK_KEY, MARK_RESTORE, /* Options' rows: a switch in two parts, the seed, the way back */
     MARK_SEARCH,                               /* the store's first row */
-    MARK_EMULATORS,
+    MARK_EMULATORS, MARK_PLUGINS,              /* two more categories with a sign of their own */
     MARK_COUNT
 };
 

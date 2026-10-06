@@ -2,8 +2,9 @@
 """Forty entries out of the published catalog: each real app repeated under
 numbered ids with its own assets copied in, so a long list can be scrolled
 without forty real apps. Two of them are the shapes the published apps do
-not have: one without tags, which stands in All alone, and one plugin, which
-is listed and not installed. Usage: make-catalog.py <site dir>."""
+not have: one without tags, which stands in All alone, and one plugin, whose
+zip holds no .prx and so is listed and refused at the install. Usage:
+make-catalog.py <site dir>."""
 import copy, json, os, sys, urllib.request
 
 SRC = "https://chriopter.github.io/pspdx-catalog/"

@@ -29,6 +29,17 @@ static int unique_members(const cJSON *o) {
                 return 0;
     return 1;
 }
+/* Where a record says its app is: PSP/GAME/<dir>, or seplugins/<file> for a
+   plugin. The file of a plugin, NULL for a folder. */
+static const char *plugin_of(const char *where) {
+    return !strncmp(where, "seplugins/", 10) && manifest_plugin_is_safe(where + 10) ? where + 10
+                                                                                   : NULL;
+}
+/* The line a record says PSPDX added: <device>/seplugins/<file>. */
+static int plugin_line_ok(const char *line) {
+    return (!strncmp(line, "ms0:/seplugins/", 15) || !strncmp(line, "ef0:/seplugins/", 15)) &&
+           manifest_plugin_is_safe(line + 15);
+}
 int state_validate(const cJSON *r) {
     if (!cJSON_IsObject(r))
         return 0;
@@ -43,7 +54,8 @@ int state_validate(const cJSON *r) {
         if (!unique_members(v) || !unique_members(in) ||
             !unique_members(cJSON_GetObjectItemCaseSensitive(v, "latest")))
             return 0;
-        if (!cJSON_IsObject(in) || !pspdx_install_dir(str(in, "installdir")) ||
+        if (!cJSON_IsObject(in) ||
+            (!pspdx_install_dir(str(in, "installdir")) && !plugin_of(str(in, "installdir"))) ||
             !manifest_rev_in_range(number(in, "published_at")))
             return 0;
         if (strlen(str(in, "version")) >= VERSION_SIZE)
@@ -52,6 +64,23 @@ int state_validate(const cJSON *r) {
            one, is a folder like any other. */
         const cJSON *device = cJSON_GetObjectItemCaseSensitive(in, "device");
         if (device && (!cJSON_IsString(device) || !storage_device_valid(device->valuestring)))
+            return 0;
+        /* What a plugin's record says of its file and its line is acted on
+           under seplugins/, and is held to its shape before it is. */
+        const cJSON *line = cJSON_GetObjectItemCaseSensitive(in, "plugin_line");
+        const cJSON *hash = cJSON_GetObjectItemCaseSensitive(in, "plugin_sha256");
+        if ((line && (!cJSON_IsString(line) || !plugin_line_ok(line->valuestring))) ||
+            (hash && (!cJSON_IsString(hash) || strlen(hash->valuestring) != 64 ||
+                      strspn(hash->valuestring, "0123456789abcdef") != 64)))
+            return 0;
+        /* A write that was begun: a place inside what a list may be, and
+           bytes of the few a line has. */
+        const cJSON *begun = cJSON_GetObjectItemCaseSensitive(in, "plugin_write");
+        if (begun && (!cJSON_IsObject(begun) || number(begun, "at") < 0 || number(begun, "len") < 0 ||
+                      number(begun, "at") > 65536 || number(begun, "len") > 65536 ||
+                      !*str(begun, "now") || strlen(str(begun, "now")) >= 96 ||
+                      strlen(str(begun, "was")) >= 96 ||
+                      (*str(begun, "then") && !plugin_line_ok(str(begun, "then")))))
             return 0;
         const cJSON *named = cJSON_GetObjectItemCaseSensitive(in, "pspdx_installdir");
         if (named && (!cJSON_IsString(named) || !pspdx_install_dir(named->valuestring)))
@@ -265,7 +294,20 @@ int db_read(const char *id, struct installed *out) {
     snprintf(out->device, sizeof(out->device), "%s",
              *str(in, "device") ? str(in, "device") : storage_device());
     snprintf(out->id, sizeof(out->id), "%s", id);
-    snprintf(out->dir, sizeof(out->dir), "%s", str(in, "installdir") + 9);
+    const char *where = str(in, "installdir"), *plugin = plugin_of(where);
+    snprintf(out->dir, sizeof(out->dir), "%s", plugin ? "" : where + 9);
+    snprintf(out->plugin, sizeof(out->plugin), "%s", plugin ? plugin : "");
+    hex_bytes(str(in, "plugin_sha256"), out->plugin_sha256);
+    snprintf(out->plugin_line, sizeof(out->plugin_line), "%s", str(in, "plugin_line"));
+    const cJSON *w = cJSON_GetObjectItemCaseSensitive(in, "plugin_write");
+    if (w) {
+        out->plugin_write.pending = 1;
+        out->plugin_write.at = (size_t)number(w, "at");
+        out->plugin_write.len = (size_t)number(w, "len");
+        snprintf(out->plugin_write.was, sizeof(out->plugin_write.was), "%s", str(w, "was"));
+        snprintf(out->plugin_write.now, sizeof(out->plugin_write.now), "%s", str(w, "now"));
+        snprintf(out->plugin_write.then, sizeof(out->plugin_write.then), "%s", str(w, "then"));
+    }
     snprintf(out->version, sizeof(out->version), "%s", str(in, "version"));
     out->rev = number(in, "published_at");
     hex_bytes(str(in, "sha256"), out->sha256);
@@ -300,9 +342,10 @@ int state_commit(const struct manifest *m, const char *dir, const unsigned char 
     const char *dev = db_read(m->id, &rec) == 0 ? rec.device : storage_device();
     return state_commit_on(m, dir, sha256, file_dir, dev);
 }
-int state_commit_on(const struct manifest *m, const char *dir, const unsigned char *sha256,
-                    const char *file_dir, const char *dev) {
-    if (!storage_device_valid(dev) || !healthy || !manifest_dir_is_safe(dir) || (file_dir && !manifest_dir_is_safe(file_dir)))
+/* The record written: where is PSP/GAME/<dir> or seplugins/<file>. */
+static int commit(const struct manifest *m, const char *where, const unsigned char *sha256,
+                  const char *file_dir, const char *dev) {
+    if (!storage_device_valid(dev) || !healthy)
         return -1;
     cJSON *next = state_snapshot();
     if (!next)
@@ -326,11 +369,9 @@ int state_commit_on(const struct manifest *m, const char *dir, const unsigned ch
     cJSON_AddStringToObject(r, "source", m->repo);
     cJSON_DeleteItemFromObjectCaseSensitive(r, "installed");
     cJSON *in = cJSON_AddObjectToObject(r, "installed");
-    char target[64];
-    snprintf(target, sizeof(target), "PSP/GAME/%s", dir);
     cJSON_AddStringToObject(in, "version", m->version);
     cJSON_AddNumberToObject(in, "published_at", m->rev);
-    cJSON_AddStringToObject(in, "installdir", target);
+    cJSON_AddStringToObject(in, "installdir", where);
     cJSON_AddStringToObject(in, "device", dev);
     if (file_dir || kept[0]) {
         char named[64];
@@ -353,6 +394,57 @@ int state_commit_on(const struct manifest *m, const char *dir, const unsigned ch
         cJSON_AddItemToObject(r, "latest", latest_json(m));
     }
     int rc = state_restore(next);
+    cJSON_Delete(next);
+    return rc;
+}
+int state_commit_on(const struct manifest *m, const char *dir, const unsigned char *sha256,
+                    const char *file_dir, const char *dev) {
+    char where[64];
+    if (!manifest_dir_is_safe(dir) || (file_dir && !manifest_dir_is_safe(file_dir)))
+        return -1;
+    snprintf(where, sizeof(where), "PSP/GAME/%s", dir);
+    return commit(m, where, sha256, file_dir, dev);
+}
+int state_commit_plugin(const struct manifest *m, const char *file, const unsigned char *sha256,
+                        const char *dev, const unsigned char *file_sha256, const char *line) {
+    char where[64], hex[65];
+    if (!manifest_plugin_is_safe(file) || (*line && !plugin_line_ok(line)))
+        return -1;
+    snprintf(where, sizeof(where), "seplugins/%s", file);
+    if (commit(m, where, sha256, NULL, dev) < 0)
+        return -1;
+    cJSON *next = state_snapshot();
+    if (!next)
+        return -1;
+    cJSON *in = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(next, m->id),
+                                                 "installed");
+    for (int i = 0; i < 32; i++)
+        sprintf(hex + 2 * i, "%02x", file_sha256[i]);
+    int rc = cJSON_AddStringToObject(in, "plugin_sha256", hex) &&
+             (!*line || cJSON_AddStringToObject(in, "plugin_line", line)) ? state_restore(next) : -1;
+    cJSON_Delete(next);
+    return rc;
+}
+int state_set_plugin(const char *id, const struct plugin_write *w, const char *line) {
+    cJSON *next = healthy && (!line || !*line || plugin_line_ok(line)) ? state_snapshot() : NULL;
+    if (!next)
+        return -1;
+    cJSON *in = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(next, id),
+                                                 "installed");
+    int ok = in != NULL;
+    cJSON_DeleteItemFromObjectCaseSensitive(in, "plugin_write");
+    if (ok && w) {
+        cJSON *o = cJSON_AddObjectToObject(in, "plugin_write");
+        ok = o && cJSON_AddNumberToObject(o, "at", (double)w->at) &&
+             cJSON_AddNumberToObject(o, "len", (double)w->len) &&
+             cJSON_AddStringToObject(o, "was", w->was) && cJSON_AddStringToObject(o, "now", w->now) &&
+             cJSON_AddStringToObject(o, "then", w->then);
+    }
+    if (ok && line) {
+        cJSON_DeleteItemFromObjectCaseSensitive(in, "plugin_line");
+        ok = !*line || cJSON_AddStringToObject(in, "plugin_line", line);
+    }
+    int rc = ok ? state_restore(next) : -1;
     cJSON_Delete(next);
     return rc;
 }

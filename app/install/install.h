@@ -47,6 +47,11 @@ struct manifest {
 struct install_report {
     char id[PSPDX_ID_SIZE];
     char dir[64];               /* PSP/GAME/<dir> actually written */
+    /* seplugins/<plugin> written instead, for a plugin, and whether it is
+       turned off afterwards, as a plugin is that no line of PLUGINS.TXT
+       turns on: an install writes no line. */
+    char plugin[40];
+    int plugin_off;
     char version[VERSION_SIZE];
     unsigned rev;
     int files;
@@ -75,6 +80,26 @@ struct installed {
        naming another one moves it. Empty for a record from before this was
        kept. */
     char file_dir[64];
+    /* A plugin is a file, not a folder: seplugins/<plugin> on the device,
+       and dir empty. Empty for everything else. */
+    char plugin[40];
+    /* The .prx as it was installed, by its SHA-256: a file of that name
+       with other bytes is not PSPDX's and is never written or removed. */
+    unsigned char plugin_sha256[32];
+    /* The path of the line PSPDX added to PLUGINS.TXT when the plugin was
+       turned on, <device>/seplugins/<plugin>; empty while it added none.
+       No other line of the list is ever written. */
+    char plugin_line[64];
+    /* A write to PLUGINS.TXT that was begun and not yet seen to be there:
+       len the list's length before it, now the bytes meant for at, was the
+       bytes there before (none for a line put after the end), then the
+       plugin_line the record has once it is done. What a power cut in the
+       middle of the write is finished from. */
+    struct plugin_write {
+        int pending;
+        size_t at, len;
+        char was[96], now[96], then[64];
+    } plugin_write;
 };
 
 int db_read(const char *id, struct installed *out);
@@ -85,12 +110,44 @@ int db_read(const char *id, struct installed *out);
    way an install writes one, through a rename, so it is never half a file. */
 int db_write_record(const struct installed *record);
 
+/* A plugin's file under seplugins/, wherever the name came from -- a zip, a
+   record on the stick, a journal: 5 to 32 of [A-Za-z0-9_.-] that end in
+   .prx and do not begin with a dot. It is joined to a path and written
+   into a line of PLUGINS.TXT, where a comma or a space would part it. */
+int manifest_plugin_is_safe(const char *name);
+
+/* Whether an installed plugin is turned on, as ARK-4 reads the
+   seplugins/PLUGINS.TXT of its device: by the last line that names it. 1
+   on, 0 off -- that line says off, or none names it -- and -1 for an id
+   that is no installed plugin. */
+int plugin_enabled(const char *id);
+/* Turns an installed plugin on or off, by PSPDX's own line and no other:
+   the line "always, <path>, on" put after the list's end the first time,
+   and from then on the on or off of that line written over itself, the
+   list as long as it was. A line somebody else wrote for the plugin is
+   never changed, so the plugin may not be what was asked for afterwards:
+   returns what plugin_enabled now would for the caller to hold against it,
+   or -1 when the list was not written, with the reason in
+   plugin_refused(). The list is read when the PSP starts, so that is when
+   it takes effect. */
+int plugin_switch(const char *id, int on);
+/* Why the last plugin_switch or uninstall stopped, for the status line;
+   empty when it gave no reason. */
+const char *plugin_refused(void);
+
 /* Removes PSP/GAME/<dir> and forgets the record, in that order: a directory
    left behind with no record would be offered as uninstalled and written over,
    while a record with no directory only costs one line in the database. The
    directory comes from the record and is refused unless it is a plain name --
    nothing here may be talked into deleting a path of someone else's choosing.
-   Returns 0 when the package is gone. */
+   A plugin loses the line PSPDX added to PLUGINS.TXT, spaces written over
+   it, and its one file. Where that file is no longer the one PSPDX
+   installed it is somebody's own build: file and line both stay, so that it
+   goes on loading, and only the record goes. Nothing else under seplugins/
+   is touched. Returns 0 when the package is gone,
+   for a plugin with what was left of it that is not PSPDX's. */
+#define UNINSTALL_LINES 1       /* lines of PLUGINS.TXT that name it */
+#define UNINSTALL_FILE 2        /* a file of its name that PSPDX did not install */
 int uninstall(const char *id);
 
 typedef void (*install_phase_cb)(void *ctx, const char *phase);
@@ -178,6 +235,7 @@ void install_set_layout_check(install_layout_cb check);
 /* The layout a rule chose was shown and turned down. */
 #define INSTALL_DECLINED (-12)
 
+
 /* PSPDX up to 0.5 kept a record of itself as io.github.chriopter.pspdx, from
    the repository that is the standard alone now. Such a record for the folder
    the client runs from is the client, and goes with its saved file, before
@@ -192,10 +250,22 @@ int install_retire_legacy(void);
 void install_abort(void);
 
 /* Download, verify, unpack, rename into place. Returns 0 on success;
-   negative on the phase that failed. Nothing is left half-written. */
+   negative on the phase that failed. Nothing is left half-written. A
+   homebrew goes to PSP/GAME/<dir>; a plugin's one .prx to seplugins/,
+   turned off until plugin_switch turns it on. */
 int install_release_to(const struct manifest *release, const char *device,
                        struct install_report *rep, install_phase_cb phase,
                        https_progress progress, void *pctx);
+
+/* The first install of a plugin whose .prx is not fetched but there
+   already, at prx: the copy of pspkit-usbnet the release carries beside the
+   EBOOT. Through the same installer as a download, with every check and
+   every refusal of it, and the same record: release says which release the
+   file is of -- its id, repository, version, the SHA-256 of that release's
+   zip, by which an update is told, and the .pspdx -- so that the store
+   updates the plugin from then on. Installed turned off, like any. */
+int install_bundled(const struct manifest *release, const char *prx, const char *device,
+                    struct install_report *rep);
 
 int install_release(const struct manifest *release, struct install_report *rep,
                     install_phase_cb phase, https_progress progress, void *pctx);

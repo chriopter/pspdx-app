@@ -13,7 +13,7 @@
 /* Which question stands, and what it is about: a catalog index for the
    ones about a package, a row of the sources list for ASK_CATALOG, -1 for
    the rest. */
-enum question { ASK_NOTHING, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART, ASK_TRUST };
+enum question { ASK_NOTHING, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART, ASK_TRUST, ASK_PLUGIN };
 
 /* Confirm removing a package, fetching the whole tab, or the INBOX. */
 void ask_remove(int index);
@@ -31,9 +31,10 @@ int asking(void);
    view fills it, ASK_CATALOG's index points into it. */
 struct sources *question_sources(void);
 
-/* One frame's keys: the restart and the certificate doubt are put up first
-   if nothing else is asked, then the answer to whatever stands is taken --
-   X does the thing, O leaves it. Returns 1 while a question stood, when
+/* One frame's keys: the restart, whether to turn on a plugin just
+   installed, and the certificate doubt are put up first if nothing else is
+   asked, then the answer to whatever stands is taken -- X does the thing, O
+   leaves it. Returns 1 while a question stood, when
    the keys were its; cursor, count, keep, synced and refreshing are the
    loop's, for the actions the answers lead to. */
 int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,

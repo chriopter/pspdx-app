@@ -580,27 +580,580 @@ class ClientTests(unittest.TestCase):
   self.run_client('install');self.assertEqual((self.root/'ms0:/PSP/GAME/demo/EBOOT.PBP').read_bytes(),b'new package')
   installed=self.state()[ID]['installed'];self.assertEqual(installed['installdir'],'PSP/GAME/demo')
   self.assertEqual(installed['sha256'],hashlib.sha256((self.root/'new.zip').read_bytes()).hexdigest())
- def test_plugins_are_listed_and_not_installed(self):
+ # ---- plugins: one .prx under seplugins/, and PLUGINS.TXT only ever written in place
+ PRX='ms0:/seplugins/usbnet.prx';OWN=b'always, ms0:/seplugins/usbnet.prx, on ';USER=b'# my plugins\r\ngame, ms0:/seplugins/cheat.prx, on\r\nxmb, clock.prx, on\r\n'
+ def plugin_setup(self,files=None,dir='seplugins',lst=None):
   plug={k:v for k,v in dict(SPEC,type='plugin').items() if k!='installdir'};self.write('manifest.json',plug)
-  r=self.run_client('install',ok=False,VERBOSE=1);self.assertIn('type plugin cannot be installed yet',r.stderr);self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists())
-  self.write('manifest.json',SPEC);self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0]
-  plugin={k:v for k,v in dict(first,id='io.github.test.plug',name='Plug',type='plugin',tags=['plugin'],source='https://github.com/test/plug',releases=[dict(first['releases'][0],url='https://github.com/test/plug/releases/download/v2/download.zip')]).items() if k!='installdir'}
+  self.zip('new.zip',files or {'usbnet.prx':b'plugin one','LICENSE':b'MIT','docs/readme.txt':b'read me','sub/other.prx':b'not at the top'})
+  d=self.root/'ms0:'/dir
+  if lst is not None:d.mkdir(exist_ok=True);(d/'PLUGINS.TXT').write_bytes(lst)
+  return d
+ def tree(self,d):
+  # Every file under a folder, by its bytes: what must not change is compared whole.
+  return {str(p.relative_to(d)):(p.read_bytes() if p.is_file() else None) for p in sorted(d.rglob('*'))} if d.exists() else None
+ @staticmethod
+ def ark_lines(t):
+  # ARK's readLine: any byte below a space ends a line; a NUL ends the list. (line, start) each.
+  out=[];i=0
+  while i<len(t) and t[i]:
+   j=i
+   while j<len(t) and t[j]>=0x20:j+=1
+   out.append((t[i:j],i))
+   if j<len(t) and not t[j]:break
+   i=j+1
+  return out
+ @staticmethod
+ def ark(line):
+  # ARK's processLine, written again from core/systemctrl/src/plugin.c: (run level, path as ARK resolves it, on) or None.
+  l=line.strip(b' ')
+  if not l or l[:2]==b'//' or l[:1] in (b';',b'#'):return None
+  a=l.find(b',');b=l.find(b',',a+1) if a>=0 else -1
+  if b<0:return None
+  i=b+1
+  while i<len(l) and l[i:i+1]!=b',' and l[i:i+2]!=b'//' and l[i:i+1] not in (b';',b'#'):i+=1
+  path=l[a+1:b].strip(b' ');word=l[b+1:i].strip(b' ')
+  full=path if b':' in path else b'ms0:/SEPLUGINS/'+path
+  return l[:a].strip(b' ').lower(),full.lower(),(word.lower() in (b'true',b'on',b'enabled') or word==b'1')
+ def ark_state(self,t,path=None):
+  # What ARK makes of a list for one path: -1 unnamed, else what its last line says.
+  state=-1
+  for line,_ in self.ark_lines(t):
+   p=self.ark(line)
+   if p and p[1]==(path or self.PRX).encode().lower():state=int(p[2])
+  return state
+ def own_lines(self,t):
+  # PSPDX's own line by its bytes, found without the client: (start, end, where its last field begins).
+  import re
+  head=b'always, '+self.PRX.encode()+b','
+  return [(at,at+len(line),at+len(head)) for line,at in self.ark_lines(t) if line.startswith(head) and 3<=len(line)-len(head)<=8 and re.fullmatch(rb' *(on|off) *',line[len(head):])]
+ def plist(self,op,path=None):
+  r=self.run_client('pluginlist',op,'list.txt',path or self.PRX).stdout.split();return int(r[0]),int(r[1])
+ def test_plugin_list_is_written_in_place_or_after_its_end(self):
+  # The three writes there are: a line after the list's end, the on or off of PSPDX's own line over itself, spaces over that line. The list never shrinks, no other byte changes, and ARK reads the result as meant.
+  f=self.root/'list.txt';own=self.OWN
+  for base,eol,gap in ((b'',b'\n',b''),(b'umd, ms0:/seplugins/other.prx, on\n',b'\n',b''),(b'umd, ms0:/seplugins/other.prx, on',b'\n',b'\n'),(self.USER,b'\r\n',b''),(self.USER[:-2],b'\r\n',b'\r\n'),
+                       (b'; a comment\n\n\n',b'\n',b''),(b'x\ry\r',b'\n',b''),(b'a\tb\t',b'\n',b'\n'),(b'   ',b'\n',b'\n')):
+   with self.subTest(base=base):
+    f.write_bytes(base)
+    for op in ('on','off','blank'):self.assertEqual(self.plist(op),(-1,-1));self.assertEqual(f.read_bytes(),base)
+    self.assertEqual(self.plist('add'),(0,1));added=f.read_bytes();self.assertEqual(added,base+gap+own+eol);self.assertEqual(self.ark_state(added),1)
+    at=len(base+gap);self.assertEqual(self.plist('on'),(0,1));self.assertEqual(f.read_bytes(),added)
+    self.assertEqual(self.plist('off'),(1,0));off=f.read_bytes();self.assertEqual(off,base+gap+own[:-3]+b'off'+eol);self.assertEqual(self.ark_state(off),0)
+    self.assertEqual(self.plist('off'),(0,0));self.assertEqual(self.plist('on'),(1,1));self.assertEqual(f.read_bytes(),added)
+    self.assertEqual(self.plist('blank'),(1,-1));blank=f.read_bytes();self.assertEqual(blank,base+gap+b' '*len(own)+eol);self.assertEqual(self.ark_state(blank),-1)
+    self.assertEqual([self.ark(l) for l,_ in self.ark_lines(blank)][:len(self.ark_lines(base))],[self.ark(l) for l,_ in self.ark_lines(base)])
+    # Turned on again later, the line goes after the end once more: nothing is ever put back into the middle.
+    self.assertEqual(self.plist('add'),(0,1));self.assertEqual(f.read_bytes(),blank+own+eol)
+  # What ARK's two managers make of the line when they write the list out is still PSPDX's, and is switched in the room it has.
+  head=b'always, ms0:/seplugins/usbnet.prx,'
+  for before,op,after in ((head+b' on\n',b'off',head+b'off\n'),(head+b'off\n',b'on',head+b' on\n'),(head+b' off\n',b'on',head+b' on \n'),(head+b' on',b'off',head+b'off'),(head+b'  on   \r\nx',b'off',head+b' off   \r\nx')):
+   f.write_bytes(b'# c\n'+before);self.assertEqual(self.plist(op.decode()),(1,int(op==b'on')));self.assertEqual(f.read_bytes(),b'# c\n'+after)
+   self.assertEqual(self.plist('blank')[0],1);self.assertEqual(f.read_bytes(),b'# c\n'+b' '*len(after.split(b'\r')[0].split(b'\n')[0])+after[len(after.split(b'\r')[0].split(b'\n')[0]):])
+  # Somebody's line for the same file is not PSPDX's, whatever it says: another run level, another spelling of the path or the word, a comment after it, a space before it, a field more, a longer run of spaces, and two that both look like PSPDX's.
+  for text in (b'game, ms0:/seplugins/usbnet.prx, on',b'always, MS0:/SEPLUGINS/usbnet.prx, on',b'always, usbnet.prx, on',b'Always, ms0:/seplugins/usbnet.prx, on',b'always,ms0:/seplugins/usbnet.prx, on',b'always, ms0:/seplugins/usbnet.prx, 1',
+               b'always, ms0:/seplugins/usbnet.prx, ON',b'always, ms0:/seplugins/usbnet.prx, on // mine',b'always, ms0:/seplugins/usbnet.prx, on, 5',b' always, ms0:/seplugins/usbnet.prx, on',b'always, ms0:/seplugins/usbnet.prx,on',
+               b'always, ms0:/seplugins/usbnet.prx,        on',b'# always, ms0:/seplugins/usbnet.prx, on',b'always, ms0:/seplugins/usbnet.prx, on \nalways, ms0:/seplugins/usbnet.prx, off\n',b'always, ms0:/seplugins/usbnet.prx, on\0\n'):
+   for op in ('on','off','blank'):
+    f.write_bytes(text);self.assertEqual(self.plist(op)[0],-1,(text,op));self.assertEqual(f.read_bytes(),text)
+  # The state is ARK's: the last line that names the file, in any of its spellings.
+  for text,state in ((b'game, usbnet.prx, on\numd, MS0:/SEPLUGINS/USBNET.PRX, 0\n',0),(b'umd, usbnet.prx, off\nalways, ms0:/seplugins/usbnet.prx, Enabled // x',1),(b'# game, usbnet.prx, on\n',-1),(b'game,\tusbnet.prx, on',-1),(b'x\0game, usbnet.prx, on',-1),(b'game, ef0:/seplugins/usbnet.prx, on',-1)):
+   f.write_bytes(text);self.assertEqual(self.plist('state')[1],state,text);self.assertEqual(self.ark_state(text),state,text)
+  # A path a line cannot hold is not written at all.
+  f.write_bytes(b'');self.assertEqual(self.plist('add','ms0:/seplugins/a,b.prx')[0],-1);self.assertEqual(self.plist('add','ms0:/seplugins/a b.prx')[0],-1);self.assertEqual(f.read_bytes(),b'')
+ def test_plugin_list_fuzz_against_arks_reader(self):
+  # Random lists, each write held against ARK's reader written again here: a write never changes the length but by the line added, never a byte outside PSPDX's one own line, and ARK reads every other line as it did.
+  rng=random.Random(7);f=self.root/'list.txt';P=self.PRX.encode()
+  names=[P,P,P.upper(),b'usbnet.prx',b'Usbnet.PRX',b'ms0:/seplugins/myusbnet.prx',P+b'.bak',b'ef0:/seplugins/usbnet.prx',b'ms0:/plugins/usbnet.prx',b'ms0:/seplugins//usbnet.prx',b'other.prx',b'ms0:/seplugins/caf\xc3\xa9.prx']
+  levels=[b'always',b'always',b'game',b'umd, ',b'',b'xmb',b'ULUS12345',b'ms0:/PSP/GAME/x/EBOOT.PBP',b'# c',b'// c',b'; c']
+  words=[b'on',b'off',b'on',b'off',b'1',b'0',b'true',b'ON',b'Enabled',b'',b'on // c',b'off#x',b'on;y',b'on, 5',b'yes',b'on x']
+  eols=[b'\n',b'\r\n',b'\r',b'\t',b'\n\n',b'\x0b',b'\x1f',b'']
+  def line():
+   k=rng.random()
+   if k<0.15:return rng.choice([b'',b'   ',b'# comment, a, b',b'//x',b'junk',b'a,b',b'\xff\xfe junk \x80',b'x'*rng.choice([10,1100,3000])])
+   if k<0.35:return b'always, '+P+b','+b' '*rng.choice([0,1,1,2])+rng.choice([b'on',b'off'])+b' '*rng.choice([0,0,1,3])
+   sp=lambda:b' '*rng.choice([0,0,1,1,3])
+   return sp()+rng.choice(levels)+sp()+b','+sp()+rng.choice(names)+sp()+b','+sp()+rng.choice(words)+sp()
+  switched=added=0
+  for it in range(350):
+   t=b''.join(line()+rng.choice(eols) for _ in range(rng.randint(0,7)));own=self.own_lines(t);before=[self.ark(l) for l,_ in self.ark_lines(t)]
+   for op in ('on','off','blank','add'):
+    f.write_bytes(t);rc,state=self.plist(op);o=f.read_bytes();self.assertEqual(state,self.ark_state(o),(t,op,o))
+    if op=='add':
+     self.assertEqual(rc,0);self.assertTrue(o.startswith(t) and o[len(t):] in (self.OWN+e2 if not g else g+self.OWN+e2 for e2 in (b'\n',b'\r\n') for g in (b'',e2)),(t,o))
+     after=[self.ark(l) for l,_ in self.ark_lines(o)];self.assertEqual([x for x in after if x][:len([x for x in before if x])],[x for x in before if x],(t,o))
+     self.assertEqual([x for x in after if x][-1],(b'always',P.lower(),True),(t,o));self.assertEqual(len([x for x in after if x]),len([x for x in before if x])+1,(t,o));added+=1
+     continue
+    if len(own)!=1:self.assertEqual((rc,o),(-1,t),(t,op,o));continue
+    start,end,field=own[0];self.assertEqual(len(o),len(t));self.assertEqual((o[:field if op!='blank' else start],o[end:]),(t[:field if op!='blank' else start],t[end:]),(t,op,o))
+    if op=='blank':self.assertEqual(o[start:end],b' '*(end-start))
+    else:self.assertEqual(self.ark(o[start:end]),(b'always',P.lower(),op=='on'),(t,op,o));self.assertEqual(len(self.own_lines(o)),1,(t,op,o));switched+=1
+    self.assertEqual([self.ark(l) for l,a in self.ark_lines(o) if a!=start],[self.ark(l) for l,a in self.ark_lines(t) if a!=start],(t,op,o))
+  self.assertGreater(switched,60);self.assertGreater(added,300)
+ def test_plugin_is_installed_off_and_turned_on_by_a_line_of_its_own(self):
+  # Installing is the .prx and nothing else: the list is not made and not touched. Turning the plugin on puts one line after the list's end; off and on again write over its last field; an update is the file; deleting writes spaces over the line and takes the file, and the list is as long as it was.
+  for folder,name,base in (('seplugins','PLUGINS.TXT',None),('seplugins','PLUGINS.TXT',b'# plugins\ngame, ms0:/seplugins/other.prx, on\n'),('SEPLUGINS','plugins.txt',self.USER),('SePlugins','Plugins.txt',b'game, ms0:/seplugins/other.prx, on')):
+   with self.subTest(base=base,folder=folder):
+    shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(dir=folder);lst=d/name;eol=b'\r\n' if base and b'\r\n' in base else b'\n'
+    if base is not None:d.mkdir();lst.write_bytes(base);(d/'other.prx').write_bytes(b'somebody else')
+    r=self.run_client('install',VERSION=1);self.assertIn('plugin: usbnet.prx off',r.stderr)
+    self.assertEqual(self.tree(d),dict(([(name,base),('other.prx',b'somebody else')] if base is not None else [])+[('usbnet.prx',b'plugin one')]))
+    self.assertEqual([p.name for p in (self.root/'ms0:').iterdir() if p.name.lower()=='seplugins'],[folder])
+    installed=self.state()[ID]['installed'];self.assertEqual((installed['installdir'],installed['device'],installed['version']),('seplugins/usbnet.prx','ms0:','1'))
+    self.assertEqual(installed['plugin_sha256'],hashlib.sha256(b'plugin one').hexdigest());self.assertNotIn('plugin_line',installed)
+    self.assertEqual(installed['sha256'],hashlib.sha256((self.root/'new.zip').read_bytes()).hexdigest())
+    self.assertEqual(list((self.root/'ms0:/PSP/GAME').iterdir()),[]);self.assertEqual(json.loads((self.root/f'ms0:/PSP/PSPDX/INSTALLED/{ID}.pspdx').read_text())['type'],'plugin')
+    self.assertNotEqual(self.run_client('installed-path',ID,ok=False).returncode,0);self.assertEqual(self.run_client('plugin',ID).stdout.strip(),'0')
+    # Turned off while it is off: nothing is written, and no list is made for it.
+    self.assertEqual(self.run_client('plugin',ID,'off').stdout.strip(),'0');self.assertEqual(lst.read_bytes() if base is not None else lst.exists(),base if base is not None else False)
+    self.assertEqual(self.run_client('plugin',ID,'on').stdout.strip(),'1');old=base or b'';gap=eol if old and old[-1:] not in b'\r\n' else b'';on=old+gap+self.OWN+eol;self.assertEqual(lst.read_bytes(),on)
+    self.assertEqual(self.state()[ID]['installed']['plugin_line'],self.PRX);self.assertEqual(self.ark_state(on),1)
+    self.assertEqual(self.run_client('plugin',ID,'off').stdout.strip(),'0');off=old+gap+self.OWN[:-3]+b'off'+eol;self.assertEqual(lst.read_bytes(),off);self.assertEqual(self.run_client('plugin',ID).stdout.strip(),'0')
+    # An update is the file by its hash; the line is not its business, and a plugin turned off stays off.
+    self.zip('new.zip',{'usbnet.prx':b'plugin two, longer','README':b'x'});r=self.run_client('install');self.assertIn('plugin: usbnet.prx off',r.stderr)
+    self.assertEqual((d/'usbnet.prx').read_bytes(),b'plugin two, longer');self.assertEqual(lst.read_bytes(),off);installed=self.state()[ID]['installed']
+    self.assertEqual((installed['version'],installed['plugin_sha256'],installed['plugin_line']),('2',hashlib.sha256(b'plugin two, longer').hexdigest(),self.PRX))
+    self.assertEqual(self.run_client('plugin',ID,'on').stdout.strip(),'1');self.assertEqual(lst.read_bytes(),on)
+    r=self.run_client('install',VERSION=3);self.assertIn('plugin: usbnet.prx on',r.stderr);self.assertEqual(lst.read_bytes(),on)
+    self.assertEqual(self.run_client('uninstall',ID).stdout.strip(),'0');gone=old+gap+b' '*len(self.OWN)+eol;self.assertEqual(lst.read_bytes(),gone);self.assertNotIn(ID,self.state())
+    self.assertEqual(self.tree(d),dict([(name,gone)]+([('other.prx',b'somebody else')] if base is not None else [])));self.assertEqual(self.ark_state(gone),-1)
+    self.assertFalse((self.root/f'ms0:/PSP/PSPDX/INSTALLED/{ID}.pspdx').exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists())
+  # A plugin never turned on leaves no trace in the list, and none of a list where there was none.
+  shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup();self.run_client('install');self.assertEqual(self.run_client('uninstall',ID).stdout.strip(),'0');self.assertEqual(self.tree(d),{})
+ def test_plugin_lines_somebody_else_wrote_are_never_written(self):
+  # A line for the file from before the install, whatever it says, is its writer's: no line is added beside it, turning the plugin on or off leaves the list alone and comes back with what the list says, and deleting the plugin leaves it too and says so. (The reviewer's S4a and S4b.)
+  for base in (b'# mine\r\numd, ms0:/seplugins/usbnet.prx, off // only for UMD, keep off for now\r\nxmb, clock.prx, on\r\n',b'always, ms0:/seplugins/usbnet.prx, on\n',b'always, ms0:/seplugins/usbnet.prx, on \n',
+               b'umd, ms0:/seplugins/usbnet.prx, on\npops, usbnet.prx, off\nxmb, USBNET.PRX, 0\n',b'game, MS0:/SEPLUGINS/Usbnet.prx, off'):
+   with self.subTest(base=base):
+    shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=base);lst=d/'PLUGINS.TXT';state=self.ark_state(base)
+    r=self.run_client('install');self.assertIn('plugin: usbnet.prx '+('on' if state==1 else 'off'),r.stderr);self.assertEqual(lst.read_bytes(),base)
+    for want in ('on','off','on'):self.assertEqual(self.run_client('plugin',ID,want).stdout.strip(),str(state));self.assertEqual(lst.read_bytes(),base)
+    self.assertNotIn('plugin_line',self.state()[ID]['installed'])
+    self.assertEqual(self.run_client('uninstall',ID).stdout.strip(),'1');self.assertEqual(self.tree(d),{'PLUGINS.TXT':base})
+  # Lines written beside PSPDX's own after it was turned on: its own is still switched and taken out, in place, and theirs stay; what the list then says of the plugin is what comes back.
+  d=self.plugin_setup(lst=self.USER);lst=d/'PLUGINS.TXT';self.run_client('install');self.run_client('plugin',ID,'on');theirs=b'game, usbnet.prx, off // mine\r\n';lst.write_bytes(lst.read_bytes()+theirs)
+  self.assertEqual(self.run_client('plugin',ID,'on').stdout.strip(),'0');self.assertEqual(lst.read_bytes(),self.USER+self.OWN+b'\r\n'+theirs)
+  self.assertEqual(self.run_client('plugin',ID,'off').stdout.strip(),'0');self.assertEqual(lst.read_bytes(),self.USER+self.OWN[:-3]+b'off\r\n'+theirs)
+  self.assertEqual(self.run_client('uninstall',ID).stdout.strip(),'1');self.assertEqual(lst.read_bytes(),self.USER+b' '*len(self.OWN)+b'\r\n'+theirs)
+  # Its own line taken out or changed by hand, or written twice: none is PSPDX's any more. With no line left it is added again on turning on; with one that names the file, nothing is written.
+  for hand,after_on in ((self.USER,self.USER+self.OWN+b'\r\n'),(self.USER+b'always, ms0:/seplugins/usbnet.prx, 1\r\n',None),(self.USER+(self.OWN+b'\r\n')*2,None),(b'',self.OWN+b'\n')):
+   shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=self.USER);lst=d/'PLUGINS.TXT';self.run_client('install');self.run_client('plugin',ID,'on');lst.write_bytes(hand)
+   self.assertEqual(self.run_client('plugin',ID,'off').stdout.strip(),str(max(self.ark_state(hand),0)));self.assertEqual(lst.read_bytes(),hand)
+   self.assertEqual(self.run_client('plugin',ID,'on').stdout.strip(),'1');self.assertEqual(lst.read_bytes(),after_on or hand)
+   lst.write_bytes(hand);self.run_client('uninstall',ID);self.assertEqual(lst.read_bytes(),hand);self.assertEqual(self.tree(d),{'PLUGINS.TXT':hand})
+ def test_plugin_list_survives_arks_managers_and_the_app_still_knows_its_line(self):
+  # ARK's XMB/recovery manager and arkMenu's each write the whole list out again in their own way. Rewritten by either, with the plugin on or off, PSPDX's line is still its own and is switched and taken out in the room it has, the list never a byte longer or shorter.
+  def xmbctrl(t):
+   out=b''
+   for line,_ in self.ark_lines(t):
+    p=self.ark(line);l=line.strip(b' ')
+    if p:a=l.find(b',');b=l.find(b',',a+1);out+=l[:a].strip(b' ')+b', '+l[a+1:b].strip(b' ')+b', '+(b'on' if p[2] else b'off')+b'\n'
+    else:out+=line+b'\n'
+   return out
+  def arkmenu(t):
+   out=b''
+   for line in t.split(b'\n')[:-1] if t.endswith(b'\n') else t.split(b'\n'):
+    k=line.rfind(b',')
+    if line[:1] in (b'#',b';') or line[:2]==b'//' or k<0:out+=line+b'\n'
+    else:out+=line[:k]+b', '+(b'on' if (line[k+1:].split() or [b''])[0] in (b'on',b'1',b'enabled',b'true') else b'off')+b'\n'
+   return out
+  for rewrite in (xmbctrl,arkmenu):
+   for first in ('on','off'):
+    with self.subTest(manager=rewrite.__name__,first=first):
+     shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=self.USER);lst=d/'PLUGINS.TXT';self.run_client('install');self.run_client('plugin',ID,'on');self.run_client('plugin',ID,first)
+     t=rewrite(lst.read_bytes());lst.write_bytes(t);self.assertEqual(self.ark_state(t),int(first=='on'));self.assertEqual(len(self.own_lines(t)),1,t);start,end,field=self.own_lines(t)[0]
+     for want in ('off','on','off','on') if first=='on' else ('on','off','on'):
+      self.assertEqual(self.run_client('plugin',ID,want).stdout.strip(),str(int(want=='on')));o=lst.read_bytes()
+      self.assertEqual((len(o),o[:field],o[end:]),(len(t),t[:field],t[end:]));self.assertEqual(self.ark_state(o),int(want=='on'));self.assertEqual(self.ark_state(rewrite(o)),int(want=='on'))
+     self.assertEqual(self.run_client('uninstall',ID).stdout.strip(),'0');self.assertEqual(lst.read_bytes(),t[:start]+b' '*(end-start)+t[end:]);self.assertEqual(self.tree(d),{'PLUGINS.TXT':t[:start]+b' '*(end-start)+t[end:]})
+ def test_plugin_file_is_the_apps_only_by_its_hash(self):
+  # A .prx copied over the installed one by hand is its owner's build, and goes on loading: an update is refused and changes nothing, not the file, not the line, not the record; a delete forgets the record and leaves the file and the line that loads it, and says so.
+  mine=b'MY OWN BUILD, copied by hand over USB'
+  shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=self.USER);self.run_client('install',VERSION=1);self.run_client('plugin',ID,'on');(d/'usbnet.prx').write_bytes(mine)
+  before=self.tree(d);record=self.state()[ID];self.zip('new.zip',{'usbnet.prx':b'plugin two'})
+  r=self.run_client('install',ok=False);self.assertIn('why: its .prx was changed by hand',r.stderr);self.assertEqual(self.tree(d),before);self.assertEqual(self.state()[ID],record)
+  self.assertEqual(self.run_client('plugin',ID).stdout.strip(),'1')
+  self.assertEqual(self.run_client('uninstall',ID).stdout.strip(),'2');self.assertEqual(self.tree(d),before);self.assertNotIn(ID,self.state());self.assertEqual(self.ark_state(before['PLUGINS.TXT']),1)
+  # And then it is a file PSPDX did not install, in the way of the plugin like any other.
+  r=self.run_client('install',ok=False);self.assertIn('why: a .prx of that name exists',r.stderr);self.assertEqual(self.tree(d),before)
+  # A record from which the hash has gone vouches for no file; one deleted by hand is installed afresh, the line left as it is, and deleted with its line.
+  shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=self.USER);self.run_client('install',VERSION=1);p=self.root/f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json'
+  rec=json.loads(p.read_text());del rec['installed']['plugin_sha256'];p.write_text(json.dumps(rec));self.assertEqual(self.run_client('uninstall',ID).stdout.strip(),'2');self.assertEqual((d/'usbnet.prx').read_bytes(),b'plugin one')
+  (d/'usbnet.prx').unlink();self.run_client('install',VERSION=1);self.run_client('plugin',ID,'on');on=(d/'PLUGINS.TXT').read_bytes();(d/'usbnet.prx').unlink()
+  self.zip('new.zip',{'usbnet.prx':b'plugin two'});self.run_client('install');self.assertEqual(self.tree(d),{'PLUGINS.TXT':on,'usbnet.prx':b'plugin two'})
+  (d/'usbnet.prx').unlink();r=self.run_client('uninstall',ID,VERBOSE=1);self.assertIn('already gone',r.stderr);self.assertEqual(self.tree(d),{'PLUGINS.TXT':on.replace(self.OWN,b' '*len(self.OWN))})
+ def test_plugin_record_owns_a_line_only_while_the_list_has_it(self):
+  # The second review's O3 and R3: the record says PSPDX owns a line only once that line has been read back from the list, and stops saying so when the list no longer has it. A turn-on that is refused, fails or is cut leaves no claim behind, so a line typed later with the very same bytes is its writer's.
+  typed=self.USER+b'always, ms0:/seplugins/usbnet.prx, on\r\n# the line above is MINE, typed by hand\r\n'
+  def claim():return self.state()[ID]['installed'].get('plugin_line'),self.state()[ID]['installed'].get('plugin_write')
+  def fresh():
+   shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=self.USER);self.run_client('install');return d/'PLUGINS.TXT'
+  def theirs(lst):
+   lst.write_bytes(typed);self.assertEqual(self.run_client('plugin',ID,'off').stdout.strip(),'1');self.assertEqual(lst.read_bytes(),typed)
+   self.assertEqual(self.run_client('uninstall',ID).stdout.strip(),'1');self.assertEqual(lst.read_bytes(),typed)
+  lst=fresh();lst.chmod(0o444);r=self.run_client('plugin',ID,'on',ok=False);self.assertIn('read-only',r.stderr);lst.chmod(0o644);self.assertEqual(claim(),(None,None));self.assertEqual(lst.read_bytes(),self.USER);theirs(lst)
+  lst=fresh();self.run_client('plugin',ID,'on',ok=False,WRITE_FAIL=1);self.assertEqual(lst.read_bytes(),self.USER);self.run_client('recover');self.assertEqual(claim(),(None,None));theirs(lst)
+  cuts=0
+  for fault in range(1,40):
+   lst=fresh();r=self.run_client('plugin',ID,'on',ok=False,FAULT=fault)
+   if r.returncode==0:break
+   self.run_client('recover');text=lst.read_bytes();self.assertIn(text,(self.USER,self.USER+self.OWN+b'\r\n'));self.assertEqual(claim(),(self.PRX if text!=self.USER else None,None),fault);cuts+=1
+   if text==self.USER:theirs(lst)
+  self.assertGreater(cuts,3)
+  # Its line taken out by hand while it was on: the claim goes at the next start, or with the next thing asked of the list.
+  lst=fresh();self.run_client('plugin',ID,'on');lst.write_bytes(self.USER);self.run_client('recover');self.assertEqual(claim(),(None,None));theirs(lst)
+  # A delete that takes the line out and then stops: the plugin is still installed, off, and owns no line.
+  lst=fresh();self.run_client('plugin',ID,'on');on=lst.read_bytes();(self.root/'ms0:/PSP/PSPDX/TMP').mkdir(parents=True,exist_ok=True)
+  r=self.run_client('uninstall',ID,ok=False,RO_MATCH=f'{ID}.pspdx');self.run_client('recover')
+  if ID in self.state():self.assertEqual(lst.read_bytes(),on.replace(self.OWN,b' '*len(self.OWN)));self.assertEqual(claim(),(None,None));self.assertEqual(self.run_client('plugin',ID).stdout.strip(),'0')
+ def test_plugin_write_cut_short_is_finished_at_the_next_start(self):
+  # The second review's T1 to T3: a power cut inside the one write leaves some of its bytes on the stick. The record holds what the write was, and the next start -- or the next thing asked of the list -- writes the rest in the same place: a line put after the end gets its line end, a switch its whole word, a line being taken out all its spaces. Every byte outside that line stays; what the app then shows is what the list says.
+  shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=self.USER);lst=d/'PLUGINS.TXT';self.run_client('install');s1=self.root/'s1';shutil.copytree(self.root/'ms0:',s1)
+  self.run_client('plugin',ID,'on');s2=self.root/'s2';shutil.copytree(self.root/'ms0:',s2);on=self.USER+self.OWN+b'\r\n';off=on.replace(b'on \r\n',b'off\r\n');blank=on.replace(self.OWN,b' '*len(self.OWN))
+  def torn(start,command,k,old):
+   for fault in range(1,60):
+    shutil.rmtree(self.root/'ms0:');shutil.copytree(start,self.root/'ms0:');r=self.run_client(*command,ok=False,FAULT=fault,TORN=k)
+    if lst.read_bytes()!=old:self.assertEqual(r.returncode,77);return lst.read_bytes()
+    self.assertEqual(r.returncode,77)
+  for start,command,old,new,after in ((s1,('plugin',ID,'on'),self.USER,on,'1'),(s2,('plugin',ID,'off'),on,off,'0'),(s2,('uninstall',ID),on,blank,'0')):
+   for k in range(1,len(new)-len(old) if len(new)>len(old) else len(self.OWN)):
+    for repair in ('start','switch'):
+     with self.subTest(command=command,k=k,repair=repair):
+      cut=torn(start,command,k,old)
+      if cut==new:continue
+      if repair=='start':self.run_client('recover')
+      else:self.run_client('plugin',ID,'on' if after=='1' else 'off')
+      self.assertEqual(lst.read_bytes(),new);installed=self.state()[ID]['installed'];self.assertNotIn('plugin_write',installed)
+      self.assertEqual(installed.get('plugin_line'),None if new==blank else self.PRX);self.assertEqual(self.run_client('plugin',ID).stdout.strip(),after);self.assertEqual(self.ark_state(new),int(after) if new!=blank else -1)
+      # And from there everything goes on as if nothing had happened.
+      if new==blank:self.assertEqual(self.run_client('plugin',ID,'on').stdout.strip(),'1');self.assertEqual(lst.read_bytes(),blank+self.OWN+b'\r\n')
+      self.assertEqual(self.run_client('uninstall',ID).stdout.strip(),'0');self.assertEqual(self.ark_state(lst.read_bytes()),-1);self.assertEqual(len(self.own_lines(lst.read_bytes())),0)
+  # A torn line that something was put after before PSPDX ran again cannot be finished where it is: nothing is written, the next thing asked says the list has changed, once, and then a line of PSPDX's own goes after the end as ever.
+  cut=torn(s1,('plugin',ID,'on'),30,self.USER);ark=cut+b'ps1, new.prx, on\n\n';lst.write_bytes(ark);self.run_client('recover');self.assertEqual(lst.read_bytes(),ark)
+  r=self.run_client('plugin',ID,'on',ok=False);self.assertIn('why: PLUGINS.TXT has changed',r.stderr);self.assertEqual(lst.read_bytes(),ark);self.assertNotIn('plugin_write',self.state()[ID]['installed'])
+  self.assertEqual(self.run_client('plugin',ID,'on').stdout.strip(),'1');self.assertEqual(lst.read_bytes(),ark+self.OWN+b'\n');self.assertEqual(self.state()[ID]['installed']['plugin_line'],self.PRX)
+  # The same for bytes at the write's place that are neither the old ones nor the new: somebody's, and left.
+  cut=torn(s2,('plugin',ID,'off'),3,on);hand=cut.replace(b', of \r\n',b', xx \r\n');self.assertNotEqual(hand,cut);lst.write_bytes(hand);self.run_client('recover');self.assertEqual(lst.read_bytes(),hand)
+  r=self.run_client('plugin',ID,'off',ok=False);self.assertIn('has changed',r.stderr);self.assertEqual(lst.read_bytes(),hand);self.assertEqual(self.state()[ID]['installed'].get('plugin_line'),self.PRX)
+  self.assertEqual(self.run_client('plugin',ID,'off').stdout.strip(),'0');self.assertEqual(lst.read_bytes(),hand);self.assertNotIn('plugin_line',self.state()[ID]['installed'])
+ def test_plugin_never_touches_files_that_only_look_like_its_own(self):
+  # The reviewer's S1, S2 and S5: files and folders under the names a swap would use, of the list or of the plugin, are somebody's unless a journal says PSPDX made them. Starting, installing, switching, updating and deleting neither remove nor rename them, and no list is ever made out of one.
+  def strays(d,dirs=False):
+   for n in ('PLUGINS.TXT.pspdx-old','PLUGINS.TXT.pspdx-new','PLUGINS.TXT.bak','PLUGINS.TXT.new'):
+    if dirs:(d/n).mkdir();(d/n/'keep.txt').write_bytes(b'k')
+    else:(d/n).write_bytes(b'my own '+n.encode())
+  for dirs in (False,True):
+   for has_list in (True,False):
+    with self.subTest(dirs=dirs,has_list=has_list):
+     shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=self.USER if has_list else None);d.mkdir(exist_ok=True);strays(d,dirs);(self.root/'ef0:/seplugins').mkdir(exist_ok=True);(self.root/'ef0:/seplugins/PLUGINS.TXT.pspdx-new').write_bytes(b'ef0 draft')
+     before=self.tree(d);self.run_client('recover');self.assertEqual(self.tree(d),before);self.assertEqual(self.tree(self.root/'ef0:/seplugins'),{'PLUGINS.TXT.pspdx-new':b'ef0 draft'})
+     self.run_client('install',VERSION=1);self.assertEqual(self.tree(d),dict(before,**{'usbnet.prx':b'plugin one'}));self.assertEqual(self.run_client('plugin',ID,'on').stdout.strip(),'1')
+     lst=(self.USER if has_list else b'')+self.OWN+(b'\r\n' if has_list else b'\n');self.assertEqual(self.tree(d),dict(before,**{'usbnet.prx':b'plugin one','PLUGINS.TXT':lst}))
+     self.run_client('plugin',ID,'off');self.run_client('recover');self.zip('new.zip',{'usbnet.prx':b'plugin two'});self.run_client('install');self.run_client('uninstall',ID)
+     self.assertEqual(self.tree(d),dict(before,**{'PLUGINS.TXT':lst.replace(self.OWN,b' '*len(self.OWN))}))
+  # Beside the plugin: a first install and an update are refused while such a name is taken, and say which; a delete needs neither name and goes through. Nothing of them changes.
+  for stray in ('usbnet.prx.pspdx-old','usbnet.prx.pspdx-new','USBNET.PRX.PSPDX-OLD'):
+   shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=self.USER);(d/stray).write_bytes(b'STALE OLDER COPY')
+   r=self.run_client('install',ok=False);self.assertIn('an old copy of it is in the way',r.stderr);self.assertEqual(self.tree(d),{'PLUGINS.TXT':self.USER,stray:b'STALE OLDER COPY'});self.assertEqual(self.state(),{})
+   (d/stray).unlink();self.run_client('install',VERSION=1);self.run_client('plugin',ID,'on');(d/stray).write_bytes(b'STALE OLDER COPY');on=(d/'PLUGINS.TXT').read_bytes()
+   self.zip('new.zip',{'usbnet.prx':b'plugin two'});r=self.run_client('install',ok=False);self.assertIn('an old copy of it is in the way',r.stderr);self.assertEqual(self.tree(d),{'PLUGINS.TXT':on,stray:b'STALE OLDER COPY','usbnet.prx':b'plugin one'});self.assertEqual(self.state()[ID]['installed']['version'],'1')
+   # S5a: a delete that stops at the list (a NUL in it) leaves the plugin as it is, and never puts the stale copy in its place.
+   (d/'PLUGINS.TXT').write_bytes(on+b'\0');r=self.run_client('uninstall',ID,ok=False);self.assertIn('why: PLUGINS.TXT is not plain text',r.stderr);self.run_client('recover')
+   self.assertEqual(self.tree(d),{'PLUGINS.TXT':on+b'\0',stray:b'STALE OLDER COPY','usbnet.prx':b'plugin one'});self.assertEqual(self.state()[ID]['installed']['version'],'1')
+   (d/'PLUGINS.TXT').write_bytes(on);self.assertEqual(self.run_client('uninstall',ID).stdout.strip(),'0');self.assertEqual(self.tree(d),{'PLUGINS.TXT':on.replace(self.OWN,b' '*len(self.OWN)),stray:b'STALE OLDER COPY'})
+ def test_plugin_list_that_is_not_to_be_written_is_refused_whole(self):
+  # The reviewer's S6, and what the stick marks: a list too large, with a NUL in it, read-only, or that cannot be told to be one is not written at all, and the reason is given. Installing needs no list and goes through.
+  big=self.USER+b''.join(b'game, ms0:/seplugins/p%04d.prx, on\r\n'%i for i in range(2200))
+  for bad,why in ((big,'too large'),(self.USER+b'\0x\r\n','not plain text'),((b'# pad\n'*20000)[:65536-20],'too large')):
+   with self.subTest(why=why,size=len(bad)):
+    shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=bad);lst=d/'PLUGINS.TXT'
+    self.run_client('install');r=self.run_client('plugin',ID,'on',ok=False);self.assertIn('why: PLUGINS.TXT is '+why,r.stderr);self.assertEqual(lst.read_bytes(),bad);self.assertNotIn('plugin_line',self.state()[ID]['installed'])
+    self.assertEqual(self.run_client('plugin',ID).stdout.strip(),'0');self.run_client('uninstall',ID);self.assertEqual(self.tree(d),{'PLUGINS.TXT':bad})
+  # The largest list that is read is still written to in place, and never grown past what is read.
+  d=self.plugin_setup(lst=self.USER);lst=d/'PLUGINS.TXT';self.run_client('install');self.run_client('plugin',ID,'on');on=lst.read_bytes();full=on+(b'# pad\n'*20000)[:65536-len(on)];lst.write_bytes(full)
+  self.assertEqual(self.run_client('plugin',ID,'off').stdout.strip(),'0');self.assertEqual(lst.read_bytes(),full.replace(self.OWN,self.OWN[:-3]+b'off'));self.run_client('uninstall',ID);self.assertEqual(len(lst.read_bytes()),65536)
+  # Read-only, by the stick's own mark: the list is not written, the plugin's file neither replaced nor deleted.
+  d=self.plugin_setup(lst=self.USER);lst=d/'PLUGINS.TXT';self.run_client('install',VERSION=1);lst.chmod(0o444)
+  r=self.run_client('plugin',ID,'on',ok=False);self.assertIn('why: PLUGINS.TXT is read-only',r.stderr);self.assertEqual(lst.read_bytes(),self.USER)
+  lst.chmod(0o644);self.run_client('plugin',ID,'on');on=lst.read_bytes();lst.chmod(0o444)
+  for want in ('off',):r=self.run_client('plugin',ID,want,ok=False);self.assertIn('read-only',r.stderr);self.assertEqual(lst.read_bytes(),on)
+  r=self.run_client('uninstall',ID,ok=False);self.assertIn('why: PLUGINS.TXT is read-only',r.stderr);self.assertEqual(self.tree(d),{'PLUGINS.TXT':on,'usbnet.prx':b'plugin one'});self.assertIn(ID,self.state())
+  lst.chmod(0o644);(d/'usbnet.prx').chmod(0o444);self.zip('new.zip',{'usbnet.prx':b'plugin two'})
+  r=self.run_client('install',ok=False);self.assertIn('why: its .prx is read-only',r.stderr);r=self.run_client('uninstall',ID,ok=False);self.assertIn('why: its .prx is read-only',r.stderr)
+  self.assertEqual(self.tree(d),{'PLUGINS.TXT':on,'usbnet.prx':b'plugin one'});self.assertEqual(self.state()[ID]['installed']['version'],'1')
+  # PLUGINS.TXT a folder, or there twice in two spellings where a stick can hold that: not a list to write to.
+  for make in ((lambda d:(d/'PLUGINS.TXT').mkdir()),(lambda d:[(d/n).write_bytes(self.USER) for n in ('PLUGINS.TXT','plugins.txt')])):
+   shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup();d.mkdir();make(d);self.run_client('install');before=self.tree(d)
+   self.assertNotEqual(self.run_client('plugin',ID,'on',ok=False).returncode,0);self.assertEqual(self.tree(d),before)
+ def test_plugin_records_and_zips_cannot_aim_at_another_file(self):
+  # The reviewer's S7 and S8. A record edited by hand to name another file under seplugins/ deletes nothing: that file's hash is not the record's, and the record's line is not that file's. A zip whose .prx is not a plain name of its own installs nothing.
+  for where in ('seplugins/cheat.prx','seplugins/../PSP/x.prx','seplugins/sub/cheat.prx','seplugins/PLUGINS.TXT','ms0:/seplugins/cheat.prx','seplugins/cheat.prx.','seplugins/cheat.prx ','seplugins\\cheat.prx','seplugins/ef0:x.prx','SEPLUGINS/cheat.prx','seplugins/.prx','seplugins/..prx'):
+   with self.subTest(where=where):
+    shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=self.USER);(d/'cheat.prx').write_bytes(b'c');self.run_client('install');self.run_client('plugin',ID,'on');before=self.tree(d)
+    p=self.root/f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json';rec=json.loads(p.read_text());rec['installed']['installdir']=where;p.write_text(json.dumps(rec))
+    for command in (('plugin',ID,'off'),('uninstall',ID),('install',),('recover',)):self.run_client(*command,ok=False);self.assertEqual(self.tree(d),before,(where,command))
+  # The same for the line: a record that claims another plugin's line as PSPDX's is believed about none.
+  shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=b'always, ms0:/seplugins/cheat.prx, on \n');(d/'cheat.prx').write_bytes(b'c');self.run_client('install');before=self.tree(d)
+  p=self.root/f'ms0:/PSP/PSPDX/INSTALLED/{ID}.state.json';rec=json.loads(p.read_text());rec['installed']['plugin_line']='ms0:/seplugins/cheat.prx';p.write_text(json.dumps(rec))
+  self.run_client('plugin',ID,'off',ok=False);self.assertEqual(self.tree(d),before);self.run_client('uninstall',ID);self.assertEqual(self.tree(d),{'PLUGINS.TXT':before['PLUGINS.TXT'],'cheat.prx':b'c'})
+  # A journal that names another file, at any phase and for either operation, removes and renames nothing either: not that file, and not a file beside it that only has the name of a copy.
+  for phase in ('prepared','staging','placed','committed'):
+   for op in ('install','remove'):
+    shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup(lst=self.USER)
+    for n in ('cheat.prx','cheat.prx.pspdx-old','cheat.prx.pspdx-new'):(d/n).write_bytes(b'c '+n.encode())
+    self.run_client('install');before=self.tree(d);sha=hashlib.sha256(b'plugin one').hexdigest()
+    self.write('ms0:/PSP/PSPDX/TMP/transaction.json',dict(id=ID,device='ms0:',op=op,phase=phase,plugin='cheat.prx',old_state={},sha=sha,was=sha,size=10));self.run_client('recover')
+    self.assertEqual(self.tree(d),before,(phase,op))
+  for name,ok in (('PLUGINS.TXT',0),('plugins.txt.prx',1),('PLUGINS.TXT.pspdx-new.prx',1),('../x.prx',0),('a:b.prx',0),('x.prx.',0),('x.prx ',0),('..prx',0),('a,b.prx',0),('my plugin.prx',0),('x'*28+'.prx',1),('x'*29+'.prx',0),('.prx',0),('-.prx',1)):
+   with self.subTest(name=name):
+    shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();d=self.plugin_setup({name:b'x','EBOOT.PBP':b'e'},lst=self.USER);r=self.run_client('install',ok=False)
+    self.assertEqual(self.tree(d),dict({'PLUGINS.TXT':self.USER},**({name:b'x'} if ok else {})),r.stderr);self.assertEqual(r.returncode,0 if ok else 1);self.assertFalse((self.root/'ms0:/PSP/x.prx').exists())
+  for files,why in (({'EBOOT.PBP':b'x','sub/usbnet.prx':b'x'},'has no .prx on top'),({'a.prx':b'x','b.PRX':b'y'},'has several .prx on top'),({'my plugin.prx':b'x'},'an unusable name')):
+   shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();self.plugin_setup(files);r=self.run_client('install',ok=False);self.assertIn(why,r.stderr,files);self.assertEqual(self.state(),{})
+ def test_plugin_never_takes_a_file_it_did_not_install(self):
+  # A .prx of that name somebody put there is not adopted and not written over, and nothing is made beside it: no folder, no list. An installed plugin keeps its file's name, an app that is a folder does not become a file, and another app's plugin is that app's.
+  d=self.plugin_setup();d.mkdir();(d/'usbnet.prx').write_bytes(b'mine')
+  r=self.run_client('install',ok=False,VERBOSE=1);self.assertIn('why: a .prx of that name exists',r.stderr);self.assertEqual(self.tree(d),{'usbnet.prx':b'mine'});self.assertEqual(self.state(),{})
+  self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists());self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/download.zip').exists())
+  (d/'usbnet.prx').unlink();(d/'USBNET.PRX').write_bytes(b'mine too');self.assertNotEqual(self.run_client('install',ok=False).returncode,0);self.assertEqual(self.tree(d),{'USBNET.PRX':b'mine too'})
+  # Refused before the folder is made: a zip that is no plugin leaves no seplugins behind.
+  shutil.rmtree(d);self.plugin_setup({'EBOOT.PBP':b'x'});self.run_client('install',ok=False);self.assertFalse(d.exists())
+  self.plugin_setup({'Usbnet.PRX':b'one'});self.run_client('install',VERSION=1);self.assertEqual(self.tree(d),{'Usbnet.PRX':b'one'})
+  self.plugin_setup({'usbnet2.prx':b'two'});r=self.run_client('install',ok=False);self.assertIn('has another name now',r.stderr);self.assertEqual(self.tree(d),{'Usbnet.PRX':b'one'})
+  self.plugin_setup({'USBNET.prx':b'two'});self.run_client('install');self.assertEqual(self.tree(d),{'Usbnet.PRX':b'two'})
+  self.write('manifest.json',SPEC);self.zip('new.zip',{'EBOOT.PBP':b'app'});r=self.run_client('install',ok=False,VERBOSE=1);self.assertIn('delete it first',r.stderr);self.assertFalse((self.root/'ms0:/PSP/GAME/Demo').exists())
+  record=json.loads(json.dumps(self.state()[ID]));record['source']='https://github.com/test/other';self.write('ms0:/PSP/PSPDX/INSTALLED/io.github.test.other.state.json',record)
+  self.run_client('uninstall',ID);self.plugin_setup({'usbnet.prx':b'x'});r=self.run_client('install',ok=False);self.assertIn('of that name exists',r.stderr);self.assertEqual(self.tree(d),{})
+ def test_plugin_goes_to_the_device_chosen_and_stays_there(self):
+  # On a PSP Go the plugin and its line are on the device the install chose, ef0: named in the line, and an update and the switch keep to it.
+  self.plugin_setup();self.run_client('install',INSTALL_DEVICE='ef0:',VERSION=1);d=self.root/'ef0:/seplugins';line=b'always, ef0:/seplugins/usbnet.prx, on \n'
+  self.assertEqual(self.tree(d),{'usbnet.prx':b'plugin one'});self.assertEqual(self.state()[ID]['installed']['device'],'ef0:');self.assertFalse((self.root/'ms0:/seplugins').exists())
+  self.assertEqual(self.run_client('plugin',ID,'on').stdout.strip(),'1');self.assertEqual((d/'PLUGINS.TXT').read_bytes(),line);self.assertEqual(self.state()[ID]['installed']['plugin_line'],'ef0:/seplugins/usbnet.prx')
+  self.zip('new.zip',{'usbnet.prx':b'plugin two'});self.run_client('install',INSTALL_DEVICE='ms0:');self.assertEqual((d/'usbnet.prx').read_bytes(),b'plugin two');self.assertFalse((self.root/'ms0:/seplugins').exists())
+  self.assertEqual(self.run_client('plugin',ID,'off').stdout.strip(),'0');self.assertEqual((d/'PLUGINS.TXT').read_bytes(),line.replace(b'on ',b'off'))
+  self.run_client('uninstall',ID);self.assertEqual(self.tree(d),{'PLUGINS.TXT':b' '*(len(line)-1)+b'\n'})
+ def test_plugin_power_cuts_and_failures(self):
+  # The reviewer's fault sweeps, and one more: every plugin operation cut after each mutating call, a write cut after any number of its bytes, each call failing in turn, and the stick full at any point. At every moment, before the next start and after it: the list is there, as long as it was or longer by the one line, each byte the one it was or the one meant for its place; nobody else's file is touched; and after the next start the plugin is whole in one version or gone, with nothing of PSPDX's left beside it.
+  base=b'# mine\r\ngame, other.prx, on';on=base+b'\r\n'+self.OWN+b'\r\n';off=on.replace(b'on \r\n',b'off\r\n');blank=on.replace(self.OWN,b' '*len(self.OWN))
+  d=self.plugin_setup(lst=base);lst=d/'PLUGINS.TXT';theirs={'other.prx':b'somebody else','PLUGINS.TXT.pspdx-old':b'my own old copy','PLUGINS.TXT.bak':b'my backup'}
+  for n,b in theirs.items():(d/n).write_bytes(b)
+  snap={}
+  def keep(name):snap[name]=self.root/name;shutil.copytree(self.root/'ms0:',snap[name])
+  keep('empty');self.run_client('install',VERSION=1);keep('installed');self.run_client('plugin',ID,'on');keep('on');self.run_client('plugin',ID,'off');keep('off');self.zip('new.zip',{'usbnet.prx':b'plugin two'})
+  # op: the stick it starts from, the command, the list before and the list it is on its way to.
+  ops={'fresh':('empty',('install',),base,base),'update':('off',('install',),off,off),'turn on':('installed',('plugin',ID,'on'),base,on),'off':('on',('plugin',ID,'off'),on,off),'on':('off',('plugin',ID,'on'),off,on),'remove':('on',('uninstall',ID),on,blank),'remove unlisted':('installed',('uninstall',ID),base,base)}
+  def check(tag,old,new,settled):
+   files=self.tree(d);text=files.get('PLUGINS.TXT');self.assertIsNotNone(text,tag);self.assertTrue(len(old)<=len(text)<=len(new),(tag,text))
+   self.assertTrue(all(c in (new[i],old[i] if i<len(old) else new[i]) for i,c in enumerate(text)),(tag,text))
+   for n,b in theirs.items():self.assertEqual(files.get(n),b,(tag,n))
+   prx=files.get('usbnet.prx');state=self.state()
+   if settled:
+    self.assertIn(text,(old,new),tag);own=len(self.own_lines(text))
+    if ID in state:self.assertEqual((state[ID]['installed'].get('plugin_line'),state[ID]['installed'].get('plugin_write')),(self.PRX if own else None,None),tag)
+    self.assertEqual(sorted(set(files)-set(theirs)-{'PLUGINS.TXT'}),['usbnet.prx'] if ID in state else [],(tag,sorted(files)));self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists(),tag)
+    if ID in state:self.assertEqual(hashlib.sha256(prx).hexdigest(),state[ID]['installed']['plugin_sha256'],tag);self.assertEqual(prx,b'plugin one' if state[ID]['installed']['version']=='1' else b'plugin two',tag)
+    if ID in state:self.assertEqual(self.run_client('plugin',ID).stdout.strip(),str(max(self.ark_state(text),0)),tag)
+   elif prx is not None:self.assertIn(prx,(b'plugin one',b'plugin two'),tag)
+  for mode in ('cut','torn','fail','full'):
+   for op,(start,command,old,new) in ops.items():
+    if mode=='torn' and old==new:continue
+    steps=range(1,200) if mode in ('cut','fail') else range(0,len(new)-len(old)+len(self.OWN)+2) if mode=='torn' else range(0,3000,41)
+    for k in steps:
+     shutil.rmtree(self.root/'ms0:');shutil.copytree(snap[start],self.root/'ms0:');tag=(mode,op,k)
+     if mode=='torn':
+      # The cut falls on the list's one write, wherever in the operation that is, and k of its bytes are down.
+      for fault in range(1,60):
+       shutil.rmtree(self.root/'ms0:');shutil.copytree(snap[start],self.root/'ms0:');r=self.run_client(*command,ok=False,FAULT=fault,TORN=k)
+       if (d/'PLUGINS.TXT').read_bytes()!=old or r.returncode==0:break
+      self.assertEqual(r.returncode,77,tag)
+     else:
+      env={'cut':{'FAULT':k},'fail':{'FAILAT':k},'full':{'STICK_BYTES':sum(p.stat().st_size for p in (self.root/'ms0:').rglob('*') if p.is_file())+k}}[mode]
+      r=self.run_client(*command,ok=False,**env);self.assertIn(r.returncode,[0,1,77],(tag,r.stderr))
+     check(tag+('before the next start',),old,new,False);self.run_client('recover');check(tag+('after it',),old,new,True)
+     if mode in ('cut','fail') and r.returncode==0 and k>3:break
+    else:self.assertNotIn(mode,('cut','fail'),'fault sweep did not reach completion: '+op)
+ def test_plugin_texts_fit_their_bands(self):
+  # Every line a plugin puts on the screen, measured the way gui/font.c measures it -- the font's own advances, as intraFont adds them up -- against the room its band gives it. The font is the one the release carries, as wide as the console's ltn8; the fallback face, ltn0, runs 1.46 times as wide, and the lines have to fit in that too. The status line is one line of 448 px at FONT_META; a question's title one of 440 at FONT_TITLE, and its line is broken at 400 into at most three, the last of which takes what is left.
+  import re,sys;sys.path.insert(0,str(pathlib.Path(__file__).parent));import pgf
+  app=pathlib.Path(__file__).resolve().parents[2]/'app';font=pgf.Font(app/'assets/font.pgf');wide=1.46
+  text=dict(re.findall(r'^#define (T_\w+)\s+"((?:[^"\\]|\\.)*)"',(app/'text.h').read_text(),re.M))
+  name,version='pspkit-usbnet','0.1.3'
+  def fill(t,*a):
+   it=iter(a);return re.sub(r'%(?:\.\d+)?l?[sdu]',lambda m:next(it),t)
+  def lines(shown):
+   # gui/shell.c's break_lines, in the wide face: how many lines of 400, and how wide the last.
+   out=[''];words=shown.split(' ')
+   for w in words:
+    if out[-1] and font.width(out[-1]+' '+w,1.2)*wide>400 and len(out)<3:out.append(w)
+    else:out[-1]=(out[-1]+' '+w).strip()
+   return out
+  status=[('T_PLUGIN_ON',()),('T_PLUGIN_OFF',()),('T_PLUGIN_UPDATED',(name,version)),('T_PLUGIN_REMOVED',(name,)),('T_PLUGIN_REMOVED_LINES',()),('T_PLUGIN_LEFT',()),('T_PLUGIN_NOT_OURS',()),('T_PLUGIN_FAILED',())]
+  # A reason in each line that can give it -- an install's, a delete's, a switch's -- and in the 64 bytes a reason is kept in.
+  for key in text:
+   if key.startswith('T_WHY_') and ('PRX' in key or 'LIST' in key):
+    said=('T_PLUGIN_FAILED_WHY','T_PLUGIN_NOT_DELETED') if 'LIST' in key else ('T_PLUGIN_NOT_INSTALLED','T_PLUGIN_NOT_DELETED') if 'READONLY' in key else ('T_PLUGIN_NOT_INSTALLED',)
+    self.assertNotIn('%',text[key]);self.assertLess(len(text[key]),64,key);status+=[(line,(text[key],)) for line in said]
+  self.assertGreater(len(status),25)
+  for key,args in status:
+   shown=fill(text[key],*args);self.assertLessEqual(font.width(shown)*wide,448,shown);self.assertLess(len(shown.encode()),96,shown)
+  def heads(shown):
+   # The question's own lines of 440, three at most, broken as gui/shell.c breaks them, in the wide face.
+   out=[''];
+   for w in shown.split(' '):
+    if out[-1] and font.width(out[-1]+' '+w,1.2)*wide>440 and len(out)<3:out.append(w)
+    else:out[-1]=(out[-1]+' '+w).strip()
+   return out
+  # Every question that carries a name, with the longest a catalog may give -- 40 characters -- and the folder's 32: in the band's lines, two in the console's face and three in the wider one. The start question ran over both edges with such a name.
+  # (One word wider than the band by itself cannot be broken, and is cut at the band's edge by the clipped print: not measured here.)
+  longest=('Remote Joystick Bridge for the USB Port','Grand Winter Mountain Rally Championship','Worldwide Homebrew Warehouse Manager MMX')
+  self.assertTrue(all(39<=len(n)<=40 for n in longest))
+  for key,names in (('T_RUN_ASK',longest),('T_REMOVE_ASK',longest),('T_PLUGIN_INSTALLED_ASK',longest+(name,)),('T_DIR_EXISTS_ASK',('Remote_Joystick_Bridge_USB_Port1',)),('T_PLUGIN_ON_ASK',('',)),('T_PLUGIN_OFF_ASK',('',)),('T_CABLE_CONNECT_ASK',('',)),('T_CABLE_GATEWAY_ASK',('',)),('T_RESTART_ASK',('',)),('T_INBOX_ASK',('64',)),('T_ALL_ASK_INSTALL',('4096','s')),('T_ALL_ASK_UPDATE',('4096','s'))):
+   for n in names:
+    shown=fill(text[key],*([n] if isinstance(n,str) and key not in ('T_ALL_ASK_INSTALL','T_ALL_ASK_UPDATE') else names)) if '%' in text[key] else text[key]
+    broken=heads(shown);self.assertLessEqual(len(broken),3,shown);self.assertTrue(all(font.width(l,1.2)*wide<=440 for l in broken),broken);self.assertLessEqual(sum(font.width(l,1.2) for l in broken),2*440*0.9,shown);self.assertLess(len(shown.encode()),200,shown)
+  for key in ('T_CABLE_ON','T_CABLE_OFF','T_CABLE_NOT_LOADED'):self.assertLessEqual(font.width(text[key])*wide,448,key);self.assertLess(len(text[key]),64,key)
+  url=text['T_CABLE_GATEWAY_URL'];text['T_CABLE_GATEWAY_LINE']='Get it from '+url;self.assertIn('"Get it from " T_CABLE_GATEWAY_URL',(app/'text.h').read_text());self.assertEqual(url,'github.com/chriopter/pspkit-usbnet')
+  # The connection's menu and its row under Options, no wider than the ones beside them; its note in the three lines a note has, of the right column's width.
+  self.assertLessEqual(font.width(text['T_CABLE_USB']),font.width(text['T_STORAGE_INTERNAL']));self.assertLessEqual(font.width(text['T_SYS_CABLE'],1.2),font.width(text['T_SYS_FILL'],1.2));self.assertLessEqual(len(text['T_SYS_CABLE_NOTE']),len(text['T_SYS_FILL_NOTE'])+25)
+  # A line breaks at 400 and is drawn centred, unclipped, in a band 480 wide: a word that cannot be broken -- the gateway's address -- may stand alone on its line up to the title's 440.
+  for key in ('T_PLUGIN_TURN_ON_LINE','T_PLUGIN_ON_LINE','T_PLUGIN_OFF_LINE','T_CABLE_CONNECT_LINE','T_CABLE_GATEWAY_LINE','T_CABLE_GO_ON_LINE'):
+   broken=lines(text[key]);self.assertLessEqual(len(broken),3,broken);self.assertTrue(all(font.width(l,1.2)*wide<=(440 if ' ' not in l else 400) for l in broken),broken);self.assertLess(len(text[key]),200)
+  # The address is whole and on one line in either face: with its words before it in the console's, alone under them in the wider one.
+  self.assertEqual(lines(text['T_CABLE_GATEWAY_LINE']),['Get it from',url]);self.assertLessEqual(font.width(text['T_CABLE_GATEWAY_LINE'],1.2),400)
+  # The menu's row, in the 32 bytes it is kept in; and the card's line, no longer than the one it stands in for.
+  for key in ('T_MENU_PLUGIN_ON','T_MENU_PLUGIN_OFF'):self.assertLessEqual(font.width(text[key]),font.width(text['T_MENU_REBUILD']),key)
+  self.assertLess(font.width(fill(text['T_PANEL_PLUGIN_OFF'],version)),font.width(fill(text['T_PANEL_REBUILD'],version,'1.2 MB')))
+  # The measure itself: a word is as wide as its letters, at any size, and no letter is nothing or a whole band.
+  self.assertTrue(11*4<font.width('PLUGINS.TXT')<11*12);self.assertEqual(font.width('ab',1.2),1.2*(font.width('a')+font.width('b')))
+ # ---- the cable: pspkit-usbnet's plugin, carried beside the EBOOT
+ CABLE='io.github.chriopter.pspkitusbnet'
+ def cable_setup(self,tag='v0.1.3',prx=b'usbnet module',note=True):
+  # The folder PSPDX runs from as a release leaves it, and the release's zip as a catalog lists it.
+  d=self.root/'ms0:/PSP/GAME/PSPDX';d.mkdir(parents=True,exist_ok=True);self.zip('usbnet-psp.zip',{'usbnet.prx':prx,'LICENSE':b'MIT'});zipsha=hashlib.sha256((self.root/'usbnet-psp.zip').read_bytes()).hexdigest()
+  if prx is not None:(d/'usbnet.prx').write_bytes(prx)
+  if note:(d/'usbnet.txt').write_text('tag=%s\nzip=%s\n'%(tag,zipsha))
+  return zipsha
+ def cable(self,*args,**env):
+  r=self.run_client('cable',*args,**env);return r.stdout.rstrip('\n')
+ def test_cable_is_asked_about_once_and_only_where_it_can_be_offered(self):
+  # How to connect is a question only at a start that has never had the answer, with the plugin's copy and the note of its release beside the EBOOT, a kernel to load it and no cable plugin there already. Nothing is loaded or installed by the start itself.
+  note=self.root/'loaded.txt';self.cable_setup();d=self.root/'ms0:/seplugins'
+  self.assertEqual(self.cable(0,KERNEL=1,LOADED_NOTE=note),'1 0 0');self.assertFalse(note.exists());self.assertFalse(d.exists())
+  # No kernel to ask -- an emulator: no question, and nothing done. Answered already, either way: no question.
+  self.assertEqual(self.cable(0),'0 0 0');self.assertEqual(self.cable(1,KERNEL=1,LOADED_NOTE=note),'0 0 0');self.assertFalse(note.exists())
+  # The copy or the note of its release missing, or the note not one: no question.
+  for prx,text in ((None,None),(b'x',''),(b'x','tag=v1\n'),(b'x','zip=%s\n'%('a'*64)),(b'x','tag=v1\nzip=xyz\n')):
+   shutil.rmtree(self.root/'ms0:/PSP/GAME/PSPDX');g=self.root/'ms0:/PSP/GAME/PSPDX';g.mkdir()
+   if prx:(g/'usbnet.prx').write_bytes(prx)
+   if text is not None:(g/'usbnet.txt').write_text(text)
+   self.assertEqual(self.cable(0,KERNEL=1),'0 0 0',(prx,text))
+  # Loaded by the firmware from a copy somebody put there by hand: it is there, and nothing is asked.
+  self.cable_setup();self.assertEqual(self.cable(0,KERNEL=1,LOADED=1),'0 1 1')
+  # The cable chosen: installed, turned on, loaded at once from the installed copy; and from then on a start asks nothing and loads nothing, on or off.
+  self.assertEqual(self.cable(0,'use',KERNEL=1,LOADED_NOTE=note),'0 1 ');self.assertEqual(note.read_text(),'ms0:/seplugins/usbnet.prx\n')
+  self.assertEqual(self.tree(d),{'PLUGINS.TXT':b'always, ms0:/seplugins/usbnet.prx, on \n','usbnet.prx':b'usbnet module'});note.unlink()
+  for choice in (0,1,2,3):self.assertEqual(self.cable(choice,KERNEL=1,LOADED_NOTE=note),'0 1 0')
+  self.run_client('plugin',self.CABLE,'off')
+  for choice in (0,2):self.assertEqual(self.cable(choice,KERNEL=1,LOADED_NOTE=note),'0 1 0')
+  self.assertFalse(note.exists())
+  # Chosen again under Options with the plugin installed and off: turned on and loaded, nothing installed anew.
+  before=self.state()[self.CABLE];self.assertEqual(self.cable(1,'use',KERNEL=1,LOADED_NOTE=note),'0 1 ');self.assertEqual(self.run_client('plugin',self.CABLE).stdout.strip(),'1')
+  self.assertEqual(self.state()[self.CABLE]['installed']['plugin_sha256'],before['installed']['plugin_sha256'])
+ def test_cable_installs_the_carried_copy_as_the_store_would(self):
+  # The copy beside the EBOOT goes in through the plugin installer: the record is the one an install from the catalog of the same release writes -- the catalog's id, the tag for a version, the zip's hash -- so the same release in a catalog is current and a newer one an update, which then installs over it like any.
+  zipsha=self.cable_setup();d=self.root/'ms0:/seplugins';(self.root/'manifest.json').unlink();self.assertEqual(self.cable(0,'use',KERNEL=1),'0 1 ')
+  rec=self.state()[self.CABLE];installed=rec['installed'];self.assertEqual(rec['source'],'https://github.com/chriopter/pspkit-usbnet')
+  self.assertEqual({k:installed[k] for k in ('version','installdir','device','sha256','plugin_sha256','plugin_line')},dict(version='0.1.3',installdir='seplugins/usbnet.prx',device='ms0:',sha256=zipsha,plugin_sha256=hashlib.sha256(b'usbnet module').hexdigest(),plugin_line='ms0:/seplugins/usbnet.prx'))
+  saved=json.loads((self.root/f'ms0:/PSP/PSPDX/INSTALLED/{self.CABLE}.pspdx').read_text());self.assertEqual((saved['type'],saved['source'],saved['schema']),('plugin',rec['source'],SCHEMA))
+  self.assertFalse((self.root/'ms0:/PSP/PSPDX/TMP/transaction.json').exists())
+  app=dict(id=self.CABLE,name='pspkit-usbnet',type='plugin',category='plugin',author='chriopter',source='https://github.com/chriopter/pspkit-usbnet',releases=[dict(tag='v0.1.3',published_at='2026-10-06T08:38:00Z',size=(self.root/'usbnet-psp.zip').stat().st_size,sha256=zipsha,url='https://github.com/chriopter/pspkit-usbnet/releases/download/v0.1.3/download.zip')])
+  def rows(app):
+   self.write('catalog.json',dict(schema='https://chriopter.github.io/pspdx/schema/catalog-v1.json',generated_at=NOW(),apps=[app]));(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
+   return {row.split()[0]:row.split() for row in self.run_client('fetch').stdout.splitlines()}[self.CABLE]
+  self.assertEqual(rows(app)[1:],['0.1.3','1','2','0'])
+  # The same catalog's entry installed by the store on another stick writes the same record, but for the line, which the store leaves to be asked about.
+  other=self.root/'other';shutil.copytree(self.root/'ms0:',other);shutil.rmtree(self.root/'ms0:/seplugins');(self.root/f'ms0:/PSP/PSPDX/INSTALLED/{self.CABLE}.state.json').unlink();(self.root/f'ms0:/PSP/PSPDX/INSTALLED/{self.CABLE}.pspdx').unlink()
+  self.assertEqual(self.run_client('get',self.CABLE,ZIP_FILE=self.root/'usbnet-psp.zip').stdout.strip(),'0');store=self.state()[self.CABLE]['installed']
+  self.assertEqual({k:store[k] for k in ('version','installdir','device','sha256','plugin_sha256')},{k:installed[k] for k in ('version','installdir','device','sha256','plugin_sha256')})
+  shutil.rmtree(self.root/'ms0:');shutil.copytree(other,self.root/'ms0:')
+  # A newer release in the catalog: an update, and the store installs it over the carried copy, the line and its on left as they are.
+  self.zip('usbnet-psp.zip',{'usbnet.prx':b'usbnet module, newer','LICENSE':b'MIT'});newer=dict(app,releases=[dict(app['releases'][0],tag='v0.1.4',published_at='2026-10-07T08:00:00Z',size=(self.root/'usbnet-psp.zip').stat().st_size,sha256=hashlib.sha256((self.root/'usbnet-psp.zip').read_bytes()).hexdigest(),url='https://github.com/chriopter/pspkit-usbnet/releases/download/v0.1.4/download.zip')])
+  self.assertEqual(rows(newer)[1:],['0.1.4','1','3','0']);self.assertEqual(self.run_client('get',self.CABLE,ZIP_FILE=self.root/'usbnet-psp.zip').stdout.strip(),'0')
+  self.assertEqual(self.tree(d),{'PLUGINS.TXT':b'always, ms0:/seplugins/usbnet.prx, on \n','usbnet.prx':b'usbnet module, newer'});self.assertEqual(self.state()[self.CABLE]['installed']['version'],'0.1.4');self.assertEqual(rows(newer)[3],'2')
+  # On a PSP Go started from the internal storage the plugin goes there, and its line names ef0:.
+  shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();g=self.root/'ef0:/PSP/GAME/PSPDX';g.mkdir(parents=True);(g/'usbnet.prx').write_bytes(b'usbnet module');(g/'usbnet.txt').write_text('tag=0.1.3\nzip=%s\n'%zipsha)
+  boot='ef0:/PSP/GAME/PSPDX/EBOOT.PBP';self.assertEqual(self.cable(0,'use',KERNEL=1,DEVICE=boot),'0 1 ');self.assertEqual(self.tree(self.root/'ef0:/seplugins'),{'PLUGINS.TXT':b'always, ef0:/seplugins/usbnet.prx, on \n','usbnet.prx':b'usbnet module'});self.assertFalse((self.root/'ms0:/seplugins').exists())
+ def test_cable_refused_says_why_and_still_serves_the_session(self):
+  # Whatever the plugin installer refuses it refuses here: a usbnet.prx somebody put there is not replaced, a list that is not to be written is not written. The reason is one line, the carried copy is loaded for the session all the same, and a later start with the cable chosen loads it again, nothing else.
+  note=self.root/'loaded.txt';self.cable_setup();d=self.root/'ms0:/seplugins';d.mkdir();(d/'usbnet.prx').write_bytes(b'mine');(d/'PLUGINS.TXT').write_bytes(self.USER);before=self.tree(d)
+  self.assertEqual(self.cable(0,'use',KERNEL=1,LOADED_NOTE=note),'0 1 Not installed: a .prx of that name exists.');self.assertEqual(self.tree(d),before);self.assertEqual(self.state(),{})
+  self.assertEqual(note.read_text(),'ms0:/PSP/GAME/PSPDX/usbnet.prx\n');note.unlink()
+  self.assertEqual(self.cable(2,KERNEL=1,LOADED_NOTE=note),'0 1 1');self.assertEqual(note.read_text(),'ms0:/PSP/GAME/PSPDX/usbnet.prx\n');note.unlink()
+  self.assertEqual(self.cable(1,KERNEL=1,LOADED_NOTE=note),'0 0 0');self.assertFalse(note.exists());self.assertEqual(self.tree(d),before)
+  # Installed, but the list cannot be written: the plugin is in and off, the line says why, the module is loaded.
+  (d/'usbnet.prx').unlink();(d/'PLUGINS.TXT').chmod(0o444);self.assertEqual(self.cable(0,'use',KERNEL=1,LOADED_NOTE=note),'0 1 Not changed: PLUGINS.TXT is read-only.')
+  self.assertEqual(self.tree(d),dict(before,**{'usbnet.prx':b'usbnet module'}));self.assertEqual(self.run_client('plugin',self.CABLE).stdout.strip(),'0');self.assertEqual(note.read_text(),'ms0:/seplugins/usbnet.prx\n')
+  # A line of somebody's own that keeps it off is theirs: said, not changed.
+  (d/'PLUGINS.TXT').chmod(0o644);hand=self.USER+b'game, usbnet.prx, off\r\n';(d/'PLUGINS.TXT').write_bytes(hand);self.assertEqual(self.cable(0,'use',KERNEL=1),'0 1 Not changed: other lines name it.');self.assertEqual((d/'PLUGINS.TXT').read_bytes(),hand)
+  # The module will not load: that is what comes back, with the plugin installed and on for the next start.
+  shutil.rmtree(self.root/'ms0:/seplugins');shutil.rmtree(self.root/'ms0:/PSP/PSPDX/INSTALLED');self.assertEqual(self.cable(0,'use',KERNEL=1,LOAD_FAILS=1),'-1 0 ');self.assertEqual(self.run_client('plugin',self.CABLE).stdout.strip(),'1')
+  # A power cut anywhere in it leaves, after the next start, the plugin whole or not there, and nothing else under seplugins/.
+  for fault in range(1,200):
+   shutil.rmtree(self.root/'ms0:');(self.root/'ms0:').mkdir();self.cable_setup();d.mkdir();(d/'PLUGINS.TXT').write_bytes(self.USER)
+   r=self.run_client('cable',0,'use',ok=False,KERNEL=1,FAULT=fault);self.run_client('recover');files=self.tree(d);text=files.pop('PLUGINS.TXT');self.assertIn(text,(self.USER,self.USER+self.OWN+b'\r\n'),fault)
+   self.assertEqual(files,{'usbnet.prx':b'usbnet module'} if self.CABLE in self.state() else {},fault)
+   if r.returncode==0:break
+  else:self.fail('fault sweep did not reach completion')
+  self.assertGreater(fault,20)
+ def test_a_plugin_is_one_by_its_type_and_shown_as_one_by_its_category(self):
+  # What an entry is decides its category: a plugin stands under "plugin" whatever category it names or leaves out, on its page and in the store's rows, and nowhere else; a homebrew that carries the tag "plugin", or even writes it for a category, is a homebrew and stands where its own category puts it, or nowhere.
+  self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0]
+  def app(n,**fields):
+   source='https://github.com/test/app%d'%n;a=dict(first,id='io.github.test.app%d'%n,name='App %d'%n,source=source,installdir='PSP/GAME/App%d'%n,releases=[dict(first['releases'][0],url=source+'/releases/download/v2/download.zip')],**fields)
+   if fields.get('type')=='plugin':a.pop('installdir')
+   a.pop('category',None) if 'category' not in fields else None;return a
+  apps=[app(0,type='plugin',tags=['plugin']),app(1,type='plugin',tags=['tool'],category='game'),app(2,type='plugin',tags=[],category='Plugin'),app(3,tags=['plugin']),app(4,tags=['plugin'],category='app'),app(5,tags=['x'],category='plugin'),app(6,tags=['plugin','game'])]
+  self.write('catalog.json',dict(catalog,apps=apps));(self.root/'manifest.json').unlink()
+  got=dict(line.split() for line in self.run_client('categories').stdout.splitlines())
+  self.assertEqual([got['io.github.test.app%d'%n] for n in range(7)],['plugin','plugin','plugin','-','app','-','-'])
+  listed=lambda word:sorted(self.run_client('listing',word).stdout.split())
+  self.assertEqual(listed('plugin'),['io.github.test.app0','io.github.test.app1','io.github.test.app2']);self.assertEqual(listed('app'),['io.github.test.app4'])
+  self.assertNotIn('io.github.test.app1',listed('game'))
+  # One row for them among the categories, by the one word, however the entries spell theirs.
+  r=self.run_client('groups').stdout;self.assertEqual(r.count('0 plugin 3'),1,r);self.assertNotIn('Plugin',r)
+ def test_plugins_are_listed_and_installed(self):
+  # A plugin in a catalog is a row that installs like any other, from its entry where the repository has no .pspdx; an ISO is listed and not installed.
+  self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0]
+  plugin={k:v for k,v in dict(first,id='io.github.test.plug',name='Plug',type='plugin',category='plugin',tags=['plugin'],source='https://github.com/test/plug',releases=[dict(first['releases'][0],url='https://github.com/test/plug/releases/download/v2/download.zip')]).items() if k!='installdir'}
+  iso=dict(plugin,id='io.github.test.disc',name='Disc',type='iso',source='https://github.com/test/disc',releases=[dict(first['releases'][0],url='https://github.com/test/disc/releases/download/v2/download.zip')])
   mirror={k:v for k,v in dict(first,id='de.wijsman.blocks',name='Blocks',source='https://archive.org/details/psp-blocks',releases=[dict(first['releases'][0],url='https://archive.org/download/psp-blocks/blocks.zip')]).items() if k!='installdir'}
-  self.write('catalog.json',dict(catalog,apps=[first,plugin,mirror]))
+  self.write('catalog.json',dict(catalog,apps=[first,plugin,iso,mirror]))
   r=self.run_client('fetch',VERBOSE=1);rows={row.split()[0]:row.split() for row in r.stdout.splitlines()}
-  # A mirror installs from its entry; a plugin, from anywhere, is listed and not installed.
-  self.assertEqual((rows[ID][4],rows['io.github.test.plug'][4],rows['de.wijsman.blocks'][4]),('0','1','0'),r.stdout)
-  r=self.run_client('prepare','io.github.test.plug',ok=False,VERBOSE=1);self.assertEqual(r.stdout.strip(),'-1');self.assertIn('cannot be installed yet',r.stderr)
+  # A mirror installs from its entry, and so does a plugin; an ISO, from anywhere, is listed and not installed.
+  self.assertEqual((rows[ID][4],rows['io.github.test.plug'][4],rows['io.github.test.disc'][4],rows['de.wijsman.blocks'][4]),('0','0','1','0'),r.stdout)
+  self.assertEqual(rows['io.github.test.plug'][3],'1');self.assertIn('io.github.test.plug',self.run_client('listing','plugin').stdout.split())
+  r=self.run_client('prepare','io.github.test.disc',ok=False,VERBOSE=1);self.assertEqual(r.stdout.strip(),'-1');self.assertIn('cannot be installed yet',r.stderr)
+  (self.root/'manifest.json').unlink();self.zip('plug.zip',{'plug.prx':b'a plugin','LICENSE':b'MIT'});size=(self.root/'plug.zip').stat().st_size
+  plugin['releases'][0].update(size=size,sha256=hashlib.sha256((self.root/'plug.zip').read_bytes()).hexdigest());self.write('catalog.json',dict(catalog,apps=[first,plugin]))
+  r=self.run_client('get','io.github.test.plug',VERBOSE=1,ZIP_FILE=self.root/'plug.zip');self.assertEqual(r.stdout.strip(),'0',r.stderr)
+  dir=self.root/'ms0:/seplugins';self.assertEqual(self.tree(dir),{'plug.prx':b'a plugin'})
+  saved=json.loads((self.root/'ms0:/PSP/PSPDX/INSTALLED/io.github.test.plug.pspdx').read_text());self.assertEqual((saved['type'],saved.get('installdir')),('plugin',None))
+  # Installed and current in the list; a newer zip in the catalog is an update like any other, and without the catalog the row comes back out of its record.
+  rows={row.split()[0]:row.split() for row in self.run_client('fetch').stdout.splitlines()};self.assertEqual(rows['io.github.test.plug'][3:],['2','0'])
+  plugin['releases'][0].update(tag='v3',published_at='1970-01-01T00:00:03Z',sha256='1'*64);self.write('catalog.json',dict(catalog,apps=[first,plugin]))
+  rows={row.split()[0]:row.split() for row in self.run_client('fetch').stdout.splitlines()};self.assertEqual(rows['io.github.test.plug'][3:],['3','0'])
+  self.write('catalog.json',dict(catalog,apps=[first]));rows={row.split()[0]:row.split() for row in self.run_client('fetch',OFFLINE=1).stdout.splitlines()};self.assertEqual(rows['io.github.test.plug'][4],'0')
   # A plugin carrying an installdir is not listed at all; a mirror the list calls a word is listed as its source's host and name make it, and one it gives an id keeps that id.
+  self.run_client('uninstall','io.github.test.plug')
   self.write('catalog.json',dict(catalog,apps=[first,dict(plugin,installdir='PSP/GAME/Plug'),dict(mirror,id='blocks')]))
   self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID,'org.archive.blocks'])
   self.write('catalog.json',dict(catalog,apps=[first,dict(mirror,id='de.wijsman.other')]))
   self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID,'de.wijsman.other'])
-  # The origin path skips a .pspdx whose source is not GitHub, and INBOX keeps a plugin for a later version.
+  # The origin path skips a .pspdx whose source is not GitHub; INBOX takes a plugin and keeps an ISO for a later version.
   (self.root/'catalog.txt').write_text(SPEC['source']+'\n');(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/pspdx/\n')
   self.write('manifest.json',dict(SPEC,source='https://archive.org/details/psp-blocks'))
   r=self.run_client('fetch',CATALOG_DOWN=1,FORCE=1,VERBOSE=1);self.assertIn('outside GitHub',r.stderr)
-  self.write('ms0:/PSP/PSPDX/INBOX/plug.pspdx',plug);r=self.run_client('inbox',VERBOSE=1);self.assertEqual(r.stdout.strip(),'0');self.assertIn('cannot install yet; kept',r.stderr)
+  plug={k:v for k,v in dict(SPEC,type='iso',source='https://github.com/test/disc').items() if k!='installdir'}
+  self.write('ms0:/PSP/PSPDX/INBOX/disc.pspdx',plug);r=self.run_client('inbox',VERBOSE=1);self.assertEqual(r.stdout.strip(),'0');self.assertIn('cannot install yet; kept',r.stderr)
  def test_a_catalog_names_its_entries_as_it_likes(self):
   # A catalog's id that is one is kept; a word, a path, nothing or too much gives way to the id the source makes, and only that names a file.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink()
