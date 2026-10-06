@@ -131,18 +131,22 @@ int manifest_plugin_is_safe(const char *name) {
 /* Set by install_abort, from any thread: every loop below checks it. */
 static volatile int g_abort;
 
+/* A download arrives in pieces of a few kilobytes, and storage written a
+   piece at a time is the slowest part of it: a PSP Go's own flash took
+   1.1 MB/s that way and 2.6 MB/s in blocks, with the cable delivering 4.8.
+   So the pieces are gathered and written a block at a time; where there is
+   no memory for the block they are written as they come. */
+#define DL_BLOCK (256 * 1024)
+
 struct dl {
     int fd;
     wc_Sha256 sha;
     size_t written, expected;
+    unsigned char *block;
+    size_t held;
 };
 
-static int file_sink(void *ctx, const void *data, size_t len) {
-    struct dl *d = ctx;
-    if (len > d->expected - d->written)
-        return -1;
-    if (wc_Sha256Update(&d->sha, data, (word32)len) != 0)
-        return -1;
+static int dl_write(struct dl *d, const void *data, size_t len) {
     while (len) {
         int n = sceIoWrite(d->fd, data, len);
         if (n <= 0) {
@@ -151,7 +155,34 @@ static int file_sink(void *ctx, const void *data, size_t len) {
         }
         data = (const char *)data + n;
         len -= (size_t)n;
-        d->written += (size_t)n;
+    }
+    return 0;
+}
+
+/* What is still held goes to the file: before it is closed. */
+static int dl_flush(struct dl *d) {
+    size_t held = d->held;
+    d->held = 0;
+    return held ? dl_write(d, d->block, held) : 0;
+}
+
+static int file_sink(void *ctx, const void *data, size_t len) {
+    struct dl *d = ctx;
+    if (len > d->expected - d->written)
+        return -1;
+    if (wc_Sha256Update(&d->sha, data, (word32)len) != 0)
+        return -1;
+    d->written += len;
+    if (!d->block)
+        return dl_write(d, data, len);
+    while (len) {
+        size_t k = len < DL_BLOCK - d->held ? len : DL_BLOCK - d->held;
+        memcpy(d->block + d->held, data, k);
+        d->held += k;
+        data = (const char *)data + k;
+        len -= k;
+        if (d->held == DL_BLOCK && dl_flush(d) < 0)
+            return -1;
     }
     return 0;
 }
@@ -189,8 +220,15 @@ static int fetch_archive(const char *url, struct dl *d, https_progress progress,
         return -1;
     }
     unsigned start = now_ms();
+    d->block = malloc(DL_BLOCK);
+    d->held = 0;
     int rc = https_get(url, file_sink, d, progress, pctx, r);
+    int flushed = dl_flush(d);
+    free(d->block);
+    d->block = NULL;
     *close_rc = sceIoClose(d->fd);
+    if (flushed < 0 && *close_rc >= 0)
+        *close_rc = -1;
     unsigned ms = now_ms() - start;
     logline("download: rc=%d status=%ld %lu bytes in %u.%us", rc, r->status,
             (unsigned long)d->written, ms / 1000, (ms % 1000) / 100);

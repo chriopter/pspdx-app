@@ -168,22 +168,107 @@ static int install_device(const struct app_entry *entry, int row, char out[5]) {
     return rc;
 }
 
-/* A question of the caller's standing over the room until X or O: 1 for X. */
-static int answer(const char *title, const char *line) {
+/* The answer's button let go before the caller reads the pad again: under
+   Options the O that left a question would leave the view too. */
+static void released(void) {
+    SceCtrlData pad;
+    do {
+        shell_draw(g_catalog, 0);
+        sceCtrlPeekBufferPositive(&pad, 1);
+    } while (pad.Buttons & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE));
+}
+
+/* A question of the caller's standing over the room until X or O: 1 for X.
+   yes and no are what the two mean in the footer. */
+static int answer_with(const char *title, const char *line, const char *yes, const char *no) {
     SceCtrlData pad;
     sceCtrlPeekBufferPositive(&pad, 1);
     unsigned last = pad.Buttons;
-    int yes = -1;
-    shell_ask(title, line);
-    while (yes < 0) {
+    int said = -1;
+    shell_ask_with(title, line, yes, no);
+    while (said < 0) {
         shell_draw(g_catalog, 0);
         sceCtrlPeekBufferPositive(&pad, 1);
         unsigned pressed = pad.Buttons & ~last;
         last = pad.Buttons;
-        if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) yes = (pressed & PSP_CTRL_CROSS) != 0;
+        if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) said = (pressed & PSP_CTRL_CROSS) != 0;
     }
     shell_ask(NULL, NULL);
-    return yes;
+    released();
+    return said;
+}
+
+static int answer(const char *title, const char *line) {
+    return answer_with(title, line, T_YES, T_NO);
+}
+
+/* The gateway looked for, on a thread of its own since the plugin answers
+   only when it knows or the time is up, and the room keeps drawing under
+   the notice of it. The notice stands a second at the least: the press
+   that said yes to the plugin is often two, and the second would answer
+   what comes next unread. O leaves: -1, and the look ends by itself, its
+   answer the next look's if that comes before it has. */
+static volatile int g_looking;
+static volatile enum cable_look g_looked;
+
+static int look_thread(SceSize size, void *arg) {
+    (void)size;
+    (void)arg;
+    g_looked = cable_look();
+    g_looking = 0;
+    return sceKernelExitDeleteThread(0);
+}
+
+static int look(void) {
+    if (!g_looking) {
+        int thread = sceKernelCreateThread("gateway", look_thread, 0x20, 0x4000, PSP_THREAD_ATTR_USER, NULL);
+        if (thread < 0) return CABLE_NOT_SAID;
+        g_looking = 1;
+        if (sceKernelStartThread(thread, 0, NULL) < 0) {
+            g_looking = 0;
+            sceKernelDeleteThread(thread);
+            return CABLE_NOT_SAID;
+        }
+    }
+    SceCtrlData pad;
+    sceCtrlPeekBufferPositive(&pad, 1);
+    unsigned last = pad.Buttons, since = sceKernelGetSystemTimeLow();
+    int left = 0;
+    shell_ask_with(T_CABLE_LOOKING, "", NULL, T_HINT_CANCEL);
+    while (!left && (g_looking || sceKernelGetSystemTimeLow() - since < 1000000)) {
+        shell_draw(g_catalog, 0);
+        sceCtrlPeekBufferPositive(&pad, 1);
+        left = (pad.Buttons & ~last & PSP_CTRL_CIRCLE) != 0;
+        last = pad.Buttons;
+    }
+    shell_ask(NULL, NULL);
+    if (left) released();
+    return left ? -1 : (int)g_looked;
+}
+
+/* The look and what is asked after it, Retry looking again. 1: to the
+   system's dialog; 0: this session stays without a connection. */
+static int gateway_asked(enum cable choice) {
+    /* Where the gateway is to be had is said before it is looked for:
+       whoever has none yet reads it here, not only after a search that
+       could not have found one. */
+    if (!answer(T_CABLE_SEARCH_ASK, T_CABLE_GATEWAY_LINE)) return 0;
+    for (;;) {
+        int found = look();
+        if (found < 0) return 0;
+        switch (cable_after_look(choice, (enum cable_look)found)) {
+        case CABLE_ASK_CONNECT:
+            return answer(T_CABLE_FOUND_ASK, T_CABLE_CONNECT_LINE);
+        case CABLE_ASK_RUNNING:
+            return answer(T_CABLE_GATEWAY_ASK, T_CABLE_GATEWAY_LINE) &&
+                   answer(T_CABLE_CONNECT_ASK, T_CABLE_CONNECT_LINE);
+        case CABLE_ASK_RETRY:
+            if (!answer_with(T_CABLE_NONE, T_CABLE_NONE_LINE, T_CABLE_RETRY, T_HINT_CANCEL)) return 0;
+            break;
+        default:
+            return 1;
+        }
+    }
 }
 
 /* The cable chosen: its plugin installed, turned on and loaded, and the
@@ -205,8 +290,16 @@ void cable_choose(int usb) {
     }
     if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
     if (!cable_installed() && !answer(T_CABLE_INSTALL_ASK, T_CABLE_INSTALL_LINE)) return;
-    cable_set_up(said, sizeof(said));
-    shell_status(said[0] ? said : T_CABLE_ON);
+    if (!cable_set_up(said, sizeof(said)) || said[0]) {
+        shell_status(said);
+        return;
+    }
+    /* Nothing connects from here, so what is found is only said: looked
+       for again as often as is wanted, and the cable chosen either way. */
+    int found;
+    while ((found = look()) == CABLE_NOT_FOUND &&
+           answer_with(T_CABLE_NONE, T_CABLE_NONE_LINE, T_CABLE_RETRY, T_HINT_CANCEL)) {}
+    shell_status(found == CABLE_NOT_FOUND ? T_CABLE_NO_GATEWAY : T_CABLE_ON);
 }
 
 int cable_at_start(void) {
@@ -259,13 +352,12 @@ int cable_at_start(void) {
         cable_start((enum cable)options_cable());
     }
     /* Until the cable has connected once, the two things nobody can know
-       are said before the system's dialog opens: that the cable leads
-       nowhere without the gateway on the PC, and where that is to be had;
-       then what to choose in the dialog, which has no ready connection for
-       the cable. */
+       are settled before the system's dialog opens: that the cable leads
+       nowhere without the gateway on the PC, which is looked for, and where
+       that is to be had; then what to choose in the dialog, which has no
+       ready connection for the cable. */
     if (options_cable() != CABLE_USB || !cable_ready()) return 1;
-    return answer(T_CABLE_GATEWAY_ASK, T_CABLE_GATEWAY_LINE) &&
-           answer(T_CABLE_CONNECT_ASK, T_CABLE_CONNECT_LINE);
+    return gateway_asked(CABLE_USB);
 }
 
 void cable_connected(void) {

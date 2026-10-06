@@ -128,6 +128,7 @@ static char g_status[96];
    outside and only drawn here -- what is pressed in answer, and which row the
    cursor is on, is the main loop's business. */
 static char g_ask_title[200], g_ask_line[200];
+static const char *g_ask_yes = T_YES, *g_ask_no = T_NO;
 #define MENU_MAX 7                      /* rows the panel has room for */
 static const struct menu *g_menu;       /* the caller's, while it is up */
 static struct menu g_menu_gone;         /* its last rows, while it slides out */
@@ -461,9 +462,7 @@ static void download_speed(char text[24], const struct download_status *s) {
         text[0] = 0;
         return;
     }
-    double rate = s->bytes_per_second;
-    snprintf(text, 24, rate >= 1000000 ? "%.2f MB/s" : "%.1f kB/s",
-             rate / (rate >= 1000000 ? 1000000 : 1000));
+    snprintf(text, 24, "%.2f MB/s", s->bytes_per_second / 1000000.0);
 }
 
 /* The two words the action row is headed with, and the sentence under them.
@@ -1775,6 +1774,10 @@ float draw_hint(float x, float base, enum mark m, const char *text,
    weight: which one is taken is decided by the button pressed, not by a
    cursor sitting on one of them. */
 static void draw_answers(float base, const char *yes, const char *no) {
+    if (!yes) {
+        draw_hint(SCR_W / 2 - (hint_width(MARK_CIRCLE, no) - HINT_SPACE) / 2, base, MARK_CIRCLE, no, g_text);
+        return;
+    }
     float x = SCR_W / 2 - (hint_width(MARK_CROSS, yes) + 30 + hint_width(MARK_CIRCLE, no)) / 2;
     x = draw_hint(x, base, MARK_CROSS, yes, g_text) - HINT_SPACE + 30;
     draw_hint(x, base, MARK_CIRCLE, no, g_text);
@@ -1817,7 +1820,8 @@ static int break_lines(enum font_style style, const char *text, float width,
 static void draw_ask(void) {
     char lines[3][128], head[3][128];
     int heads = break_lines(FONT_TITLE, g_ask_title, SCR_W - 40, head, 3);
-    int n = break_lines(FONT_TITLE, g_ask_line, SCR_W - 80, lines, 3);
+    /* Without a line the band is the row shorter that it would have stood in. */
+    int n = g_ask_line[0] ? break_lines(FONT_TITLE, g_ask_line, SCR_W - 80, lines, 3) : 0;
     int more = 20 * (heads - 1);
     int h = BAND_H + more + 20 * (n - 1), y = (SCR_H - h) / 2;
     draw_band(y, h);
@@ -1831,7 +1835,7 @@ static void draw_ask(void) {
         w = font_width(FONT_TITLE, lines[i]);
         font_print(FONT_TITLE, SCR_W / 2 - w / 2, y + 68 + more + 20 * i, g_dim, lines[i]);
     }
-    draw_answers(y + h - 22, T_YES, T_NO);
+    draw_answers(y + h - 22, g_ask_yes, g_ask_no);
 }
 
 /* ------------------------------------------------------------------ menu */
@@ -2848,11 +2852,17 @@ int shell_footer_free(void) {
     return !g_status[0] && !g_ask_title[0] && !g_menu && !g_menu_leaving && !g_installing;
 }
 
-void shell_ask(const char *title, const char *line) {
+void shell_ask_with(const char *title, const char *line, const char *yes, const char *no) {
     snprintf(g_ask_title, sizeof(g_ask_title), "%s", title ? title : "");
     snprintf(g_ask_line, sizeof(g_ask_line), "%s", line ? line : "");
+    g_ask_yes = yes;
+    g_ask_no = no;
     /* The last install's result has been overtaken by a new question. */
     if (g_ask_title[0]) g_status[0] = '\0';
+}
+
+void shell_ask(const char *title, const char *line) {
+    shell_ask_with(title, line, T_YES, T_NO);
 }
 
 

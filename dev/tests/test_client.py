@@ -1006,19 +1006,21 @@ class ClientTests(unittest.TestCase):
   # (One word wider than the band by itself cannot be broken, and is cut at the band's edge by the clipped print: not measured here.)
   longest=('Remote Joystick Bridge for the USB Port','Grand Winter Mountain Rally Championship','Worldwide Homebrew Warehouse Manager MMX')
   self.assertTrue(all(39<=len(n)<=40 for n in longest))
-  for key,names in (('T_RUN_ASK',longest),('T_REMOVE_ASK',longest),('T_PLUGIN_INSTALLED_ASK',longest+(name,)),('T_DIR_EXISTS_ASK',('Remote_Joystick_Bridge_USB_Port1',)),('T_PLUGIN_ON_ASK',('',)),('T_PLUGIN_OFF_ASK',('',)),('T_CABLE_CONNECT_ASK',('',)),('T_CABLE_GATEWAY_ASK',('',)),('T_RESTART_ASK',('',)),('T_INBOX_ASK',('64',)),('T_ALL_ASK_INSTALL',('4096','s')),('T_ALL_ASK_UPDATE',('4096','s'))):
+  for key,names in (('T_RUN_ASK',longest),('T_REMOVE_ASK',longest),('T_PLUGIN_INSTALLED_ASK',longest+(name,)),('T_DIR_EXISTS_ASK',('Remote_Joystick_Bridge_USB_Port1',)),('T_PLUGIN_ON_ASK',('',)),('T_PLUGIN_OFF_ASK',('',)),('T_CABLE_CONNECT_ASK',('',)),('T_CABLE_GATEWAY_ASK',('',)),('T_CABLE_SEARCH_ASK',('',)),('T_CABLE_FOUND_ASK',('',)),('T_CABLE_NONE',('',)),('T_CABLE_LOOKING',('',)),('T_RESTART_ASK',('',)),('T_INBOX_ASK',('64',)),('T_ALL_ASK_INSTALL',('4096','s')),('T_ALL_ASK_UPDATE',('4096','s'))):
    for n in names:
     shown=fill(text[key],*([n] if isinstance(n,str) and key not in ('T_ALL_ASK_INSTALL','T_ALL_ASK_UPDATE') else names)) if '%' in text[key] else text[key]
     broken=heads(shown);self.assertLessEqual(len(broken),3,shown);self.assertTrue(all(font.width(l,1.2)*wide<=440 for l in broken),broken);self.assertLessEqual(sum(font.width(l,1.2) for l in broken),2*440*0.9,shown);self.assertLess(len(shown.encode()),200,shown)
-  for key in ('T_CABLE_ON','T_CABLE_OFF','T_CABLE_NOT_LOADED'):self.assertLessEqual(font.width(text[key])*wide,448,key);self.assertLess(len(text[key]),64,key)
-  url=text['T_CABLE_GATEWAY_URL'];text['T_CABLE_GATEWAY_LINE']='Get it from '+url;self.assertIn('"Get it from " T_CABLE_GATEWAY_URL',(app/'text.h').read_text());self.assertEqual(url,'github.com/chriopter/pspkit-usbnet')
+  for key in ('T_CABLE_ON','T_CABLE_OFF','T_CABLE_NOT_LOADED','T_CABLE_NO_GATEWAY'):self.assertLessEqual(font.width(text[key])*wide,448,key);self.assertLess(len(text[key]),64,key)
+  url=text['T_CABLE_GATEWAY_URL'];text['T_CABLE_GATEWAY_LINE']='Download it at '+url;self.assertIn('"Download it at " T_CABLE_GATEWAY_URL',(app/'text.h').read_text());self.assertEqual(url,'github.com/chriopter/pspkit-usbnet')
+  # Not found, the same words after what to do about it; and the footer's two words there no wider than Yes and No are in the longest of the band's faces.
+  text['T_CABLE_NONE_LINE']='Start it on your PC. '+text['T_CABLE_GATEWAY_LINE'];self.assertIn('"Start it on your PC. " T_CABLE_GATEWAY_LINE',(app/'text.h').read_text());self.assertLessEqual(font.width(text['T_CABLE_RETRY']+text['T_HINT_CANCEL'],1.2)*wide,200);self.assertNotIn('T_CABLE_SURE_ASK',text)
   # The connection's menu and its row under Options, no wider than the ones beside them; its note in the three lines a note has, of the right column's width.
   self.assertLessEqual(font.width(text['T_CABLE_USB']),font.width(text['T_STORAGE_INTERNAL']));self.assertLessEqual(font.width(text['T_SYS_CABLE'],1.2),font.width(text['T_SYS_FILL'],1.2));self.assertLessEqual(len(text['T_SYS_CABLE_NOTE']),len(text['T_SYS_FILL_NOTE'])+25)
   # A line breaks at 400 and is drawn centred, unclipped, in a band 480 wide: a word that cannot be broken -- the gateway's address -- may stand alone on its line up to the title's 440.
-  for key in ('T_PLUGIN_TURN_ON_LINE','T_PLUGIN_ON_LINE','T_PLUGIN_OFF_LINE','T_CABLE_CONNECT_LINE','T_CABLE_GATEWAY_LINE','T_CABLE_GO_ON_LINE'):
+  for key in ('T_PLUGIN_TURN_ON_LINE','T_PLUGIN_ON_LINE','T_PLUGIN_OFF_LINE','T_CABLE_CONNECT_LINE','T_CABLE_GATEWAY_LINE','T_CABLE_NONE_LINE','T_CABLE_GO_ON_LINE'):
    broken=lines(text[key]);self.assertLessEqual(len(broken),3,broken);self.assertTrue(all(font.width(l,1.2)*wide<=(440 if ' ' not in l else 400) for l in broken),broken);self.assertLess(len(text[key]),200)
-  # The address is whole and on one line in either face: with its words before it in the console's, alone under them in the wider one.
-  self.assertEqual(lines(text['T_CABLE_GATEWAY_LINE']),['Get it from',url]);self.assertLessEqual(font.width(text['T_CABLE_GATEWAY_LINE'],1.2),400)
+  # The address is whole and on one line in either face.
+  for key in ('T_CABLE_GATEWAY_LINE','T_CABLE_NONE_LINE'):self.assertTrue(any(url in l.split() for l in lines(text[key])),lines(text[key]))
   # The menu's row, in the 32 bytes it is kept in; and the card's line, no longer than the one it stands in for.
   for key in ('T_MENU_PLUGIN_ON','T_MENU_PLUGIN_OFF'):self.assertLessEqual(font.width(text[key]),font.width(text['T_MENU_REBUILD']),key)
   self.assertLess(font.width(fill(text['T_PANEL_PLUGIN_OFF'],version)),font.width(fill(text['T_PANEL_REBUILD'],version,'1.2 MB')))
@@ -1058,6 +1060,20 @@ class ClientTests(unittest.TestCase):
   # Chosen again under Options with the plugin installed and off: turned on and loaded, nothing installed anew.
   before=self.state()[self.CABLE];self.assertEqual(self.cable(1,'use',KERNEL=1,LOADED_NOTE=note),'0 1 ');self.assertEqual(self.run_client('plugin',self.CABLE).stdout.strip(),'1')
   self.assertEqual(self.state()[self.CABLE]['installed']['plugin_sha256'],before['installed']['plugin_sha256'])
+ def test_cable_looks_for_the_gateway_before_it_asks(self):
+  # The cable chosen and its module loaded, the plugin is asked whether the gateway answers and what is put to the user follows from that. Printed: module ready, what the look found (0 there, 1 not, 2 not said), what is asked (0 nothing, 1 to connect, 2 to look again, 3 whether it runs).
+  self.cable_setup();self.assertEqual(self.cable(0,'use',KERNEL=1),'0 1 ')
+  # Until the cable has connected once: found, the connect question; not found, Retry or Cancel, and found after a retry; a plugin from before it could look -- or none of its answers understood -- the old question whether the gateway runs.
+  self.assertEqual(self.cable(2,'look',KERNEL=1,LOADED=1,PROBE=1),'1 0 1');self.assertEqual(self.cable(2,'look',KERNEL=1,LOADED=1,PROBE=0),'1 1 2');self.assertEqual(self.cable(2,'look',KERNEL=1,LOADED=1),'1 2 3')
+  # Once it has: nothing is asked, whatever the look says; nor of Wi-Fi, nor before an answer.
+  for choice in (0,1,3):
+   for probe in ({'PROBE':1},{'PROBE':0},{}):self.assertEqual(self.cable(choice,'look',KERNEL=1,LOADED=1,**probe)[-1],'0',(choice,probe))
+  # No module, nothing to ask: the look is not said, not "not found".
+  shutil.rmtree(self.root/'ms0:/seplugins');shutil.rmtree(self.root/'ms0:/PSP/PSPDX/INSTALLED');self.assertEqual(self.cable(2,'look',KERNEL=1,LOAD_FAILS=1,PROBE=1),'0 2 3')
+  # Played at the desk, PSPDX.CABLE's first character is the gateway.
+  flag=self.root/'ms0:/PSP/PSPDX/DEBUG/PSPDX.CABLE';flag.parent.mkdir(parents=True,exist_ok=True)
+  for said,want in ((b'1','1 0 1'),(b'0','1 1 2'),(b'','1 2 3'),(b'yes\n','1 2 3')):
+   flag.write_bytes(said);self.assertEqual(self.cable(2,'look'),want,said)
  def test_cable_installs_the_carried_copy_as_the_store_would(self):
   # The copy beside the EBOOT goes in through the plugin installer: the record is the one an install from the catalog of the same release writes -- the catalog's id, the tag for a version, the zip's hash -- so the same release in a catalog is current and a newer one an update, which then installs over it like any.
   zipsha=self.cable_setup();d=self.root/'ms0:/seplugins';(self.root/'manifest.json').unlink();self.assertEqual(self.cable(0,'use',KERNEL=1),'0 1 ')

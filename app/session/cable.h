@@ -49,4 +49,22 @@ int cable_use(char *said, size_t size);
 /* Whether the system's dialog has "Hi-Speed USB" to scan for now. */
 int cable_ready(void);
 
+/* Before the system's dialog opens, the gateway on the PC is looked for:
+   the cable leads nowhere without it, and the dialog cannot say so. The
+   plugin looks; one from before it could cannot say. Blocks for up to
+   CABLE_LOOK_MS, so the caller gives it a thread and draws meanwhile. */
+#define CABLE_LOOK_MS 6000
+enum cable_look { CABLE_FOUND, CABLE_NOT_FOUND, CABLE_NOT_SAID };
+enum cable_look cable_look(void);
+
+/* What is put to the user after the look. Until the cable has connected
+   once: found, whether to connect, with what to choose in the dialog, which
+   has no ready connection for the cable; not found, to start the gateway
+   and where it is to be had, to look again or leave it; not said, the
+   question whether it runs, and then the first. Once it has connected,
+   nothing: the dialog opens as it does for Wi-Fi, where another connection
+   can be chosen with the PC out of reach. */
+enum cable_ask { CABLE_ASK_NOTHING, CABLE_ASK_CONNECT, CABLE_ASK_RETRY, CABLE_ASK_RUNNING };
+enum cable_ask cable_after_look(enum cable choice, enum cable_look look);
+
 #endif

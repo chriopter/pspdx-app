@@ -419,19 +419,28 @@
 #define T_CABLE_ASK          "Connect via"
 #define T_CABLE_WIFI         "Wi-Fi"
 #define T_CABLE_USB          "USB cable"
-/* The cable only works while the gateway runs on the PC: asked first, with
-   where it is to be had. The address in one piece, for whoever points at it. */
+/* The cable only works while the gateway runs on the PC: looked for
+   first, and where it is to be had said when it is not there. The address
+   in one piece, for whoever points at it. A plugin too old to look is
+   asked about instead. */
 #define T_CABLE_INSTALL_ASK  "Activate USB?"
 #define T_CABLE_INSTALL_LINE "This installs the USBNet plugin and turns it on."
 #define T_CABLE_GATEWAY_URL  "github.com/chriopter/pspkit-usbnet"
 #define T_CABLE_GATEWAY_ASK  "Is the gateway running on your PC?"
-#define T_CABLE_GATEWAY_LINE "Get it from " T_CABLE_GATEWAY_URL
+#define T_CABLE_GATEWAY_LINE "Download it at " T_CABLE_GATEWAY_URL
+#define T_CABLE_SEARCH_ASK   "Search for the gateway on your PC?"
+#define T_CABLE_LOOKING      "Looking for the gateway on your PC..."
+#define T_CABLE_FOUND_ASK    "Gateway found. Do you want to connect now?"
+#define T_CABLE_NONE         "Gateway not found"
+#define T_CABLE_NONE_LINE    "Start it on your PC. " T_CABLE_GATEWAY_LINE
+#define T_CABLE_RETRY        "Retry"
 #define T_CABLE_GO_ON_LINE   "Do you want to go on with the cable?"
 #define T_CABLE_CONNECT_ASK  "Do you want to connect now?"
 #define T_CABLE_CONNECT_LINE "Choose [New Connection], then Scan, then \"Hi-Speed USB\"."
 #define T_CABLE_ON           "USB is ready. Choose \"Hi-Speed USB\"."
 #define T_CABLE_OFF          "Wi-Fi is used. The plugin stays installed."
 #define T_CABLE_NOT_LOADED   "The USB plugin could not be loaded."
+#define T_CABLE_NO_GATEWAY   "USB is on. No gateway found on your PC."
 #define T_STORAGE_ASK        "Install to"
 #define T_STORAGE_INTERNAL   "System Storage"
 #define T_STORAGE_CARD       "Memory Stick"

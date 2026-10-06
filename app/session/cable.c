@@ -75,6 +75,28 @@ int cable_asks(enum cable choice) {
 
 int cable_ready(void) { return usbnet_loaded() || g_played; }
 
+/* Played, the file's first character is the gateway: 1 there, 0 not, and
+   anything else a plugin that cannot say. */
+enum cable_look cable_look(void) {
+    int there = -1;
+    if (g_played) {
+        char *text = NULL;
+        if (storage_read(storage_path("PSP/PSPDX/DEBUG/PSPDX.CABLE"), &text, 16) > 0 &&
+            (text[0] == '0' || text[0] == '1'))
+            there = text[0] == '1';
+        free(text);
+    } else {
+        there = usbnet_probe(CABLE_LOOK_MS);
+    }
+    return there > 0 ? CABLE_FOUND : there == 0 ? CABLE_NOT_FOUND : CABLE_NOT_SAID;
+}
+
+enum cable_ask cable_after_look(enum cable choice, enum cable_look look) {
+    if (choice != CABLE_USB) return CABLE_ASK_NOTHING;
+    return look == CABLE_FOUND ? CABLE_ASK_CONNECT : look == CABLE_NOT_FOUND ? CABLE_ASK_RETRY
+                                                                             : CABLE_ASK_RUNNING;
+}
+
 static int load(void) {
     struct installed rec;
     char path[256];

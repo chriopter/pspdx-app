@@ -6,6 +6,13 @@
 #include "util/runtime.h"
 
 #define MODULE "usbnet"
+/* The module's own device and what it is asked for there: pspkit-usbnet's
+   README has the list. Its answers are small numbers, 1 and 0 and its
+   errors below that; anything else is the firmware's, which has no such
+   device. */
+#define DEVICE "usbnet:"
+#define DEVICE_PROBE 3
+#define DEVICE_ERRORS (-16)
 
 /* A module every firmware has, asked for by name: the bridge answers with
    that module or it is no bridge. An emulator's stand-in for the call may
@@ -41,4 +48,10 @@ int usbnet_load(const char *path) {
     int rc = sceKernelStartModule(mod, strlen(path) + 1, (void *)path, &status, NULL);
     logline("usbnet: %s started %08x", path, (unsigned)rc);
     return usbnet_loaded() ? 0 : -1;
+}
+
+int usbnet_probe(unsigned ms) {
+    int rc = sceIoDevctl(DEVICE, DEVICE_PROBE, &ms, sizeof(ms), NULL, 0);
+    logline("usbnet: gateway %08x", (unsigned)rc);
+    return rc > 0 ? 1 : rc >= DEVICE_ERRORS ? 0 : -1;
 }

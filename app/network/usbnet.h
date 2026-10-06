@@ -18,5 +18,12 @@ int usbnet_loaded(void);
 /* Loads and starts the usbnet.prx at path for this session, unless the
    module is there already: 0 when it is loaded afterwards. */
 int usbnet_load(const char *path);
+/* Whether the gateway on the PC answers: asked of the module, which looks
+   for up to ms milliseconds, taking USB for it as a connection would, and
+   returns as soon as it knows. 1 it is there, 0 it is not (or the cable is
+   out, or USB storage has the port), -1 the module cannot say: none loaded,
+   or one from before it had its device "usbnet:". Blocks; nothing is drawn
+   meanwhile, so it wants a thread of its own. */
+int usbnet_probe(unsigned ms);
 
 #endif

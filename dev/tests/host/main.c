@@ -132,11 +132,18 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (!strcmp(argv[1], "cable")) {
-        /* cable <choice 0-3> [use]: whether the start would ask how to
+        /* cable <choice 0-3> [use|look]: whether the start would ask how to
            connect, with that answer remembered; with "use", the cable chosen:
-           what came of it, and the line it said. */
+           what came of it, and the line it said; with "look", the gateway
+           looked for: what was found, and what is asked then. */
         enum cable choice = (enum cable)atoi(argv[2]);
         cable_init(getenv("DEVICE") ? getenv("DEVICE") : "ms0:/PSP/GAME/PSPDX/EBOOT.PBP");
+        if (argc > 3 && !strcmp(argv[3], "look")) {
+            cable_start(choice);
+            enum cable_look look = cable_look();
+            printf("%d %d %d\n", cable_ready(), look, cable_after_look(choice, look));
+            return 0;
+        }
         if (argc > 3) {
             char said[96];
             int rc = cable_use(said, sizeof(said));

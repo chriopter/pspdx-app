@@ -55,6 +55,10 @@ void shell_word(const char *word);
    it -- the pad belongs to the main loop, and so does the answer. A null or
    empty title takes the question away again. */
 void shell_ask(const char *title, const char *line);
+/* The same with the footer's two words given, where Yes and No are not the
+   answers; they are kept by their address. Without a word for X the footer
+   names O alone: a notice of something under way, which O leaves. */
+void shell_ask_with(const char *title, const char *line, const char *yes, const char *no);
 
 /* The options menu, the system's own: a panel sliding in from the right
    with a title and the choices under it, the cursor on one. on[i] zero
