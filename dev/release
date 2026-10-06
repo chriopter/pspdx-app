@@ -65,8 +65,11 @@ echo "usbnet: pspkit-usbnet $USBNET_TAG, usbnet-psp.zip sha256 $USBNET_SHA256"
 # The Docker build mounts app/ alone and so sees no .git of its own: the
 # version goes in on the command line rather than out of git describe.
 BUILD_LOG="$(mktemp)"
+# From nothing: objects and an ELF left by a test build (BUILD_PRX=1, for
+# PSPLink) would be packed as they are, and an EBOOT that is a PRX cannot
+# start another app (sceKernelLoadExec refuses it, 80020149: 1.1.0 to 1.1.2).
 if ! (cd "$APP" && docker run --rm -v "$PWD:/src" -w /src pspdev/pspdev:latest \
-	make PSPDX_VERSION="$VERSION") >"$BUILD_LOG" 2>&1; then
+	sh -c "make clean && make PSPDX_VERSION=\"$VERSION\"") >"$BUILD_LOG" 2>&1; then
 	cat "$BUILD_LOG" >&2
 	rm -f "$BUILD_LOG"
 	exit 1
@@ -74,6 +77,13 @@ fi
 grep -E 'warning:|error:|EBOOT\.PBP' "$BUILD_LOG" || true
 rm -f "$BUILD_LOG"
 [ -f "$APP/EBOOT.PBP" ] || { echo "no EBOOT.PBP; the build failed" >&2; exit 1; }
+# The program in the EBOOT is a plain executable (ELF type 2), not a PRX.
+python3 - "$APP/EBOOT.PBP" <<'PY' || { echo "the EBOOT's program is not a plain ELF; not released" >&2; exit 1; }
+import struct, sys
+b = open(sys.argv[1], 'rb').read()
+at = struct.unpack_from('<I', b, 0x20)[0]
+sys.exit(0 if b[at:at + 4] == b'\x7fELF' and struct.unpack_from('<H', b, at + 16)[0] == 2 else 1)
+PY
 
 # The archive is the tree a PSP expects, so unpacking it onto a stick by hand
 # puts the client exactly where the client would have put it. The installer
