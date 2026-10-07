@@ -1,11 +1,12 @@
-font.pgf is the unmodified free replacement ltn8.pgf from PPSSPP v1.20.4.
+The font PSPDX carries (app/assets/font.pgf in its source, compiled into the
+program) is the unmodified free replacement ltn8.pgf from PPSSPP v1.20.4.
 It is not a font dumped from Sony firmware.
 
 Source: https://github.com/hrydgard/ppsspp/blob/v1.20.4/assets/flash0/font/ltn8.pgf
 Upstream project: https://github.com/hrydgard/ppsspp
 Copyright: PPSSPP project and contributors.
 Distributed under PPSSPP's GNU General Public License, version 2 or later;
-the accompanying LICENSE contains the GPL version 2 text.
+the GPL version 2 text is the first part of this file.
 
-The filename is changed to font.pgf; the file contents are unchanged.
+The file contents are unchanged.
 PSPDX uses this font only when the firmware fonts cannot be loaded.

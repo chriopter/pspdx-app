@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Writes a file's bytes as a C header the client compiles in.
+
+    dev/embed font                         app/assets/font.pgf -> app/gui/font_data.h (committed)
+    dev/embed usbnet <usbnet.prx> <tag> <sha256 of the release's zip>
+                                           -> app/session/usbnet_carried.h (not committed)
+
+The font's header is committed and held against the asset by the host tests.
+The plugin's is made by dev/pack and dev/start from pspkit-usbnet's
+release of the day; a build without it builds, and offers no cable.
+"""
+import pathlib
+import re
+import sys
+
+APP = pathlib.Path(__file__).resolve().parents[1] / 'app'
+
+
+def array(name, data):
+    rows = ('    ' + ', '.join('0x%02x' % b for b in data[i:i + 16]) + ',' for i in range(0, len(data), 16))
+    return 'static const unsigned char %s[%d] = {\n%s\n};\n' % (name, len(data), '\n'.join(rows))
+
+
+def font():
+    data = (APP / 'assets/font.pgf').read_bytes()
+    (APP / 'gui/font_data.h').write_text(
+        '#ifndef PSPDX_FONT_DATA_H\n#define PSPDX_FONT_DATA_H\n\n'
+        '/* app/assets/font.pgf, byte for byte: the free replacement for the\n'
+        '   firmware\'s ltn8.pgf (see assets/font-NOTICE.txt), carried in the\n'
+        '   program for where the firmware\'s fonts cannot be read. Written by\n'
+        '   dev/embed font; the host tests hold it against the asset. */\n'
+        + array('font_data', data) + '\n#endif\n')
+
+
+def usbnet(prx, tag, zip_sha):
+    data = pathlib.Path(prx).read_bytes()
+    if not data or not re.fullmatch(r'[0-9a-f]{64}', zip_sha) or not re.fullmatch(r'[A-Za-z0-9._-]{1,31}', tag):
+        sys.exit('dev/embed usbnet: an empty .prx, a tag or a hash that is none')
+    (APP / 'session/usbnet_carried.h').write_text(
+        '/* pspkit-usbnet %s, written by dev/embed usbnet: the plugin\'s .prx, the\n'
+        '   tag of the release it is of and the SHA-256 of that release\'s zip,\n'
+        '   which is what a catalog lists the release by. Not committed. */\n' % tag
+        + 'static const char usbnet_carried_tag[] = "%s";\n' % tag
+        + array('usbnet_carried_zip', bytes.fromhex(zip_sha))
+        + array('usbnet_carried_prx', data))
+
+
+if len(sys.argv) == 2 and sys.argv[1] == 'font':
+    font()
+elif len(sys.argv) == 5 and sys.argv[1] == 'usbnet':
+    usbnet(*sys.argv[2:])
+else:
+    sys.exit(__doc__)

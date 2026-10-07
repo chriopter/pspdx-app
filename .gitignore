@@ -7,7 +7,7 @@
 EBOOT.PBP
 PARAM.SFO
 target/
-# What dev/release packs and hands to GitHub, and the tree it packs from.
+# What dev/pack packs, and the tree it packs from.
 pspdx.zip
 dist/
 
@@ -35,3 +35,6 @@ __pycache__/
 dev/shot0.png
 dev/shot1.png
 dev/shot2.png
+
+# The cable plugin of the day, compiled in by dev/pack and dev/start.
+/app/session/usbnet_carried.h

@@ -109,30 +109,25 @@ static void write_seen(void) {
         logline("presets: presets.seen would not write");
 }
 
-int presets_merge(const char *boot) {
+int presets_merge(void) {
 #ifdef CATALOG_URL
     /* A build pointed at a catalog on the host trusts that host's CA alone:
        the published catalogs would be handshake failures in a log that a
        campaign is judged on. */
-    (void)boot;
     logline("presets: a build for %s offers none", CATALOG_URL);
     return 0;
 #else
+    return presets_offer(PSPDX_PRESETS);
+#endif
+}
+
+int presets_offer(const char *text) {
     static struct preset_list list;
-    char path[256];
-    char *raw = NULL;
-    int n = -1;
-    const char *slash = boot ? strrchr(boot, '/') : NULL;
-    if (slash && (size_t)(slash - boot) + sizeof("/presets.txt") <= sizeof(path)) {
-        snprintf(path, sizeof(path), "%.*s/presets.txt", (int)(slash - boot), boot);
-        n = storage_read(path, &raw, LIST_MAX);
-    }
-    if (n < 0 || parse(raw, "presets.txt", &list) == 0) {
-        logline("presets: %s, the built-in list stands",
-                n < 0 ? "no readable presets.txt beside the EBOOT" : "presets.txt names no source");
+    /* A list that names nothing offers what the program carries. */
+    if (!text || parse(text, "the list given", &list) == 0) {
+        logline("presets: the list names no source, the built-in list stands");
         parse(PSPDX_PRESETS, "the built-in list", &list);
     }
-    free(raw);
 
     read_seen();
     int added = 0, marked = 0;
@@ -162,5 +157,4 @@ int presets_merge(const char *boot) {
     if (marked)
         write_seen();
     return added;
-#endif
 }

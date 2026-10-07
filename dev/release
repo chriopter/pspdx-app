@@ -1,126 +1,18 @@
 #!/bin/sh
-# Cuts a release of the client: builds it with the version written into it,
-# packs the EBOOT the way a stick wants to find it, and hands the archive to
-# GitHub, where the catalog's scanner goes looking.
+# A release is cut by GitHub Actions, not here: an annotated tag on master,
+# pushed, and .github/workflows/release.yml builds it with dev/pack and
+# publishes pspdx.zip under the version, with the tag's message for notes.
 #
-#   dev/release 0.1.0 ["what changed"]
+#   git tag -a v1.2.0 -m "What changed" && git push origin v1.2.0
 #
-# The version is the tag without its "v", which is what the scanner records a
-# release's version as -- and what the client writes into its own record on a
-# first start. Those two strings are compared, and only compared, to decide
-# whether PSPDX is looking at itself or at an update, so a release built with
-# a different one would offer itself an update for ever. It is an argument
-# rather than something read out of git: the tag this creates does not exist
-# until this has created it.
+# Here only the dry run, which packs the same zip from the tree as it stands
+# and publishes nothing:
 #
-# From master, and from a clean tree: the scanner takes the newest release of
-# the repository and hashes the bytes GitHub serves, so the release has to be
-# of what was merged and nothing else.
+#   PACK_ONLY=1 dev/release 1.2.0
 set -e
-HERE="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$HERE/app"
-
-VERSION="$1"
-[ -n "$VERSION" ] || { echo "usage: dev/release <version> [notes]" >&2; exit 2; }
-VERSION="${VERSION#v}"
-NOTES="${2:-PSPDX $VERSION}"
-
-cd "$HERE"
-[ "$(git rev-parse --abbrev-ref HEAD)" = "master" ] || {
-	echo "dev/release runs on master; this is $(git rev-parse --abbrev-ref HEAD)" >&2
+[ "${PACK_ONLY:-0}" = 1 ] || {
+	echo "releases are made by pushing a tag: git tag -a v<version> -m \"notes\" && git push origin v<version>" >&2
+	echo "PACK_ONLY=1 dev/release <version> packs pspdx.zip here without publishing" >&2
 	exit 1
 }
-[ -z "$(git status --porcelain)" ] || { echo "the tree has uncommitted changes" >&2; exit 1; }
-COMMIT="$(git rev-parse HEAD)"
-
-# Network over the USB cable for a console without Wi-Fi: pspkit-usbnet's
-# plugin goes beside the EBOOT, which offers to install it at the first start.
-# It is whatever pspkit-usbnet's latest release is the day this runs: the
-# release's own usbnet-psp.zip, the zip a catalog lists the plugin by, held to
-# the SHA-256 that release states for it in SHA256SUMS-linux. Which release
-# that was, and the zip's hash, are said here, in the notice that ships and
-# in usbnet.txt, which is how the client knows what it carries: the hash is
-# what makes the same release current in the store and a newer one an update.
-USBNET="$(mktemp -d)"
-trap 'rm -rf "$USBNET"' EXIT
-USBNET_TAG="$(gh release view --repo chriopter/pspkit-usbnet --json tagName -q .tagName)"
-[ -n "$USBNET_TAG" ] || { echo "pspkit-usbnet has no latest release" >&2; exit 1; }
-gh release download "$USBNET_TAG" --repo chriopter/pspkit-usbnet --pattern usbnet-psp.zip \
-	--pattern SHA256SUMS-linux --dir "$USBNET"
-[ -f "$USBNET/usbnet-psp.zip" ] || { echo "pspkit-usbnet $USBNET_TAG has no usbnet-psp.zip" >&2; exit 1; }
-USBNET_SHA256="$(sha256sum "$USBNET/usbnet-psp.zip" | cut -d' ' -f1)"
-USBNET_STATED="$(awk '$2 == "usbnet-psp.zip" || $2 == "*usbnet-psp.zip" { print $1 }' \
-	"$USBNET/SHA256SUMS-linux" 2>/dev/null || true)"
-if [ -z "$USBNET_STATED" ]; then
-	echo "usbnet: pspkit-usbnet $USBNET_TAG states no SHA-256 for usbnet-psp.zip; not verified against the release" >&2
-elif [ "$USBNET_STATED" != "$USBNET_SHA256" ]; then
-	echo "usbnet-psp.zip of pspkit-usbnet $USBNET_TAG is not the zip its SHA256SUMS-linux states" >&2
-	exit 1
-fi
-unzip -tqq "$USBNET/usbnet-psp.zip"
-unzip -q "$USBNET/usbnet-psp.zip" usbnet.prx LICENSE THIRD_PARTY_PSPLINK_LICENSE -d "$USBNET"
-printf 'tag=%s\nzip=%s\n' "$USBNET_TAG" "$USBNET_SHA256" > "$USBNET/usbnet.txt"
-echo "usbnet: pspkit-usbnet $USBNET_TAG, usbnet-psp.zip sha256 $USBNET_SHA256"
-
-# The Docker build mounts app/ alone and so sees no .git of its own: the
-# version goes in on the command line rather than out of git describe.
-BUILD_LOG="$(mktemp)"
-# From nothing: objects and an ELF left by a test build (BUILD_PRX=1, for
-# PSPLink) would be packed as they are, and an EBOOT that is a PRX cannot
-# start another app (sceKernelLoadExec refuses it, 80020149: 1.1.0 to 1.1.2).
-if ! (cd "$APP" && docker run --rm -v "$PWD:/src" -w /src pspdev/pspdev:latest \
-	sh -c "make clean && make PSPDX_VERSION=\"$VERSION\"") >"$BUILD_LOG" 2>&1; then
-	cat "$BUILD_LOG" >&2
-	rm -f "$BUILD_LOG"
-	exit 1
-fi
-grep -E 'warning:|error:|EBOOT\.PBP' "$BUILD_LOG" || true
-rm -f "$BUILD_LOG"
-[ -f "$APP/EBOOT.PBP" ] || { echo "no EBOOT.PBP; the build failed" >&2; exit 1; }
-# The program in the EBOOT is a plain executable (ELF type 2), not a PRX.
-python3 - "$APP/EBOOT.PBP" <<'PY' || { echo "the EBOOT's program is not a plain ELF; not released" >&2; exit 1; }
-import struct, sys
-b = open(sys.argv[1], 'rb').read()
-at = struct.unpack_from('<I', b, 0x20)[0]
-sys.exit(0 if b[at:at + 4] == b'\x7fELF' and struct.unpack_from('<H', b, at + 16)[0] == 2 else 1)
-PY
-
-# The archive is the tree a PSP expects, so unpacking it onto a stick by hand
-# puts the client exactly where the client would have put it. The installer
-# reads the same layout from the other end: the directory of the shallowest
-# EBOOT.PBP is the package, and this one is PSPDX.
-rm -rf "$HERE/dist" "$HERE/pspdx.zip"
-mkdir -p "$HERE/dist/PSP/GAME/PSPDX"
-cp "$APP/EBOOT.PBP" "$HERE/dist/PSP/GAME/PSPDX/EBOOT.PBP"
-cp "$HERE/.pspdx" "$HERE/dist/PSP/GAME/PSPDX/.pspdx"
-# The catalogs the client offers once each; the EBOOT carries the same list
-# for a stick that loses this file.
-cp "$APP/presets.txt" "$HERE/dist/PSP/GAME/PSPDX/presets.txt"
-# A free replacement for emulators whose flash0 cannot be read by intraFont.
-cp "$APP/assets/font.pgf" "$HERE/dist/PSP/GAME/PSPDX/font.pgf"
-cp "$APP/assets/font-NOTICE.txt" "$HERE/dist/PSP/GAME/PSPDX/font-NOTICE.txt"
-cp "$HERE/LICENSE" "$HERE/dist/PSP/GAME/PSPDX/LICENSE"
-# The USB network module, and the licences it is passed on under.
-cp "$USBNET/usbnet.prx" "$HERE/dist/PSP/GAME/PSPDX/usbnet.prx"
-cp "$USBNET/usbnet.txt" "$HERE/dist/PSP/GAME/PSPDX/usbnet.txt"
-{
-	printf 'usbnet.prx is pspkit-usbnet %s, https://github.com/chriopter/pspkit-usbnet\n' "$USBNET_TAG"
-	printf 'out of usbnet-psp.zip, SHA-256 %s\n\n' "$USBNET_SHA256"
-	cat "$USBNET/LICENSE" "$USBNET/THIRD_PARTY_PSPLINK_LICENSE"
-} > "$HERE/dist/PSP/GAME/PSPDX/usbnet-NOTICE.txt"
-(cd "$HERE/dist" && zip -q -r "$HERE/pspdx.zip" PSP)
-unzip -tqq "$HERE/pspdx.zip"
-unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/.pspdx | cmp "$HERE/.pspdx" -
-unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/presets.txt | cmp "$APP/presets.txt" -
-unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/font.pgf | cmp "$APP/assets/font.pgf" -
-unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/font-NOTICE.txt | cmp "$APP/assets/font-NOTICE.txt" -
-unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/LICENSE | cmp "$HERE/LICENSE" -
-unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/usbnet.prx | cmp "$USBNET/usbnet.prx" -
-unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/usbnet.txt | cmp "$USBNET/usbnet.txt" -
-rm -rf "$HERE/dist"
-
-gh release create "v$VERSION" "$HERE/pspdx.zip" -t "v$VERSION" -n "$NOTES" \
-	--target "$COMMIT"
-
-echo "v$VERSION is out; the catalog derives it on its next build"
-echo "it carries pspkit-usbnet $USBNET_TAG"
+exec "$(cd "$(dirname "$0")" && pwd)/pack" "$@"

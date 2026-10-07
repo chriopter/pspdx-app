@@ -1,5 +1,6 @@
 #include "text.h"
 #include "session/cable.h"
+#include "session/carried.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,43 +14,28 @@
 
 #define CABLE_SOURCE "https://github.com/chriopter/pspkit-usbnet"
 #define CABLE_PRX "usbnet.prx"
-/* What dev/release writes beside the copy: the release it is of, by its
-   tag, and the SHA-256 of that release's zip, which is what a catalog
-   lists the release by and an update is told by. */
-#define CABLE_NOTE "usbnet.txt"
 
-static char g_dir[200];
-
-void cable_init(const char *argv0) {
-    const char *slash = argv0 ? strrchr(argv0, '/') : NULL;
-    if (slash && (size_t)(slash - argv0) < sizeof(g_dir))
-        snprintf(g_dir, sizeof(g_dir), "%.*s", (int)(slash - argv0), argv0);
-}
-
-static void beside(char *out, size_t size, const char *name) {
-    snprintf(out, size, "%s/%s", g_dir, name);
-}
-
-/* "tag=" and "zip=" out of the note, a line each. 0 with both. */
-static int carried(char *tag, size_t tag_size, unsigned char zip[32]) {
-    char path[256], *text = NULL, hex[65] = "";
-    beside(path, sizeof(path), CABLE_NOTE);
-    int n = g_dir[0] ? storage_read(path, &text, 512) : -1, ok = 0;
-    tag[0] = '\0';
-    for (char *line = n > 0 ? strtok(text, "\r\n") : NULL; line; line = strtok(NULL, "\r\n")) {
-        if (!strncmp(line, "tag=", 4))
-            snprintf(tag, tag_size, "%s", line + 4);
-        if (!strncmp(line, "zip=", 4))
-            snprintf(hex, sizeof(hex), "%s", line + 4);
-    }
-    ok = tag[0] && strlen(hex) == 64 && pspdx_hex(hex, zip, 32) == 0;
-    free(text);
-    beside(path, sizeof(path), CABLE_PRX);
-    return ok && storage_exists(path) ? 0 : -1;
+/* What the program carries of the plugin: its bytes, and the release it is
+   of -- by its tag, and by the SHA-256 of that release's zip, which is what
+   a catalog lists the release by and an update is told by. 0 with it. */
+static int carried(const unsigned char **prx, size_t *len, char *tag, size_t tag_size,
+                   unsigned char zip[32]) {
+    const char *t;
+    const unsigned char *z;
+    if (carried_plugin(prx, len, &t, &z) < 0 || !*len || !t[0])
+        return -1;
+    snprintf(tag, tag_size, "%s", t);
+    memcpy(zip, z, 32);
+    return 0;
 }
 
 static int recorded(struct installed *rec) {
     return db_read(CABLE_ID, rec) == 0 && rec->plugin[0];
+}
+
+int cable_recorded(void) {
+    struct installed rec;
+    return recorded(&rec);
 }
 
 int cable_installed(void) {
@@ -69,8 +55,10 @@ static int played(void) {
 int cable_asks(enum cable choice) {
     char tag[VERSION_SIZE];
     unsigned char zip[32];
+    const unsigned char *prx;
+    size_t len;
     return choice == CABLE_UNASKED && !cable_installed() && (usbnet_kernel() || played()) &&
-           carried(tag, sizeof(tag), zip) == 0;
+           carried(&prx, &len, tag, sizeof(tag), zip) == 0;
 }
 
 int cable_ready(void) { return usbnet_loaded() || g_played; }
@@ -97,9 +85,29 @@ enum cable_ask cable_after_look(enum cable choice, enum cable_look look) {
                                                                              : CABLE_ASK_RUNNING;
 }
 
+/* The carried plugin as a file, for a session it is not installed in --
+   the installer refused, or it was deleted with the cable still chosen:
+   the firmware loads a module from a file and nothing else. In the cache,
+   written when what lies there is not it. NULL where it cannot be had. */
+static const char *carried_file(void) {
+    const char *path = storage_path("PSP/PSPDX/CACHE/usbnet.prx");
+    const unsigned char *prx, *zip;
+    const char *tag;
+    size_t len;
+    char *there = NULL;
+    if (carried_plugin(&prx, &len, &tag, &zip) < 0 || !len)
+        return NULL;
+    int n = storage_read(path, &there, len + 1);
+    int same = n >= 0 && (size_t)n == len && !memcmp(there, prx, len);
+    free(there);
+    if (!same && storage_write_cache(path, prx, len) < 0)
+        return NULL;
+    return path;
+}
+
 static int load(void) {
     struct installed rec;
-    char path[256];
+    char path[256] = "";
     if (played()) {
         g_played = 1;
         return 0;
@@ -108,9 +116,11 @@ static int load(void) {
        from the next start on. */
     if (recorded(&rec))
         plugin_path(&rec, path, sizeof(path));
-    if (!recorded(&rec) || !storage_exists(path))
-        beside(path, sizeof(path), CABLE_PRX);
-    return storage_exists(path) ? usbnet_load(path) : -1;
+    if (!path[0] || !storage_exists(path)) {
+        const char *file = carried_file();
+        snprintf(path, sizeof(path), "%s", file ? file : "");
+    }
+    return path[0] && storage_exists(path) ? usbnet_load(path) : -1;
 }
 
 void cable_start(enum cable choice) {
@@ -123,7 +133,6 @@ int cable_use(char *said, size_t size) {
     struct installed rec;
     struct manifest m;
     struct install_report report;
-    char prx[256];
     said[0] = '\0';
     memset(&m, 0, sizeof(m));
     memset(&report, 0, sizeof(report));
@@ -134,14 +143,15 @@ int cable_use(char *said, size_t size) {
         static char raw[] = "{\"schema\":\"" PSPDX_SCHEMA "\",\"source\":\"" CABLE_SOURCE
                             "\",\"name\":\"USBNet\",\"type\":\"plugin\",\"category\":\"plugin\"}";
         char tag[VERSION_SIZE];
-        beside(prx, sizeof(prx), CABLE_PRX);
-        int rc = carried(tag, sizeof(tag), m.sha256);
+        const unsigned char *prx;
+        size_t len;
+        int rc = carried(&prx, &len, tag, sizeof(tag), m.sha256);
         snprintf(m.id, sizeof(m.id), "%s", CABLE_ID);
         snprintf(m.repo, sizeof(m.repo), "%s", CABLE_SOURCE);
         snprintf(m.version, sizeof(m.version), "%s", tag + (tag[0] == 'v' && tag[1]));
         m.raw = raw;
         if (rc == 0)
-            rc = install_bundled(&m, prx, storage_device(), &report);
+            rc = install_bundled(&m, CABLE_PRX, prx, len, storage_device(), &report);
         if (rc < 0) {
             snprintf(said, size, T_PLUGIN_NOT_INSTALLED, rc == INSTALL_NO_SPACE ? T_WHY_NO_ROOM
                      : report.why[0] ? report.why : T_WHY_STICK);

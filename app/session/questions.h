@@ -13,7 +13,7 @@
 /* Which question stands, and what it is about: a catalog index for the
    ones about a package, a row of the sources list for ASK_CATALOG, -1 for
    the rest. */
-enum question { ASK_NOTHING, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART, ASK_TRUST, ASK_PLUGIN };
+enum question { ASK_NOTHING, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART, ASK_TRUST, ASK_PLUGIN, ASK_ERROR };
 
 /* Confirm removing a package, fetching the whole tab, or the INBOX. */
 void ask_remove(int index);
@@ -23,6 +23,17 @@ void ask_inbox(void);
 /* One the caller has put into words itself: drawn by the shell and
    remembered here. */
 void ask(enum question q, int of, const char *title, const char *line);
+
+/* Something went wrong, and must not pass by as a status line that fades:
+   text is what the status line said, tag a printf of what a developer needs
+   -- which step failed and its code, "launch 80020149" -- to which the
+   version is added. It goes to the log and stands as a band with one answer
+   until X; one that comes while another band stands, from a download in the
+   background, waits its turn. Notices of things that went well stay status
+   lines. */
+void error_show(const char *text, const char *tag, ...) __attribute__((format(printf, 2, 3)));
+/* The same for the many things that are refused while downloads run. */
+void error_busy(void);
 
 /* 1 while a question stands over the browser. */
 int asking(void);

@@ -54,9 +54,11 @@ int plugin_installed_take(void);
 int cable_at_start(void);
 /* The cable has connected: the way through the dialog is not said again. */
 void cable_connected(void);
-/* Options' row: the cable chosen, or Wi-Fi again, and said in the status
-   line. Wi-Fi only remembers the choice; the plugin stays as it is. */
-void cable_choose(int usb);
+/* The gear's row "Set up USBNet": the first start's question again, and
+   what its answer leads to, through to the system's dialog. Wi-Fi only
+   remembers the choice, the plugin stays as it is; O leaves everything as
+   it was. */
+void cable_set_up_again(void);
 
 void uninstall_app(int index);
 /* Starts an app. A plugin is not started: it is asked whether to turn it

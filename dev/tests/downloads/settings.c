@@ -28,6 +28,17 @@ int storage_write(const char *p, const void *s, size_t n) {
 void gfx_set_fps_cap30(int on) {
     actual = on;
 }
+/* The switch says why the picture does not follow: counted here. */
+static int errors, pending;
+static const char *missing;
+static char error_text[96];
+void error_show(const char *text, const char *tag, ...) {
+    (void)tag;
+    errors++;
+    snprintf(error_text, sizeof(error_text), "%s", text);
+}
+int downloads_pending_count(void) { return pending; }
+const char *gfx_water_missing(void) { return missing; }
 int main(void) {
     options_settings_load();
     assert(!actual && !options_fps_requested());
@@ -44,6 +55,27 @@ int main(void) {
     assert(!actual && options_fps_requested());
     options_download_mode(0);
     assert(actual);
+    /* Flipped to Baked while downloads hold the 60 FPS look: the word
+       changes, the picture does not, and that is said; flipped back, or
+       with nothing downloading, nothing is. A Baked look with a piece
+       missing says that. */
+    options_fps_toggle_saved();
+    assert(!actual && !options_fps_requested() && !errors);
+    options_fps_toggle_saved();
+    assert(actual && options_fps_requested() && !errors);
+    options_download_mode(1);
+    pending = 1;
+    options_fps_toggle_saved();
+    options_fps_toggle_saved();
+    assert(!actual && options_fps_requested() && errors == 1 && strstr(error_text, "paused"));
+    options_download_mode(0);
+    pending = 0;
+    assert(actual);
+    missing = "ripple, 12 KB free";
+    options_fps_toggle_saved();
+    options_fps_toggle_saved();
+    assert(errors == 2 && strstr(error_text, "could not be loaded"));
+    missing = NULL;
     options_download_mode(1);
     written[0] = 0;
     options_fps_toggle_saved();

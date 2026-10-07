@@ -1942,7 +1942,12 @@ static void note_latest(const struct app_entry *entry) {
 
 static void restore_installed(struct catalog *catalog) {
     unsigned now = wall_time();
-    int stale = catalog->generated && catalog->generated + 24u * 3600u < now;
+    /* A clock that says it is earlier than the catalog was made is wrong
+       -- a console with no battery starts in 1980 -- and then nothing can
+       say how old the catalog is: it is asked about as one a day old is,
+       or an old list would hide every update from such a console. */
+    int stale = catalog->generated &&
+                (now < catalog->generated || catalog->generated + 24u * 3600u < now);
     for (int i = 0; i < state_count(); i++) {
         char id[PSPDX_ID_SIZE];
         snprintf(id, sizeof(id), "%s", state_id(i));
@@ -2064,6 +2069,10 @@ static void restore_installed(struct catalog *catalog) {
                         *to[k] = *from[k];
                         from[k]->s = NULL;
                     }
+                    /* And the source that listed it: the answer from its
+                       repository names none, and a row with no source
+                       stands in no source's group under Browse by Source. */
+                    one->source = dst->source;
                 }
                 /* The entry moves over whole, its text and description with
                    it, and the one it came in is left owning nothing. */
@@ -2485,9 +2494,18 @@ int catalog_check_updates(struct catalog *catalog) {
         int hashed = 0;
         for (int k = 0; k < 32; k++)
             hashed |= manifest->sha256[k];
+        /* A catalog may give a release its day alone, and the install
+           recorded that: the same release, asked about at its repository,
+           is published later that day by GitHub's clock. Where no hash
+           settles it, the same version on the same day is the release
+           that is installed, not a newer one. */
+        int same_day = entry->local_rev % 86400u == 0 &&
+                       manifest->rev / 86400u == entry->local_rev / 86400u &&
+                       txt(entry->local_version)[0] &&
+                       !strcmp(txt(entry->local_version), txt(manifest->version));
         int newer = entry->local_has_sha && hashed
                         ? memcmp(entry->local_sha256, manifest->sha256, 32) != 0
-                        : manifest->rev > entry->local_rev;
+                        : manifest->rev > entry->local_rev && !same_day;
         if (newer) {
             entry->state = APP_UPDATE;
             updates++;

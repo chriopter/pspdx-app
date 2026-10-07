@@ -59,6 +59,11 @@ void shell_ask(const char *title, const char *line);
    answers; they are kept by their address. Without a word for X the footer
    names O alone: a notice of something under way, which O leaves. */
 void shell_ask_with(const char *title, const char *line, const char *yes, const char *no);
+/* The band for something that went wrong: its words, one answer -- X OK --
+   and under the words a small line for whoever is sent a photo of the
+   screen: what failed, its code, the version. Stands until it is answered,
+   where a status line would have faded unread. */
+void shell_ask_error(const char *text, const char *detail);
 
 /* The options menu, the system's own: a panel sliding in from the right
    with a title and the choices under it, the cursor on one. on[i] zero

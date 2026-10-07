@@ -1,0 +1,143 @@
+#!/bin/sh
+# Builds pspdx.zip as a release carries it, from the tree as it stands: the
+# one script behind .github/workflows/release.yml (a tag v* publishes what
+# this packs), build.yml (every push builds the same, complete) and
+# PACK_ONLY=1 dev/release (the dry run on a desk).
+#
+#   dev/pack <version>
+#
+# Needs Docker, gh (GH_TOKEN in a workflow), Python, zip and unzip. The
+# build itself runs in pspdev/pspdev:latest, as the user who runs this, so
+# nothing it leaves is root's.
+#
+# The version is the tag without its "v", which is what the scanner records a
+# release's version as -- and what the client writes into its own record on a
+# first start. Those two strings are compared, and only compared, to decide
+# whether PSPDX is looking at itself or at an update, so a release built with
+# a different one would offer itself an update for ever.
+#
+# HTTPS_CHECK=warn says it and goes on where pspkit-https is not at its
+# newest release: build.yml, so a push is not red for a release of the
+# library nobody has taken in yet. A release refuses.
+set -e
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+APP="$HERE/app"
+
+VERSION="${1#v}"
+[ -n "$VERSION" ] || { echo "usage: dev/pack <version>" >&2; exit 2; }
+cd "$HERE"
+
+# HTTPS is pspkit-https's, and a release carries that library's newest
+# release, not a commit between two or an older one. Held by commit, since a
+# checkout of the submodule -- a workflow's, at depth 1 -- has no tags.
+HTTPS_URL="$(git config -f .gitmodules submodule.app/lib/pspkit-https.url)"
+HTTPS_NEWEST="$(gh release view --repo "$HTTPS_URL" --json tagName -q .tagName)"
+# The peeled line sorts after the tag's own, so an annotated tag gives its
+# commit and a lightweight one its only line.
+HTTPS_WANT="$(git ls-remote "$HTTPS_URL" "refs/tags/$HTTPS_NEWEST" "refs/tags/$HTTPS_NEWEST^{}" | sort -k2 | tail -1 | cut -f1)"
+HTTPS_HERE="$(git -C app/lib/pspkit-https rev-parse HEAD)"
+if [ -z "$HTTPS_NEWEST" ] || [ -z "$HTTPS_WANT" ] || [ "$HTTPS_HERE" != "$HTTPS_WANT" ]; then
+	echo "app/lib/pspkit-https is at $HTTPS_HERE, pspkit-https's newest release ${HTTPS_NEWEST:-unknown} is ${HTTPS_WANT:-unknown}" >&2
+	[ "${HTTPS_CHECK:-}" = warn ] || { echo "not packed" >&2; exit 1; }
+fi
+
+# Network over the USB cable for a console without Wi-Fi: pspkit-usbnet's
+# plugin, compiled into the client, which offers to install it at the first
+# start. It is whatever pspkit-usbnet's latest release is the day this runs:
+# the release's own usbnet-psp.zip, the zip a catalog lists the plugin by,
+# held to the SHA-256 that release states for it in SHA256SUMS-linux. Which
+# release that was, and the zip's hash, are said in LICENSES.txt, which
+# ships, and are compiled in with the plugin (dev/embed usbnet), which is how
+# the client knows what it carries: the hash is what makes the same release
+# current in the store and a newer one an update.
+USBNET="$(mktemp -d)"
+trap 'rm -rf "$USBNET"' EXIT
+USBNET_TAG="$(gh release view --repo chriopter/pspkit-usbnet --json tagName -q .tagName)"
+[ -n "$USBNET_TAG" ] || { echo "pspkit-usbnet has no latest release" >&2; exit 1; }
+gh release download "$USBNET_TAG" --repo chriopter/pspkit-usbnet --pattern usbnet-psp.zip \
+	--pattern SHA256SUMS-linux --dir "$USBNET"
+[ -f "$USBNET/usbnet-psp.zip" ] || { echo "pspkit-usbnet $USBNET_TAG has no usbnet-psp.zip" >&2; exit 1; }
+USBNET_SHA256="$(sha256sum "$USBNET/usbnet-psp.zip" | cut -d' ' -f1)"
+USBNET_STATED="$(awk '$2 == "usbnet-psp.zip" || $2 == "*usbnet-psp.zip" { print $1 }' \
+	"$USBNET/SHA256SUMS-linux" 2>/dev/null || true)"
+# A zip nobody vouches for is not compiled into a release.
+[ -n "$USBNET_STATED" ] || { echo "pspkit-usbnet $USBNET_TAG states no SHA-256 for usbnet-psp.zip" >&2; exit 1; }
+[ "$USBNET_STATED" = "$USBNET_SHA256" ] || {
+	echo "usbnet-psp.zip of pspkit-usbnet $USBNET_TAG is not the zip its SHA256SUMS-linux states" >&2
+	exit 1
+}
+unzip -tqq "$USBNET/usbnet-psp.zip"
+unzip -q "$USBNET/usbnet-psp.zip" usbnet.prx LICENSE THIRD_PARTY_PSPLINK_LICENSE -d "$USBNET"
+python3 "$HERE/dev/embed" usbnet "$USBNET/usbnet.prx" "$USBNET_TAG" "$USBNET_SHA256"
+echo "usbnet: pspkit-usbnet $USBNET_TAG, usbnet-psp.zip sha256 $USBNET_SHA256"
+
+# wolfSSL once per checkout (a workflow restores it from its cache), then
+# the client from nothing: objects and an ELF left by a test build
+# (BUILD_PRX=1, for PSPLink) would be packed as they are, and an EBOOT that
+# is a PRX cannot start another app (sceKernelLoadExec refuses it, 80020149:
+# 1.1.0 to 1.1.2). The build mounts app/ alone and so sees no .git: the
+# version goes in on the command line.
+BUILD_LOG="$(mktemp)"
+if ! { [ -d app/lib/pspkit-https/build/wolfssl ] ||
+	docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$HERE:/src" -w /src pspdev/pspdev:latest \
+		sh app/lib/pspkit-https/tools/build-wolfssl; } >"$BUILD_LOG" 2>&1 ||
+	! docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$APP:/src" -w /src pspdev/pspdev:latest \
+		sh -c "make clean && make PSPDX_VERSION=\"$VERSION\"" >>"$BUILD_LOG" 2>&1; then
+	cat "$BUILD_LOG" >&2
+	rm -f "$BUILD_LOG"
+	exit 1
+fi
+grep -E 'warning:|error:|EBOOT\.PBP' "$BUILD_LOG" || true
+rm -f "$BUILD_LOG"
+[ -f "$APP/EBOOT.PBP" ] || { echo "no EBOOT.PBP; the build failed" >&2; exit 1; }
+# What was compiled in is the plugin fetched above and the font of the
+# assets, whole.
+python3 - "$APP/EBOOT.PBP" "$USBNET/usbnet.prx" "$APP/assets/font.pgf" <<'PY' || { echo "the EBOOT does not carry the plugin and the font; not packed" >&2; exit 1; }
+import sys
+eboot = open(sys.argv[1], 'rb').read()
+sys.exit(0 if all(open(f, 'rb').read() in eboot for f in sys.argv[2:]) else 1)
+PY
+# The program in the EBOOT is a plain executable (ELF type 2), not a PRX.
+python3 - "$APP/EBOOT.PBP" <<'PY' || { echo "the EBOOT's program is not a plain ELF; not packed" >&2; exit 1; }
+import struct, sys
+b = open(sys.argv[1], 'rb').read()
+at = struct.unpack_from('<I', b, 0x20)[0]
+sys.exit(0 if b[at:at + 4] == b'\x7fELF' and struct.unpack_from('<H', b, at + 16)[0] == 2 else 1)
+PY
+
+# The archive is the tree a PSP expects, so unpacking it onto a stick by hand
+# puts the client exactly where the client would have put it. The installer
+# reads the same layout from the other end: the directory of the shallowest
+# EBOOT.PBP is the package, and this one is PSPDX.
+rm -rf "$HERE/dist" "$HERE/pspdx.zip"
+mkdir -p "$HERE/dist/PSP/GAME/PSPDX"
+cp "$APP/EBOOT.PBP" "$HERE/dist/PSP/GAME/PSPDX/EBOOT.PBP"
+cp "$HERE/.pspdx" "$HERE/dist/PSP/GAME/PSPDX/.pspdx"
+# Everything else the client needs it carries in itself: the catalogs it
+# offers once, the font for where the firmware's cannot be read, the USB
+# network plugin. What goes beside it are the licences all of that is passed
+# on under, in one file, each part under a line saying what it covers.
+{
+	printf '================ PSPDX: GNU General Public License, version 2 ================\n\n'
+	cat "$HERE/LICENSE"
+	printf '\n\n================ The font carried in PSPDX (used only where the firmware fonts cannot be read) ================\n\n'
+	cat "$APP/assets/font-NOTICE.txt"
+	printf '\n\n================ The USB network plugin carried in PSPDX: pspkit-usbnet %s ================\n\n' "$USBNET_TAG"
+	printf 'usbnet.prx is pspkit-usbnet %s, https://github.com/chriopter/pspkit-usbnet\n' "$USBNET_TAG"
+	printf 'out of usbnet-psp.zip, SHA-256 %s\n\n' "$USBNET_SHA256"
+	cat "$USBNET/LICENSE"
+	printf '\n\n================ PSPLink, parts of which pspkit-usbnet is built on ================\n\n'
+	cat "$USBNET/THIRD_PARTY_PSPLINK_LICENSE"
+} > "$HERE/dist/PSP/GAME/PSPDX/LICENSES.txt"
+(cd "$HERE/dist" && zip -q -r "$HERE/pspdx.zip" PSP)
+unzip -tqq "$HERE/pspdx.zip"
+unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/.pspdx | cmp "$HERE/.pspdx" -
+unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/EBOOT.PBP | cmp "$APP/EBOOT.PBP" -
+unzip -p "$HERE/pspdx.zip" PSP/GAME/PSPDX/LICENSES.txt | cmp "$HERE/dist/PSP/GAME/PSPDX/LICENSES.txt" -
+# Three files and no fourth.
+[ "$(unzip -Z1 "$HERE/pspdx.zip" | grep -v '/$' | LC_ALL=C sort | tr '\n' ' ')" = "PSP/GAME/PSPDX/.pspdx PSP/GAME/PSPDX/EBOOT.PBP PSP/GAME/PSPDX/LICENSES.txt " ] || {
+	echo "pspdx.zip holds something else than EBOOT.PBP, .pspdx and LICENSES.txt" >&2
+	exit 1
+}
+rm -rf "$HERE/dist"
+echo "pspdx.zip: PSPDX $VERSION with pspkit-usbnet $USBNET_TAG and pspkit-https $HTTPS_HERE"

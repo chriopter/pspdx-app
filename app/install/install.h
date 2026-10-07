@@ -287,15 +287,15 @@ int install_release_to(const struct manifest *release, const char *device,
                        https_progress progress, void *pctx);
 
 /* The first install of a plugin whose .prx is not fetched but there
-   already, at prx: the copy of pspkit-usbnet the release carries beside the
-   EBOOT, which is then the one file in its folder. Through the same
+   already, len bytes at prx, to be called name: the copy of pspkit-usbnet
+   the program carries, which is then the one file in its folder. Through the same
    installer as a download, with every check and every refusal of it, and
    the same record: release says which release the
    file is of -- its id, repository, version, the SHA-256 of that release's
    zip, by which an update is told, and the .pspdx -- so that the store
    updates the plugin from then on. Installed turned off, like any. */
-int install_bundled(const struct manifest *release, const char *prx, const char *device,
-                    struct install_report *rep);
+int install_bundled(const struct manifest *release, const char *name, const void *prx, size_t len,
+                    const char *device, struct install_report *rep);
 
 int install_release(const struct manifest *release, struct install_report *rep,
                     install_phase_cb phase, https_progress progress, void *pctx);

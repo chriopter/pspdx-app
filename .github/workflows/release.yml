@@ -1,0 +1,59 @@
+name: Release
+
+# A tag v* on master releases the client: dev/pack builds pspdx.zip -- the
+# newest pspkit-usbnet compiled in, pspkit-https at its newest release or
+# nothing -- and it is published on a GitHub release of that tag, titled with
+# the version, the tag's message for notes:
+#
+#   git tag -a v1.2.0 -m "What changed" && git push origin v1.2.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # The scanner takes the newest release of the repository and hashes
+      # what GitHub serves: a release is of what was merged and nothing else.
+      - name: The tag is on master
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+
+      - name: Read wolfSSL revision
+        id: wolfssl-revision
+        run: echo "commit=$(git -C app/lib/pspkit-https rev-parse HEAD:wolfssl)" >> "$GITHUB_OUTPUT"
+
+      # The same cache build.yml fills.
+      - uses: actions/cache@v6
+        with:
+          path: app/lib/pspkit-https/build/wolfssl
+          key: wolfssl-${{ steps.wolfssl-revision.outputs.commit }}-${{ hashFiles('app/lib/pspkit-https/tools/build-wolfssl', 'app/lib/pspkit-https/src/wolfssl_seed.h') }}
+
+      - name: Pack
+        run: dev/pack "${GITHUB_REF_NAME#v}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # The checkout leaves the tag as a bare name for the commit; its
+      # message comes with the tag fetched again as itself.
+      - name: Notes from the tag's message
+        run: |
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.txt"
+          [ -s "$RUNNER_TEMP/notes.txt" ] || echo "PSPDX ${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.txt"
+          cat "$RUNNER_TEMP/notes.txt"
+
+      - name: Publish
+        run: |
+          gh release create "$GITHUB_REF_NAME" pspdx.zip --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.txt"
+        env:
+          GH_TOKEN: ${{ github.token }}

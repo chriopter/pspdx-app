@@ -65,10 +65,9 @@ mkdir -p "$MS/PSP/GAME/PSPDX"
 # copies its own aside, so a rebuild in app/ meanwhile -- by a hand, by
 # another agent -- cannot swap the client under it.
 cp "${EBOOT:-$APP/EBOOT.PBP}" "$MS/PSP/GAME/PSPDX/EBOOT.PBP"
-cp "$APP/presets.txt" "$MS/PSP/GAME/PSPDX/presets.txt"
-
-# Use the release's fallback, so the rig exercises the installed package.
-cp "$APP/assets/font.pgf" "$MS/PSP/GAME/PSPDX/font.pgf"
+# Nothing else lies beside it: the rig exercises the package as installed,
+# with the font and the presets the program carries.
+rm -f "$MS/PSP/GAME/PSPDX/font.pgf" "$MS/PSP/GAME/PSPDX/presets.txt"
 
 # The films out of a catalog site built next door go into the client's
 # cache, which it consults before any URL, the same way dev/start plants

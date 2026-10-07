@@ -137,7 +137,6 @@ int main(int argc, char **argv) {
            what came of it, and the line it said; with "look", the gateway
            looked for: what was found, and what is asked then. */
         enum cable choice = (enum cable)atoi(argv[2]);
-        cable_init(getenv("DEVICE") ? getenv("DEVICE") : "ms0:/PSP/GAME/PSPDX/EBOOT.PBP");
         if (argc > 3 && !strcmp(argv[3], "look")) {
             cable_start(choice);
             enum cable_look look = cable_look();
@@ -454,9 +453,18 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (!strcmp(argv[1], "presets")) {
-        /* The start's merge alone: the list beside the EBOOT the stick
-           was booted from, into sources.txt. Never fatal. */
-        presets_merge(getenv("DEVICE") ? getenv("DEVICE") : "ms0:/PSP/GAME/PSPDX/EBOOT.PBP");
+        /* The start's merge alone: the program's list into sources.txt,
+           or the list in presets-of-a-newer-build.txt where a test wrote
+           one, for what a later release would bring. Never fatal. */
+        FILE *f = fopen("presets-of-a-newer-build.txt", "rb");
+        if (!f) {
+            presets_merge();
+            return 0;
+        }
+        static char list[4096];
+        list[fread(list, 1, sizeof(list) - 1, f)] = 0;
+        fclose(f);
+        presets_offer(list);
         return 0;
     }
     if (!strcmp(argv[1], "add")) {

@@ -127,7 +127,7 @@ int view_home(void);
    do to itself, the first of them the UI's mode, flipped where it stands: view_index() answers VIEW_ROW_SETTING minus the
    row's number for them, so the one list draws and walks both kinds. */
 #define VIEW_ROW_SETTING (-1000)     /* below every VIEW_ROW_GROUP */
-#define VIEW_SETTINGS 5
+#define VIEW_SETTINGS 6
 
 /* The word on a row under the gear. */
 const char *view_setting(int n);

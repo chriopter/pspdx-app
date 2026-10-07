@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 #include "gui/font.h"
+#include "gui/font_data.h"
 #include "gui/gfx.h"
 #include "util/runtime.h"
 
@@ -13,7 +14,7 @@
    and only a fallback for firmware that lacks the first.
 
    PPSSPP's flash0 file access can fail even when its fonts are installed.
-   The release carries a free replacement beside the EBOOT for that case;
+   The program carries a free replacement for that case, gui/font_data.h;
    the old test-rig override remains the last fallback. */
 
 static intraFont *g_font;
@@ -176,22 +177,65 @@ static float shadowed(enum font_style style, float x, float y, unsigned color,
     return intraFontPrintEx(g_font, x, y, text, len);
 }
 
+/* Whether the file at path is the carried font, byte for byte. */
+static int is_carried(const char *path) {
+    static unsigned char block[2048];
+    int fd = sceIoOpen(path, PSP_O_RDONLY, 0777);
+    if (fd < 0) return 0;
+    size_t at = 0;
+    int n;
+    while ((n = sceIoRead(fd, block, sizeof(block))) > 0) {
+        if (at + (size_t)n > sizeof(font_data) || memcmp(block, font_data + at, (size_t)n)) break;
+        at += (size_t)n;
+    }
+    sceIoClose(fd);
+    return n == 0 && at == sizeof(font_data);
+}
+
+/* The font the program carries, as a file: intraFont reads fonts from
+   files and nothing else. It is put into the cache once and found there
+   from then on; a copy that is cut short or is another file is written
+   again. NULL where it cannot be written -- a full stick -- and then the
+   candidates after it are tried. */
+static const char *carried_font(void) {
+    const char *path = storage_path("PSP/PSPDX/CACHE/font.pgf");
+    if (is_carried(path)) return path;
+    sceIoMkdir(storage_path("PSP/PSPDX"), 0777);
+    sceIoMkdir(storage_path("PSP/PSPDX/CACHE"), 0777);
+    int rc = storage_write_cache(path, font_data, sizeof(font_data));
+    if (rc < 0 || !is_carried(path)) {
+        logline("font: the carried font could not be written to %s (%d)", path, rc);
+        sceIoRemove(path);
+        return NULL;
+    }
+    return path;
+}
+
 int font_init(void) {
     if (!intraFontInit()) {
         logline("font: intraFontInit failed");
         return 0;
     }
-    char bundled[256];
-    snprintf(bundled, sizeof(bundled), "%s/PSP/GAME/%s/font.pgf",
+    /* The firmware's own first, as ever. Then a font.pgf beside the EBOOT,
+       which releases up to 1.1.4 shipped and which still stands in for
+       the carried one where it lies; then the carried one; last the test
+       rig's. */
+    char beside[256];
+    snprintf(beside, sizeof(beside), "%s/PSP/GAME/%s/font.pgf",
              storage_device(), storage_self_dir());
+    int firmware = !storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.NOFONT"));
     const char *candidates[] = {
-        "flash0:/font/ltn8.pgf",
-        "flash0:/font/ltn0.pgf",
-        bundled,
+        firmware ? "flash0:/font/ltn8.pgf" : NULL,
+        firmware ? "flash0:/font/ltn0.pgf" : NULL,
+        beside,
+        "",                                     /* the carried one, made a file only if it comes to it */
         storage_path("PSP/PSPDX/DEBUG/font/ltn8.pgf"),
     };
     for (unsigned i = 0; i < sizeof(candidates) / sizeof(*candidates); i++) {
-        g_font = intraFontLoad(candidates[i], INTRAFONT_CACHE_ALL);
+        const char *path = candidates[i];
+        if (path && !path[0]) path = carried_font();
+        if (!path) continue;
+        g_font = intraFontLoad(path, INTRAFONT_CACHE_ALL);
         if (g_font) {
             /* Every string this client draws is UTF-8 -- the catalog, the
                .pspdx files, the stick's own names. Left at its default the
@@ -199,7 +243,7 @@ int font_init(void) {
                a glyph it lacks: an em dash or an e with an accent came out
                as nothing, measured nothing, and the row closed up over it. */
             intraFontSetEncoding(g_font, INTRAFONT_STRING_UTF8);
-            logline("font: %s", candidates[i]);
+            logline("font: %s", path);
             g_styled = -1;
             forget_measurements();
             return 1;

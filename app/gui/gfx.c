@@ -16,6 +16,7 @@
 #include <malloc.h>
 #include <math.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "gui/gfx.h"
@@ -625,6 +626,17 @@ struct gfx_water_vertex *gfx_water_mesh(int verts) {
         g_mesh_verts = g_mesh ? verts : 0;
     }
     return g_mesh;
+}
+
+/* What the water of the Baked look is drawn from and does not have: every
+   one of these is skipped in silence where it is used, and the look is then
+   the room with no water in it. NULL when all are there. */
+const char *gfx_water_missing(void) {
+    static char said[48];
+    const char *what = !g_ripple ? "ripple" : !g_mesh ? "mesh" : !g_index ? "index" : NULL;
+    if (!what) return NULL;
+    snprintf(said, sizeof(said), "%s, %d KB free", what, (int)(sceKernelMaxFreeMemSize() / 1024));
+    return said;
 }
 
 unsigned short *gfx_water_index(int count) {

@@ -7,6 +7,7 @@
  */
 
 #include <pspctrl.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -19,7 +20,9 @@
 #include "session/questions.h"
 #include "session/view.h"
 #include "update/inbox.h"
+#include "util/runtime.h"
 #include "util/storage.h"
+#include "util/version.h"
 
 /* Nothing that writes to the stick starts on one press any more. The shell
    draws the question and the footer that answers it; the answer arrives
@@ -37,6 +40,39 @@ struct sources *question_sources(void) {
     return &g_sources;
 }
 
+/* What went wrong and has not been read yet, the oldest first. A handful:
+   more than that at once is one cause, said often enough by its first. */
+#define ERRORS 4
+static struct { char text[200], detail[96]; } g_errors[ERRORS];
+static int g_error_count;
+
+void error_show(const char *text, const char *tag, ...) {
+    char detail[96];
+    va_list ap;
+    va_start(ap, tag);
+    int n = vsnprintf(detail, sizeof(detail), tag, ap);
+    va_end(ap);
+    if (n < 0) n = 0;
+    if (n >= (int)sizeof(detail)) n = sizeof(detail) - 1;
+    snprintf(detail + n, sizeof(detail) - (size_t)n, "%sPSPDX %s", n ? "  " : "", PSPDX_VERSION);
+    logline("error: %s [%s]", text, detail);
+    /* Said once while it waits: the same refusal pressed for again. */
+    for (int i = 0; i < g_error_count; i++)
+        if (!strcmp(g_errors[i].text, text) && !strcmp(g_errors[i].detail, detail)) return;
+    if (g_error_count == ERRORS) {
+        /* The one on screen stays; the oldest behind it makes room. */
+        memmove(&g_errors[1], &g_errors[2], (ERRORS - 2) * sizeof(*g_errors));
+        g_error_count--;
+    }
+    snprintf(g_errors[g_error_count].text, sizeof(g_errors[0].text), "%s", text);
+    snprintf(g_errors[g_error_count].detail, sizeof(g_errors[0].detail), "%s", detail);
+    g_error_count++;
+}
+
+void error_busy(void) {
+    error_show("Wait for Downloads, or cancel them first", "busy %d", downloads_pending_count());
+}
+
 void ask_remove(int index) {
     const struct app_entry *entry = &actions_catalog()->apps[index];
     struct installed record;
@@ -46,13 +82,13 @@ void ask_remove(int index) {
        the update that is the point of listing PSPDX at all would have
        nowhere to land. */
     if (strcmp(entry->id, PSPDX_SELF_ID) == 0) {
-        shell_status(T_SELF_DELETE);
+        error_show(T_SELF_DELETE, "remove self");
         return;
     }
     if (db_read(entry->id, &record) < 0 || (!record.dir[0] && !record.plugin[0])) {
         /* Without a record there is no directory to name, and nothing here
            guesses at one. */
-        shell_status(T_NO_RECORD);
+        error_show(T_NO_RECORD, "remove %s", entry->id);
         return;
     }
     char title[sizeof(entry->name) + 32], line[96];
@@ -100,13 +136,13 @@ static void ask_forget(void) {
 }
 
 void ask_inbox(void){
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    if (downloads_busy()) { error_busy(); return; }
     downloads_reset();
     preview_quiesce();catalog_offline(https_net_connect()<0);
     shell_word(T_WORD_INBOX);
     int n=inbox_scan(actions_catalog());preview_resume();view_rebuild(actions_catalog());
     if(n<=0){shell_status(T_INBOX_EMPTY);return;}
-    char title[64],line[96];snprintf(title,sizeof(title),T_INBOX_ASK,n);
+    char title[64],line[96];snprintf(title,sizeof(title),T_INBOX_ASK,n,n==1?"":"s");
     snprintf(line,sizeof(line),"%s",inbox_summary());shell_ask(title,line);g_question=ASK_INBOX;
 }
 
@@ -171,7 +207,23 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         }
     }
 
+    /* What went wrong, once nothing else is asked: it stands until X. */
+    if (g_question == ASK_NOTHING && g_error_count) {
+        shell_ask_error(g_errors[0].text, g_errors[0].detail);
+        g_question = ASK_ERROR;
+        g_question_of = -1;
+    }
+
     if (g_question == ASK_NOTHING) return 0;
+    if (g_question == ASK_ERROR) {
+        /* Read: O does as well as X, there being nothing to choose. */
+        if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) {
+            g_error_count--;
+            memmove(&g_errors[0], &g_errors[1], (size_t)g_error_count * sizeof(*g_errors));
+            ask_forget();
+        }
+        return 1;
+    }
     /* The answer, and only then the thing that was asked about. */
     if (pressed & PSP_CTRL_CROSS) {
         enum question asked = g_question;
@@ -188,11 +240,11 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
             refetch_now(*cursor, keep, keep_size, synced, refreshing);
         }
         else if (asked == ASK_CATALOG) {
-            if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return 1; }
+            if (downloads_busy()) { error_busy(); return 1; }
             if (index >= 0 && index < g_sources.count &&
                 sources_remove(g_sources.url[index]) > 0)
                 refetch_now(*cursor, keep, keep_size, synced, refreshing);
-            else shell_status(T_SOURCE_DELETE_FAILED);
+            else error_show(T_SOURCE_DELETE_FAILED, "source remove %d", index);
         } else uninstall_app(index);
         dump_diagnostics();
         /* What was just done can have emptied a tab. */

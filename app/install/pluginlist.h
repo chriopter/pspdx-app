@@ -46,9 +46,11 @@ struct pluginlist_write {
     char bytes[PLUGINLIST_BYTES];
 };
 
-/* The line for a plugin, to go after the list's end: turned on, with the
-   line end the list uses, and one before it where the list does not end in
-   one. 0, or -1 for a path a line cannot hold. */
+/* The line for a plugin, turned on: over a line of spaces that has just
+   the room for it, which is what pluginlist_blank left there once, and
+   otherwise after the list's end, with the line end the list uses, and one
+   before it where the list does not end in one. 0, or -1 for a path a line
+   cannot hold. */
 int pluginlist_add(const char *text, size_t len, const char *path, struct pluginlist_write *w);
 
 /* PSPDX's own line turned on or off: the bytes of its last field, the same

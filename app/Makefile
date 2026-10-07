@@ -2,7 +2,7 @@ TARGET = pspdx
 OBJS = main.o gui/screen.o gui/entropy_screen.o gui/gfx.o gui/font.o \
        gui/image.o gui/lattice.o gui/title.o gui/preview.o gui/icons.o gui/marks.o gui/shell.o gui/wrap.o gui/cloud.o gui/files_view.o gui/sources_view.o gui/system_view.o gui/osk.o gui/netconf.o network/bench.o network/usbnet.o \
        update/catalog.o update/gunzip.o update/sources.o update/presets.o update/reach.o update/pspdx.o update/inbox.o update/assets.o update/sync.o \
-       install/install.o install/pluginlist.o install/state.o util/storage.o util/files.o session/view.o session/actions.o session/downloads.o session/questions.o session/options.o session/cable.o session/manage_sources.o \
+       install/install.o install/pluginlist.o install/state.o util/storage.o util/files.o session/view.o session/actions.o session/downloads.o session/questions.o session/options.o session/cable.o session/carried.o session/manage_sources.o \
        install/zipread.o audio/audio.o audio/synth.o audio/music.o \
        audio/cues.o video/mp4.o video/psmf.o video/player.o util/runtime.o util/pbp.o
 
@@ -12,7 +12,7 @@ OBJS = main.o gui/screen.o gui/entropy_screen.o gui/gfx.o gui/font.o \
 # is the release tag with its "v" taken off -- so the "v" comes off here too,
 # or the two strings would never agree and the client would offer itself an
 # update for ever. The Docker build mounts app/ alone and sees no .git, so it
-# falls back to "dev"; dev/release passes the version in from the host.
+# falls back to "dev"; dev/pack passes the version in from the host.
 PSPDX_DESCRIBE := $(shell git describe --tags --always 2>/dev/null || echo dev)
 PSPDX_VERSION ?= $(PSPDX_DESCRIBE:v%=%)
 
@@ -43,6 +43,13 @@ PSP_EBOOT_PIC1 = assets/pic1.png
 PSP_EBOOT_ICON1 = assets/icon1.pmf
 PSP_EBOOT_SND0 = assets/snd0.at3
 
+# The cable's plugin is compiled in where dev/embed usbnet has written it:
+# dev/pack does, for the release of the day. A build without the header
+# builds all the same and offers no cable.
+ifneq ($(wildcard session/usbnet_carried.h),)
+CFLAGS += -DPSPDX_USBNET_CARRIED
+endif
+
 # HTTPS, the entropy pool and the sweep come from pspkit-https: its objects,
 # its headers, wolfSSL and the import stubs they need. After LIBS and before
 # build.mak, which reads all of it.
@@ -62,4 +69,7 @@ util/version.h: FORCE
 	@printf '#define PSPDX_VERSION "%s"\n' '$(PSPDX_VERSION)' > $@.tmp; \
 	if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; echo "version $(PSPDX_VERSION)"; fi
 FORCE:
+# Compiled every time: whether the plugin's header is there, and which
+# release it is of, is nothing make can see in an object left from before.
+session/carried.o: FORCE
 $(OBJS): | util/version.h

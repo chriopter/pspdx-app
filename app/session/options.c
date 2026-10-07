@@ -250,6 +250,11 @@ void options_fps_toggle_saved(void) {
     g_settings_fps_cap30 = cap30;
     g_settings_dirty = 1;
     options_settings_save();
+    /* The word has flipped; where the picture does not follow, why. */
+    if (cap30 && g_download_mode)
+        error_show(T_BAKED_PAUSED, "ui 30 held, %d downloading", downloads_pending_count());
+    else if (cap30 && gfx_water_missing())
+        error_show(T_BAKED_MISSING, "bake %s", gfx_water_missing());
 }
 
 void options_fps_runtime_toggle(void) {
@@ -446,7 +451,6 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             if (row == SYS_SHOW_FPS) shell_toggle_fps();
             else if (row == SYS_UNRELEASED) view_show_unreleased(!view_unreleased_shown());
             else if (row == SYS_FILL_CACHE) options_fill_cache_toggle();
-            else if (row == SYS_CABLE) cable_choose(options_cable() < CABLE_USB);
             else { shell_toggle_dev(); fake_updates(shell_dev_updates()); }
             cues_post(CUE_MOVE, 0);
         }

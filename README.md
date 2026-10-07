@@ -18,16 +18,17 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 
 Extract `pspdx.zip` to your PSP, start PSPDX and browse by category, tag or source. Updates appear on their own. WPA2 needs ARK-5.
 
-PPSSPP: extract the same ZIP to the emulator's Memory Stick directory. The
-package includes a free replacement font beside `EBOOT.PBP`, so no firmware
-font or debug override needs to be installed. A real PSP uses its firmware
-font first. Keep `font.pgf` beside the EBOOT when moving the app folder.
+PPSSPP: extract the same ZIP to the emulator's Memory Stick directory. PSPDX
+carries a free replacement font in itself, so no firmware font or debug
+override needs to be installed. A real PSP uses its firmware font first; a
+`font.pgf` beside the EBOOT, as releases up to 1.1.4 shipped it, is used
+before the carried one.
 
 - **Install:** press **Cross** on an app. **Circle** keeps the download running in the background, **Square** cancels.
 - **Basket:** add apps with **Triangle**, then *Download all*. Running downloads are listed there too.
 - **Find:** *Search* on the first page looks through names, authors, tags and descriptions. **SELECT** sorts any list by newest or by name.
 - **Display:** 60 FPS by default; the first row under the wrench switches to a calmer 30 FPS mode.
-- **No Wi-Fi (PSP Street):** at its first start PSPDX asks whether to connect via Wi-Fi or the USB cable. *USB cable* installs the [USBNet](https://github.com/chriopter/pspkit-usbnet) plugin the package carries and turns it on. Run its gateway on a PC, plug in the cable, and in the connection dialog choose [New Connection] → Scan → "Hi-Speed USB" the first time. **Options → Connect via USB** changes the answer later.
+- **No Wi-Fi (PSP Street):** at its first start PSPDX asks whether to connect via Wi-Fi or the USB cable. *USB cable* installs the [USBNet](https://github.com/chriopter/pspkit-usbnet) plugin the package carries and turns it on. Run its gateway on a PC, plug in the cable, and in the connection dialog choose [New Connection] → Scan → "Hi-Speed USB" the first time. The row **Set up USBNet** under the gear asks again later.
 
 Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 
@@ -94,7 +95,7 @@ https://github.com/someone/project@v1.2
 | `.pspdx` files in `PSP/PSPDX/INBOX/` | **Direct Install** | Validate and install the selected files; for a repository without its own `.pspdx` your file is the app |
 
 - Preset sources, in this order: `https://chriopter.github.io/pspdx-catalog/`, `https://pspdev.github.io/homebrew/`
-- Presets ship as `PSP/GAME/PSPDX/presets.txt`, same lines as `sources.txt`; the EBOOT carries a copy for a stick without one
+- Presets are carried in the EBOOT; a `presets.txt` beside it, from a release up to 1.1.4, is no longer read
 - Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
 - **Sources** lists each source with its address, kind, apps and when it last loaded; one that does not load is marked *unreachable*, one served only from its saved copy *offline copy*; the rest load as usual
 - A line ending in `.pspdx`, left from an older version, is skipped with a line in the log
@@ -105,7 +106,7 @@ https://github.com/someone/project@v1.2
 #### Presets
 
 ```text
-start -> presets.txt (or the built-in list) -> in presets.seen? skip
+start -> the built-in list -> in presets.seen? skip
                                             -> append to sources.txt unless there -> note in presets.seen
 ```
 
@@ -188,7 +189,7 @@ Delete                            ->  spaces written over that line, and the fil
 - Everything takes effect when the PSP restarts. Hold **START** at power-on to start once without plugins
 - The files are swapped in one by one under the journal, which lists each with its hash: a copy, a file or an empty folder is removed only when the journal says PSPDX made it, and a file only while its hash agrees. The record notes each write to the list before it is made: one a power cut left half written is finished in the same place at the next start, and where the bytes there are neither the old nor the new ones, nothing is written and the next switch says the list has changed. The record claims a line only once it has been read back, and drops the claim when the list no longer has it
 - A plugin PSPDX 1.1 installed as the one file `seplugins/<name>.prx` is switched and deleted as it was. Its next update moves it: the folder goes in, the new line is appended where the old one said on, spaces go over the old line, and the old `.prx` is removed if it is still the one installed and no other line names it
-- A plugin is never written into PSPDX's own folder. The `usbnet.prx` the release ships there is installed from, through the same installer and with the same refusals, when the USB cable is chosen (see Network); `usbnet.txt` beside it names the pspkit-usbnet release it is of and that release's ZIP hash, which go into the record so the store tells an update the usual way
+- A plugin is never written into PSPDX's own folder. The `usbnet.prx` PSPDX carries in itself is installed from memory, through the same installer and with the same refusals, when the USB cable is chosen (see Network); with it PSPDX carries the tag of the pspkit-usbnet release it is of and that release's ZIP hash, which go into the record so the store tells an update the usual way. A `usbnet.prx` or `usbnet.txt` a release up to 1.1.4 left beside the EBOOT is not looked at
 
 #### Check
 
@@ -260,8 +261,8 @@ download  ->  release ZIP, following GitHub asset redirects
 ```
 
 - At startup the PSP system network dialog lets you select or create a Wi-Fi connection
-- Over the USB cable: asked once, at the first start, where the release's `usbnet.prx` is beside the EBOOT, custom firmware can load it and no cable plugin is there yet (a record of it, or the module loaded by the firmware). The answer is kept in `PSP/PSPDX/settings.txt` (`cable=wifi`, `cable=usb`) and changed under **Options → Connect via USB**
-- *USB cable* installs that copy through the plugin installer as `io.github.chriopter.pspkitusbnet`, turns it on and loads it for the session, so no restart is needed; from then on the store updates it like any plugin. What the installer refuses is said in one line, and the copy beside the EBOOT is then loaded for the session instead. *Wi-Fi* installs and loads nothing; switching back to Wi-Fi later only stores the choice
+- Over the USB cable: asked once, at the first start, where PSPDX carries the plugin (every release does; a build without it offers no cable), custom firmware can load it and no cable plugin is there yet (a record of it, or the module loaded by the firmware). The answer is kept in `PSP/PSPDX/settings.txt` (`cable=wifi`, `cable=usb`) and asked again by the row **Set up USBNet** under the gear, which runs the same question and what follows it; O there leaves everything as it was
+- *USB cable* installs that copy through the plugin installer as `io.github.chriopter.pspkitusbnet`, turns it on and loads it for the session, so no restart is needed; from then on the store updates it like any plugin. What the installer refuses is said in one line, and the carried copy is then loaded for the session instead, from `PSP/PSPDX/CACHE/usbnet.prx`, since the firmware loads a module from a file. *Wi-Fi* installs and loads nothing; switching back to Wi-Fi later only stores the choice
 - With the cable chosen, and until a connection has been made once, PSPDX asks two things before the system's dialog opens: *Is the gateway running on your PC? Get it from github.com/chriopter/pspkit-usbnet* (the cable leads nowhere without the [gateway](https://github.com/chriopter/pspkit-usbnet)), then *Do you want to connect now?* with what to pick in the dialog: [New Connection] → Scan → "Hi-Speed USB". No to either leaves PSPDX offline for now
 - A plugin that is installed is left alone at start, turned on or off: nothing is asked and nothing loaded
 - Cancel to browse offline; checking again or installing can reopen the dialog
@@ -348,15 +349,9 @@ ms0:/
 └── PSP/
     ├── GAME/
     │   ├── PSPDX/                       # Downloader
-    │   │   ├── EBOOT.PBP
+    │   │   ├── EBOOT.PBP                # Carries the presets, the fallback font and pspkit-usbnet
     │   │   ├── .pspdx                   # Bundled for offline first start
-    │   │   ├── presets.txt              # Sources offered once
-    │   │   ├── font.pgf                 # Free emulator fallback
-    │   │   ├── font-NOTICE.txt
-    │   │   ├── usbnet.prx               # pspkit-usbnet, installed from when the cable is chosen
-    │   │   ├── usbnet.txt               # Which release of it, and its ZIP's SHA-256
-    │   │   ├── usbnet-NOTICE.txt
-    │   │   └── LICENSE
+    │   │   └── LICENSES.txt             # PSPDX's, the font's and the plugin's, one after another
     │   ├── Cathedral/                   # Installed homebrew
     │   │   ├── EBOOT.PBP
     │   │   └── ...
@@ -376,6 +371,8 @@ ms0:/
         │   └── io.github.chriopter.pspcathedral.state.json
         ├── CACHE/
         │   ├── catalogs/<url-sha1>.json
+        │   ├── font.pgf                 # The carried font as a file, only where the firmware's cannot be read
+        │   ├── usbnet.prx               # The carried plugin as a file, only for a session it is not installed in
         │   └── media/                   # Named after the served file
         │       ├── <app-id>-<file>.png
         │       ├── <app-id>-<file>.mp4      # or .pmf, as served
@@ -390,6 +387,7 @@ ms0:/
         ├── DEBUG/
         │   ├── PSPDX.BMP
         │   ├── PSPDX.KEYS
+        │   ├── PSPDX.NOFONT             # A test: start without the firmware's fonts
         │   ├── PSPDX.REPLAY
         │   ├── PSPDX.TRACE
         │   ├── PSPDX_REC/
@@ -451,7 +449,18 @@ make -C app
 
 - Output: `app/EBOOT.PBP`
 - Libraries: pspkit-https (wolfSSL), cJSON, intraFont, libpng, zlib, PSP SDK
-- CI builds inside `pspdev/pspdev:latest`
+- CI builds inside `pspdev/pspdev:latest`, through `dev/pack` like a release, with pspkit-usbnet's newest release compiled in
+
+#### Release
+
+```text
+git tag -a v1.2.0 -m "What changed" && git push origin v1.2.0
+  ->  .github/workflows/release.yml: tag on master -> dev/pack -> GitHub release "1.2.0", notes = the tag's message, pspdx.zip
+PACK_ONLY=1 dev/release 1.2.0  ->  dev/pack here: the same pspdx.zip, nothing published
+```
+
+- `dev/pack`: pspkit-https at its newest release (else refused), pspkit-usbnet's newest `usbnet-psp.zip` held to its `SHA256SUMS-linux` and compiled in (`dev/embed`), `make clean && make` in `pspdev/pspdev:latest`, the EBOOT a plain ELF carrying the plugin and the font, `pspdx.zip` with `EBOOT.PBP`, `.pspdx` and `LICENSES.txt` only
+- Needs Docker, `gh`, Python, zip
 
 #### Run in the emulator
 
@@ -459,10 +468,9 @@ make -C app
 dev/start             ->  build in Docker -> install on the PPSSPP stick -> launch
 dev/start --no-build  ->  launch the existing build (a mock-catalog build is rebuilt anyway)
 dev/start --mock      ->  the same against the local mock catalog
-dev/release <version> [notes]  ->  clean master -> latest pspkit-usbnet -> build -> pspdx.zip -> gh release
 ```
 
-- Needs Linux, Docker, the PPSSPP Flatpak, Python, a systemd user session and Wayland; `dev/release` also `gh`
+- Needs Linux, Docker, the PPSSPP Flatpak, Python, a systemd user session and Wayland
 - `dev/start` installs `dev/ppsspp/controls.ini`
 
 | PSP | Key |

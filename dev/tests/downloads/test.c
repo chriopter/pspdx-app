@@ -169,6 +169,13 @@ void preview_resume(void) {
     assert(pause_held);
     pause_held = 0;
 }
+/* What the queue refuses is an error band now; here it is only counted. */
+static int errors_shown;
+void error_show(const char *text, const char *tag, ...) {
+    (void)text;
+    (void)tag;
+    errors_shown++;
+}
 void shell_status(const char *s) {
     (void)s;
 }

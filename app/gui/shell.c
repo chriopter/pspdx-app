@@ -20,6 +20,8 @@
 
 #include "pspkit-https/entropy.h"
 #include "pspkit-https/https.h"
+#include "gui/image.h"
+#include "gui/usbnet_icon.h"
 #include "gui/shell.h"
 #include "gui/shell_internal.h"
 #include "gui/files_view.h"
@@ -129,6 +131,7 @@ static char g_status[96];
    cursor is on, is the main loop's business. */
 static char g_ask_title[200], g_ask_line[200];
 static const char *g_ask_yes = T_YES, *g_ask_no = T_NO;
+static int g_ask_detail;                /* the line is an error band's small print */
 #define MENU_MAX 7                      /* rows the panel has room for */
 static const struct menu *g_menu;       /* the caller's, while it is up */
 static struct menu g_menu_gone;         /* its last rows, while it slides out */
@@ -517,7 +520,7 @@ static const char *setting_word(int n) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[VIEW_SETTINGS] = {
-        MARK_PILL, MARK_WORLD, MARK_SLIDERS, MARK_FOLDER, MARK_INFO,
+        MARK_PILL, MARK_WORLD, MARK_SLIDERS, MARK_PLUGINS, MARK_FOLDER, MARK_INFO,
     };
     float dx = g_page_dx;
     float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
@@ -537,6 +540,24 @@ static void draw_setting_row(int n, int y, int selected, float t) {
         font_print(FONT_META, LIST_X + LIST_W - 8 + dx - vw, y + 21,
                    faded(g_dim, selected ? 230 : 150), value);
         w -= (int)vw + 16;
+    }
+    if (m == MARK_PLUGINS) {
+        /* The plugin the row sets up, by its icon at the row's end, as
+           small as a package's: the one the release carries, so that it
+           is there offline and before a catalog was ever read. */
+        static struct gfx_texture icon;
+        static int tried;
+        if (!tried) {
+            tried = 1;
+            image_decode_png(usbnet_icon_png, sizeof(usbnet_icon_png), &icon);
+        }
+        if (icon.pixels) {
+            /* Under a package's 43 by 24: the word beside it needs 130 of
+               the row's 164. */
+            gfx_texture_draw(&icon, (int)(LIST_X + LIST_W - 30 + dx), y + (ITEM_H - 17) / 2,
+                             30, 17, faded(0xFFFFFFFF, selected ? 255 : 150));
+            w -= 30 + 2;
+        }
     }
     font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, w,
                        selected ? g_text : g_dim, setting_word(n));
@@ -1778,6 +1799,10 @@ static void draw_answers(float base, const char *yes, const char *no) {
         draw_hint(SCR_W / 2 - (hint_width(MARK_CIRCLE, no) - HINT_SPACE) / 2, base, MARK_CIRCLE, no, g_text);
         return;
     }
+    if (!no) {
+        draw_hint(SCR_W / 2 - (hint_width(MARK_CROSS, yes) - HINT_SPACE) / 2, base, MARK_CROSS, yes, g_text);
+        return;
+    }
     float x = SCR_W / 2 - (hint_width(MARK_CROSS, yes) + 30 + hint_width(MARK_CIRCLE, no)) / 2;
     x = draw_hint(x, base, MARK_CROSS, yes, g_text) - HINT_SPACE + 30;
     draw_hint(x, base, MARK_CIRCLE, no, g_text);
@@ -1821,7 +1846,7 @@ static void draw_ask(void) {
     char lines[3][128], head[3][128];
     int heads = break_lines(FONT_TITLE, g_ask_title, SCR_W - 40, head, 3);
     /* Without a line the band is the row shorter that it would have stood in. */
-    int n = g_ask_line[0] ? break_lines(FONT_TITLE, g_ask_line, SCR_W - 80, lines, 3) : 0;
+    int n = g_ask_line[0] ? g_ask_detail ? 1 : break_lines(FONT_TITLE, g_ask_line, SCR_W - 80, lines, 3) : 0;
     int more = 20 * (heads - 1);
     int h = BAND_H + more + 20 * (n - 1), y = (SCR_H - h) / 2;
     draw_band(y, h);
@@ -1830,6 +1855,14 @@ static void draw_ask(void) {
         w = font_width(FONT_TITLE, head[i]);
         font_print_clipped(FONT_TITLE, w > SCR_W - 40 ? 20 : SCR_W / 2 - w / 2, y + 44 + 20 * i,
                            SCR_W - 40, g_text, head[i]);
+    }
+    if (n && g_ask_detail) {
+        /* Small and dim, one line, cut at the band's edge: it is read off
+           a photo, not off the screen. */
+        w = font_width(FONT_CAPTION, g_ask_line);
+        font_print_clipped(FONT_CAPTION, w > SCR_W - 40 ? 20 : SCR_W / 2 - w / 2, y + 64 + more,
+                           SCR_W - 40, faded(g_dim, 170), g_ask_line);
+        n = 0;
     }
     for (int i = 0; i < n; i++) {
         w = font_width(FONT_TITLE, lines[i]);
@@ -2072,6 +2105,7 @@ static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
     T_SYS_FRAME_RATE_NOTE,
     T_NOTE_SOURCES,
     T_NOTE_SYSTEM,
+    T_NOTE_CABLE,
     T_NOTE_FILES,
     T_NOTE_ABOUT,
 };
@@ -2857,12 +2891,18 @@ void shell_ask_with(const char *title, const char *line, const char *yes, const 
     snprintf(g_ask_line, sizeof(g_ask_line), "%s", line ? line : "");
     g_ask_yes = yes;
     g_ask_no = no;
+    g_ask_detail = 0;
     /* The last install's result has been overtaken by a new question. */
     if (g_ask_title[0]) g_status[0] = '\0';
 }
 
 void shell_ask(const char *title, const char *line) {
     shell_ask_with(title, line, T_YES, T_NO);
+}
+
+void shell_ask_error(const char *text, const char *detail) {
+    shell_ask_with(text, detail, T_OK, NULL);
+    g_ask_detail = 1;
 }
 
 

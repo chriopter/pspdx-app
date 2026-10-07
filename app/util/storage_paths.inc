@@ -10,7 +10,9 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX", ""},
     {"PSP/PSPDX/CACHE", ""},
     {"PSP/PSPDX/CACHE/catalogs", ""},
+    {"PSP/PSPDX/CACHE/font.pgf", ""},        /* the font the program carries, for intraFont, which reads files */
     {"PSP/PSPDX/CACHE/media", ""},
+    {"PSP/PSPDX/CACHE/usbnet.prx", ""},      /* the carried plugin as a file, to load for a session it is not installed in */
     {"PSP/PSPDX/CACHE/media.pak", ""},
     {"PSP/PSPDX/CACHE/media.idx", ""},
     {"PSP/PSPDX/CRYPTO", ""},
@@ -21,6 +23,7 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX/DEBUG/PSPDX.INSTALL", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.CABLE", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.KEYS", ""},
+    {"PSP/PSPDX/DEBUG/PSPDX.NOFONT", ""},    /* a test: the firmware's fonts are not asked for */
     {"PSP/PSPDX/DEBUG/PSPDX.OFFLINE", ""},   /* skip the radio: saved catalogs only */
     {"PSP/PSPDX/DEBUG/PSPDX.RECORD", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.REPLAY", ""},

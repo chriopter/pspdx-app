@@ -26,6 +26,9 @@ unsigned gfx_frames(void);
 /* Frame-rate mode: 60 is the startup default; 30 is opt-in and presents every second
    vblank; off targets every vblank for 60. Missed deadlines re-anchor at the
    next safe boundary instead of adding another complete interval. */
+/* Why the Baked look has no water, for the switch to say: the piece that
+   could not be made and the memory there is; NULL when nothing is missing. */
+const char *gfx_water_missing(void);
 void gfx_set_fps_cap30(int on);
 int gfx_fps_cap30(void);
 int gfx_target_fps(void);

@@ -23,13 +23,13 @@
    chosen. */
 enum cable { CABLE_UNASKED, CABLE_WIFI, CABLE_USB, CABLE_USB_KNOWN };
 
-/* argv0: the path of the EBOOT, beside which the release's copy is. */
-void cable_init(const char *argv0);
-
 /* Whether the plugin is there already: PSPDX has a record of it, turned on
    or off, or the firmware loaded a copy somebody put there by hand. Then
    nothing is asked and nothing done: it is managed like any plugin. */
 int cable_installed(void);
+/* Whether the plugin is installed, by its record alone: a module that is
+   only loaded for the session is not on the stick. */
+int cable_recorded(void);
 
 /* Whether to ask how to connect: never answered, not installed, the copy
    and the release it is of beside the EBOOT, and a kernel to load it. */

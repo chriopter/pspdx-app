@@ -104,12 +104,16 @@ static int connect_online(void) {
 
 /* A plugin installed for the first time, and off: the row the loop asks
    about once the downloads are through, as it asks about the restart. */
-static int g_installed_of = -1;
+/* Each of them, in the order they went in: a batch from INBOX installs
+   several, and one slot asked about the last alone. */
+#define INSTALLED_ASKS 16
+static int g_installed_of[INSTALLED_ASKS], g_installed_count;
 
 int plugin_installed_take(void) {
-    if (downloads_busy()) return -1;
-    int of = g_installed_of;
-    g_installed_of = -1;
+    if (downloads_busy() || !g_installed_count) return -1;
+    int of = g_installed_of[0];
+    g_installed_count--;
+    memmove(g_installed_of, g_installed_of + 1, (size_t)g_installed_count * sizeof(*g_installed_of));
     return of;
 }
 
@@ -129,7 +133,7 @@ static int install_device(const struct app_entry *entry, int row, char out[5]) {
     if (db_read(entry->id, &rec) == 0) {
         snprintf(out, 5, "%s", rec.device);
         if (!storage_device_available(out)) {
-            shell_status(T_STORAGE_MISSING);
+            error_show(T_STORAGE_MISSING, "device %s of %s", out, entry->id);
             return -1;
         }
         return 0;
@@ -309,73 +313,72 @@ static int cable_set_up(char *said, size_t size) {
     return loaded;
 }
 
-void cable_choose(int usb) {
-    char said[96];
-    if (!usb) {
-        options_cable_set(CABLE_WIFI);
-        shell_status(T_CABLE_OFF);
-        return;
+/* How to connect, asked: the menu, and what the answer leads to. The
+   first start asks it, and the gear's row asks it again. */
+enum { CABLE_LEFT = -1,     /* O: nothing answered, nothing changed */
+       CABLE_STAY,          /* refused on the way, and not to connect now */
+       CABLE_GO_ON,         /* the cable is set up: the gateway next */
+       CABLE_PLAIN };       /* Wi-Fi, or on without the cable after all */
+static int cable_asked(void) {
+    static struct menu choice;
+    memset(&choice, 0, sizeof(choice));
+    memset(choice.key, -1, sizeof(choice.key));
+    choice.title = T_CABLE_ASK;
+    choice.item[0] = T_CABLE_WIFI;
+    choice.item[1] = T_CABLE_USB;
+    choice.on[0] = choice.on[1] = 1;
+    choice.count = 2;
+    SceCtrlData pad;
+    sceCtrlPeekBufferPositive(&pad, 1);
+    unsigned last = pad.Buttons;
+    shell_menu(&choice);
+    for (;;) {
+        shell_draw(g_catalog, 0);
+        sceCtrlPeekBufferPositive(&pad, 1);
+        unsigned pressed = pad.Buttons & ~last;
+        last = pad.Buttons;
+        if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) choice.cursor ^= 1;
+        if (!(pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE))) continue;
+        shell_menu(NULL);
+        if (!(pressed & PSP_CTRL_CROSS)) return CABLE_LEFT;
+        if (!choice.cursor) {
+            options_cable_set(CABLE_WIFI);
+            return CABLE_PLAIN;
+        }
+        /* Said before anything is put on the stick; No is back at the
+           choice. A plugin that is installed already is only turned on;
+           one that is merely loaded, deleted in this session, is not
+           installed. */
+        if (!cable_recorded() && !answer(T_CABLE_INSTALL_ASK, T_CABLE_INSTALL_LINE)) {
+            sceCtrlPeekBufferPositive(&pad, 1);
+            last = pad.Buttons;
+            shell_menu(&choice);
+            continue;
+        }
+        /* What was refused is said where it is read, the system's dialog
+           being the next thing on the screen; and the cable still asked
+           about where the session has it after all. No to that takes the
+           choice back too: a cable that was refused and not wanted is not
+           what the next start should find chosen. */
+        int before = options_cable();
+        char said[64];
+        int loaded = cable_set_up(said, sizeof(said));
+        if (said[0]) {
+            int yes = answer(said, loaded ? T_CABLE_GO_ON_LINE : T_CABLE_CONNECT_ASK);
+            if (!yes && before < CABLE_USB) options_cable_set(before);
+            if (!yes) return CABLE_STAY;
+            if (!loaded) return CABLE_PLAIN;
+        }
+        return CABLE_GO_ON;
     }
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
-    if (!cable_installed() && !answer(T_CABLE_INSTALL_ASK, T_CABLE_INSTALL_LINE)) return;
-    if (!cable_set_up(said, sizeof(said)) || said[0]) {
-        shell_status(said);
-        return;
-    }
-    /* Nothing connects from here, so what is found is only said: looked
-       for again as often as is wanted, and the cable chosen either way. */
-    int found;
-    while ((found = look()) == CABLE_NOT_FOUND &&
-           answer_with(T_CABLE_NONE, T_CABLE_NONE_LINE, T_CABLE_RETRY, T_HINT_CANCEL)) {}
-    shell_status(found == CABLE_NOT_FOUND ? T_CABLE_NO_GATEWAY : T_CABLE_ON);
 }
 
 int cable_at_start(void) {
     if (cable_asks(options_cable())) {
-        static struct menu choice;
-        memset(&choice, 0, sizeof(choice));
-        memset(choice.key, -1, sizeof(choice.key));
-        choice.title = T_CABLE_ASK;
-        choice.item[0] = T_CABLE_WIFI;
-        choice.item[1] = T_CABLE_USB;
-        choice.on[0] = choice.on[1] = 1;
-        choice.count = 2;
-        SceCtrlData pad;
-        sceCtrlPeekBufferPositive(&pad, 1);
-        unsigned last = pad.Buttons;
-        shell_menu(&choice);
         /* O answers nothing: Wi-Fi this once, and asked again next time. */
-        for (int chosen = 0; !chosen;) {
-            shell_draw(g_catalog, 0);
-            sceCtrlPeekBufferPositive(&pad, 1);
-            unsigned pressed = pad.Buttons & ~last;
-            last = pad.Buttons;
-            if (pressed & (PSP_CTRL_UP | PSP_CTRL_DOWN)) choice.cursor ^= 1;
-            if (pressed & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE)) {
-                shell_menu(NULL);
-                chosen = 1;
-                if (!(pressed & PSP_CTRL_CROSS)) break;
-                if (!choice.cursor) { options_cable_set(CABLE_WIFI); break; }
-                /* Said before anything is put on the stick; No is back at
-                   the choice. */
-                if (!answer(T_CABLE_INSTALL_ASK, T_CABLE_INSTALL_LINE)) {
-                    sceCtrlPeekBufferPositive(&pad, 1);
-                    last = pad.Buttons;
-                    shell_menu(&choice);
-                    chosen = 0;
-                    continue;
-                }
-                /* What was refused is said where it is read, the system's
-                   dialog being the next thing on the screen; and the cable
-                   still asked about where the session has it after all. */
-                char said[64];
-                int loaded = cable_set_up(said, sizeof(said));
-                if (said[0]) {
-                    int yes = answer(said, loaded ? T_CABLE_GO_ON_LINE : T_CABLE_CONNECT_ASK);
-                    if (!yes || !loaded) return yes;
-                }
-            }
-        }
+        int chosen = cable_asked();
+        if (chosen == CABLE_STAY) return 0;
+        if (chosen != CABLE_GO_ON) return 1;
     } else {
         cable_start((enum cable)options_cable());
     }
@@ -386,6 +389,25 @@ int cable_at_start(void) {
        ready connection for the cable. */
     if (options_cable() != CABLE_USB || !cable_ready()) return 1;
     return gateway_asked(CABLE_USB);
+}
+
+void cable_set_up_again(void) {
+    if (downloads_busy()) { error_busy(); return; }
+    int chosen = cable_asked();
+    if (chosen == CABLE_LEFT || chosen == CABLE_STAY) return;
+    /* The gateway is looked for whenever the cable was chosen here, known
+       from an earlier connection or not: whoever comes back to this row
+       has a reason to. */
+    if (chosen == CABLE_GO_ON && cable_ready() && !gateway_asked(CABLE_USB)) return;
+    /* And the connection made anew, through the system's dialog, since
+       the one that stands may be the other kind. */
+    preview_quiesce();
+    https_net_disconnect();
+    int online = netconf_connect() == 0 && https_net_connect() == 0;
+    catalog_offline(!online);
+    preview_resume();
+    if (online) cable_connected();
+    shell_status(online ? (options_cable() == CABLE_WIFI ? T_CABLE_OFF : "") : T_STATUS_OFFLINE);
 }
 
 void cable_connected(void) {
@@ -464,6 +486,8 @@ int actions_download_device(const struct app_entry *entry, char out[5]) {
 int actions_download_connect(void) {
     int online = connect_online();
     if (online) catalog_offline(0);
+    /* Until now the job only turned to Failed in the list. */
+    else error_show(T_DOWNLOAD_OFFLINE, "download connect");
     return online;
 }
 int actions_download_folder(const struct app_entry *entry, const char *dev, int row) {
@@ -509,7 +533,8 @@ void actions_download_complete(int index, struct app_entry *prepared,
         if (report.plugin[0]) {
             snprintf(entry->type, sizeof(entry->type), "plugin");
             entry->plugin_off = report.plugin_off;
-            if (first && report.plugin_off) g_installed_of = index;
+            if (first && report.plugin_off && g_installed_count < INSTALLED_ASKS)
+                g_installed_of[g_installed_count++] = index;
         }
         pspdx_utf8_mend(message);
         logline("installed %s %s: %d files, %luK, %us", entry->name, report.version,
@@ -533,14 +558,18 @@ void actions_download_complete(int index, struct app_entry *prepared,
     } else {
         snprintf(message, sizeof(message), T_INSTALL_FAILED, entry->name, rc);
     }
-    shell_status(message);
+    /* A cancelled install is what was asked for; anything else that did
+       not end in an install is an error and stays until it is read. */
+    if (rc == 0 || rc == INSTALL_CANCELLED || rc == INSTALL_DECLINED) shell_status(message);
+    else error_show(message, "install %d %s", rc, entry->id);
     cues_post(rc == 0 ? CUE_DONE : CUE_FAIL, 0);
 }
 
 void uninstall_app(int index) {
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    if (downloads_busy()) { error_busy(); return; }
     struct app_entry *entry = &g_catalog->apps[index];
-    char message[96];
+    /* Room for the longest name whole; the line it is shown in cuts it. */
+    char message[sizeof(entry->name) + 32];
 
     cues_post(CUE_OPEN, 0);
     int plugin = !strcmp(entry->type, "plugin");
@@ -566,7 +595,8 @@ void uninstall_app(int index) {
         snprintf(message, sizeof(message), T_REMOVE_FAILED, entry->name, rc);
     }
     logline("%s", message);
-    shell_status(message);
+    if (rc >= 0) shell_status(message);
+    else error_show(message, "remove %d %s", rc, entry->id);
     cues_post(rc >= 0 ? CUE_DONE : CUE_FAIL, 0);
 }
 
@@ -575,7 +605,7 @@ void uninstall_app(int index) {
    somebody else wrote for the plugin is theirs, so what was asked for may
    not be what the list says afterwards, and then that is said. */
 void switch_plugin(int index) {
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    if (downloads_busy()) { error_busy(); return; }
     struct app_entry *entry = &g_catalog->apps[index];
     char message[96];
     int want = entry->plugin_off, on = plugin_switch(entry->id, want);
@@ -587,7 +617,8 @@ void switch_plugin(int index) {
                  on < 0 ? T_PLUGIN_FAILED : on != want ? T_PLUGIN_NOT_OURS
                  : on ? T_PLUGIN_ON : T_PLUGIN_OFF);
     logline("%s: %s", entry->id, message);
-    shell_status(message);
+    if (on == want) shell_status(message);
+    else error_show(message, "plugin %s %d %s", want ? "on" : "off", on, entry->id);
     cues_post(on == want ? CUE_DONE : CUE_FAIL, 0);
 }
 
@@ -610,7 +641,7 @@ void view_settled(int *cursor) {
    before it: the pool above all, which otherwise only reaches the seed file
    when the user quits through HOME. */
 void launch_app(int index) {
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    if (downloads_busy()) { error_busy(); return; }
     const struct app_entry *entry = &g_catalog->apps[index];
     struct installed record;
     char path[160];
@@ -625,13 +656,13 @@ void launch_app(int index) {
         return;
     }
     if (!known || !record.dir[0]) {
-        shell_status(T_NO_RECORD);
+        error_show(T_NO_RECORD, "launch record %s", entry->id);
         return;
     }
     snprintf(path, sizeof(path), "%s/PSP/GAME/%s/EBOOT.PBP", record.device, record.dir);
     int fd = sceIoOpen(path, PSP_O_RDONLY, 0777);
     if (fd < 0) {
-        shell_status(T_NO_EBOOT);
+        error_show(T_NO_EBOOT, "launch open %08x %s", (unsigned)fd, path);
         logline("launch: %s is not there", path);
         return;
     }
@@ -674,7 +705,7 @@ void launch_app(int index) {
     logline("launch: refused %08x", plain);
     char said[64];
     snprintf(said, sizeof(said), T_START_REFUSED, (unsigned)rc);
-    shell_status(said);
+    error_show(said, "launch %08x %08x", (unsigned)rc, (unsigned)plain);
 }
 
 /* The action row taken: everything the tab holds, one after another, in the
@@ -732,7 +763,7 @@ void install_all(void) {
    a repository, as a URL or as owner/repo, and it is asked at the origin
    like one typed on the gear tab. Returns its index in the catalog. */
 int auto_install_index(void) {
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return -1; }
+    if (downloads_busy()) { error_busy(); return -1; }
     char text[SOURCE_URL], url[SOURCE_URL];
     int fd = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.INSTALL"), PSP_O_RDONLY, 0777);
     if (fd < 0) return -1;
@@ -787,7 +818,7 @@ void wanted_forget(void) { g_wanted_url[0] = '\0'; }
 void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
                         int *refreshing) {
     if (!sync_done()) return;
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    if (downloads_busy()) { error_busy(); return; }
     downloads_reset();
     int was = view_index(cursor);
     snprintf(keep, keep_size, "%s", was >= 0 ? g_catalog->apps[was].id : "");
@@ -811,7 +842,7 @@ void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
    of stick work and this one is two presses from the list, so it has to
    be possible to leave, and leaving puts the old count back. */
 void sweep_again(void) {
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    if (downloads_busy()) { error_busy(); return; }
     /* No connection outlives the seed it was made under: the kept ones
        are closed and the media thread parked, so nothing handshakes while
        the field is being swept. */
@@ -831,7 +862,7 @@ void sweep_again(void) {
    settle. Nothing else moves. The media thread is parked meanwhile, so no
    fetch lands in a folder that is being emptied. */
 void clear_cache(void) {
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    if (downloads_busy()) { error_busy(); return; }
     preview_quiesce();
     int bad = storage_remove_tree(storage_path("PSP/PSPDX/CACHE/catalogs")) < 0;
     bad |= storage_remove_tree(storage_path("PSP/PSPDX/CACHE/media")) < 0;
@@ -844,7 +875,8 @@ void clear_cache(void) {
         install_discard(line, sizeof(line)) < 0)
         bad = 1;
     preview_resume();
-    shell_status(bad ? T_CACHE_CLEAR_FAILED : T_CACHE_CLEARED);
+    if (bad) error_show(T_CACHE_CLEAR_FAILED, "cache clear");
+    else shell_status(T_CACHE_CLEARED);
     files_view_refresh();
 }
 
@@ -853,7 +885,7 @@ void clear_cache(void) {
    the sweep, the built-in list, nothing installed as far as it knows. The
    apps under PSP/GAME are not its to remove. */
 void reset_completely(void) {
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return; }
+    if (downloads_busy()) { error_busy(); return; }
     log_dump();
     if (storage_remove_tree(storage_path("PSP/PSPDX")) < 0)
         logline("reset: some of PSP/PSPDX would not go");
@@ -863,17 +895,17 @@ void reset_completely(void) {
 /* Reads a source from the keyboard and adds it. Returns 1 when the catalog
    should be fetched again, 0 when there is nothing new. */
 int type_source(int install) {
-    if (downloads_busy()) { shell_status("Wait for Downloads, or cancel them first"); return 0; }
+    if (downloads_busy()) { error_busy(); return 0; }
     char text[SOURCE_URL], url[SOURCE_URL];
     int rc = osk_read(install ? T_OSK_GITHUB : T_OSK_SOURCE, "", text, sizeof(text));
     if (rc <= 0 || !text[0]) return 0;
     rc = sources_normalize(text,url,sizeof(url));
     struct source_repo parsed;
-    if(rc<0 || (install && !sources_parse_repo(url,&parsed))) {shell_status(T_BAD_ADDRESS);return 0;}
+    if(rc<0 || (install && !sources_parse_repo(url,&parsed))) {error_show(T_BAD_ADDRESS, "source address");return 0;}
     preview_quiesce();
     if (!connect_online()) {
         preview_resume();
-        shell_status(T_STATUS_OFFLINE);
+        error_show(T_STATUS_OFFLINE, "source connect");
         return 0;
     }
     catalog_offline(0);
@@ -888,18 +920,18 @@ int type_source(int install) {
             snprintf(name, sizeof(name), "%.24s/%.36s", named.owner, named.name);
             refused_line(why, name, line, sizeof(line));
         }
-        shell_status(why ? line : T_SOURCE_UNAVAILABLE);
+        error_show(why ? line : T_SOURCE_UNAVAILABLE, "source %d %.60s", why, url);
         return 0;
     }
     rc=sources_add(url,url,sizeof(url));
-    if(rc<0){shell_status(T_SOURCE_SAVE_FAILED);return 0;}
+    if(rc<0){error_show(T_SOURCE_SAVE_FAILED, "sources.txt write %d", rc);return 0;}
     if (!install) {
         if (rc == 0) { shell_status(T_SOURCE_EXISTS); return 0; }
         return 1;
     }
     struct source_repo repo;
     if (!sources_parse_repo(url, &repo)) {
-        shell_status(T_GITHUB_FORMAT);
+        error_show(T_GITHUB_FORMAT, "source format");
         return 0;
     }
     sources_repo_url(&repo, g_wanted_url, sizeof(g_wanted_url));

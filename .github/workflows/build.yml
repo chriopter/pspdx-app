@@ -23,9 +23,11 @@ jobs:
           "$RUNNER_TEMP/venv/bin/pip" install --quiet -r dev/requirements.txt
           "$RUNNER_TEMP/venv/bin/python" dev/check-schemas
 
+  # The release's build, complete: dev/pack as release.yml runs it, with the
+  # newest pspkit-usbnet compiled in. pspkit-https behind its newest release
+  # is said, not failed: a release refuses it.
   eboot:
     runs-on: ubuntu-latest
-    container: pspdev/pspdev:latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -37,17 +39,15 @@ jobs:
 
       # wolfSSL is cached on everything that controls its source and build.
       - uses: actions/cache@v6
-        id: wolfssl
         with:
           path: app/lib/pspkit-https/build/wolfssl
           key: wolfssl-${{ steps.wolfssl-revision.outputs.commit }}-${{ hashFiles('app/lib/pspkit-https/tools/build-wolfssl', 'app/lib/pspkit-https/src/wolfssl_seed.h') }}
 
-      - name: Build wolfSSL
-        if: steps.wolfssl.outputs.cache-hit != 'true'
-        run: sh app/lib/pspkit-https/tools/build-wolfssl
-
-      - name: Build
-        run: make -C app
+      - name: Build and pack
+        run: dev/pack "ci-$(git rev-parse --short HEAD)"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HTTPS_CHECK: warn
 
       - name: Check it is a PBP
         run: |
@@ -59,4 +59,6 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: pspdx-EBOOT
-          path: app/EBOOT.PBP
+          path: |
+            app/EBOOT.PBP
+            pspdx.zip

@@ -2368,20 +2368,27 @@ end:
     return rc;
 }
 
+/* A plugin the program carries: its .prx in memory, and the name it has. */
+struct carried {
+    const char *name;
+    const unsigned char *data;
+    size_t len;
+};
+
 /* A file of a plugin into sink: out of the zip that was downloaded, or, for
-   a plugin the release carries, out of the file beside the EBOOT. */
-static int plugin_feed(struct zipread *z, const struct plugin_file *f, const char *bundled,
+   a plugin the program carries, out of its memory, a block at a time as a
+   zip would give it. */
+static int plugin_feed(struct zipread *z, const struct plugin_file *f, const struct carried *bundled,
                        int (*sink)(void *, const void *, size_t), void *ctx) {
-    static unsigned char block[4096];
     if (!bundled)
         return zip_extract(z, &f->e, sink, ctx);
-    int fd = sceIoOpen(bundled, PSP_O_RDONLY, 0777), n = -1;
-    if (fd < 0)
-        return -1;
-    while ((n = sceIoRead(fd, block, sizeof(block))) > 0)
-        if (sink(ctx, block, (size_t)n) < 0)
-            n = -1;
-    return sceIoClose(fd) < 0 || n < 0 ? -1 : 0;
+    for (size_t at = 0; at < bundled->len;) {
+        size_t n = bundled->len - at < 4096 ? bundled->len - at : 4096;
+        if (sink(ctx, bundled->data + at, n) < 0)
+            return -1;
+        at += n;
+    }
+    return 0;
 }
 
 static int add_hex(cJSON *o, const char *key, const unsigned char sha[32]) {
@@ -2392,12 +2399,12 @@ static int add_hex(cJSON *o, const char *key, const unsigned char sha[32]) {
     return cJSON_AddStringToObject(o, key, hex) != NULL;
 }
 
-/* bundled: the .prx itself, where the plugin is not fetched but carried,
+/* bundled: the .prx itself, in memory, where the plugin is not fetched but carried,
    and is then the one file of its folder; the release's zip is known by m's
    hash alone. named: the .prx the .pspdx says the firmware loads, "" where
    it names none. */
 static int plugin_release(const struct manifest *m, const struct installed *existing,
-                          const char *bundled, const char *named, struct install_report *rep,
+                          const struct carried *bundled, const char *named, struct install_report *rep,
                           install_phase_cb phase, https_progress progress, void *ctx) {
     char cur[PATH_BUF], fresh[PATH_BUF], old[PATH_BUF], folder[PLUGIN_PATH], dir[32], name[40],
         where[96];
@@ -2426,15 +2433,13 @@ static int plugin_release(const struct manifest *m, const struct installed *exis
     struct zipread z;
     cJSON *files = NULL, *listed = NULL, *made = NULL;
     if (bundled) {
-        size_t size = 0;
         rc = -1;
         memcpy(got, m->sha256, 32);
-        if (!plugin_names_folder(base_name(bundled)) || file_sha(bundled, p->file[0].sha, &size) < 0 ||
-            !size)
+        if (!plugin_names_folder(bundled->name) || !bundled->len)
             goto end;
-        snprintf(p->main, sizeof(p->main), "%s", base_name(bundled));
+        snprintf(p->main, sizeof(p->main), "%s", bundled->name);
         strcpy(p->file[0].rel, p->main);
-        p->file[0].e.usize = (uint32_t)size;
+        p->file[0].e.usize = (uint32_t)bundled->len;
         p->count = 1;
     } else {
         if (phase)
@@ -2477,7 +2482,7 @@ static int plugin_release(const struct manifest *m, const struct installed *exis
     if (plugin_taken(p->main, m->id) ||
         (there && (!existing || moved || sceIoGetstat(folder, &st) < 0 || !FIO_S_ISDIR(st.st_mode)))) {
         logline("install: %s exists and is not this app's", folder);
-        why(T_WHY_PRX_THERE);
+        why(T_WHY_PRX_THERE, name);
         goto end;
     }
     /* Each file by what is in its place. Nothing there: it is added. The
@@ -2790,8 +2795,9 @@ int install_retire_legacy(void) {
         logline("self: retired the record PSPDX 0.5 and before kept of itself");
     return rc;
 }
-int install_bundled(const struct manifest *m, const char *prx, const char *dev,
-                    struct install_report *rep) {
+int install_bundled(const struct manifest *m, const char *name, const void *prx, size_t len,
+                    const char *dev, struct install_report *rep) {
+    struct carried carried = {name, prx, len};
     struct pspdx_file spec;
     struct installed existing;
     char said[80];
@@ -2805,7 +2811,7 @@ int install_bundled(const struct manifest *m, const char *prx, const char *dev,
         db_read(m->id, &existing) == 0)
         return -1;
     target_set(dev);
-    int rc = storage_device_available(dev) ? plugin_release(m, NULL, prx, "", rep, NULL, NULL, NULL) : -1;
+    int rc = storage_device_available(dev) ? plugin_release(m, NULL, &carried, "", rep, NULL, NULL, NULL) : -1;
     if (rc < 0)
         snprintf(rep->why, sizeof(rep->why), "%s", g_why);
     return rc;

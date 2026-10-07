@@ -312,11 +312,11 @@ static void osk_draw(void *ctx) {
 /* The catalog is back: the repository typed is either in it, and the
    question is asked, or it is not, and the status line says why. */
 static int wanted_settled(int *cursor) {
-    char message[96];
+    char message[sizeof(catalog.apps[0].name) + 32];
     int found = catalog_find_repo(&catalog, wanted_url());
     if (found < 0) {
         refused_line(catalog_refused(wanted_url()), wanted_name(), message, sizeof(message));
-        shell_status(message);
+        error_show(message, "want %d %.60s", catalog_refused(wanted_url()), wanted_url());
         return -1;
     }
     /* The tab that is open need not show it: Homebrew does, and is at most a
@@ -342,7 +342,6 @@ int main(int argc, char *argv[]) {
     /* Full speed: the film decodes and the piano plays on the same CPU
        the interface draws with. The default is two thirds of it. */
     storage_init(argc > 0 ? argv[0] : NULL);
-    cable_init(argc > 0 ? argv[0] : NULL);
     options_settings_load();
     state_load();
     scePowerSetClockFrequency(333, 333, 166);
@@ -386,7 +385,7 @@ int main(int argc, char *argv[]) {
     /* The catalogs this release ships with, into sources.txt before the
        first fetch reads it: each once, so a source the user took out stays
        out and one a newer release brings still arrives. */
-    presets_merge(argc > 0 ? argv[0] : NULL);
+    presets_merge();
     https_set_log(https_log);
     https_set_user_agent("pspdx/0.0");
     /* A folder where the seed goes, or where its copy steps aside while it
@@ -1003,8 +1002,14 @@ int main(int argc, char *argv[]) {
                     cues_post(CUE_MOVE, cursor);
                 } else if (which == 1 && synced) sources_open();
                 else if (which == 2) system_open();
-                else if (which == 3) files_view_open();
-                else if (which == 4) shell_info(info = 1);
+                else if (which == 3 && synced) {
+                    /* How to connect, asked again as at the first start;
+                       it ends in a new connection, so it waits for a sync
+                       as Sources does. */
+                    cable_set_up_again();
+                    count = view_count();
+                } else if (which == 4) files_view_open();
+                else if (which == 5) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X opens the package's page; the job rows do their job.
                    The options, with the same things and the rest, are on

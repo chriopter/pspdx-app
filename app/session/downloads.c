@@ -10,6 +10,7 @@
 #include "session/downloads.h"
 #include "session/actions.h"
 #include "session/options.h"
+#include "session/questions.h"
 #include "session/view.h"
 #include "gui/preview.h"
 #include "gui/icons.h"
@@ -130,7 +131,7 @@ int downloads_enqueue(int i) {
     if (c->apps[i].unsupported) {
         char refused[96];
         snprintf(refused, sizeof(refused), T_INSTALL_UNSUPPORTED, c->apps[i].name);
-        shell_status(refused);
+        error_show(refused, "install type %s", c->apps[i].type);
         return -1;
     }
     if (downloads_active(i)) {
@@ -170,7 +171,7 @@ int downloads_enqueue(int i) {
 fail:
     entry_clear(e);
     free(e);
-    shell_status("Not enough memory to queue download");
+    error_show("Not enough memory to queue download", "queue memory");
     return -1;
 }
 static void progress(void *ctx, size_t done, size_t total) {

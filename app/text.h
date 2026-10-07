@@ -128,7 +128,7 @@
 #define T_RESTART_ASK        "Do you want to restart PSPDX now?"
 #define T_RESTART_LINE       "Version %s takes effect after restarting." /* version, at most 20 bytes */
 #define T_RESTART_LATER      "Restart PSPDX to finish the update."
-#define T_INBOX_ASK          "Do you want to install %d apps from INBOX?" /* n */
+#define T_INBOX_ASK          "Do you want to install %d app%s from INBOX?" /* n, plural */
 #define T_SOURCE_DELETE_ASK  "Do you want to delete this source?"
 #define T_TRUST_ASK          "Do you want to connect anyway?"
 #define T_TRUST_EXPIRED      "The security certificate of %s has expired. The connection cannot be verified."
@@ -141,6 +141,10 @@
 
 #define T_YES                "Yes"
 #define T_NO                 "No"
+#define T_DOWNLOAD_OFFLINE   "Could not connect. Nothing was downloaded."
+#define T_BAKED_PAUSED       "Baked UI is paused while downloads run."
+#define T_BAKED_MISSING      "Baked UI could not be loaded."
+#define T_OK                 "OK"                                /* an error band's one answer */
 
 /* ---------------------------------------------------------------- results */
 
@@ -203,7 +207,7 @@
 #define T_WHY_PRX_FILES      "its zip holds too many files"
 #define T_WHY_PRX_NAME       "its .prx has an unusable name"
 #define T_WHY_PRX_RENAMED    "its .prx has another name now"
-#define T_WHY_PRX_THERE      "a folder of that name exists"
+#define T_WHY_PRX_THERE      "seplugins/%s is in the way" /* the plugin's name: a folder or a file */
 #define T_WHY_PRX_COPY       "an old copy of it is in the way"
 #define T_WHY_PRX_READONLY   "one of its files is read-only"
 #define T_WHY_PRX_CHANGED    "its .prx was changed by hand"
@@ -250,11 +254,13 @@
 #define T_SET_UI             "UI Mode"
 #define T_SET_SOURCES        "Sources"
 #define T_SET_SYSTEM         "Options"
+#define T_SET_CABLE          "Set up USBNet"
 #define T_SET_FILES          "Data"
 #define T_SET_ABOUT          "About"
 #define T_SET_DIRECT         "Direct Install"
 #define T_NOTE_SOURCES       "Manages the catalogs apps are listed from."
 #define T_NOTE_SYSTEM        "Adjusts display, testing and default settings."
+#define T_NOTE_CABLE         "Connects over Wi-Fi or the USB cable. Turn USBNet off or delete it under Installed."
 #define T_NOTE_FILES         "Displays the data saved on the Memory Stick."
 #define T_NOTE_ABOUT         "Displays version and system information."
 #define T_NOTE_DIRECT        "Installs an app from GitHub or from the INBOX folder."
@@ -273,7 +279,6 @@
 #define T_SYS_FPS            "Show FPS"
 #define T_SYS_DEV            "Fake Updates"                      /* every installed package is said to have an update */
 #define T_SYS_UNRELEASED     "Show Unreleased"                   /* catalog entries tagged "unreleased" */
-#define T_SYS_CABLE          "Connect via USB"                   /* off: Wi-Fi */
 #define T_SYS_SWEEP          "Renew TLS Seed"
 #define T_SYS_RESET_ALL      "Restore Defaults"
 #define T_SYS_FRAME_RATE_NOTE "Switches between baked UI at 30 FPS and performance UI at 60 FPS."
@@ -283,7 +288,6 @@
 #define T_SYS_FILL           "Fill Cache When Idle"
 #define T_SYS_FILL_NOTE      "While PSPDX is left alone, fetches every app's icon so lists show at once. Any key pauses it."
 #define T_FILLING            "Filling cache for faster browsing  %d%%"
-#define T_SYS_CABLE_NOTE     "Connects over the USB cable instead of Wi-Fi. Its plugin, USBNet, is managed under Installed like any other."
 #define T_SYS_SWEEP_NOTE     "Generates a new seed for secure connections."
 #define T_SYS_RESET_NOTE     "Restores all settings to their defaults. Installed apps are not deleted."
 #define T_HINT_CHANGE        "Change"
@@ -441,10 +445,8 @@
 #define T_CABLE_GO_ON_LINE   "Do you want to go on with the cable?"
 #define T_CABLE_CONNECT_ASK  "Do you want to connect now?"
 #define T_CABLE_CONNECT_LINE "Choose [New Connection], then Scan, then \"Hi-Speed USB\"."
-#define T_CABLE_ON           "USB is ready. Choose \"Hi-Speed USB\"."
 #define T_CABLE_OFF          "Wi-Fi is used. The plugin stays installed."
 #define T_CABLE_NOT_LOADED   "The USB plugin could not be loaded."
-#define T_CABLE_NO_GATEWAY   "USB is on. No gateway found on your PC."
 #define T_STORAGE_ASK        "Install to"
 #define T_STORAGE_INTERNAL   "System Storage"
 #define T_STORAGE_CARD       "Memory Stick"

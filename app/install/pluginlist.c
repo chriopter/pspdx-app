@@ -137,6 +137,27 @@ int pluginlist_add(const char *text, size_t len, const char *path, struct plugin
     int n = snprintf(w->bytes, sizeof(w->bytes), "%salways, %s, on %s", open ? eol : "", path, eol);
     if (n < 0 || n >= (int)sizeof(w->bytes) || strpbrk(path, ", ") || memchr(text, 0, len))
         return -1;
+    /* A line of nothing but spaces is what taking a line out leaves, and
+       ARK skips it: the first that has the room -- and no more of it than
+       a last field of PSPDX's own may be wide, or the line would not be
+       known for PSPDX's afterwards -- takes the new line in its place,
+       byte for byte, so that turning a plugin on after every delete does
+       not make the list longer each time. The list's end otherwise. */
+    size_t need = strlen("always, , on ") + strlen(path);
+    struct line l;
+    for (size_t at = 0; line_at(text, len, at, &l); at = l.next) {
+        size_t room = l.end - l.start;
+        if (room < need || room > need + OWN_FIELD - 4 || l.end == len ||
+            strspn(text + l.start, " ") < room)
+            continue;
+        memset(w->bytes, ' ', room);
+        memcpy(w->bytes, "always, ", 8);
+        memcpy(w->bytes + 8, path, strlen(path));
+        memcpy(w->bytes + 8 + strlen(path), ", on", 4);
+        w->at = l.start;
+        w->n = room;
+        return 0;
+    }
     w->at = len;
     w->n = (size_t)n;
     return 0;

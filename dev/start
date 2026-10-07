@@ -8,8 +8,8 @@
 #   dev/start --fresh    first start without the sweep: the settings are forgotten
 #                        (kept as settings.txt.before), the test seed stays, and
 #                        the cable is asked about as on a PSP: pspkit-usbnet's
-#                        latest release beside the client, its record and its
-#                        .prx off the stick, its loading only played
+#                        latest release compiled into the client, its record
+#                        and its .prx off the stick, its loading only played
 #   dev/start --no-build
 #   dev/start --quiet    no speakers: the emulator gets no audio socket
 #   dev/start --owner X  whose instance this is (default: the shell's user).
@@ -32,7 +32,7 @@
 # same prefix, which is what an install done from the mock catalog leaves;
 # never anything installed for real.
 #
-# The stick gets the release's replacement font, the clips
+# The stick gets the clips
 # from the catalog repo next door if there is one, and a seed, so the client
 # starts the way a PSP does after its first run. Nothing here is real
 # entropy; a PSP that has run this build is not one to sign with.
@@ -63,6 +63,21 @@ while [ $# -gt 0 ]; do
 done
 
 . "$HERE/dev/localcat/common.sh"
+
+# The cable is a question only for a client that carries the plugin, and it
+# is compiled in: pspkit-usbnet's latest release, fetched once, written as
+# app/session/usbnet_carried.h before the build below.
+if [ "$FRESH" = 1 ]; then
+	if [ ! -f "$WORK/usbnet/tag" ]; then
+		mkdir -p "$WORK/usbnet"
+		TAG="$(gh release view --repo chriopter/pspkit-usbnet --json tagName -q .tagName)"
+		gh release download "$TAG" --repo chriopter/pspkit-usbnet --pattern usbnet-psp.zip --dir "$WORK/usbnet" --clobber
+		unzip -oq "$WORK/usbnet/usbnet-psp.zip" usbnet.prx -d "$WORK/usbnet"
+		printf '%s' "$TAG" >"$WORK/usbnet/tag"
+	fi
+	python3 "$HERE/dev/embed" usbnet "$WORK/usbnet/usbnet.prx" "$(cat "$WORK/usbnet/tag")" \
+		"$(sha256sum "$WORK/usbnet/usbnet-psp.zip" | cut -d' ' -f1)"
+fi
 
 if [ "$MOCK" = 1 ]; then
 	python3 "$HERE/dev/mock-catalog" make --work "$WORK" --ms "$MS" --url "$LOCALCAT_URL"
@@ -104,9 +119,9 @@ if [ -d "$MS/PSP/GAME/pspdx" ] && [ ! -d "$MS/PSP/GAME/PSPDX" ]; then
 	mv "$MS/PSP/GAME/pspdx" "$MS/PSP/GAME/PSPDX"
 fi
 mkdir -p "$MS/PSP/PSPDX/CRYPTO" "$MS/PSP/PSPDX/LOGS" "$MS/PSP/PSPDX/DEBUG" "$MS/PSP/GAME/PSPDX" "$MS/PSP/PSPDX/DEBUG/font" "$MS/PSP/PSPDX/CACHE/media"
-cp "$APP/EBOOT.PBP" "$APP/presets.txt" "$MS/PSP/GAME/PSPDX/"
-
-cp "$APP/assets/font.pgf" "$MS/PSP/GAME/PSPDX/font.pgf"
+cp "$APP/EBOOT.PBP" "$MS/PSP/GAME/PSPDX/"
+# Nothing else lies beside it: the font and the presets are in the program.
+rm -f "$MS/PSP/GAME/PSPDX/font.pgf" "$MS/PSP/GAME/PSPDX/presets.txt"
 
 # The films out of a catalog site built next door, so a row has something to
 # play before anything is fetched.
@@ -120,14 +135,7 @@ rm -f "$MS/PSP/PSPDX/DEBUG/PSPDX.CABLE"
 if [ "$FRESH" = 1 ]; then
 	[ -f "$MS/PSP/PSPDX/settings.txt" ] && mv "$MS/PSP/PSPDX/settings.txt" "$MS/PSP/PSPDX/settings.txt.before"
 	rm -f "$MS/PSP/PSPDX/INSTALLED"/io.github.chriopter.pspkitusbnet.* "$MS/seplugins/usbnet.prx"
-	if [ ! -f "$WORK/usbnet/usbnet.txt" ]; then
-		mkdir -p "$WORK/usbnet"
-		TAG="$(gh release view --repo chriopter/pspkit-usbnet --json tagName -q .tagName)"
-		gh release download "$TAG" --repo chriopter/pspkit-usbnet --pattern usbnet-psp.zip --dir "$WORK/usbnet" --clobber
-		unzip -oq "$WORK/usbnet/usbnet-psp.zip" usbnet.prx -d "$WORK/usbnet"
-		printf 'tag=%s\nzip=%s\n' "$TAG" "$(sha256sum "$WORK/usbnet/usbnet-psp.zip" | cut -d' ' -f1)" >"$WORK/usbnet/usbnet.txt"
-	fi
-	cp "$WORK/usbnet/usbnet.prx" "$WORK/usbnet/usbnet.txt" "$MS/PSP/GAME/PSPDX/"
+	rm -f "$MS/PSP/GAME/PSPDX/usbnet.prx" "$MS/PSP/GAME/PSPDX/usbnet.txt"
 	: >"$MS/PSP/PSPDX/DEBUG/PSPDX.CABLE"
 fi
 if [ "$RESET" = 1 ]; then

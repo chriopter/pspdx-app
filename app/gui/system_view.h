@@ -5,7 +5,7 @@
    right what the row under the cursor comes to. Walked by session/options.c,
    drawn here for as long as it is up. */
 
-enum system_row { SYS_SHOW_FPS, SYS_FAKE_UPDATES, SYS_UNRELEASED, SYS_FILL_CACHE, SYS_CABLE,
+enum system_row { SYS_SHOW_FPS, SYS_FAKE_UPDATES, SYS_UNRELEASED, SYS_FILL_CACHE,
                   SYS_SWEEP, SYS_RESET, SYS_COUNT };
 
 void system_view_open(void);
