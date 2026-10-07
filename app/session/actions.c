@@ -277,8 +277,33 @@ static int gateway_asked(enum cable choice) {
 /* The cable chosen: its plugin installed, turned on and loaded, and the
    choice remembered. said: what was refused on the way, or that the module
    is not loaded; empty when the cable is ready. Returns whether it is. */
+/* The cable's plugin reaches the stick through cable_use, not through a
+   download, so nothing has told the store's row for it: installed, by the
+   record just written, and on or off as the list says. Without this the
+   row went on offering Install, and the Installed tab left it out, until
+   PSPDX was started again. */
+static void cable_row(void) {
+    struct installed rec;
+    if (!g_catalog || db_read(CABLE_ID, &rec) < 0 || !rec.plugin[0]) return;
+    int at = catalog_find_repo(g_catalog, rec.repo);
+    if (at < 0) return;
+    struct app_entry *entry = &g_catalog->apps[at];
+    if (entry->state == APP_NOT_INSTALLED) {
+        entry->local_rev = rec.rev;
+        text_set(&entry->local_version, rec.version);
+        memcpy(entry->local_sha256, rec.sha256, sizeof(entry->local_sha256));
+        entry->local_has_sha = 1;
+        entry->state = entry->has_release && memcmp(entry->release.sha256, rec.sha256, 32)
+                           ? APP_UPDATE : APP_CURRENT;
+        snprintf(entry->type, sizeof(entry->type), "plugin");
+    }
+    entry->plugin_off = plugin_enabled(CABLE_ID) != 1;
+    view_rebuild(g_catalog);
+}
+
 static int cable_set_up(char *said, size_t size) {
     int loaded = cable_use(said, size) == 0;
+    cable_row();
     if (options_cable() < CABLE_USB) options_cable_set(CABLE_USB);
     if (!loaded && !said[0]) snprintf(said, size, "%s", T_CABLE_NOT_LOADED);
     return loaded;
