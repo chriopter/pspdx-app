@@ -541,24 +541,6 @@ static void draw_setting_row(int n, int y, int selected, float t) {
                    faded(g_dim, selected ? 230 : 150), value);
         w -= (int)vw + 16;
     }
-    if (m == MARK_PLUGINS) {
-        /* The plugin the row sets up, by its icon at the row's end, as
-           small as a package's: the one the release carries, so that it
-           is there offline and before a catalog was ever read. */
-        static struct gfx_texture icon;
-        static int tried;
-        if (!tried) {
-            tried = 1;
-            image_decode_png(usbnet_icon_png, sizeof(usbnet_icon_png), &icon);
-        }
-        if (icon.pixels) {
-            /* Under a package's 43 by 24: the word beside it needs 130 of
-               the row's 164. */
-            gfx_texture_draw(&icon, (int)(LIST_X + LIST_W - 30 + dx), y + (ITEM_H - 17) / 2,
-                             30, 17, faded(0xFFFFFFFF, selected ? 255 : 150));
-            w -= 30 + 2;
-        }
-    }
     font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, w,
                        selected ? g_text : g_dim, setting_word(n));
 }
@@ -2622,9 +2604,20 @@ int draw_setting_note(const char *title, const char *note, float age) {
 }
 
 static void draw_setting_panel(int n) {
-    draw_setting_note(setting_word(n), n == 0 && downloads_busy()
-                      ? "Downloads temporarily use the 60 FPS UI. Your selected mode returns when the queue is finished."
-                      : SETTING_NOTE[n], 0.0f);
+    int lines = draw_setting_note(setting_word(n), n == 0 && downloads_busy()
+                                  ? "Downloads temporarily use the 60 FPS UI. Your selected mode returns when the queue is finished."
+                                  : SETTING_NOTE[n], 0.0f);
+    if (n == 3) { /* Set up USBNet: illustrate the explanation, not the list row. */
+        static struct gfx_texture icon;
+        static int tried;
+        if (!tried) {
+            tried = 1;
+            image_decode_png(usbnet_icon_png, sizeof(usbnet_icon_png), &icon);
+        }
+        if (icon.pixels)
+            gfx_texture_draw(&icon, PANEL_X, SHOT_Y + 14 + 24 + 17 * lines + 10,
+                             86, 48, 0xFFFFFFFF);
+    }
 }
 
 void shell_draw(const struct catalog *catalog, int cursor) {

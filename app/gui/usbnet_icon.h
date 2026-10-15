@@ -1,9 +1,9 @@
 #ifndef PSPDX_USBNET_ICON_H
 #define PSPDX_USBNET_ICON_H
 
-/* USBNet's icon for the row "Set up USBNet", which has to look right
+/* USBNet's icon below the "Set up USBNet" explanation, shown
    offline and before any catalog was read: pspkit-usbnet's assets/icon0.png
-   (144x80) at 86x48, twice the row's icon, as a PNG. Made with Pillow:
+   (144x80) at 86x48, as a PNG. Made with Pillow:
    resize((86, 48), LANCZOS), quantize(64), save(optimize=True); MIT, see
    LICENSES.txt. Decoded once, by gui/shell.c. */
 static const unsigned char usbnet_icon_png[5002] = {

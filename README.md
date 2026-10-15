@@ -28,7 +28,7 @@ before the carried one.
 - **Basket:** add apps with **Triangle**, then *Download all*. Running downloads are listed there too.
 - **Find:** *Search* on the first page looks through names, authors, tags and descriptions. **SELECT** sorts any list by newest or by name.
 - **Display:** 60 FPS by default; the first row under the wrench switches to a calmer 30 FPS mode.
-- **No Wi-Fi (PSP Street):** at its first start PSPDX asks whether to connect via Wi-Fi or the USB cable. *USB cable* installs the [USBNet](https://github.com/chriopter/pspkit-usbnet) plugin the package carries and turns it on. Run its gateway on a PC, plug in the cable, and in the connection dialog choose [New Connection] → Scan → "Hi-Speed USB" the first time. The row **Set up USBNet** under the gear asks again later.
+- **No Wi-Fi (PSP Street):** at its first start PSPDX asks whether to connect via Wi-Fi or the USB cable. *USB cable* installs the [USBNet](https://github.com/chriopter/pspkit-usbnet) plugin the package carries and turns it on. Run its gateway on a PC, plug in the cable, and in the connection dialog choose [New Connection] → Scan → "Hi-Speed USB" the first time. The row **Set up USBNet** under the gear asks again later. Its preview appears under the explanation on the right.
 
 Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 
