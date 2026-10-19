@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""Independently verify all final PSP audit artifacts; keep transfer and ZIP results distinct."""
+
+import argparse, collections, concurrent.futures, csv, hashlib, json, pathlib, re, sys, zipfile
+
+
+def classification(e):
+    if not e:
+        return "not_completed"
+    if e.get("sink_error"):
+        return "oversize" if e["sink_error"] == -1001 else "sink_error"
+    if e.get("doubt"):
+        return "certificate_doubt"
+    if e.get("status") != 200:
+        return "http_" + str(e.get("status", 0))
+    if e.get("rc") != 0:
+        return "incomplete_transfer"
+    if e.get("encoding"):
+        return "unexpected_content_encoding"
+    if e.get("size") != e.get("expected_size"):
+        return "size_mismatch"
+    if e.get("sha256") != e.get("expected_sha256"):
+        return "sha256_mismatch"
+    return "ok"
+
+
+def load_run(root, initial=False):
+    manifest = json.loads((root / "manifest.json").read_text())
+    jobs = {j["id"]: j for j in manifest["jobs"]}
+    attempts = collections.defaultdict(list)
+    issues = []
+    for path in sorted(root.glob("worker-*/config/ppsspp/PSP/GAME/corpus/results.jsonl")):
+        starts = collections.defaultdict(list)
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            try:
+                e = json.loads(line)
+            except ValueError:
+                issues.append(f"{path}:{n}: malformed JSON")
+                continue
+            if e.get("event") not in ("start", "result"):
+                continue
+            jid = e.get("id")
+            job = jobs.get(jid)
+            if job is None:
+                issues.append(f"{root}: unknown result/start ID {jid}")
+                continue
+            if e["event"] == "start":
+                starts[jid].append(e)
+                if e.get("url") != job["url"] or e.get("expected_size") != job["size"]:
+                    issues.append(f"{root}: start metadata mismatch ID {jid}")
+            else:
+                if len(starts[jid]) != 1:
+                    issues.append(f"{root}: ID {jid} has {len(starts[jid])} starts before result")
+                if (
+                    e.get("expected_size") != job["size"]
+                    or e.get("expected_sha256") != job["sha256"]
+                ):
+                    issues.append(f"{root}: result metadata mismatch ID {jid}")
+                attempts[jid].append(
+                    {
+                        "event": e,
+                        "job": job,
+                        "path": path.parent / f"{jid:06d}.zip",
+                        "run": str(root),
+                    }
+                )
+        for jid, records in starts.items():
+            if len(records) != 1:
+                issues.append(f"{root}: ID {jid} has {len(records)} total starts")
+    for jid in jobs:
+        if len(attempts[jid]) != 1:
+            issues.append(f"{root}: ID {jid} has {len(attempts[jid])} results, expected one")
+    return manifest, attempts, issues
+
+
+def verify(attempt):
+    p = attempt["path"]
+    job = attempt["job"]
+    e = attempt["event"]
+    out = {
+        "path": str(p),
+        "host_sha256": "",
+        "host_size": None,
+        "hash_verified": False,
+        "zip_integrity": "not_checked",
+        "zip_error": "",
+        "eboot_count": 0,
+        "prx_count": 0,
+        "unsafe_paths": [],
+        "compression_methods": [],
+        "installer_compatibility": "not_tested",
+    }
+    try:
+        out["host_size"] = p.stat().st_size
+        with p.open("rb") as f:
+            out["host_sha256"] = hashlib.file_digest(f, "sha256").hexdigest()
+        out["hash_verified"] = (
+            out["host_size"] == job["size"] == e["size"]
+            and out["host_sha256"] == job["sha256"] == e["sha256"]
+        )
+        if not out["hash_verified"]:
+            out["artifact_error"] = "host size/SHA differs from manifest or PSP result"
+    except Exception as exc:
+        out["artifact_error"] = f"{type(exc).__name__}: {exc}"
+        return out
+    try:
+        with zipfile.ZipFile(p) as z:
+            infos = z.infolist()
+            out["files"] = len(infos)
+            out["uncompressed_bytes"] = sum(i.file_size for i in infos)
+            out["eboot_count"] = sum(i.filename.lower().endswith("eboot.pbp") for i in infos)
+            out["prx_count"] = sum(i.filename.lower().endswith(".prx") for i in infos)
+            out["compression_methods"] = sorted({i.compress_type for i in infos})
+            out["unsafe_paths"] = [
+                i.filename
+                for i in infos
+                if i.filename.startswith(("/", "\\"))
+                or ".." in i.filename.replace("\\", "/").split("/")
+                or re.match(r"^[A-Za-z]:", i.filename)
+            ]
+            bad = z.testzip()
+            out["zip_integrity"] = "failed" if bad else "verified"
+            out["zip_error"] = "bad CRC: " + bad if bad else ""
+    except Exception as exc:
+        out["zip_integrity"] = "failed"
+        out["zip_error"] = f"{type(exc).__name__}: {exc}"
+    return out
+
+
+def csv_write(path, rows, fields):
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        w.writeheader()
+        for row in rows:
+            w.writerow(
+                {
+                    k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
+                    for k, v in row.items()
+                }
+            )
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--initial", type=pathlib.Path, default=pathlib.Path(__file__).resolve().parent)
+    ap.add_argument("--recovery", type=pathlib.Path, action="append", default=[])
+    ap.add_argument("--recovery2", type=pathlib.Path, help=argparse.SUPPRESS)
+    ap.add_argument("--threads", type=int, default=10)
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate coverage only; do not hash or write final reports",
+    )
+    args = ap.parse_args()
+    root = args.initial.resolve()
+    manifest, initial, critical = load_run(root, True)
+    jobs = manifest["jobs"]
+    recoveries = collections.defaultdict(list)
+    for directory in args.recovery + ([args.recovery2] if args.recovery2 else []):
+        if not directory:
+            continue
+        rm, ra, ri = load_run(directory.resolve())
+        critical.extend(ri)
+        for job in rm["jobs"]:
+            origins = set()
+            for alias in job["aliases"]:
+                match = re.fullmatch(r"audit-original-(\d+)", str(alias.get("catalog_id", "")))
+                if match:
+                    origins.add(int(match[1]))
+            if not origins:
+                critical.append(f'{directory}: recovery job {job["id"]} lacks original ID alias')
+            for origin in origins:
+                if origin not in initial:
+                    critical.append(f"{directory}: unknown original ID {origin}")
+                else:
+                    recoveries[origin].extend(ra[job["id"]])
+    print(
+        json.dumps(
+            {
+                "jobs": len(jobs),
+                "initial_results": sum(map(len, initial.values())),
+                "recovery_original_ids": len(recoveries),
+                "critical": critical,
+            }
+        ),
+        flush=True,
+    )
+    if args.dry_run:
+        return 1 if critical else 0
+    diagnostics_path = root / "diagnostics.json"
+    diagnostics = (
+        json.loads(diagnostics_path.read_text()).get("jobs", {})
+        if diagnostics_path.exists()
+        else {}
+    )
+    chosen = {}
+    rows = []
+    for job in jobs:
+        jid = job["id"]
+        attempts = initial[jid] + recoveries[jid]
+        success = next((a for a in attempts if classification(a["event"]) == "ok"), None)
+        if success:
+            chosen[jid] = success
+            if (success["job"]["size"], success["job"]["sha256"]) != (job["size"], job["sha256"]):
+                critical.append(
+                    f"ID {jid}: recovery payload expected size/SHA differs from initial catalog"
+                )
+    verified = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
+        for jid, result in zip(chosen, pool.map(verify, chosen.values())):
+            verified[jid] = result
+            if not result["hash_verified"]:
+                critical.append(f"ID {jid}: artifact hash verification failed")
+    for job in jobs:
+        jid = job["id"]
+        first = initial[jid][0]["event"] if initial[jid] else {}
+        diag = diagnostics.get(str(jid), {})
+        selected = chosen.get(jid)
+        proof = verified.get(jid, {})
+        row = {
+            "id": jid,
+            "names": " | ".join(a["name"] for a in job["aliases"]),
+            "url": job["url"],
+            "expected_size": job["size"],
+            "expected_sha256": job["sha256"],
+            "initial_class": classification(first),
+            "status": first.get("status"),
+            "PSPerror": f"rc={first.get('rc')} sink={first.get('sink_error')} doubt={first.get('doubt')}",
+            "diagnosticclassification": diag.get("classification", ""),
+            "recoverycandidate": diag.get(
+                "recovery_candidate", diag.get("recovery", diag.get("mirrors", []))
+            ),
+            "finalstatus": (
+                "verified_download"
+                if proof.get("hash_verified")
+                else "unverified_download" if selected else "download_failed"
+            ),
+            "transfer_success": bool(selected),
+            "recovered": bool(selected and selected not in initial[jid]),
+            "recoveredURL": (
+                selected["job"]["url"] if selected and selected not in initial[jid] else ""
+            ),
+            "final_run": selected["run"] if selected else "",
+            "attempts": [
+                {
+                    "run": a["run"],
+                    "url": a["job"]["url"],
+                    "classification": classification(a["event"]),
+                    "event": a["event"],
+                }
+                for a in initial[jid] + recoveries[jid]
+            ],
+            **proof,
+        }
+        rows.append(row)
+    errors = [
+        r
+        for r in rows
+        if r["initial_class"] != "ok"
+        or r.get("zip_integrity") == "failed"
+        or r.get("unsafe_paths")
+        or r["finalstatus"] == "unverified_download"
+    ]
+    fields = [
+        "id",
+        "names",
+        "url",
+        "expected_size",
+        "expected_sha256",
+        "initial_class",
+        "status",
+        "PSPerror",
+        "diagnosticclassification",
+        "recoverycandidate",
+        "finalstatus",
+        "transfer_success",
+        "recovered",
+        "recoveredURL",
+        "final_run",
+        "host_sha256",
+        "host_size",
+        "hash_verified",
+        "zip_integrity",
+        "zip_error",
+        "eboot_count",
+        "prx_count",
+        "unsafe_paths",
+        "compression_methods",
+        "installer_compatibility",
+        "path",
+        "attempts",
+    ]
+    csv_write(root / "all-downloads.csv", rows, fields)
+    csv_write(root / "errors.csv", errors, fields)
+    summary = {
+        "scope": manifest.get("scope"),
+        "total": len(jobs),
+        "expected_bytes": manifest["total_bytes"],
+        "initial_classes": dict(collections.Counter(r["initial_class"] for r in rows)),
+        "final_statuses": dict(collections.Counter(r["finalstatus"] for r in rows)),
+        "recovered": sum(r["recovered"] for r in rows),
+        "transfer_success": sum(r["transfer_success"] for r in rows),
+        "independently_verified_hashes": sum(r.get("hash_verified", False) for r in rows),
+        "zip_integrity": dict(
+            collections.Counter(r.get("zip_integrity", "not_available") for r in rows)
+        ),
+        "unsafe_zip_entries": sum(bool(r.get("unsafe_paths")) for r in rows),
+        "installer_compatibility": "not_tested",
+        "critical_errors": critical,
+        "downloads": rows,
+    }
+    (root / "final-summary.json").write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n"
+    )
+    print(json.dumps({k: v for k, v in summary.items() if k != "downloads"}), flush=True)
+    return 1 if critical else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

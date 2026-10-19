@@ -5,6 +5,7 @@
 #include "util/storage.h"
 #include <stdarg.h>
 #include <strings.h>
+#include <ctype.h>
 /*
  * Installing a package: download, check, unpack, rename.
  *
@@ -256,11 +257,11 @@ static int archive_mirrors(const char *url, char out[2][512]) {
         return 0;
     const char *item = url + sizeof(ARCHIVE_ORG) - 1;
     const char *file = strchr(item, '/');
-    if (!file || file == item)
-        return 0;
+    if (!file || file == item) return 0;
     char meta[256];
     snprintf(meta, sizeof(meta), "https://archive.org/metadata/%.*s", (int)(file - item), item);
     struct text_buf b = {malloc(512 * 1024), 0, 512 * 1024};
+    if (b.p) b.p[0] = 0;
     struct https_result r;
     int found = 0;
     if (b.p && https_get(meta, text_sink, &b, NULL, NULL, &r) == 0 && r.status == 200) {
@@ -269,11 +270,14 @@ static int archive_mirrors(const char *url, char out[2][512]) {
         const char *host[2] = {"d1", "d2"};
         for (int i = 0; i < 2 && cJSON_IsString(dir); i++) {
             cJSON *h = cJSON_GetObjectItemCaseSensitive(j, host[i]);
+            size_t host_len = cJSON_IsString(h) ? strlen(h->valuestring) : 0;
+            const char suffix[] = ".archive.org";
             /* A host name and a path, nothing that could lead anywhere else. */
-            if (cJSON_IsString(h) && strspn(h->valuestring, "abcdefghijklmnopqrstuvwxyz0123456789.-") ==
-                                         strlen(h->valuestring) &&
-                strstr(h->valuestring, ".archive.org") && dir->valuestring[0] == '/' &&
-                !strstr(dir->valuestring, "..")) {
+            if (cJSON_IsString(h) &&
+                strspn(h->valuestring, "abcdefghijklmnopqrstuvwxyz0123456789.-") == host_len &&
+                host_len > sizeof(suffix) - 1 &&
+                !strcmp(h->valuestring + host_len - (sizeof(suffix) - 1), suffix) &&
+                dir->valuestring[0] == '/' && !strstr(dir->valuestring, "..")) {
                 snprintf(out[found], 512, "https://%s%s%s", h->valuestring, dir->valuestring, file);
                 found++;
             }
@@ -281,8 +285,86 @@ static int archive_mirrors(const char *url, char out[2][512]) {
         cJSON_Delete(j);
     }
     free(b.p);
-    logline("download: archive.org metadata named %d storage server%s", found, found == 1 ? "" : "s");
+    logline("download: archive.org metadata named %d storage server%s", found,
+            found == 1 ? "" : "s");
     return found;
+}
+
+/* Recover a moved file, never a different release. The catalog's size and
+   SHA-256 remain authoritative, including after the replacement download. */
+static int archive_moved(const struct manifest *m, char out[512]) {
+    if (!manifest_has_sha256(m) || strncmp(m->url, ARCHIVE_ORG, sizeof(ARCHIVE_ORG) - 1)) return 0;
+    const char *item = m->url + sizeof(ARCHIVE_ORG) - 1;
+    const char *file = strchr(item, '/');
+    if (!file || file == item || (size_t)(file - item) > 180 ||
+        strspn(item, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") !=
+            (size_t)(file - item))
+        return 0;
+    const char *base = strrchr(file, '/') + 1;
+    char decoded[512];
+    size_t n = 0;
+    for (size_t i = 0; base[i]; i++) {
+        unsigned char c = (unsigned char)base[i];
+        if (c == '%') {
+            unsigned x;
+            if (!base[i + 1] || !base[i + 2] || !isxdigit((unsigned char)base[i + 1]) ||
+                !isxdigit((unsigned char)base[i + 2]) || sscanf(base + i + 1, "%2x", &x) != 1)
+                return 0;
+            c = x;
+            i += 2;
+        }
+        if (c < 32 || c == 127 || c == '/' || c == '\\' || n + 1 >= sizeof(decoded)) return 0;
+        decoded[n++] = c;
+    }
+    decoded[n] = 0;
+    if (!n) return 0;
+    char meta[256];
+    snprintf(meta, sizeof(meta), "https://archive.org/metadata/%.*s", (int)(file - item), item);
+    struct text_buf b = {malloc(512 * 1024), 0, 512 * 1024};
+    if (b.p) b.p[0] = 0;
+    struct https_result r;
+    int found = 0;
+    /* cJSON exposes strings as C strings: reject embedded NUL escapes. */
+    if (b.p && https_get(meta, text_sink, &b, NULL, NULL, &r) == 0 && r.status == 200 &&
+        !memchr(b.p, 0, b.n) && !strstr(b.p, "\\u0000")) {
+        cJSON *j = cJSON_Parse(b.p);
+        cJSON *entry;
+        cJSON_ArrayForEach(entry, cJSON_GetObjectItemCaseSensitive(j, "files")) {
+            cJSON *name = cJSON_GetObjectItemCaseSensitive(entry, "name");
+            cJSON *size = cJSON_GetObjectItemCaseSensitive(entry, "size");
+            if (!cJSON_IsString(name)) continue;
+            const char *path = name->valuestring;
+            const char *leaf = strrchr(path, '/');
+            if (strcmp(leaf ? leaf + 1 : path, decoded)) continue;
+            /* Ambiguous basenames cannot identify the catalog's file. */
+            if (++found != 1) break;
+            char expected[32];
+            snprintf(expected, sizeof(expected), "%lu", (unsigned long)m->size);
+            if (!cJSON_IsString(size) || strcmp(size->valuestring, expected) || !*path ||
+                *path == '/' || strstr(path, "..")) {
+                found = -1;
+                break;
+            }
+            n = (size_t)snprintf(out, 512, "%s%.*s/", ARCHIVE_ORG, (int)(file - item), item);
+            for (const unsigned char *p = (const unsigned char *)path; *p; p++) {
+                if (*p < 32 || *p == 127 || *p == '\\' || n + 4 >= 512) {
+                    found = -1;
+                    break;
+                }
+                if ((isalnum(*p) && *p < 128) || strchr("-._~/", *p))
+                    out[n++] = *p;
+                else {
+                    snprintf(out + n, 4, "%%%02X", *p);
+                    n += 3;
+                }
+            }
+            out[n] = 0;
+            if (found < 0) break;
+        }
+        cJSON_Delete(j);
+    }
+    free(b.p);
+    return found == 1;
 }
 
 static int download(const struct manifest *m, https_progress progress, void *pctx,
@@ -290,16 +372,24 @@ static int download(const struct manifest *m, https_progress progress, void *pct
     struct dl d;
     struct https_result r;
     int close_rc;
+    char moved[512];
+    const char *url = m->url;
     d.expected = m->size;
     int rc = fetch_archive(m->url, &d, progress, pctx, &r, &close_rc);
+    if (!g_abort && close_rc >= 0 && r.status == 404) {
+        if (archive_moved(m, moved)) {
+            url = moved;
+            logline("download: archive.org file moved; trying %s", moved);
+            rc = fetch_archive(moved, &d, progress, pctx, &r, &close_rc);
+        }
+    }
     if (!g_abort && close_rc >= 0 && r.status >= 500 && r.status < 600) {
         char mirror[2][512];
-        int n = archive_mirrors(m->url, mirror);
+        int n = archive_mirrors(url, mirror);
         for (int i = 0; i < n && !g_abort; i++) {
             logline("download: %ld from the mirror; trying %s", r.status, mirror[i]);
             rc = fetch_archive(mirror[i], &d, progress, pctx, &r, &close_rc);
-            if (rc == 0 && r.status == 200 && close_rc >= 0)
-                break;
+            if (rc == 0 && r.status == 200 && close_rc >= 0) break;
         }
     }
     if (close_rc < 0)
@@ -308,8 +398,7 @@ static int download(const struct manifest *m, https_progress progress, void *pct
         why(T_WHY_NO_ANSWER);
     else if (r.status != 200)
         why(T_WHY_STATUS, r.status);
-    if (rc != 0 || r.status != 200 || close_rc < 0)
-        return close_rc < 0 && !r.status ? -2 : -3;
+    if (rc != 0 || r.status != 200 || close_rc < 0) return close_rc < 0 && !r.status ? -2 : -3;
     if (d.written != m->size) {
         logline("download: size %lu, release says %lu", (unsigned long)d.written,
                 (unsigned long)m->size);

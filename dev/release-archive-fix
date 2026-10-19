@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+# Run in an interactive SSH session with gh authenticated and the signing
+# agent available. Publishes the reviewed Archive fixes, library first.
+# Safe to rerun after a failed signing, push, build or release step.
+set -Eeuo pipefail
+trap 'echo "Release stopped at line $LINENO. Fix the error, then rerun this script." >&2' ERR
+
+APP=$(cd -- "$(dirname -- "$0")/.." && pwd)
+LIB=$(dirname -- "$APP")/pspkit-https
+HTTPS=$APP/app/lib/pspkit-https
+LIB_TAG=v0.2.6
+APP_TAG=v1.2.1
+LIB_BASE=0a80ad2f3cf2903a888fd22138d87278881cc083
+APP_BASE=6736b57c83d2e27a08671965eac5c9f78fb29916
+LIB_TREE=bf84498cdb7cf66861bc2e03e5b19798345aa28e
+APP_FINGERPRINT=58b357c1c0109af0647fca9e4ac439dad7f6f7a9560c5f08b45b91ab88093acc
+LIB_MESSAGE='Fixed Archive TLS and streamed chunked responses'
+APP_MESSAGE='Fixed Archive downloads and verified catalog transfers'
+LIB_FILES=(CHANGELOG.md README.md src/https.c tests/request/main.c tools/build-wolfssl
+    .github/workflows/tests.yml tests/certificates/main.c tests/certificates/run
+    tests/certificates/test.py tests/corpus/main.c tests/corpus/Makefile)
+APP_FILES=(.gitignore README.md app/install/install.c dev/tests/test_client.py
+    dev/download-audit dev/download-audit-report)
+
+fail() { echo "$*" >&2; exit 1; }
+for command in git gh python3; do
+    command -v "$command" >/dev/null || fail "Missing command: $command"
+done
+gh auth status
+
+check_checkout() {
+    local directory=$1 project=$2 base=$3 message=$4
+    shift 4
+    [[ $(git -C "$directory" branch --show-current) == master ]] ||
+        fail "$directory must be on master."
+    local origin head parent
+    origin=$(git -C "$directory" remote get-url origin)
+    [[ $origin == "https://github.com/$project.git" || $origin == "https://github.com/$project" ||
+       $origin == "git@github.com:$project.git" ]] || fail "Unexpected origin in $directory."
+    head=$(git -C "$directory" rev-parse HEAD)
+    if [[ $head != "$base" ]]; then
+        parent=$(git -C "$directory" rev-parse HEAD^)
+        [[ $parent == "$base" && $(git -C "$directory" log -1 --format=%s) == "$message" ]] ||
+            fail "$directory moved beyond the reviewed base; review it before releasing."
+    fi
+    # Check committed changes on resume as well as staged/unstaged files.
+    python3 - "$directory" "$base" "$@" <<'PY'
+import subprocess, sys
+directory, base, *allowed = sys.argv[1:]
+def paths(*args):
+    return set(filter(None, subprocess.check_output(
+        ['git', '-C', directory, *args]).decode().split('\0')))
+changed = paths('diff', '--name-only', '-z', base)
+changed |= paths('ls-files', '--others', '--exclude-standard', '-z')
+unexpected = changed - set(allowed)
+if unexpected:
+    sys.exit('Unreviewed files in ' + directory + ': ' + ', '.join(sorted(unexpected)))
+PY
+    git -C "$directory" diff --check
+    git -C "$directory" diff --cached --check
+    git -C "$directory" fetch origin master
+    git -C "$directory" merge-base --is-ancestor origin/master HEAD ||
+        fail "Remote master advanced in $directory; no merge or force push was attempted."
+}
+
+check_checkout "$LIB" chriopter/pspkit-https "$LIB_BASE" "$LIB_MESSAGE" "${LIB_FILES[@]}"
+check_checkout "$APP" chriopter/pspdx-app "$APP_BASE" "$APP_MESSAGE" \
+    "${APP_FILES[@]}" dev/release-archive-fix app/lib/pspkit-https
+python3 - "$APP" "$APP_FINGERPRINT" "${APP_FILES[@]}" <<'PY'
+import hashlib, pathlib, sys
+directory, expected, *files = sys.argv[1:]
+digest = hashlib.sha256()
+for name in files:
+    digest.update(name.encode() + b'\0')
+    digest.update(hashlib.sha256((pathlib.Path(directory) / name).read_bytes()).digest())
+if digest.hexdigest() != expected:
+    sys.exit('PSPDX source differs from the reviewed and tested snapshot.')
+PY
+
+check_library_tree() {
+    git -C "$1" add -- "${LIB_FILES[@]}"
+    [[ $(git -C "$1" write-tree) == "$LIB_TREE" ]] ||
+        fail "$1 differs from the reviewed library snapshot."
+}
+check_library_tree "$LIB"
+check_library_tree "$HTTPS"
+
+wait_workflow() {
+    local project=$1 workflow=$2 sha=$3 branch=$4 id attempt
+    echo "Waiting for $project / $workflow ($branch, $sha)"
+    for ((attempt = 0; attempt < 30; attempt++)); do
+        # A newly pushed workflow may not yet resolve by filename (HTTP404).
+        # List repository runs directly; an empty match is safe to poll.
+        id=$(gh api --method GET "repos/$project/actions/runs" \
+            -f "head_sha=$sha" -f "branch=$branch" -f event=push -f per_page=100 \
+            --jq "[.workflow_runs[] | select(.path == \".github/workflows/$workflow\")] | .[0].id // empty")
+        if [[ -n $id ]]; then
+            gh run watch "$id" --repo "$project" --exit-status --interval 10
+            return
+        fi
+        sleep 10
+    done
+    fail "Workflow did not appear. Check GitHub Actions, then rerun the script."
+}
+
+ensure_tag() {
+    local directory=$1 tag=$2 sha=$3 notes=$4
+    if git -C "$directory" rev-parse --verify -q "refs/tags/$tag" >/dev/null; then
+        [[ $(git -C "$directory" rev-parse "$tag^{commit}") == "$sha" ]] ||
+            fail "$tag already points to another commit."
+    else
+        git -C "$directory" tag -a "$tag" -m "$notes" "$sha"
+    fi
+    git -C "$directory" push origin "refs/tags/$tag:refs/tags/$tag"
+}
+
+verify_release() {
+    local project=$1 tag=$2 asset=$3
+    local destination=$APP/dev/download-audit-results/20261019-release/assets/$project/$tag
+    mkdir -p "$destination"
+    gh release view "$tag" --repo "$project" --json tagName,isDraft,isPrerelease,assets \
+        > "$destination/release.json"
+    python3 - "$destination/release.json" "$tag" "$asset" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+if (data['tagName'] != sys.argv[2] or data['isDraft'] or data['isPrerelease'] or
+        not any(a['name'] == sys.argv[3] and a['size'] > 0 for a in data['assets'])):
+    sys.exit('Release is not public and complete.')
+PY
+    gh release download "$tag" --repo "$project" --pattern "$asset" --dir "$destination" --clobber
+    python3 - "$destination/$asset" "$tag" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    if archive.testzip():
+        sys.exit('Release ZIP failed its CRC check.')
+    if sys.argv[2] == 'v0.2.6':
+        root = 'pspkit-https-0.2.6/'
+        if archive.read(root + 'VERSION').strip() != b'0.2.6':
+            sys.exit('Library ZIP carries the wrong version.')
+        for name in ('lib/libpspkit-https.a', 'lib/libwolfssl.a'):
+            if not archive.getinfo(root + name).file_size:
+                sys.exit('Empty library: ' + name)
+    elif not archive.read('PSP/GAME/PSPDX/EBOOT.PBP').startswith(b'\0PBP'):
+        sys.exit('PSPDX release does not contain a valid PBP header.')
+print('Verified published ZIP:', sys.argv[1])
+PY
+}
+
+echo '=== pspkit-https 0.2.6 ==='
+if ! git -C "$LIB" diff --cached --quiet; then
+    git -C "$LIB" commit -m "$LIB_MESSAGE"
+fi
+LIB_SHA=$(git -C "$LIB" rev-parse HEAD)
+git -C "$LIB" push origin HEAD:refs/heads/master
+wait_workflow chriopter/pspkit-https tests.yml "$LIB_SHA" master
+ensure_tag "$LIB" "$LIB_TAG" "$LIB_SHA" 'Fixed Archive TLS and streamed chunked responses'
+wait_workflow chriopter/pspkit-https release.yml "$LIB_SHA" "$LIB_TAG"
+verify_release chriopter/pspkit-https "$LIB_TAG" pspkit-https-0.2.6.zip
+
+echo '=== PSPDX 1.2.1 ==='
+git -C "$HTTPS" fetch origin "refs/tags/$LIB_TAG:refs/tags/$LIB_TAG"
+[[ $(git -C "$HTTPS" rev-parse "$LIB_TAG^{commit}") == "$LIB_SHA" ]] ||
+    fail 'Fetched library tag does not match the verified release.'
+# Both indexes were checked against LIB_TREE. Only advance HEAD; no files
+# are reset or discarded, and the submodule becomes clean at the release.
+git -C "$HTTPS" reset --soft "$LIB_SHA"
+git -C "$HTTPS" diff --quiet
+git -C "$HTTPS" diff --cached --quiet
+git -C "$APP" add -- "${APP_FILES[@]}" dev/release-archive-fix app/lib/pspkit-https
+if ! git -C "$APP" diff --cached --quiet; then
+    git -C "$APP" commit -m "$APP_MESSAGE"
+fi
+APP_SHA=$(git -C "$APP" rev-parse HEAD)
+git -C "$APP" push origin HEAD:refs/heads/master
+wait_workflow chriopter/pspdx-app build.yml "$APP_SHA" master
+ensure_tag "$APP" "$APP_TAG" "$APP_SHA" "$(cat <<'NOTES'
+Fixed Archive.org downloads with pspkit-https 0.2.6.
+
+- Restored Archive TLS and decoded chunked metadata responses.
+- Recovered moved ZIPs and failed storage mirrors, preserving size and SHA-256 checks.
+- Restricted fallback hosts to genuine Archive.org subdomains.
+- Added a repeatable download audit with ten parallel PPSSPP instances.
+
+Verified all 1,764 current catalog payloads by size, SHA-256 and ZIP CRC.
+44 initial source errors were investigated and verified replacement URLs tested.
+Seven upstream catalog corrections are prepared separately; they are not bundled here.
+15 ZIPs with multiple equally shallow EBOOTs remain ambiguous for the installer.
+
+Validation: 186 client host tests, 13 certificate cases, request sanitizers,
+53 successful emulator installations and a separately linked library release ZIP.
+NOTES
+)"
+wait_workflow chriopter/pspdx-app release.yml "$APP_SHA" "$APP_TAG"
+verify_release chriopter/pspdx-app "$APP_TAG" pspdx.zip
+echo "Library commit: https://github.com/chriopter/pspkit-https/commit/$LIB_SHA"
+echo "PSPDX commit: https://github.com/chriopter/pspdx-app/commit/$APP_SHA"
+echo 'Done: https://github.com/chriopter/pspkit-https/releases/tag/v0.2.6'
+echo 'Done: https://github.com/chriopter/pspdx-app/releases/tag/v1.2.1'

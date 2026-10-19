@@ -527,6 +527,33 @@ sh dev/tests/run
 - Runs the client code and the PNG decoder with address and undefined-behavior sanitizers
 - A filesystem adapter simulates power cuts, failed calls, a full or read-only stick and any network answer (`FAULT`, `FAILAT`, `STICK_BYTES`, `RO_MATCH`, `URL_MAP`)
 
+#### Full download audit
+
+`dev/download-audit` runs the real pspkit-https PSP downloader in ten isolated
+PPSSPP instances. It uses the latest release of every catalog entry, deduplicates
+URLs, retains each ZIP and checks its size and SHA-256, then tests ZIP CRCs.
+It audits downloads; the client installer and its layout questions are tested
+separately. Current full catalogs transfer about 11 GB.
+
+Build `app/lib/pspkit-https/tests/corpus` in the PSP development container, then:
+
+```sh
+dev/download-audit --catalog /path/to/pspdev-catalog.json \
+  --catalog /path/to/main-catalog.json --emulator /path/to/PPSSPPSDL --workers 10
+```
+
+The emulator argument also accepts an extracted official AppImage's `AppRun`.
+Snapshots, individual attempts, the ZIPs and `failures.json` stay under
+`dev/download-audit-results/`. `progress.json` reports each worker; an interrupted
+run can continue with the same catalogs, `--work` and `--resume`.
+
+`dev/download-audit-report --initial /path/to/run` independently rechecks every
+retained ZIP against the original size and SHA-256, verifies ZIP CRCs and writes
+`all-downloads.csv`, `errors.csv` and `final-summary.json`. Recovery runs can be
+included by repeating `--recovery`; their catalog IDs must be
+`audit-original-N`, where N is the original manifest job ID. Transfer failures
+and ZIP integrity are reported separately from installation compatibility.
+
 #### Emulator soak
 
 ```sh

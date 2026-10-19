@@ -38,3 +38,6 @@ dev/shot2.png
 
 # The cable plugin of the day, compiled in by dev/pack and dev/start.
 /app/session/usbnet_carried.h
+
+# Full emulator download audit: retained ZIPs, logs and isolated memory sticks.
+/dev/download-audit-results/

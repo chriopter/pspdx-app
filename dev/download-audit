@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""Download every current catalog release through real PSP HTTPS in PPSSPP.
+
+Ten isolated memory sticks by default; each PSP streams a ZIP to disk and
+checks its size and SHA-256. This audits downloads, not installation layouts.
+The ordinary PSPDX install flow is tested separately. Catalog snapshots and
+all attempts remain in the work directory for per-entry diagnosis.
+"""
+
+import argparse
+import concurrent.futures
+import datetime
+import hashlib
+import json
+import os
+import pathlib
+import shutil
+import signal
+import subprocess
+import time
+import zipfile
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+
+
+def write_json(path, data):
+    tmp = path.with_suffix(path.suffix + ".new")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    tmp.replace(path)
+
+
+def read_events(path):
+    if not path.exists():
+        return []
+    events = []
+    for line in path.read_text(errors="replace").splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            pass  # Last record may be in the middle of its write.
+    return events
+
+
+def classify(event):
+    if event.get("sink_error"):
+        return "oversize" if event["sink_error"] == -1001 else "sink_error"
+    if event.get("doubt"):
+        return "certificate_doubt"
+    if event.get("status", 0) != 200:
+        return "http_" + str(event["status"]) if event.get("status") else "connection_or_tls"
+    if event.get("rc") != 0:
+        return "incomplete_transfer"
+    if event.get("encoding"):
+        return "unexpected_content_encoding"
+    if event.get("size") != event.get("expected_size"):
+        return "size_mismatch"
+    if event.get("sha256") != event.get("expected_sha256"):
+        return "sha256_mismatch"
+    return "ok"
+
+
+def zip_check(item):
+    job, event, path = item
+    result = {"id": job["id"], "path": str(path)}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            infos = archive.infolist()
+            result.update(
+                files=len(infos),
+                uncompressed_bytes=sum(i.file_size for i in infos),
+                eboots=[i.filename for i in infos if i.filename.lower().endswith("eboot.pbp")],
+                compression_methods=sorted({i.compress_type for i in infos}),
+                unsafe_paths=[
+                    i.filename
+                    for i in infos
+                    if i.filename.startswith(("/", "\\"))
+                    or ".." in i.filename.replace("\\", "/").split("/")
+                ],
+            )
+            bad = archive.testzip()
+            result["error"] = "bad_crc: " + bad if bad else ""
+    except Exception as exc:
+        result["error"] = type(exc).__name__ + ": " + str(exc)
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--catalog", action="append", required=True, type=pathlib.Path)
+    parser.add_argument("--emulator", required=True, type=pathlib.Path)
+    parser.add_argument(
+        "--eboot", type=pathlib.Path, default=REPO / "app/lib/pspkit-https/tests/corpus/EBOOT.PBP"
+    )
+    parser.add_argument("--workers", type=int, default=10)
+    parser.add_argument("--work", type=pathlib.Path)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--skip-zip-crc", action="store_true")
+    args = parser.parse_args()
+    if not 1 <= args.workers <= 32:
+        parser.error("--workers must be between 1 and 32")
+    emulator, eboot = args.emulator.resolve(), args.eboot.resolve()
+    if not emulator.is_file() or not eboot.is_file():
+        parser.error("emulator and PSP corpus EBOOT must exist")
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    work = (args.work or REPO / "dev/download-audit-results" / stamp).resolve()
+    if work.exists() and not args.resume:
+        parser.error("work directory exists; use a new directory or --resume")
+    work.mkdir(parents=True, exist_ok=True)
+    by_url = {}
+    conflicts = []
+    for cat_path in args.catalog:
+        raw = cat_path.read_bytes()
+        snapshot = work / ("catalog-" + hashlib.sha256(raw).hexdigest()[:12] + ".json")
+        snapshot.write_bytes(raw)
+        catalog = json.loads(raw)
+        for app in catalog["apps"]:
+            if not app.get("releases"):
+                continue
+            release = app["releases"][0]
+            url, size, sha = release["url"], release["size"], release["sha256"].lower()
+            if not url.startswith("https://") or any(c in url for c in "\r\n\t"):
+                raise ValueError("unsupported catalog URL: " + repr(url))
+            if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+                raise ValueError("invalid SHA-256: " + app["name"])
+            alias = {
+                "name": app["name"],
+                "catalog": str(snapshot),
+                "catalog_id": app.get("id"),
+                "type": app.get("type", "homebrew"),
+                "category": app.get("category"),
+                "source": app.get("source"),
+                "version": release.get("tag"),
+            }
+            if url in by_url:
+                old = by_url[url]
+                if (old["size"], old["sha256"]) != (size, sha):
+                    conflicts.append({"url": url, "first": old, "other": release})
+                old["aliases"].append(alias)
+            else:
+                by_url[url] = {
+                    "id": len(by_url),
+                    "url": url,
+                    "size": size,
+                    "sha256": sha,
+                    "aliases": [alias],
+                }
+    jobs = list(by_url.values())
+    manifest = {
+        "created_at": stamp,
+        "workers": args.workers,
+        "jobs": jobs,
+        "total_bytes": sum(j["size"] for j in jobs),
+        "metadata_conflicts": conflicts,
+        "emulator": str(emulator),
+        "eboot_sha256": hashlib.sha256(eboot.read_bytes()).hexdigest(),
+        "scope": "Latest release of every catalog entry; URL deduplicated. Includes plugins.",
+    }
+    manifest_path = work / "manifest.json"
+    if args.resume and manifest_path.exists():
+        previous = json.loads(manifest_path.read_text())
+        if previous["jobs"] != jobs or previous["workers"] != args.workers:
+            raise ValueError("resume manifest or worker count differs")
+    else:
+        write_json(manifest_path, manifest)
+    completed = {}
+    owners = {}
+    for worker in range(args.workers):
+        path = work / f"worker-{worker:02d}/config/ppsspp/PSP/GAME/corpus/results.jsonl"
+        for event in read_events(path):
+            if event.get("event") == "result":
+                completed[event["id"]] = event
+                owners[event["id"]] = worker
+    groups = [[] for _ in range(args.workers)]
+    weight = [0.0] * args.workers
+    for job in sorted(
+        (j for j in jobs if j["id"] not in completed), key=lambda j: j["size"], reverse=True
+    ):
+        worker = min(range(args.workers), key=weight.__getitem__)
+        groups[worker].append(job)
+        weight[worker] += job["size"] / 2000000 + 2.0
+    needed = sum(j["size"] for group in groups for j in group)
+    if shutil.disk_usage(work).free < needed + 1024**3:
+        raise RuntimeError("not enough free space to retain the ZIPs plus 1 GiB reserve")
+    processes = []
+    files = []
+    print(
+        json.dumps(
+            {
+                "event": "audit_start",
+                "work": str(work),
+                "jobs": len(jobs),
+                "bytes": manifest["total_bytes"],
+                "workers": args.workers,
+                "remaining": sum(map(len, groups)),
+            }
+        ),
+        flush=True,
+    )
+    try:
+        for worker, group in enumerate(groups):
+            base = work / f"worker-{worker:02d}"
+            config = base / "config"
+            stick = config / "ppsspp"
+            game = stick / "PSP/GAME/corpus"
+            system = stick / "PSP/SYSTEM"
+            game.mkdir(parents=True, exist_ok=True)
+            system.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(eboot, game / "EBOOT.PBP")
+            (game / "DONE").unlink(missing_ok=True)
+            (game / "jobs.tsv").write_text(
+                "".join(f"{j['id']}\t{j['size']}\t{j['sha256']}\t{j['url']}\n" for j in group)
+            )
+            (system / "ppsspp.ini").write_text(
+                "[General]\nFirstRun = False\nEnable Logging = True\nPauseOnLostFocus = False\nPauseWhenMinimized = False\nRemoteDebuggerOnStartup = False\n[Network]\nEnableWlan = True\n[Graphics]\nInternalResolution = 1\n[Sound]\nEnable = False\n"
+            )
+            if not group:
+                continue
+            env = dict(
+                os.environ,
+                XDG_CONFIG_HOME=str(config),
+                SDL_VIDEODRIVER="offscreen",
+                SDL_AUDIODRIVER="dummy",
+                PSPDX_AUDIT_WORKER=str(worker),
+            )
+            log = (base / "emulator.log").open("ab")
+            files.append(log)
+            proc = subprocess.Popen(
+                [
+                    str(emulator),
+                    "--graphics=gles",
+                    "--windowed",
+                    "--loglevel=0",
+                    str(game / "EBOOT.PBP"),
+                ],
+                env=env,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            processes.append((worker, proc, game))
+            write_json(
+                base / "process.json", {"pid": proc.pid, "worker": worker, "jobs": len(group)}
+            )
+        previous_report = 0
+        while True:
+            live = 0
+            states = []
+            for worker, proc, game in processes:
+                events = read_events(game / "results.jsonl")
+                for event in events:
+                    if event.get("event") == "result":
+                        completed[event["id"]] = event
+                        owners[event["id"]] = worker
+                done = (game / "DONE").exists()
+                running = proc.poll() is None
+                if not done and running:
+                    live += 1
+                last = events[-1] if events else {}
+                states.append(
+                    {
+                        "worker": worker,
+                        "pid": proc.pid,
+                        "running": running,
+                        "done": done,
+                        "last": last,
+                    }
+                )
+                if done and running:
+                    os.killpg(proc.pid, signal.SIGTERM)
+            passed = sum(classify(e) == "ok" for e in completed.values())
+            summary = {
+                "total": len(jobs),
+                "completed": len(completed),
+                "passed": passed,
+                "failed": len(completed) - passed,
+                "workers_active": live,
+                "downloaded_bytes": sum(e.get("size", 0) for e in completed.values()),
+                "states": states,
+            }
+            write_json(work / "progress.json", summary)
+            if time.monotonic() - previous_report >= 30 or not live:
+                print(json.dumps({k: v for k, v in summary.items() if k != "states"}), flush=True)
+                previous_report = time.monotonic()
+            if not live:
+                break
+            time.sleep(2)
+    finally:
+        for _, proc, _ in processes:
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGTERM)
+        for _, proc, _ in processes:
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+        for log in files:
+            log.close()
+    results = []
+    checks = []
+    for job in jobs:
+        event = completed.get(job["id"])
+        if event is None:
+            results.append({"id": job["id"], "classification": "not_completed", "job": job})
+            continue
+        category = classify(event)
+        event = dict(event, classification=category, worker=owners[job["id"]])
+        results.append(event)
+        if category == "ok" and not args.skip_zip_crc:
+            path = (
+                work
+                / f"worker-{owners[job['id']]:02d}/config/ppsspp/PSP/GAME/corpus/{job['id']:06d}.zip"
+            )
+            checks.append((job, event, path))
+    write_json(work / "results.json", results)
+    zip_results = []
+    if checks:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+            zip_results = list(pool.map(zip_check, checks))
+            write_json(work / "zip-checks.json", zip_results)
+    failures = [e for e in results if e["classification"] != "ok"]
+    write_json(work / "failures.json", failures)
+    print(
+        json.dumps(
+            {
+                "event": "audit_done",
+                "work": str(work),
+                "completed": len(completed),
+                "total": len(jobs),
+                "failed": len(failures),
+            }
+        ),
+        flush=True,
+    )
+    return (
+        0
+        if len(completed) == len(jobs)
+        and not failures
+        and not any(r.get("error") or r.get("unsafe_paths") for r in zip_results)
+        else 1
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

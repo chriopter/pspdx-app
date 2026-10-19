@@ -1750,12 +1750,61 @@ class ClientTests(unittest.TestCase):
   r=self.run_client('get','catalog.com.example.fb',VERBOSE=1,URL_MAP=self.root/'map.txt')
   self.assertEqual(r.stdout.strip(),'0',r.stderr[-800:]);self.assertIn('metadata named 2 storage servers',r.stderr)
   self.assertIn('https://ia801.us.archive.org/9/items/fb.-7z/Fall%20Back.zip',(self.root/'requests.log').read_text())
-  self.write('meta.json',dict(d1='evil.example.com',dir='/9/items/fb.-7z'))
-  for f in (self.root/'ms0:/PSP/PSPDX/INSTALLED').glob('catalog.com.example.fb*'):f.unlink()
-  shutil.rmtree(self.root/'ms0:/PSP/GAME/FallBack',ignore_errors=True)
-  r=self.run_client('get','catalog.com.example.fb',VERBOSE=1,ok=False,URL_MAP=self.root/'map.txt')
-  self.assertIn('metadata named 0 storage servers',r.stderr);self.assertIn('why: the server answered 500',r.stderr)
-  self.assertNotIn('evil.example.com',(self.root/'requests.log').read_text())
+  for host in ('evil.example.com','ia.archive.org.evil.example','ia.archive.orgevil.example','archive.org.evil.example','.archive.org'):
+   with self.subTest(host=host):
+    self.write('meta.json',dict(d1=host,dir='/9/items/fb.-7z'))
+    for f in (self.root/'ms0:/PSP/PSPDX/INSTALLED').glob('catalog.com.example.fb*'):f.unlink()
+    shutil.rmtree(self.root/'ms0:/PSP/GAME/FallBack',ignore_errors=True)
+    (self.root/'requests.log').write_text('')
+    r=self.run_client('get','catalog.com.example.fb',VERBOSE=1,ok=False,URL_MAP=self.root/'map.txt')
+    self.assertIn('metadata named 0 storage servers',r.stderr);self.assertIn('why: the server answered 500',r.stderr)
+    self.assertNotIn('https://'+host+'/',(self.root/'requests.log').read_text())
+ def test_archive_org_moved_file_keeps_the_selected_hash_and_size(self):
+  self.fixtures();catalog=self.catalog_app();package=(self.root/'new.zip').read_bytes()
+  release=dict(tag='1',published_at='2020-01-01',size=len(package),sha256=hashlib.sha256(package).hexdigest(),url='https://archive.org/download/moved/Fall%20Back.zip')
+  def catalog_write():
+   self.write('catalog.json',dict(catalog,apps=[dict(id='moved',name='Moved',category='game',summary='s',releases=[release])]))
+  catalog_write()
+  (self.root/'map.txt').write_text('archive.org/download/moved/Fall%20Back.zip - 404\narchive.org/metadata/moved meta.json 200\narchive.org/download/moved/Old%20Versions/Fall%20Back.zip new.zip 200\n')
+  original=dict(name='Old Versions/Fall Back.zip',size=str(len(package)))
+  self.write('meta.json',dict(files=[original],d1='evil.example.com'))
+  r=self.run_client('get','catalog.com.example.moved',VERBOSE=1,URL_MAP=self.root/'map.txt')
+  self.assertEqual(r.stdout.strip(),'0',r.stderr[-800:])
+  self.assertIn('archive.org file moved',r.stderr)
+  for f in (self.root/'ms0:/PSP/PSPDX/INSTALLED').glob('catalog.com.example.moved*'):f.unlink()
+  shutil.rmtree(self.root/'ms0:/PSP/GAME/Moved')
+  cases=[([dict(original,size=str(len(package)+1))],release['sha256']),
+         ([original,dict(original,name='Other/Fall Back.zip')],release['sha256']),
+         ([dict(original,name='../Fall Back.zip')],release['sha256']),
+         ([dict(original,name='Old\x00Versions/Fall Back.zip')],release['sha256']),
+         ([dict(original,name='A'*490+'/Fall Back.zip')],release['sha256']),
+         ([original],'0'*64)]
+  for files,digest in cases:
+   with self.subTest(files=files,digest=digest):
+    release['sha256']=digest;catalog_write();self.write('meta.json',dict(files=files))
+    shutil.rmtree(self.root/'ms0:/PSP/PSPDX/CACHE/catalogs',ignore_errors=True)
+    (self.root/'requests.log').write_text('')
+    r=self.run_client('get','catalog.com.example.moved',VERBOSE=1,ok=False,URL_MAP=self.root/'map.txt')
+    self.assertNotEqual(r.returncode,0,r.stderr)
+    self.assertNotIn('archive.org file moved',r.stderr)
+  (self.root/'meta.json').write_text('')
+  r=self.run_client('get','catalog.com.example.moved',VERBOSE=1,ok=False,URL_MAP=self.root/'map.txt')
+  self.assertNotEqual(r.returncode,0);self.assertNotIn('archive.org file moved',r.stderr)
+  # A moved file can itself land on an unavailable mirror: preserve its new path.
+  release['sha256']=hashlib.sha256(package).hexdigest();catalog_write()
+  self.write('meta.json',dict(files=[original],d1='ia801.us.archive.org',dir='/9/items/moved'))
+  old_map=(self.root/'map.txt').read_text()
+  (self.root/'map.txt').write_text(old_map.replace('Old%20Versions/Fall%20Back.zip new.zip 200','Old%20Versions/Fall%20Back.zip - 500')+'ia801.us.archive.org/9/items/moved/Old%20Versions/Fall%20Back.zip new.zip 200\n')
+  r=self.run_client('get','catalog.com.example.moved',VERBOSE=1,URL_MAP=self.root/'map.txt')
+  self.assertEqual(r.stdout.strip(),'0',r.stderr[-800:])
+  for f in (self.root/'ms0:/PSP/PSPDX/INSTALLED').glob('catalog.com.example.moved*'):f.unlink()
+  shutil.rmtree(self.root/'ms0:/PSP/GAME/Moved')
+  (self.root/'map.txt').write_text(old_map)
+  release['sha256']='f'*64;catalog_write();self.write('meta.json',dict(files=[original]))
+  r=self.run_client('get','catalog.com.example.moved',VERBOSE=1,ok=False,URL_MAP=self.root/'map.txt')
+  self.assertNotEqual(r.returncode,0);self.assertIn('archive.org file moved',r.stderr)
+  self.assertIn('sha256',r.stderr)
+  self.assertFalse((self.root/'ms0:/PSP/GAME/Moved').exists())
  def test_pictures_are_kept_in_one_pack(self):
   # Stills go into CACHE/media.pak with an index beside it, not a file each; they come back from the pack without the network, a record the pack does not hold (a cut write) is ignored. An icon's PNG is not kept at all: the list keeps icons shrunk, as thumbnails.
   (self.root/'a.png').write_bytes(b'SHOT-A'+b'x'*100);(self.root/'b.png').write_bytes(b'SHOT-B'+b'y'*200);(self.root/'i.png').write_bytes(b'ICON-I'+b'z'*50)
