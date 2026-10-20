@@ -2,6 +2,7 @@
 #include "session/cable.h"
 #include "session/carried.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -123,26 +124,77 @@ static int load(void) {
     return path[0] && storage_exists(path) ? usbnet_load(path) : -1;
 }
 
-void cable_start(enum cable choice) {
-    struct installed rec;
-    if ((choice == CABLE_USB || choice == CABLE_USB_KNOWN) && !recorded(&rec) && !usbnet_loaded())
-        load();
+static int restart_needed;
+static char startup_notice[128];
+
+int cable_restart_needed(void) { return restart_needed; }
+const char *cable_start_notice(void) { return startup_notice; }
+
+/* Only comparable release versions may replace an installed release offline.
+   Unknown/custom versions and a newer store release are kept. */
+static int release_version(const char *s, unsigned v[3]) {
+    if (*s == 'v') s++;
+    for (int i = 0; i < 3; i++) {
+        unsigned n = 0;
+        if (*s < '0' || *s > '9') return -1;
+        do {
+            unsigned digit = (unsigned)(*s++ - '0');
+            if (n > (UINT32_MAX - digit) / 10) return -1;
+            n = n * 10 + digit;
+        } while (*s >= '0' && *s <= '9');
+        v[i] = n;
+        if (i < 2 && *s++ != '.') return -1;
+    }
+    return *s ? -1 : 0;
 }
 
-int cable_use(char *said, size_t size) {
+static int refresh_needed(const struct installed *rec) {
+    const unsigned char *prx;
+    unsigned char zip[32];
+    char tag[VERSION_SIZE];
+    size_t len;
+    unsigned installed[3], bundled[3];
+    if (carried(&prx, &len, tag, sizeof(tag), zip) < 0 ||
+        !memcmp(rec->sha256, zip, 32) ||
+        release_version(rec->version, installed) < 0 || release_version(tag, bundled) < 0)
+        return 0;
+    for (int i = 0; i < 3; i++) {
+        if (installed[i] > bundled[i]) return 0;
+        if (installed[i] < bundled[i]) return 1;
+    }
+    return 1; /* republished release, still verified by the embedded zip hash */
+}
+
+static int cable_prepare(char *said, size_t size, int enable);
+
+void cable_start(enum cable choice) {
+    struct installed rec;
+    if (choice != CABLE_USB && choice != CABLE_USB_KNOWN) return;
+    if (recorded(&rec)) {
+        if (refresh_needed(&rec)) {
+            cable_prepare(startup_notice, sizeof(startup_notice), 0);
+        }
+    } else if (!usbnet_loaded()) {
+        load();
+    }
+}
+
+static int cable_prepare(char *said, size_t size, int enable) {
     struct installed rec;
     struct manifest m;
     struct install_report report;
     said[0] = '\0';
     memset(&m, 0, sizeof(m));
     memset(&report, 0, sizeof(report));
-    if (!recorded(&rec)) {
+    int has = recorded(&rec);
+    int resident = usbnet_loaded();
+    if (!has || refresh_needed(&rec)) {
         /* The record a store install of this release would have written:
            the catalog's id, the tag for a version and the zip's hash, by
            which the same release is current and a newer one an update. */
         static char raw[] = "{\"schema\":\"" PSPDX_SCHEMA "\",\"source\":\"" CABLE_SOURCE
                             "\",\"name\":\"USBNet\",\"type\":\"plugin\",\"category\":\"plugin\"}";
-        char tag[VERSION_SIZE];
+        char tag[VERSION_SIZE] = "";
         const unsigned char *prx;
         size_t len;
         int rc = carried(&prx, &len, tag, sizeof(tag), m.sha256);
@@ -152,6 +204,11 @@ int cable_use(char *said, size_t size) {
         m.raw = raw;
         if (rc == 0)
             rc = install_bundled(&m, CABLE_PRX, prx, len, storage_device(), &report);
+        if (rc == 0 && resident) {
+            restart_needed = 1;
+            snprintf(said, size, "%s", T_CABLE_RESTART);
+            logline("usbnet: installed %s; resident module kept, full PSP restart required", tag);
+        }
         if (rc < 0) {
             snprintf(said, size, T_PLUGIN_NOT_INSTALLED, rc == INSTALL_NO_SPACE ? T_WHY_NO_ROOM
                      : report.why[0] ? report.why : T_WHY_STICK);
@@ -159,12 +216,17 @@ int cable_use(char *said, size_t size) {
         }
     }
     /* Choosing the cable is the word to turn it on. */
-    if (recorded(&rec) && plugin_switch(CABLE_ID, 1) != 1 && !said[0]) {
+    if (enable && recorded(&rec) && plugin_switch(CABLE_ID, 1) != 1 && !said[0]) {
         if (plugin_refused()[0])
             snprintf(said, size, T_PLUGIN_FAILED_WHY, plugin_refused());
         else
             snprintf(said, size, "%s", T_PLUGIN_NOT_OURS);
         logline("cable: %s", said);
     }
+    if (!enable && plugin_enabled(CABLE_ID) != 1) return 0;
     return load();
+}
+
+int cable_use(char *said, size_t size) {
+    return cable_prepare(said, size, 1);
 }

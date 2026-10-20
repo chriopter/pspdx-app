@@ -35,15 +35,16 @@ int cable_recorded(void);
    and the release it is of beside the EBOOT, and a kernel to load it. */
 int cable_asks(enum cable choice);
 
-/* A start with the cable chosen and no plugin installed -- its install was
-   refused -- loads the carried copy for the session. */
+/* With USB chosen, refresh an older managed release from the embedded copy,
+   preserving a disabled plugin. A refused first install uses a cached copy. */
 void cable_start(enum cable choice);
+/* An installed update never replaces a resident module's live hooks. */
+int cable_restart_needed(void);
+const char *cable_start_notice(void);
 
-/* The cable chosen: the carried copy installed as the plugin where there is
-   none, the plugin turned on, and the module loaded at once, so that no
-   restart stands between the answer and the connection. Returns 0 when the
-   module is loaded. said: one line for what was refused on the way, empty
-   when nothing was; a refused install still loads the carried copy. */
+/* Install or refresh the managed plugin and enable it. A resident module
+   is never reloaded: an update then sets cable_restart_needed() and says why.
+   Returns 0 when a module is loaded; said also reports installer failures. */
 int cable_use(char *said, size_t size);
 
 /* Whether the system's dialog has "Hi-Speed USB" to scan for now. */

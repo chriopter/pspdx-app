@@ -137,6 +137,11 @@ int main(int argc, char **argv) {
            what came of it, and the line it said; with "look", the gateway
            looked for: what was found, and what is asked then. */
         enum cable choice = (enum cable)atoi(argv[2]);
+        if (argc > 3 && !strcmp(argv[3], "refresh")) {
+            cable_start(choice);
+            printf("%d %d %s\n", cable_ready(), cable_restart_needed(), cable_start_notice());
+            return 0;
+        }
         if (argc > 3 && !strcmp(argv[3], "look")) {
             cable_start(choice);
             enum cable_look look = cable_look();

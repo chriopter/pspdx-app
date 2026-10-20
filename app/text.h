@@ -37,6 +37,7 @@
 #define T_STATUS_UNREACHABLE "Could not load the catalog."
 #define T_STATUS_TOO_LARGE   "The catalog is too large."
 #define T_STATUS_OFFLINE     "Offline: last known releases"
+#define T_NETCONF_UNAVAILABLE "The PSP could not open its network settings. Please share PSP/PSPDX/LOGS/pspdx.log."
 #define T_STATUS_RETRY       "%s   X to try again"                 /* what went wrong */
 #define T_STATUS_BENCH       "Benchmarking ciphers..."
 
@@ -446,6 +447,7 @@
 #define T_CABLE_CONNECT_ASK  "Do you want to connect now?"
 #define T_CABLE_CONNECT_LINE "Choose [New Connection], then Scan, then \"Hi-Speed USB\"."
 #define T_CABLE_OFF          "Wi-Fi is used. The plugin stays installed."
+#define T_CABLE_RESTART      "Restart your PSP to use the updated USB plugin."
 #define T_CABLE_NOT_LOADED   "The USB plugin could not be loaded."
 #define T_STORAGE_ASK        "Install to"
 #define T_STORAGE_INTERNAL   "System Storage"

@@ -96,10 +96,18 @@ static char g_restart_version[VERSION_SIZE];
 
 /* Main thread, after parking the media worker. A cancelled system dialog
    stays offline; only a later explicit action asks again. */
+static int connect_system(void) {
+    int rc = netconf_connect();
+    if (netconf_failed_to_open())
+        error_show(T_NETCONF_UNAVAILABLE, "system network dialog unavailable");
+    return rc;
+}
+
 static int connect_online(void) {
     if (storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.OFFLINE"))) return 0;
+    if (cable_restart_needed() && options_cable() >= CABLE_USB) return 0;
     if (https_net_connect() == 0) return 1;
-    return netconf_connect() == 0 && https_net_connect() == 0;
+    return connect_system() == 0 && https_net_connect() == 0;
 }
 
 /* A plugin installed for the first time, and off: the row the loop asks
@@ -292,7 +300,7 @@ static void cable_row(void) {
     int at = catalog_find_repo(g_catalog, rec.repo);
     if (at < 0) return;
     struct app_entry *entry = &g_catalog->apps[at];
-    if (entry->state == APP_NOT_INSTALLED) {
+    {
         entry->local_rev = rec.rev;
         text_set(&entry->local_version, rec.version);
         memcpy(entry->local_sha256, rec.sha256, sizeof(entry->local_sha256));
@@ -307,6 +315,7 @@ static void cable_row(void) {
 
 static int cable_set_up(char *said, size_t size) {
     int loaded = cable_use(said, size) == 0;
+    if (cable_restart_needed()) loaded = 0;
     cable_row();
     if (options_cable() < CABLE_USB) options_cable_set(CABLE_USB);
     if (!loaded && !said[0]) snprintf(said, size, "%s", T_CABLE_NOT_LOADED);
@@ -381,7 +390,10 @@ int cable_at_start(void) {
         if (chosen != CABLE_GO_ON) return 1;
     } else {
         cable_start((enum cable)options_cable());
+        if (cable_start_notice()[0])
+            error_show(cable_start_notice(), "usbnet startup update");
     }
+    if (cable_restart_needed()) return 0;
     /* Until the cable has connected once, the two things nobody can know
        are settled before the system's dialog opens: that the cable leads
        nowhere without the gateway on the PC, which is looked for, and where
@@ -394,7 +406,7 @@ int cable_at_start(void) {
 void cable_set_up_again(void) {
     if (downloads_busy()) { error_busy(); return; }
     int chosen = cable_asked();
-    if (chosen == CABLE_LEFT || chosen == CABLE_STAY) return;
+    if (chosen == CABLE_LEFT || chosen == CABLE_STAY || cable_restart_needed()) return;
     /* The gateway is looked for whenever the cable was chosen here, known
        from an earlier connection or not: whoever comes back to this row
        has a reason to. */
@@ -403,7 +415,7 @@ void cable_set_up_again(void) {
        the one that stands may be the other kind. */
     preview_quiesce();
     https_net_disconnect();
-    int online = netconf_connect() == 0 && https_net_connect() == 0;
+    int online = connect_system() == 0 && https_net_connect() == 0;
     catalog_offline(!online);
     preview_resume();
     if (online) cable_connected();

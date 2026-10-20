@@ -2896,11 +2896,14 @@ int install_bundled(const struct manifest *m, const char *name, const void *prx,
     if (!storage_device_valid(dev) || storage_exists(JOURNAL) || !manifest_id_is_safe(m->id) ||
         !manifest_has_sha256(m) || !m->raw ||
         pspdx_parse(m->raw, strlen(m->raw), &spec, said, sizeof(said)) < 0 ||
-        strcmp(spec.type, "plugin") || !sources_same_repo(spec.source, m->repo) ||
-        db_read(m->id, &existing) == 0)
+        strcmp(spec.type, "plugin") || !sources_same_repo(spec.source, m->repo))
         return -1;
-    target_set(dev);
-    int rc = storage_device_available(dev) ? plugin_release(m, NULL, &carried, "", rep, NULL, NULL, NULL) : -1;
+    int has = db_read(m->id, &existing) == 0;
+    if (has && (!existing.plugin[0] || !sources_same_repo(existing.repo, m->repo)))
+        return -1;
+    target_set(has ? existing.device : dev);
+    int rc = storage_device_available(target())
+        ? plugin_release(m, has ? &existing : NULL, &carried, "", rep, NULL, NULL, NULL) : -1;
     if (rc < 0)
         snprintf(rep->why, sizeof(rep->why), "%s", g_why);
     return rc;

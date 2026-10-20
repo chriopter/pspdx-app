@@ -11,7 +11,7 @@
 /* PSP colours are ABGR little-endian, which is why every literal in this
    codebase looks byte-swapped. */
 #define RGBA(r, g, b, a) \
-    ((unsigned)(((a) << 24) | ((b) << 16) | ((g) << 8) | (r)))
+    (((unsigned)(a) << 24) | ((unsigned)(b) << 16) | ((unsigned)(g) << 8) | (unsigned)(r))
 #define RGB(r, g, b) RGBA(r, g, b, 0xFF)
 
 void gfx_init(void);

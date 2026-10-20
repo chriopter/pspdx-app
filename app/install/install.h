@@ -294,6 +294,8 @@ int install_release_to(const struct manifest *release, const char *device,
    file is of -- its id, repository, version, the SHA-256 of that release's
    zip, by which an update is told, and the .pspdx -- so that the store
    updates the plugin from then on. Installed turned off, like any. */
+/* Existing managed plugins use the same ownership and recovery checks as
+   downloaded updates, on their recorded device. */
 int install_bundled(const struct manifest *release, const char *name, const void *prx, size_t len,
                     const char *device, struct install_report *rep);
 

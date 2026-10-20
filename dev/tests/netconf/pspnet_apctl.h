@@ -1,0 +1,1 @@
+int sceNetApctlGetState(int *);

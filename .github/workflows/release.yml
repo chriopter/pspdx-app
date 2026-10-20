@@ -53,7 +53,11 @@ jobs:
 
       - name: Publish
         run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) set -- --prerelease --latest=false ;;
+            *) set -- ;;
+          esac
           gh release create "$GITHUB_REF_NAME" pspdx.zip --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.txt"
+            --title "${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.txt" "$@"
         env:
           GH_TOKEN: ${{ github.token }}

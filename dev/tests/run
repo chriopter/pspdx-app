@@ -24,5 +24,9 @@ cc -g -O1 -ffunction-sections -fdata-sections -fsanitize=address,undefined \
   "$HERE/downloads/settings.c" "$APP/session/options.c" -Wl,--gc-sections -o "$TEST_WORK/settings"
 "$TEST_WORK/downloads"
 "$TEST_WORK/settings"
+cc -g -O1 -fsanitize=address,undefined -Wno-deprecated-declarations \
+  -I"$HERE/netconf" -I"$HERE/host" -I"$APP" -I"$APP/lib/pspkit-https/include" \
+  "$HERE/netconf/test.c" "$APP/gui/netconf.c" -lcrypto -o "$TEST_WORK/netconf"
+"$TEST_WORK/netconf"
 ASAN_OPTIONS=detect_leaks=0 "$TEST_WORK/video" "$APP/assets/icon1.pmf"
 PSPDX_TEST_BIN="$TEST_WORK/client" PSPDX_IMAGE_BIN="$TEST_WORK/image" python3 "$HERE/test_client.py" -v

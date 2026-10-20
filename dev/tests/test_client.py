@@ -1304,6 +1304,44 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(self.cable(0,'use',KERNEL=1),'0 1 ');installed=self.state()[self.CABLE]['installed']
   self.assertEqual((installed['version'],installed['sha256']),('0.1.3',zipsha));self.assertEqual((self.root/'ms0:/seplugins/usbnet/usbnet.prx').read_bytes(),b'usbnet module')
   self.assertEqual((g/'usbnet.prx').read_bytes(),b'an older build');self.assertTrue((g/'usbnet.txt').exists())
+ def test_cable_refreshes_installed_release_without_downgrade_or_live_reload(self):
+  self.cable_setup(tag='v0.1.3',prx=b'old module')
+  self.cable(0,'use',KERNEL=1)
+  folder=self.root/'ms0:/seplugins/usbnet'
+  note=self.root/'loaded.txt'
+  self.cable_setup(tag='v0.1.4',prx=b'new module')
+  result=self.cable(2,'refresh',KERNEL=1,LOADED=1,LOADED_NOTE=note)
+  self.assertEqual(result,'1 1 Restart your PSP to use the updated USB plugin.')
+  self.assertFalse(note.exists())
+  self.assertEqual((folder/'usbnet.prx').read_bytes(),b'new module')
+  self.assertEqual(self.state()[self.CABLE]['installed']['version'],'0.1.4')
+  # A new session with the same release does not rewrite it or reload the module.
+  before=self.tree(self.root/'ms0:')
+  self.assertEqual(self.cable(2,'refresh',KERNEL=1,LOADED=1),'1 0 ')
+  self.assertEqual(self.tree(self.root/'ms0:'),before)
+  # Older PSPDX must not downgrade a plugin updated by the store.
+  self.cable_setup(tag='v0.1.3',prx=b'old module')
+  self.assertEqual(self.cable(2,'refresh',KERNEL=1,LOADED=1),'1 0 ')
+  self.assertEqual(self.tree(self.root/'ms0:'),before)
+  # A disabled plugin remains disabled during automatic refresh.
+  self.run_client('plugin',self.CABLE,'off')
+  self.cable_setup(tag='v0.1.5',prx=b'newest module')
+  self.assertEqual(self.cable(2,'refresh',KERNEL=1,LOADED_NOTE=note),'0 0 ')
+  self.assertFalse(note.exists())
+  self.assertEqual(self.run_client('plugin',self.CABLE).stdout.strip(),'0')
+  self.assertEqual((folder/'usbnet.prx').read_bytes(),b'newest module')
+  # Choosing Wi-Fi does not update the USB plugin.
+  self.cable_setup(tag='v0.1.6',prx=b'later module')
+  before=self.tree(self.root/'ms0:')
+  self.cable(1,'refresh',KERNEL=1)
+  self.assertEqual(self.tree(self.root/'ms0:'),before)
+  # A hand-modified module is refused by the regular transaction installer.
+  (folder/'usbnet.prx').write_bytes(b'my custom build')
+  before=self.tree(self.root/'ms0:')
+  result=self.cable(2,'refresh',KERNEL=1)
+  self.assertIn('changed by hand',result)
+  self.assertEqual(self.tree(self.root/'ms0:'),before)
+
  def test_cable_refused_says_why_and_still_serves_the_session(self):
   # Whatever the plugin installer refuses it refuses here: nothing is written into a seplugins/usbnet/ somebody put there, a list that is not to be written is not written. The reason is one line, the carried copy is loaded for the session all the same, and a later start with the cable chosen loads it again, nothing else.
   note=self.root/'loaded.txt';self.cable_setup();d=self.root/'ms0:/seplugins';d.mkdir();(d/'usbnet').mkdir();(d/'usbnet/usbnet.prx').write_bytes(b'mine');(d/'PLUGINS.TXT').write_bytes(self.USER);before=self.tree(d)
