@@ -16,6 +16,7 @@
    still leaves behind what happened last, not what happened first. */
 static char lines[LOGLINES][LOGCOLS];
 static int line_count, line_next;
+static char latest_perf[LOGCOLS];
 static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t dump_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -30,6 +31,18 @@ void logline(const char *fmt, ...) {
     line_next = (line_next + 1) % LOGLINES;
     if (line_count < LOGLINES) line_count++;
     sceIoWrite(1, line, strlen(line));
+    sceIoWrite(1, "\n", 1);
+    pthread_mutex_unlock(&log_lock);
+}
+
+/* Telemetry must not evict the events needed to diagnose a connection. */
+void logperf(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    pthread_mutex_lock(&log_lock);
+    vsnprintf(latest_perf, sizeof(latest_perf), fmt, ap);
+    va_end(ap);
+    sceIoWrite(1, latest_perf, strlen(latest_perf));
     sceIoWrite(1, "\n", 1);
     pthread_mutex_unlock(&log_lock);
 }
@@ -75,7 +88,7 @@ void log_at(int index, char *out, size_t size) {
 /* One write, not two per line: eighty small writes to the stick cost a
    frame, one of four kilobytes does not. */
 void log_dump(void) {
-    static char out[LOGLINES * LOGCOLS];
+    static char out[(LOGLINES + 1) * LOGCOLS];
     pthread_mutex_lock(&dump_lock);
     pthread_mutex_lock(&log_lock);
     size_t n = 0;
@@ -83,6 +96,12 @@ void log_dump(void) {
         const char *l = lines[(line_next + LOGLINES - line_count + i) % LOGLINES];
         size_t len = strlen(l);
         memcpy(out + n, l, len);
+        n += len;
+        out[n++] = '\n';
+    }
+    if (latest_perf[0]) {
+        size_t len = strlen(latest_perf);
+        memcpy(out + n, latest_perf, len);
         n += len;
         out[n++] = '\n';
     }

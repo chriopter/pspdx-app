@@ -10,10 +10,15 @@
 #include "util/runtime.h"
 
 static pspUtilityNetconfData params;
-static int open, seen;
+static int open, seen, last_status;
 
 static void overlay(void) {
     int status = sceUtilityNetconfGetStatus();
+    if (status != last_status) {
+        logline("wifi: dialog status %d", status);
+        log_dump_later();
+        last_status = status;
+    }
     if (status != PSP_UTILITY_DIALOG_NONE) seen = 1;
     switch (status) {
     case PSP_UTILITY_DIALOG_VISIBLE:
@@ -32,8 +37,11 @@ static void overlay(void) {
 }
 
 int netconf_connect(void) {
+    logline("wifi: initializing network stack");
+    log_dump();
     if (https_net_init() < 0) {
         logline("wifi: network stack unavailable");
+        log_dump();
         return -1;
     }
     memset(&params, 0, sizeof(params));
@@ -45,12 +53,17 @@ int netconf_connect(void) {
     params.base.fontThread = 0x12;
     params.base.soundThread = 0x10;
     params.action = PSP_NETCONF_ACTION_CONNECTAP;
+    logline("wifi: starting system connection dialog");
+    log_dump();
     int rc = sceUtilityNetconfInitStart(&params);
     if (rc < 0) {
         logline("wifi: dialog refused %08x", (unsigned)rc);
+        log_dump();
         return -1;
     }
     logline("wifi: system connection dialog opened");
+    log_dump();
+    last_status = -999;
     open = 1;
     seen = 0;
     gfx_frame_overlay(overlay);
@@ -65,5 +78,6 @@ int netconf_connect(void) {
     int connected = params.base.result == 0 &&
         sceNetApctlGetState(&state) >= 0 && state == 4;
     logline("wifi: dialog result %08x, state %d", (unsigned)params.base.result, state);
+    log_dump();
     return connected ? 0 : -1;
 }

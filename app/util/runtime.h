@@ -15,6 +15,8 @@
 #endif
 
 void logline(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+/* Keeps only the latest telemetry sample, outside the event ring. */
+void logperf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void log_dump(void);
 
 /* The same, from a thread of its own below everything else: a frame does

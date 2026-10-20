@@ -582,7 +582,7 @@ int main(int argc, char *argv[]) {
                hold the main thread long enough to miss the very vblank this
                telemetry is measuring; batching keeps the 10-second sample
                from manufacturing a periodic hitch of its own. */
-            logline("perf %d: %u/10s avg %u us worst %u us late %u [%u %u %u %u] "
+            logperf("perf %d: %u/10s avg %u us worst %u us late %u [%u %u %u %u] "
                     "miss %u; %s; tick %u us audio %u us out %u us %u Hz "
                     "late %u dry %u err %u/%08x atrac %u us free %u KB heap %u KB bat %d%% %d mV",
                     gfx_target_fps(), frames, frames ? total / frames : 0,
