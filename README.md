@@ -30,6 +30,8 @@ before the carried one.
 - **Display:** 60 FPS by default; the first row under the wrench switches to a calmer 30 FPS mode.
 - **No Wi-Fi (PSP Street):** at its first start PSPDX asks whether to connect via Wi-Fi or the USB cable. *USB cable* installs the [USBNet](https://github.com/chriopter/pspkit-usbnet) plugin the package carries and turns it on. Run its gateway on a PC, plug in the cable, and in the connection dialog choose [New Connection] → Scan → "Hi-Speed USB" the first time. The row **Set up USBNet** under the gear asks again later. Its preview appears under the explanation on the right.
 
+**Network settings won’t open in PSPDX or XMB?** A clean reinstall of official firmware 6.61 followed by ARK-5 fixed this on an affected PSP Street. Back up your data and follow the installation guide for your model.
+
 Issues? [Tell us how it went](https://github.com/chriopter/pspdx-app/issues).
 
 ## How it works
