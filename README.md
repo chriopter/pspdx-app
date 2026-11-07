@@ -101,7 +101,7 @@ https://github.com/someone/project@v1.2
 - Each preset lands once and is noted in `PSP/PSPDX/presets.seen`: removed stays removed, a new one in an update arrives
 - **Sources** lists each source with its address, kind, apps and when it last loaded; one that does not load is marked *unreachable*, one served only from its saved copy *offline copy*; the rest load as usual
 - A line ending in `.pspdx`, left from an older version, is skipped with a line in the log
-- Sources are validated before they land in `PSP/PSPDX/sources.txt`
+- Sources are validated before they land in `PSP/PSPDX/sources.txt`; a catalog that does not answer at that moment is saved all the same and tried again at every refresh, so nobody types it twice
 - Adding a catalog installs nothing; Direct Install and INBOX do
 - Removing a source keeps installed apps, their manifests and state
 

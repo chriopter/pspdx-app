@@ -950,6 +950,15 @@ int type_source(int install) {
     catalog_offline(0);
     rc=catalog_validate_source(url,install);
     preview_resume();
+    /* A catalog that does not answer now -- off, out of reach, or behind a
+       certificate still to be said yes to -- is kept all the same: it is
+       tried again with every refresh, and nobody types it twice. */
+    if (rc < 0 && !install) {
+        rc = sources_add(url, url, sizeof(url));
+        if (rc < 0) { error_show(T_SOURCE_SAVE_FAILED, "sources.txt write %d", rc); return 0; }
+        shell_status(rc == 0 ? T_SOURCE_EXISTS : T_SOURCE_SAVED_OFFLINE);
+        return rc > 0;
+    }
     if (rc < 0) {
         /* A repository says why: no release, GitHub not answering. */
         struct source_repo named;

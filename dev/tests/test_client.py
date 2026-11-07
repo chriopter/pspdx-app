@@ -518,8 +518,9 @@ class ClientTests(unittest.TestCase):
   self.run_client('add','test/demo')
   path=self.root/'ms0:/PSP/PSPDX/sources.txt';before=path.read_text()
   self.assertIn(SPEC['source'],before)
-  self.assertNotEqual(self.run_client('add','https://example.com/broken.json',ok=False).returncode,0)
-  self.assertEqual(path.read_text(),before)
+  # A catalog that does not answer now is kept all the same, to be tried again; a repository that is refused is not.
+  self.assertEqual(self.run_client('add','https://example.com/broken.json',ok=False).returncode,2)
+  self.assertIn('https://example.com/broken.json',path.read_text());before=path.read_text()
   (self.root/'catalog.txt').write_text(SPEC['source']+'\n')
   self.run_client('add','https://example.com/text-only/',CATALOG_DOWN=1)
   self.assertIn('https://example.com/text-only/',path.read_text())

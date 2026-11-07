@@ -242,6 +242,7 @@
 #define T_BAD_ADDRESS        "The address is not valid."
 #define T_GITHUB_FORMAT      "Enter it as owner/repository."
 #define T_SOURCE_UNAVAILABLE "Could not add the source."
+#define T_SOURCE_SAVED_OFFLINE "Saved. It did not answer now and is tried again at every refresh."
 #define T_SOURCE_SAVE_FAILED "Could not save the source."
 #define T_SOURCE_EXISTS      "This source has already been added."
 #define T_SOURCE_DELETE_FAILED "Could not delete the source."

@@ -475,9 +475,13 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "add")) {
         char url[SOURCE_URL];
         if(sources_normalize(argv[2],url,sizeof(url))<0)return 1;
-        if (catalog_validate_source(url, sources_kind(url) == SOURCE_REPO) < 0) {
+        /* As the browser adds one: a repository that is refused is not
+           kept; a catalog that does not answer is, and says so with 2. */
+        int repo = sources_kind(url) == SOURCE_REPO;
+        if (catalog_validate_source(url, repo) < 0) {
             fprintf(stderr, "refused %d\n", catalog_refused(url));
-            return 1;
+            if (repo) return 1;
+            return sources_add(url,url,sizeof(url))<0?1:2;
         }
         return sources_add(url,url,sizeof(url))<0?1:0;
     }
