@@ -67,8 +67,8 @@ int pspdx_plugin_file(const char *name);
    folder cannot hold left out; cut at 32 either way. Not checked here. */
 void pspdx_default_dir(const char *repo, const char *name, char *out, size_t size);
 /* Whether this client can install what a file of this type describes: a
-   homebrew, into its folder under PSP/GAME, and a plugin, into its folder
-   under seplugins/. */
+   homebrew, into its folder under PSP/GAME, a plugin, into its folder under
+   seplugins/, and an ISO, as its one file under ISO/. */
 int pspdx_type_installable(const char *type);
 /* Whether one of the newline-separated tags is exactly word. */
 int pspdx_has_tag(const char *tags, const char *word);

@@ -20,7 +20,11 @@
 #define T_HEAD_SYSTEM        "Options"
 #define T_HEAD_ABOUT         "About"
 #define T_HEAD_SOURCES       "Sources"
-#define T_UMD_SOON           "Coming soon"
+#define T_UMD_NONE           "No UMDs yet"
+#define T_UMD_NONE_HINT      "Add a source with disc images under Sources."
+#define T_UMD_VERSIONS       "  -  %d versions"   /* after the game's name in the grid */
+#define T_PICK_VERSION       "Which version?"
+#define T_IN_BASKET          "In basket"
 
 /* ------------------------------------------------------ waiting and status */
 
@@ -197,6 +201,7 @@
 #define T_WHY_STATUS         "the server answered %ld"           /* HTTP status */
 #define T_WHY_SIZE           "the download was the wrong size"
 #define T_WHY_HASH           "the download did not match its checksum"
+#define T_WHY_ISO_TAKEN      "ISO/ has a file of that name already"
 #define T_WHY_EBOOTS         "its zip holds several EBOOT.PBP side by side"
 #define T_WHY_NO_EBOOT       "its zip holds no EBOOT.PBP"
 #define T_WHY_ZIP            "its zip cannot be unpacked safely"
@@ -228,6 +233,7 @@
 #define T_NOTHING_TO_DOWNLOAD "There is nothing to download."
 #define T_NO_RECORD          "The install location of this app is unknown."
 #define T_NO_EBOOT           "This app cannot be started."
+#define T_ISO_START          "Start it from the PSP's game menu."
 #define T_START_REFUSED      "Could not start the app (%08x)."      /* the code the firmware gave */
 #define T_SELF_DELETE        "PSPDX cannot delete itself."
 

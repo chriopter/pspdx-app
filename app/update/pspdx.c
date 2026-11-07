@@ -296,7 +296,7 @@ int pspdx_plugin_file(const char *name) {
            strspn(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") == n;
 }
 int pspdx_type_installable(const char *type) {
-    return type && (!strcmp(type, "homebrew") || !strcmp(type, "plugin"));
+    return type && (!strcmp(type, "homebrew") || !strcmp(type, "plugin") || !strcmp(type, "iso"));
 }
 int pspdx_has_tag(const char *tags, const char *word) {
     size_t n = strlen(word);

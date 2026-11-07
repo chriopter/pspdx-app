@@ -143,6 +143,7 @@ static int row_of(enum choice c) {
 
 void menu_open(int index) {
     g_details_index = -1;
+    memset(g_menu.flag, 0, sizeof(g_menu.flag));
     g_menu_download = downloads_active(index);
     const struct app_entry *entry = &actions_catalog()->apps[index];
     int installed = entry->state != APP_NOT_INSTALLED;
@@ -180,7 +181,8 @@ void menu_open(int index) {
     snprintf(g_choice_text[CHOICE_BASKET], sizeof(g_choice_text[0]), "%s\x01%c",
              view_basket_has(index) ? T_MENU_BASKET_OUT : T_MENU_BASKET_IN, (char)(MARK_BASKET + 1));
     snprintf(g_choice_text[CHOICE_DETAILS], sizeof(g_choice_text[0]), T_MENU_INFO);
-    g_choice_on[CHOICE_RUN] = installed && !downloads_busy();
+    /* An ISO is started from the PSP's own game menu, never from here. */
+    g_choice_on[CHOICE_RUN] = installed && !downloads_busy() && strcmp(entry->type, "iso");
     /* What cannot be installed yet keeps its row, grey, so the menu has the
        same five rows for every package. */
     g_choice_on[CHOICE_GET] = !entry->unsupported;
@@ -208,6 +210,45 @@ void menu_open(int index) {
 
 static void menu_close(void) {
     g_menu_open = 0;
+    shell_menu(NULL);
+}
+
+/* Which version of a game square sets aside: a row each, its flag, disc
+   id and size out of the list's summary ("UCES-01059, EU, 1.8 GB"), and
+   "In basket" at the end of one that is. X puts it in or takes it out. */
+static int g_pick_open, g_pick[VIEW_VERSIONS];
+static char g_pick_text[VIEW_VERSIONS][48], g_pick_region[VIEW_VERSIONS][8];
+
+void basket_pick_open(int index) {
+    const struct catalog *c = actions_catalog();
+    int n = view_versions(index, g_pick, VIEW_VERSIONS);
+    if (n > MENU_ROWS) n = MENU_ROWS;
+    snprintf(g_menu_title, sizeof(g_menu_title), "%s", T_PICK_VERSION);
+    g_menu.title = g_menu_title;
+    g_menu.count = n;
+    g_menu.cursor = 0;
+    for (int i = 0; i < n; i++) {
+        const struct app_entry *e = &c->apps[g_pick[i]];
+        const char *summary = txt(e->summary), *last = strrchr(summary, ',');
+        size_t id = strcspn(summary, ",");
+        snprintf(g_pick_text[i], sizeof(g_pick_text[i]), "%.*s%s%s", (int)id, summary,
+                 last ? "   " : "", last ? last + 2 : "");
+        pspdx_utf8_mend(g_pick_text[i]);
+        view_region(e, g_pick_region[i]);
+        g_menu.item[i] = g_pick_text[i];
+        g_menu.flag[i] = g_pick_region[i];
+        g_menu.value[i] = view_basket_has(g_pick[i]) ? T_IN_BASKET : NULL;
+        /* What is on the stick has no business in the basket. */
+        g_menu.on[i] = e->state == APP_NOT_INSTALLED || view_basket_has(g_pick[i]);
+        g_menu.key[i] = -1;
+        if (!g_menu.on[g_menu.cursor] && g_menu.on[i]) g_menu.cursor = i;
+    }
+    g_pick_open = 1;
+    menu_push();
+}
+
+static void basket_pick_close(void) {
+    g_pick_open = 0;
     shell_menu(NULL);
 }
 
@@ -266,6 +307,7 @@ void options_fps_runtime_toggle(void) {
 
 static void sub_push(void) {
     g_menu.title = T_SUB_DIRECT;
+    memset(g_menu.flag, 0, sizeof(g_menu.flag));
     shell_menu(&g_menu);
 }
 
@@ -350,7 +392,7 @@ static void menu_move(int by) {
 }
 
 int menu_shown(void) {
-    return g_menu_open;
+    return g_menu_open || g_pick_open;
 }
 
 int popup_shown(void) {
@@ -380,6 +422,20 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             if (chosen == 0 && *synced && type_source(1))
                 refetch_now(*cursor, keep, keep_size, synced, refreshing);
             else if (chosen == 1 && *synced) ask_inbox();
+        }
+    } else if (g_pick_open) {
+        if (pressed & PSP_CTRL_DOWN) { menu_move(1); cues_post(CUE_MOVE, 0); }
+        else if (pressed & PSP_CTRL_UP) { menu_move(-1); cues_post(CUE_MOVE, 0); }
+        else if (pressed & PSP_CTRL_CIRCLE) basket_pick_close();
+        else if (pressed & PSP_CTRL_CROSS) {
+            int version = g_pick[g_menu.cursor];
+            basket_pick_close();
+            if (g_menu.on[g_menu.cursor]) {
+                view_basket_toggle(version);
+                cues_post(CUE_MOVE, *cursor);
+                view_settled(cursor);
+                *count = view_count();
+            }
         }
     } else if (g_menu_open) {
         /* The keys the menu names work from inside it too, so that what

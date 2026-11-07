@@ -1,7 +1,7 @@
 """Run actual client parsers, persistence and installer against a PSP I/O adapter.
 The adapter preserves same-directory rename semantics and supports power cuts.
 """
-import gzip, hashlib, json, os, pathlib, random, shutil, subprocess, tempfile, time, unittest, zipfile
+import gzip, hashlib, json, os, pathlib, random, re, shutil, subprocess, tempfile, time, unittest, zipfile
 BIN=os.environ.get('PSPDX_TEST_BIN','/tmp/pspdx-host-test')
 IMAGE_BIN=os.environ.get('PSPDX_IMAGE_BIN')
 SCHEMA='https://chriopter.github.io/pspdx/schema/pspdx-v1.json'
@@ -1381,17 +1381,16 @@ class ClientTests(unittest.TestCase):
   # One row for them among the categories, by the one word, however the entries spell theirs.
   r=self.run_client('groups').stdout;self.assertEqual(r.count('0 plugin 3'),1,r);self.assertNotIn('Plugin',r)
  def test_plugins_are_listed_and_installed(self):
-  # A plugin in a catalog is a row that installs like any other, from its entry where the repository has no .pspdx; an ISO is listed and not installed.
+  # A plugin in a catalog is a row that installs like any other, from its entry where the repository has no .pspdx; so is an ISO.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0]
   plugin={k:v for k,v in dict(first,id='io.github.test.plug',name='Plug',type='plugin',category='plugin',tags=['plugin'],source='https://github.com/test/plug',releases=[dict(first['releases'][0],url='https://github.com/test/plug/releases/download/v2/download.zip')]).items() if k!='installdir'}
   iso=dict(plugin,id='io.github.test.disc',name='Disc',type='iso',source='https://github.com/test/disc',releases=[dict(first['releases'][0],url='https://github.com/test/disc/releases/download/v2/download.zip')])
   mirror={k:v for k,v in dict(first,id='de.wijsman.blocks',name='Blocks',source='https://archive.org/details/psp-blocks',releases=[dict(first['releases'][0],url='https://archive.org/download/psp-blocks/blocks.zip')]).items() if k!='installdir'}
   self.write('catalog.json',dict(catalog,apps=[first,plugin,iso,mirror]))
   r=self.run_client('fetch',VERBOSE=1);rows={row.split()[0]:row.split() for row in r.stdout.splitlines()}
-  # A mirror installs from its entry, and so does a plugin; an ISO, from anywhere, is listed and not installed.
-  self.assertEqual((rows[ID][4],rows['io.github.test.plug'][4],rows['io.github.test.disc'][4],rows['de.wijsman.blocks'][4]),('0','0','1','0'),r.stdout)
+  # A mirror installs from its entry, and so do a plugin and an ISO.
+  self.assertEqual((rows[ID][4],rows['io.github.test.plug'][4],rows['io.github.test.disc'][4],rows['de.wijsman.blocks'][4]),('0','0','0','0'),r.stdout)
   self.assertEqual(rows['io.github.test.plug'][3],'1');self.assertIn('io.github.test.plug',self.run_client('listing','plugin').stdout.split())
-  r=self.run_client('prepare','io.github.test.disc',ok=False,VERBOSE=1);self.assertEqual(r.stdout.strip(),'-1');self.assertIn('cannot be installed yet',r.stderr)
   (self.root/'manifest.json').unlink();self.zip('plug.zip',{'plug.prx':b'a plugin','LICENSE':b'MIT'});size=(self.root/'plug.zip').stat().st_size
   plugin['releases'][0].update(size=size,sha256=hashlib.sha256((self.root/'plug.zip').read_bytes()).hexdigest());self.write('catalog.json',dict(catalog,apps=[first,plugin]))
   r=self.run_client('get','io.github.test.plug',VERBOSE=1,ZIP_FILE=self.root/'plug.zip');self.assertEqual(r.stdout.strip(),'0',r.stderr)
@@ -1412,12 +1411,43 @@ class ClientTests(unittest.TestCase):
   self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID,'org.archive.blocks'])
   self.write('catalog.json',dict(catalog,apps=[first,dict(mirror,id='de.wijsman.other')]))
   self.assertEqual([row.split()[0] for row in self.run_client('fetch').stdout.splitlines()],[ID,'de.wijsman.other'])
-  # The origin path skips a .pspdx whose source is not GitHub; INBOX takes a plugin and keeps an ISO for a later version.
+  # The origin path skips a .pspdx whose source is not GitHub; INBOX takes a plugin and an ISO.
   (self.root/'catalog.txt').write_text(SPEC['source']+'\n');(self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/pspdx/\n')
   self.write('manifest.json',dict(SPEC,source='https://archive.org/details/psp-blocks'))
   r=self.run_client('fetch',CATALOG_DOWN=1,FORCE=1,VERBOSE=1);self.assertIn('outside GitHub',r.stderr)
   plug={k:v for k,v in dict(SPEC,type='iso',source='https://github.com/test/disc').items() if k!='installdir'}
-  self.write('ms0:/PSP/PSPDX/INBOX/disc.pspdx',plug);r=self.run_client('inbox',VERBOSE=1);self.assertEqual(r.stdout.strip(),'0');self.assertIn('cannot install yet; kept',r.stderr)
+  self.write('ms0:/PSP/PSPDX/INBOX/disc.pspdx',plug);r=self.run_client('inbox',VERBOSE=1);self.assertNotIn('cannot install yet',r.stderr)
+ def test_versions_of_one_game_are_one_umd_tile(self):
+  # Two ISO entries with the same "game" are one tile on the UMD tab, the EU version standing for it; without "game" each stands alone, and a "game" on anything but an ISO is not read.
+  self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink()
+  def disc(key,region,**more):
+   return dict(name='Loco 2 (%s)'%region,type='iso',category='game',summary='%s, %s, 1 MB'%(key,region),source='https://psp.lan/discs/'+key,releases=[dict(tag='1.00',published_at='2023-11-14T22:13:20Z',url='https://psp.lan/discs/%s.iso'%key,size=1000,sha256='2'*64)],**more)
+  tiles=lambda apps:(self.write('catalog.json',dict(catalog,apps=[first]+apps)),re.search(r'tab -4 kind 4 rows (\d+) first',self.run_client('view').stdout).group(1))[1]
+  self.assertEqual(tiles([disc('ULUS-10001','US',game='loco 2'),disc('UCES-01059','EU',game='loco 2')]),'1')
+  self.assertEqual(tiles([disc('ULUS-10001','US'),disc('UCES-01059','EU')]),'2')
+ def test_an_iso_is_one_file_under_iso(self):
+  # An ISO from a list away from GitHub, as pspdx-shelf serves one: downloaded straight to ISO/<the last part of its URL>, held to its hash, on the UMD tab and not in the store; an update replaces the file, a file of that name that is not its own is never written over, and a removal takes the file and the record.
+  self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink();ISO='lan.psp.disc'
+  image=b'PSP disc image '*1000;(self.root/'disc.iso').write_bytes(image);(self.root/'map.txt').write_text('ULUS-10404.iso disc.iso\n')
+  disc=dict(id='local.shelf.ulus-10404',name='Disc',type='iso',category='game',source='https://psp.lan/discs/ULUS-10404',releases=[dict(tag='1.00',published_at='2023-11-14T22:13:20Z',url='https://psp.lan/discs/ULUS-10404.iso',size=len(image),sha256=hashlib.sha256(image).hexdigest())])
+  self.write('catalog.json',dict(catalog,apps=[first,disc]))
+  # The list's id is a word to the stick: the source's host and the name make the one it keeps.
+  rows={row.split()[0]:row.split() for row in self.run_client('fetch',URL_MAP=self.root/'map.txt').stdout.splitlines()};self.assertEqual(rows[ISO][3:],['1','0'])
+  self.assertNotIn(ISO,self.run_client('listing','game',URL_MAP=self.root/'map.txt').stdout.split())
+  self.assertIn('tab -4 kind 4 rows 1 ',self.run_client('view',URL_MAP=self.root/'map.txt').stdout)
+  r=self.run_client('get',ISO,URL_MAP=self.root/'map.txt');self.assertEqual(r.stdout.strip(),'0',r.stderr)
+  self.assertEqual(self.tree(self.root/'ms0:/ISO'),{'ULUS-10404.iso':image})
+  self.assertEqual(self.state()[ISO]['installed']['installdir'],'ISO/ULUS-10404.iso')
+  # A newer dump of the same disc replaces the file, under the same name.
+  newer=image+b'v2';(self.root/'disc.iso').write_bytes(newer);disc['releases'][0].update(tag='1.01',size=len(newer),sha256=hashlib.sha256(newer).hexdigest());self.write('catalog.json',dict(catalog,apps=[first,disc]))
+  self.assertEqual(self.run_client('get',ISO,URL_MAP=self.root/'map.txt').stdout.strip(),'0');self.assertEqual(self.tree(self.root/'ms0:/ISO'),{'ULUS-10404.iso':newer})
+  # A download that does not match its hash leaves the file as it was and nothing beside it.
+  disc['releases'][0].update(sha256='1'*64);self.write('catalog.json',dict(catalog,apps=[first,disc]))
+  r=self.run_client('get',ISO,ok=False,URL_MAP=self.root/'map.txt');self.assertIn('checksum',r.stderr);self.assertEqual(self.tree(self.root/'ms0:/ISO'),{'ULUS-10404.iso':newer})
+  # Removed: the file and the record go; a file of that name put there by hand is not this app's and is not written over.
+  self.assertEqual(self.run_client('uninstall',ISO).returncode,0);self.assertEqual(self.tree(self.root/'ms0:/ISO'),{});self.assertNotIn(ISO,self.state())
+  (self.root/'ms0:/ISO/ULUS-10404.iso').write_bytes(b'mine');disc['releases'][0].update(sha256=hashlib.sha256(newer).hexdigest());self.write('catalog.json',dict(catalog,apps=[first,disc]))
+  r=self.run_client('get',ISO,ok=False,URL_MAP=self.root/'map.txt');self.assertIn('ISO/ has a file of that name',r.stderr);self.assertEqual(self.tree(self.root/'ms0:/ISO'),{'ULUS-10404.iso':b'mine'})
  def test_a_catalog_names_its_entries_as_it_likes(self):
   # A catalog's id that is one is kept; a word, a path, nothing or too much gives way to the id the source makes, and only that names a file.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink()

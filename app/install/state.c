@@ -43,6 +43,10 @@ static const char *plugin_of(const char *where) {
     return manifest_plugin_is_safe(file) && strlen(file) == n + 4 && !strncmp(where + 10, file, n)
                ? file : NULL;
 }
+/* An ISO's place, ISO/<file>: the file, or NULL for anything else. */
+static const char *iso_of(const char *where) {
+    return !strncmp(where, "ISO/", 4) && manifest_iso_is_safe(where + 4) ? where + 4 : NULL;
+}
 /* The line a record says PSPDX added: <device>/ and one of the two. */
 static int plugin_line_ok(const char *line) {
     return (!strncmp(line, "ms0:/", 5) || !strncmp(line, "ef0:/", 5)) && plugin_of(line + 5);
@@ -66,7 +70,8 @@ int state_validate(const cJSON *r) {
             !unique_members(cJSON_GetObjectItemCaseSensitive(v, "latest")))
             return 0;
         if (!cJSON_IsObject(in) ||
-            (!pspdx_install_dir(str(in, "installdir")) && !plugin_of(str(in, "installdir"))) ||
+            (!pspdx_install_dir(str(in, "installdir")) && !plugin_of(str(in, "installdir")) &&
+             !iso_of(str(in, "installdir"))) ||
             !manifest_rev_in_range(number(in, "published_at")))
             return 0;
         if (strlen(str(in, "version")) >= VERSION_SIZE)
@@ -326,9 +331,10 @@ int db_read(const char *id, struct installed *out) {
     snprintf(out->device, sizeof(out->device), "%s",
              *str(in, "device") ? str(in, "device") : storage_device());
     snprintf(out->id, sizeof(out->id), "%s", id);
-    const char *where = str(in, "installdir"), *plugin = plugin_of(where);
-    snprintf(out->dir, sizeof(out->dir), "%s", plugin ? "" : where + 9);
+    const char *where = str(in, "installdir"), *plugin = plugin_of(where), *iso = iso_of(where);
+    snprintf(out->dir, sizeof(out->dir), "%s", plugin || iso ? "" : where + 9);
     snprintf(out->plugin, sizeof(out->plugin), "%s", plugin ? plugin : "");
+    snprintf(out->iso, sizeof(out->iso), "%s", iso ? iso : "");
     if (plugin && plugin != where + 10)
         snprintf(out->plugin_dir, sizeof(out->plugin_dir), "%.*s", (int)(plugin - 1 - (where + 10)),
                  where + 10);
@@ -384,7 +390,7 @@ int state_commit(const struct manifest *m, const char *dir, const unsigned char 
     const char *dev = db_read(m->id, &rec) == 0 ? rec.device : storage_device();
     return state_commit_on(m, dir, sha256, file_dir, dev);
 }
-/* The record written: where is PSP/GAME/<dir> or seplugins/<file>. */
+/* The record written: where is PSP/GAME/<dir>, seplugins/<file> or ISO/<file>. */
 static int commit(const struct manifest *m, const char *where, const unsigned char *sha256,
                   const char *file_dir, const char *dev, cJSON *more) {
     if (!storage_device_valid(dev) || !healthy)
@@ -451,6 +457,14 @@ int state_commit_on(const struct manifest *m, const char *dir, const unsigned ch
         return -1;
     snprintf(where, sizeof(where), "PSP/GAME/%s", dir);
     return commit(m, where, sha256, file_dir, dev, NULL);
+}
+int state_commit_iso(const struct manifest *m, const char *file, const unsigned char *sha256,
+                     const char *dev) {
+    char where[80];
+    if (!manifest_iso_is_safe(file))
+        return -1;
+    snprintf(where, sizeof(where), "ISO/%s", file);
+    return commit(m, where, sha256, NULL, dev, NULL);
 }
 int state_commit_plugin(const struct manifest *m, const char *where, const unsigned char *sha256,
                         const char *dev, const unsigned char *file_sha256, const char *line,
@@ -596,7 +610,8 @@ int state_target_owner_on(const char *dir, const char *id, const char *dev) {
     cJSON_ArrayForEach(r, records) {
         const cJSON *in = cJSON_GetObjectItemCaseSensitive(r, "installed");
         const char *owner_device = *str(in, "device") ? str(in, "device") : storage_device();
-        if (!strcmp(owner_device, dev) && strcasecmp(r->string, id) && !strcasecmp(str(in, "installdir") + 9, dir))
+        if (!strcmp(owner_device, dev) && strcasecmp(r->string, id) &&
+            !strncmp(str(in, "installdir"), "PSP/GAME/", 9) && !strcasecmp(str(in, "installdir") + 9, dir))
             return 1;
     }
     return 0;
@@ -620,8 +635,10 @@ int state_latest(const char *id, struct manifest *m) {
     snprintf(m->id, sizeof(m->id), "%s", id);
     snprintf(m->repo, sizeof(m->repo), "%s", str(r, "source"));
     snprintf(m->added_from, sizeof(m->added_from), "%s", str(r, "added_from"));
+    /* An ISO's release is held to the limit of a file, not of a package. */
+    int iso = iso_of(str(cJSON_GetObjectItemCaseSensitive(r, "installed"), "installdir")) != NULL;
     if (!manifest_rev_in_range(number(l, "published_at")) ||
-        !manifest_size_in_range(number(l, "size")))
+        !(iso ? manifest_iso_size_in_range(number(l, "size")) : manifest_size_in_range(number(l, "size"))))
         return -1;
     m->rev = number(l, "published_at");
     m->size = number(l, "size");

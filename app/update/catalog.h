@@ -77,6 +77,10 @@ struct app_entry {
        of it, and is updated only through a catalog. */
     int unsupported;
     char type[12];              /* homebrew, plugin or iso */
+    /* The game an ISO entry is a version of, as the list names it -- its
+       title, normalised, the same for the EU, US and JP discs -- or empty:
+       the UMD tab shows one tile per game. */
+    char game[64];
     /* The .prx a plugin's entry says its folder is loaded by; empty where
        it names none, and one .prx in the folder is the one. */
     struct text plugin;

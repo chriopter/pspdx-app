@@ -10,6 +10,10 @@
 
 /* The package's options: run, fetch, delete, basket, information. */
 void menu_open(int index);
+/* Square on a game of several versions: which of them goes into the
+   basket, or out of it, asked in the same panel, a row per version with
+   its flag. */
+void basket_pick_open(int index);
 
 /* The one popup under the gear: the two ways a .pspdx comes in directly. */
 enum sub { SUB_NONE, SUB_ADD };

@@ -84,6 +84,9 @@ struct menu {
     const char *value[MENU_ROWS];
     unsigned char on[MENU_ROWS];
     signed char key[MENU_ROWS];
+    /* A region whose flag stands before the row's words (gui/flags.h), or
+       NULL. */
+    const char *flag[MENU_ROWS];
     int count, cursor;
 };
 void shell_menu(const struct menu *menu);
@@ -140,6 +143,16 @@ void shell_install_end(const char *message);
 /* The tag cloud: where the pad goes from chip cursor, dx along the chips
    or dy a line up or down (gui/cloud.h), in the cloud as it is drawn. */
 int shell_cloud_step(int cursor, int dx, int dy);
+
+/* The UMD tab's grid: where the pad goes from cursor, dx a disc along or dy
+   a line up or down. Along a line it stops at the edges, which belong to
+   the tabs; up and down go round with ring, as the list does for a press.
+   shell_grid_cols is how many discs a line holds. */
+int shell_grid_step(int cursor, int dx, int dy, int ring);
+int shell_grid_cols(void);
+/* The card shows the row under the cursor again, whatever was put on it
+   in between. */
+void shell_reshow_card(void);
 
 struct download_status;
 void shell_download_draw(const struct app_entry *entry, const struct download_status *status);

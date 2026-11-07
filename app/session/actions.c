@@ -430,6 +430,8 @@ void cable_connected(void) {
    after catalog_prepare, rather than the catalog's provisional folder. */
 static int install_folder(const struct app_entry *entry, const char *dev, int row) {
     struct installed rec;
+    /* An ISO has no folder: its file is held to being its own in install.c. */
+    if (!strcmp(entry->type, "iso")) return 0;
     if (state_target_owner_on(entry->release.dir, entry->id, dev) != 0) return -1;
     if (!strcmp(dev, storage_device()) &&
         !strcasecmp(entry->release.dir, storage_self_dir()) && strcmp(entry->id, PSPDX_SELF_ID))
@@ -665,6 +667,10 @@ void launch_app(int index) {
     if (known && record.plugin[0]) {
         ask(ASK_PLUGIN, index, entry->plugin_off ? T_PLUGIN_ON_ASK : T_PLUGIN_OFF_ASK,
             entry->plugin_off ? T_PLUGIN_ON_LINE : T_PLUGIN_OFF_LINE);
+        return;
+    }
+    if (known && record.iso[0]) {
+        shell_status(T_ISO_START);
         return;
     }
     if (!known || !record.dir[0]) {

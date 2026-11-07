@@ -31,6 +31,9 @@ int state_target_owner(const char *dir, const char *id);
 int state_target_owner_on(const char *dir, const char *id, const char *device);
 int state_commit_on(const struct manifest *m, const char *dir, const unsigned char *sha256,
                     const char *file_dir, const char *device);
+/* The release in m installed as the ISO <device>/ISO/<file>. One write. */
+int state_commit_iso(const struct manifest *m, const char *file, const unsigned char *sha256,
+                     const char *device);
 /* The release in m installed as a plugin on device, where being
    seplugins/<name>/<name>.prx: the main .prx by its own SHA-256, the line
    PSPDX added for it, "" for none, files every file PSPDX put into the

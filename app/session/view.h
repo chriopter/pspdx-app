@@ -93,6 +93,19 @@ int view_browse_close(void);
 /* The tags stand open as a cloud, not as a list: their rows are the
    chips, in the order of their words. */
 int view_cloud(void);
+/* Whether the open tab shows its packages as a grid of their icons rather
+   than as rows: the UMD tab, as the PSP's own game menu shows discs. */
+int view_grid(void);
+/* The versions of the game an ISO entry is one of -- the entries with its
+   "game", EU, US, JP, AS, KR and then the rest -- into out, at most max;
+   an entry with none is its own one version. How many there are. */
+#define VIEW_VERSIONS 16
+int view_versions(int index, int *out, int max);
+/* The version a game's tile stands for: one on the stick first, else the
+   first by region. */
+int view_face(int index);
+/* The region in the parentheses an ISO entry's name ends in, or "". */
+void view_region(const struct app_entry *entry, char out[8]);
 /* The newest packages the store shows in group n, or with browse >= 0 in
    any row of that way: up to max catalog indices, newest first. */
 int view_newest(int n, int browse, int *out, int max);
@@ -163,7 +176,8 @@ int view_tabs_refresh(void);
    turns it on, for this run. */
 void view_show_unreleased(int on);
 int view_unreleased_shown(void);
-/* Whether the store leaves this package out, by that switch. */
+/* Whether the store leaves this package out: by that switch, and an ISO,
+   which the UMD tab lists instead. */
 int view_hidden(const struct app_entry *entry);
 
 /* How many tabs are on screen: none until there is a catalog. */

@@ -91,6 +91,17 @@ int manifest_size_in_range(double size) {
     return size > 0 && size <= MAX_PACKAGE_BYTES && size == (size_t)size;
 }
 
+int manifest_iso_size_in_range(double size) {
+    return size > 0 && size <= MAX_ISO_BYTES && size == (size_t)size;
+}
+
+int manifest_iso_is_safe(const char *name) {
+    size_t n = name ? strlen(name) : 0;
+    return n > 4 && n <= ISO_NAME_MAX && name[0] != '.' &&
+           (!strcasecmp(name + n - 4, ".iso") || !strcasecmp(name + n - 4, ".cso")) &&
+           strspn(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") == n;
+}
+
 int manifest_has_sha256(const struct manifest *m) {
     for (int i = 0; i < 32; i++)
         if (m->sha256[i])
@@ -202,18 +213,18 @@ static void why(const char *fmt, ...) {
     va_end(ap);
 }
 
-/* One attempt: the archive written afresh from url. The https result says
-   how the server answered; the return is https_get's. */
-static int fetch_archive(const char *url, struct dl *d, https_progress progress, void *pctx,
-                         struct https_result *r, int *close_rc) {
+/* One attempt: the file at path written afresh from url. The https result
+   says how the server answered; the return is https_get's. */
+static int fetch_archive(const char *path, const char *url, struct dl *d, https_progress progress,
+                         void *pctx, struct https_result *r, int *close_rc) {
     memset(r, 0, sizeof(*r));
     d->written = 0;
     *close_rc = 0;
     if (wc_InitSha256(&d->sha) != 0)
         return -1;
-    d->fd = sceIoOpen(ARCHIVE, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    d->fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
     if (d->fd < 0) {
-        logline("cannot create %s", ARCHIVE);
+        logline("cannot create %s", path);
         *close_rc = -1;
         return -1;
     }
@@ -367,7 +378,9 @@ static int archive_moved(const struct manifest *m, char out[512]) {
     return found == 1;
 }
 
-static int download(const struct manifest *m, https_progress progress, void *pctx,
+/* The release to path: the archive for a package, the file itself for an
+   ISO. */
+static int download(const struct manifest *m, const char *path, https_progress progress, void *pctx,
                     unsigned char *got) {
     struct dl d;
     struct https_result r;
@@ -375,12 +388,12 @@ static int download(const struct manifest *m, https_progress progress, void *pct
     char moved[512];
     const char *url = m->url;
     d.expected = m->size;
-    int rc = fetch_archive(m->url, &d, progress, pctx, &r, &close_rc);
+    int rc = fetch_archive(path, m->url, &d, progress, pctx, &r, &close_rc);
     if (!g_abort && close_rc >= 0 && r.status == 404) {
         if (archive_moved(m, moved)) {
             url = moved;
             logline("download: archive.org file moved; trying %s", moved);
-            rc = fetch_archive(moved, &d, progress, pctx, &r, &close_rc);
+            rc = fetch_archive(path, moved, &d, progress, pctx, &r, &close_rc);
         }
     }
     if (!g_abort && close_rc >= 0 && r.status >= 500 && r.status < 600) {
@@ -388,7 +401,7 @@ static int download(const struct manifest *m, https_progress progress, void *pct
         int n = archive_mirrors(url, mirror);
         for (int i = 0; i < n && !g_abort; i++) {
             logline("download: %ld from the mirror; trying %s", r.status, mirror[i]);
-            rc = fetch_archive(mirror[i], &d, progress, pctx, &r, &close_rc);
+            rc = fetch_archive(path, mirror[i], &d, progress, pctx, &r, &close_rc);
             if (rc == 0 && r.status == 200 && close_rc >= 0) break;
         }
     }
@@ -2533,7 +2546,7 @@ static int plugin_release(const struct manifest *m, const struct installed *exis
     } else {
         if (phase)
             phase(ctx, "download");
-        if (download(m, progress, ctx, got) < 0) {
+        if (download(m, ARCHIVE, progress, ctx, got) < 0) {
             if (g_abort)
                 rc = INSTALL_CANCELLED;
             goto end;
@@ -2831,6 +2844,120 @@ end:
         rep->plugin_off = plugin_enabled(m->id) != 1;
     return rc;
 }
+/* ------------------------------------------------------------------ iso */
+
+/* An ISO is one file under <device>/ISO/, where the custom firmware's game
+   menu looks for it. At a gigabyte or two every pass over it is minutes on a
+   PSP, so there is one: it is downloaded straight into <file>.part beside
+   its place, hashed as it arrives, and renamed into place once size and
+   SHA-256 agree. Nothing is unpacked and nothing copied, and no journal is
+   kept: a rename is the one step, and a .part a power cut leaves goes at the
+   next install of the same file. */
+
+/* The name an ISO takes: the last part of its URL where that is a plain
+   one, as an ISO server names its files; otherwise the id's. */
+static void iso_name(const struct manifest *m, char out[ISO_NAME_MAX + 1]) {
+    const char *last = strrchr(m->url, '/');
+    size_t n = strcspn(last ? last + 1 : m->url, "?#");
+    snprintf(out, ISO_NAME_MAX + 1, "%.*s", (int)n, last ? last + 1 : m->url);
+    if (n > ISO_NAME_MAX || !manifest_iso_is_safe(out))
+        snprintf(out, ISO_NAME_MAX + 1, "%.60s.iso", m->id);
+}
+
+static int iso_release(const struct manifest *m, const struct installed *existing,
+                       struct install_report *rep, install_phase_cb phase, https_progress progress,
+                       void *ctx) {
+    char name[ISO_NAME_MAX + 1], aside[ISO_NAME_MAX + 8], dir[16];
+    char path[96], part[104], old[104];
+    iso_name(m, name);
+    snprintf(aside, sizeof(aside), "%s.old", name);
+    snprintf(dir, sizeof(dir), "%s/ISO", target());
+    snprintf(path, sizeof(path), "%s/%s", dir, name);
+    snprintf(part, sizeof(part), "%s.part", path);
+    snprintf(old, sizeof(old), "%s/%s", dir, aside);
+    /* A file of that name that is not this app's is somebody's own, or
+       another list's copy of the same disc: never written over. */
+    int ours = existing && !strcmp(existing->iso, name);
+    if (storage_exists(path) && !ours) {
+        logline("install: ISO/%s is there already and is not %s's", name, m->id);
+        why(T_WHY_ISO_TAKEN);
+        return -1;
+    }
+    /* Room for the file beside the one it replaces: the old one goes only
+       once the new one is in place. */
+    unsigned cluster = 1;
+    storage_free_bytes_on(target(), &cluster);
+    if (!room_on(target(),
+                 ((unsigned long long)m->size + cluster - 1) / cluster * cluster + ROOM_FOR_RECORDS,
+                 rep))
+        return INSTALL_NO_SPACE;
+    sceIoMkdir(dir, 0777);
+    sceIoRemove(part);
+    g_abort = 0;
+    if (phase)
+        phase(ctx, "download");
+    unsigned char got[32] = {0};
+    if (download(m, part, progress, ctx, got) < 0) {
+        sceIoRemove(part);
+        return g_abort ? INSTALL_CANCELLED : -2;
+    }
+    if (phase)
+        phase(ctx, "commit");
+    /* An update's file steps aside until the new one stands in its place,
+       and comes back if it cannot. */
+    sceIoRemove(old);
+    int had = ours && storage_exists(path);
+    if (had && sceIoRename(path, aside) < 0) {
+        sceIoRemove(part);
+        return -3;
+    }
+    if (sceIoRename(part, name) < 0 || sceIoSync(target(), 0) < 0) {
+        if (had && !storage_exists(path))
+            sceIoRename(old, name);
+        sceIoRemove(part);
+        return -3;
+    }
+    char saved[256];
+    storage_app_path(m->id, saved, sizeof(saved));
+    if (storage_write(saved, m->raw, strlen(m->raw)) < 0 ||
+        state_commit_iso(m, name, got, target()) < 0) {
+        /* No record, no file: one left without would be nobody's. */
+        sceIoRemove(path);
+        if (had)
+            sceIoRename(old, name);
+        return -3;
+    }
+    sceIoRemove(old);
+    /* A release under another name leaves the one before it behind. */
+    if (existing && existing->iso[0] && strcmp(existing->iso, name) &&
+        manifest_iso_is_safe(existing->iso)) {
+        snprintf(old, sizeof(old), "%s/%s", dir, existing->iso);
+        sceIoRemove(old);
+    }
+    snprintf(rep->id, sizeof(rep->id), "%s", m->id);
+    snprintf(rep->version, sizeof(rep->version), "%s", m->version);
+    rep->rev = m->rev;
+    rep->files = 1;
+    rep->bytes = m->size;
+    logline("install: %s is ISO/%s on %s", m->id, name, target());
+    return 0;
+}
+
+/* The file goes, then the record: a file deleted by hand lets the record go
+   all the same. */
+static int iso_remove(const struct installed *rec) {
+    char path[96], saved[256];
+    if (!manifest_iso_is_safe(rec->iso))
+        return -1;
+    snprintf(path, sizeof(path), "%s/ISO/%s", target(), rec->iso);
+    if (!storage_exists(path))
+        logline("remove: ISO/%s is already gone", rec->iso);
+    else if (sceIoRemove(path) < 0)
+        return -1;
+    storage_app_path(rec->id, saved, sizeof(saved));
+    return state_forget(rec->id) < 0 || storage_remove(saved) < 0 ? -1 : 0;
+}
+
 int uninstall(const char *id) {
     g_why[0] = 0;
     install_recover();
@@ -2847,6 +2974,8 @@ int uninstall(const char *id) {
     }
     if (rec.plugin[0])
         return plugin_remove(&rec);
+    if (rec.iso[0])
+        return iso_remove(&rec);
     cJSON *j = begin(id, rec.dir, "remove");
     if (!j)
         return -1;
@@ -2937,22 +3066,24 @@ static int release_to(const struct manifest *m, const char *dev, struct install_
     struct pspdx_file spec;
     char why[80];
     unsigned char got[32] = {0};
-    if (!manifest_id_is_safe(m->id) || !manifest_size_in_range(m->size) ||
-        !manifest_rev_in_range(m->rev) || strncmp(m->url, "https://", 8))
+    if (!manifest_id_is_safe(m->id) || !manifest_rev_in_range(m->rev) ||
+        strncmp(m->url, "https://", 8))
         return -1;
     if (!m->raw || pspdx_parse(m->raw, strlen(m->raw), &spec, why, sizeof(why)) < 0) {
         logline("install: valid original manifest required");
         return -1;
     }
-    /* An ISO is listed and not installed: it does not go under PSP/GAME,
-       and nothing here knows where it does go. */
     if (!pspdx_type_installable(spec.type)) {
         logline("install: type %s cannot be installed yet", spec.type);
         return -1;
     }
-    /* A plugin names no folder: its main .prx does, and its zip that. */
-    int plugin = !strcmp(spec.type, "plugin");
-    if (plugin ? m->dir[0] : !manifest_dir_is_safe(m->dir))
+    /* A plugin names no folder: its main .prx does, and its zip that. An
+       ISO names none either: it is one file, and as large as FAT32 lets a
+       file be. */
+    int plugin = !strcmp(spec.type, "plugin"), iso = !strcmp(spec.type, "iso");
+    if (!(iso ? manifest_iso_size_in_range(m->size) : manifest_size_in_range(m->size)))
+        return -1;
+    if (plugin || iso ? m->dir[0] : !manifest_dir_is_safe(m->dir))
         return -1;
     /* The id is the one the file makes, or one a catalog gave the entry;
        either way the file is the release's repository's, and the id is no
@@ -2963,9 +3094,11 @@ static int release_to(const struct manifest *m, const char *dev, struct install_
     int has = db_read(m->id, &existing) == 0;
     if (has && !sources_same_repo(existing.repo, m->repo))
         return -1;
-    if (has && plugin != (existing.plugin[0] != 0)) {
+    const char *was = !has ? spec.type : existing.plugin[0] ? "plugin" : existing.iso[0] ? "iso"
+                                                                                     : "homebrew";
+    if (strcmp(was, spec.type)) {
         logline("install: %s is installed as a %s and its file now says %s; delete it first",
-                m->id, plugin ? "homebrew" : "plugin", spec.type);
+                m->id, was, spec.type);
         return -1;
     }
     /* The folder is the one the file names, or the one the app is installed
@@ -2987,6 +3120,8 @@ static int release_to(const struct manifest *m, const char *dev, struct install_
                 "download to", m->id);
         return -1;
     }
+    if (iso)
+        return iso_release(m, has ? &existing : NULL, rep, phase, progress, ctx);
     /* Before anything is written, the journal included: a stick with no room
        for the download says so rather than failing somewhere in it. What an
        earlier transaction left is cleared first, since it may be what fills
@@ -3020,7 +3155,7 @@ static int release_to(const struct manifest *m, const char *dev, struct install_
         goto end;
     if (phase)
         phase(ctx, "download");
-    if (download(m, progress, ctx, got) < 0) {
+    if (download(m, ARCHIVE, progress, ctx, got) < 0) {
         if (g_abort)
             rc = INSTALL_CANCELLED;
         goto end;

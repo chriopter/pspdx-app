@@ -23,6 +23,7 @@
 #include "gui/image.h"
 #include "gui/usbnet_icon.h"
 #include "gui/shell.h"
+#include "gui/flags.h"
 #include "gui/shell_internal.h"
 #include "gui/files_view.h"
 #include "gui/sources_view.h"
@@ -731,6 +732,174 @@ static void draw_cloud(int cursor, float t) {
     float tw = LIST_X + CLOUD_W + dx - tx;
     font_print_clipped(FONT_META, tx, sy + 12, tw, g_text, group_names(n, 1));
     font_print_clipped(FONT_CAPTION, tx, sy + 27, tw, g_dim, group_names(n, 0));
+}
+
+/* ----------------------------------------------------------------- grid */
+
+/* The UMD tab as the PSP's own game menu shows discs: their ICON0s in a
+   grid across the whole room, at the size the icon cache keeps them, one
+   to one on whole pixels so they are no softer than they are; the chosen
+   one grows a little, and its name stands under the grid. The icons are
+   the list's, out of the same cache, so a disc costs what a row does. */
+#define GRID_W 72
+#define GRID_H 40
+#define GRID_POP 18                 /* what the chosen icon grows by, in width */
+#define GRID_COLS 5
+#define GRID_GAP 8
+#define GRID_LEFT ((SCR_W - GRID_COLS * GRID_W - (GRID_COLS - 1) * GRID_GAP) / 2)
+#define GRID_LINE (GRID_H + GRID_GAP)
+#define GRID_LINES 4
+#define GRID_TOP (HEADER_H + 10)
+/* The chosen icon grows by GRID_POP / 2 every way: room for that under the
+   last line before the name. */
+#define GRID_BOTTOM (GRID_TOP + GRID_LINES * GRID_LINE - GRID_GAP + GRID_POP / 2)
+#define GRID_NAME_Y (GRID_BOTTOM + 12)
+static float g_grid_scroll, g_grid_pop;
+static int g_grid_first, g_grid_last = -1;
+
+int shell_grid_cols(void) { return GRID_COLS; }
+
+int shell_grid_step(int cursor, int dx, int dy, int ring) {
+    int count = view_count(), lines = (count + GRID_COLS - 1) / GRID_COLS;
+    int line = cursor / GRID_COLS, col = cursor % GRID_COLS;
+    /* Along a line, not round onto the next one: the edges are the tabs'. */
+    if (dx) return col + dx >= 0 && col + dx < GRID_COLS && cursor + dx < count ? cursor + dx : cursor;
+    /* Up off the first line and down off the last go round, as the list
+       does for a press; a hold stops at the edge. */
+    line += dy;
+    if (line < 0 || line >= lines) {
+        if (!ring) return cursor;
+        line = line < 0 ? lines - 1 : 0;
+    }
+    int to = line * GRID_COLS + col;
+    return to < count ? to : count - 1;
+}
+
+static void draw_grid(const struct catalog *catalog, int cursor, float t) {
+    int count = view_count();
+    int dx = (int)g_page_dx;
+    if (cursor >= count) cursor = count - 1;
+    int line = cursor / GRID_COLS, lines = (count + GRID_COLS - 1) / GRID_COLS;
+    if (line < g_grid_first) g_grid_first = line;
+    if (line >= g_grid_first + GRID_LINES) g_grid_first = line - GRID_LINES + 1;
+    g_grid_scroll += (g_grid_first * GRID_LINE - g_grid_scroll) * 0.25f;
+    /* The chosen icon grows in over a few frames, from where the last
+       one stood. */
+    if (cursor != g_grid_last) g_grid_pop = 0;
+    g_grid_last = cursor;
+    g_grid_pop += (1.0f - g_grid_pop) * 0.25f;
+
+    /* The discs the grid is going to first, the chosen one before them,
+       then a line past either edge; nothing while the grid flies by. */
+    enum { SHOWN = GRID_LINES * GRID_COLS, AHEAD = GRID_COLS };
+    int wanted[SHOWN + 2 * AHEAD + 1], want_count = 0, visible = 0;
+    if (!g_fast) {
+        wanted[want_count++] = view_index(cursor);
+        for (int i = g_grid_first * GRID_COLS; i < (g_grid_first + GRID_LINES) * GRID_COLS && i < count; i++)
+            if (i != cursor) wanted[want_count++] = view_index(i);
+        visible = want_count;
+        for (int k = 1; k <= AHEAD; k++) {
+            int around[2] = {(g_grid_first + GRID_LINES) * GRID_COLS - 1 + k, g_grid_first * GRID_COLS - k};
+            for (int j = 0; j < 2; j++)
+                if (around[j] >= 0 && around[j] < count) wanted[want_count++] = view_index(around[j]);
+        }
+    }
+    icons_bind(catalog);
+    if (icons_want(wanted, want_count, visible)) icons_poke();
+
+    gfx_clip(0, GRID_TOP - GRID_POP / 2, SCR_W, GRID_BOTTOM - (GRID_TOP - GRID_POP / 2));
+    int from = (int)(g_grid_scroll / GRID_LINE) * GRID_COLS, to = from + (GRID_LINES + 1) * GRID_COLS;
+    if (to > count) to = count;
+    /* The chosen disc last, grown a little over its neighbours. */
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = from; i < to; i++) {
+            int selected = i == cursor, index = view_index(i);
+            if (selected != pass || index < 0) continue;
+            int x = GRID_LEFT + (i % GRID_COLS) * (GRID_W + GRID_GAP) + dx;
+            int y = GRID_TOP + (int)floorf((i / GRID_COLS) * GRID_LINE - g_grid_scroll + 0.5f);
+            int w = GRID_W, h = GRID_H;
+            if (selected) {
+                /* Grown about its middle, kept to the icon's shape and to
+                   whole pixels. */
+                w = GRID_W + (int)(GRID_POP * g_grid_pop + 0.5f) / 2 * 2;
+                h = w * GRID_H / GRID_W / 2 * 2;
+                x -= (w - GRID_W) / 2;
+                y -= (h - GRID_H) / 2;
+            }
+            /* A dark plate where the icon has not arrived, as in the list.
+               The chosen disc's film, once the selection has rested and it
+               has come -- the card's own, fetched and played as for a row,
+               its sound with it -- plays in its icon's place. */
+            const struct gfx_texture *icon = icons_get(index);
+            int film_alpha = 0;
+            const struct gfx_texture *film = selected ? preview_film(&film_alpha) : NULL;
+            if (film)
+                gfx_texture_draw(film, x, y, w, h, RGB(255, 255, 255));
+            else if (icon)
+                gfx_texture_draw(icon, x, y, w, h, selected ? RGB(255, 255, 255) : RGB(170, 170, 170));
+            else
+                gfx_rect(x, y, w, h, RGBA(255, 255, 255, selected ? 24 : 12));
+            /* In the icon's corner, what the list says at a row's end, for
+               the game's versions together: a download running, the arrows
+               where one has an update, the tick where one is on the stick,
+               and the basket. */
+            int versions[VIEW_VERSIONS], n = view_versions(index, versions, VIEW_VERSIONS);
+            int running = -1, update = 0, installed = 0, basket = 0;
+            for (int v = 0; v < n; v++) {
+                const struct app_entry *e = &catalog->apps[versions[v]];
+                if (versions[v] == view_download_current()) running = versions[v];
+                update |= e->state == APP_UPDATE;
+                installed |= e->state != APP_NOT_INSTALLED;
+                basket |= view_basket_has(versions[v]);
+            }
+            float mx = x + w - 9, my = y + 9;
+            if (running >= 0)
+                mark_draw(MARK_DOWNLOAD, mx, my - 1.5f * (1.0f - cosf(t * 6.2831853f)), g_accent,
+                          MARK_PLAIN, 0, t);
+            else if (update)
+                mark_draw(MARK_UPDATE, mx, my, faded(UPDATE_RGB, (int)(255 * update_pulse(t))),
+                          MARK_LIT, UPDATE_RGB, t);
+            else if (installed)
+                mark_draw(MARK_TICK, mx, my, selected ? g_accent : faded(g_dim, 200), MARK_PLAIN, 0, t);
+            if (basket)
+                mark_draw(MARK_BASKET, x + 9, my, g_text, MARK_LIT, rgb_pack(g_tint, 255), t);
+            struct download_status download;
+            if (downloads_status(running >= 0 ? running : index, &download)) {
+                float fraction = download.total ? (float)download.done / download.total : 0;
+                if (fraction > 1 || download.state == DOWNLOAD_DONE) fraction = 1;
+                gfx_rect(x, y + h - 3, w, 3, RGBA(0, 0, 0, 160));
+                gfx_rect(x, y + h - 3, (int)(w * fraction), 3, g_accent);
+            }
+        }
+    gfx_unclip();
+
+    /* Under the grid the chosen disc's name, and how far down the grid is
+       when there is more of it than the room shows. */
+    int index = view_index(cursor);
+    if (index >= 0) {
+        /* The game's name: the version's without the region it ends in,
+           where it is one of several. */
+        char name[sizeof(catalog->apps[index].name)], region[8];
+        int versions[VIEW_VERSIONS];
+        snprintf(name, sizeof(name), "%s", catalog->apps[index].name);
+        view_region(&catalog->apps[index], region);
+        if (region[0] && catalog->apps[index].game[0])
+            name[strlen(name) - strlen(region) - 3] = 0;
+        int n = view_versions(index, versions, VIEW_VERSIONS);
+        if (n > 1) {
+            size_t k = strlen(name);
+            snprintf(name + k, sizeof(name) - k, T_UMD_VERSIONS, n);
+        }
+        float w = font_width(FONT_TITLE, name), room = SCR_W - 2 * LIST_X;
+        font_print_scrolling(FONT_TITLE, LIST_X + dx + (w < room ? (int)((room - w) / 2) : 0),
+                             GRID_NAME_Y, room, g_text, name, hover_age(4, index));
+    }
+    if (lines > GRID_LINES) {
+        char where[24];
+        snprintf(where, sizeof(where), "%d / %d", line + 1, lines);
+        font_print(FONT_CAPTION, SCR_W - LIST_X - font_width(FONT_CAPTION, where) + dx, GRID_NAME_Y,
+                   faded(g_dim, 170), where);
+    }
 }
 
 /* A row at the head of the store to browse it by: a sign where a package
@@ -1934,6 +2103,11 @@ static void draw_menu(void) {
         }
         /* A row can name a thing by its mark: the byte 1 and then the mark
            plus one end the words, and the mark stands after them. */
+        if (m->flag[i]) {
+            flag_draw(m->flag[i], (int)left, y - 9, on ? 255 : 170);
+            left += FLAG_W + 8;
+            room -= FLAG_W + 8;
+        }
         const char *glyph = strchr(item, '\x01');
         if (glyph && glyph[1]) {
             char words[32];
@@ -1945,6 +2119,7 @@ static void draw_menu(void) {
             font_print_scrolling(FONT_BODY, left, y, room, color, item,
                                  on ? hover_age(2, i) : 0.0f);
         }
+        if (m->flag[i]) left -= FLAG_W + 8;
     }
     /* Enter and back, the way every band ends, at the panel's foot. */
     float hx = left;
@@ -2266,6 +2441,11 @@ static float detail_fact_width(void *ctx, const char *text, size_t len) {
     return font_width(FONT_CAPTION, line);
 }
 
+/* The room an ISO's page keeps for its flags under the name's rule. */
+static int flag_row(const struct app_entry *e) {
+    return g_catalog && !strcmp(e->type, "iso") ? FLAG_H + 8 : 0;
+}
+
 static void detail_facts(const struct app_entry *e) {
     char value[2 * VERSION_SIZE + 32], size[24] = "", facts[sizeof(g_detail_facts)];
     if (catalog_new_build(e))
@@ -2347,7 +2527,21 @@ static void draw_details(void) {
     unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 150);
     unsigned clear = rgb_pack(g_tint, 0);
     gfx_hgrad((int)cx, PAGE_TOP + 44, CINE_W, 1, bright, clear);
-    draw_chips(e, cx, PAGE_CHIP_Y, CINE_W, 1, 255);
+    /* An ISO's versions, a flag each, the one the page is about lit and
+       underlined, the rest dimmed: left and right turn through them. */
+    if (flag_row(e)) {
+        int versions[VIEW_VERSIONS], n = view_versions((int)(e - g_catalog->apps), versions, VIEW_VERSIONS);
+        int fx = (int)cx, fy = PAGE_TOP + 51;
+        for (int i = 0; i < n; i++) {
+            char region[8];
+            int on = versions[i] == (int)(e - g_catalog->apps);
+            view_region(&g_catalog->apps[versions[i]], region);
+            flag_draw(region, fx, fy, (int)((on ? 255 : 110) * ease));
+            if (on) gfx_rect(fx, fy + FLAG_H + 2, FLAG_W, 2, faded(g_accent, (int)(255 * ease)));
+            fx += FLAG_W + 8;
+        }
+    }
+    draw_chips(e, cx, PAGE_CHIP_Y + flag_row(e), CINE_W, 1, 255);
     int text_top = g_detail_text_top;
 
     /* The words, in the one column, scrolled by the stick. */
@@ -2436,9 +2630,10 @@ void shell_details(const struct app_entry *entry) {
     g_detail_count = wrap_text(g_detail_text, CINE_W, DETAIL_LINE_BYTES,
                                detail_width, NULL, g_detail_lines, DETAIL_LINES);
     g_detail_scroll = 0.0f;
-    /* The text starts under the chips, however many rows they take. */
+    /* The text starts under the chips, however many rows they take, and
+       an ISO's flags above them. */
     int chip_rows = draw_chips(entry, 0, 0, CINE_W, 0, 0);
-    g_detail_text_top = PAGE_CHIP_Y + 3 + (chip_rows ? chip_rows * CHIP_STEP + 2 : 0);
+    g_detail_text_top = PAGE_CHIP_Y + flag_row(entry) + 3 + (chip_rows ? chip_rows * CHIP_STEP + 2 : 0);
     detail_facts(entry);
 }
 
@@ -2508,7 +2703,8 @@ static void draw_footer(void) {
     /* Over a list of packages the foot names the one key no row shows:
        SELECT, and the order it has put the lists in. */
     int lists = !g_details && !g_status[0] && !g_info && g_catalog && g_catalog->count > 0 &&
-                (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK) &&
+                (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK ||
+                 view_tab_kind() == VIEW_TAB_UMD) &&
                 !view_cloud();
     if (!g_details && !g_status[0] && !gear && !lists) return;
     /* No edge: the strip comes in as a shadow rising from the bottom, the
@@ -2718,13 +2914,18 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         sources_view_draw(t);
     } else if (system_view_shown()) {
         system_view_draw(t);
-    } else if (catalog->count > 0 && view_tab_kind() == VIEW_TAB_UMD) {
-        /* The UMD tab has no rows yet, only the one line saying so, in the
-           middle of the room under the header. */
-        font_print(FONT_TITLE, SCR_W / 2.0f - font_width(FONT_TITLE, T_UMD_SOON) / 2.0f,
-                   (HEADER_H + SCR_H) / 2.0f + 5, g_text, T_UMD_SOON);
+    } else if (catalog->count > 0 && view_tab_kind() == VIEW_TAB_UMD && view_count() == 0) {
+        /* No source lists an ISO: saying so in the middle of the room under
+           the header, and below it, smaller, where some would come from. */
+        float mid = (HEADER_H + SCR_H) / 2.0f;
+        font_print(FONT_TITLE, SCR_W / 2.0f - font_width(FONT_TITLE, T_UMD_NONE) / 2.0f,
+                   mid - 3, g_text, T_UMD_NONE);
+        font_print(FONT_META, SCR_W / 2.0f - font_width(FONT_META, T_UMD_NONE_HINT) / 2.0f,
+                   mid + 15, g_dim, T_UMD_NONE_HINT);
     } else if (catalog->count > 0 && view_cloud()) {
         draw_cloud(cursor, t);
+    } else if (catalog->count > 0 && view_grid()) {
+        draw_grid(catalog, cursor, t);
     } else if (catalog->count > 0 && view_count() > 0) {
         int rows = view_count();
         int index = view_index(cursor < rows ? cursor : 0);

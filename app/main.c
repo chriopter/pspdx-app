@@ -338,6 +338,19 @@ static int wanted_settled(int *cursor) {
 /* argv[0] is the path the firmware loaded this from -- the main thread's argp,
    which the loader fills with the EBOOT's own name. It is the only thing that
    says which directory under PSP/GAME the client is sitting in. */
+/* On the page of an ISO that is one of several versions of its game: the
+   next version, step one way or the other, round at the ends. 0 where the
+   page is about anything else. */
+static int version_step(int *index, int step) {
+    int versions[VIEW_VERSIONS], n = view_versions(*index, versions, VIEW_VERSIONS);
+    for (int i = 0; n > 1 && i < n; i++)
+        if (versions[i] == *index) {
+            *index = versions[(i + step + n) % n];
+            return 1;
+        }
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     /* Full speed: the film decodes and the piano plays on the same CPU
        the interface draws with. The default is two thirds of it. */
@@ -762,7 +775,8 @@ int main(int argc, char *argv[]) {
            by name, for every list and for good; the foot says which. The
            cursor goes to the head of the list, where the new order starts. */
         if ((pressed & PSP_CTRL_SELECT) && !info && shown()->count > 0 &&
-            (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK) &&
+            (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK ||
+             view_tab_kind() == VIEW_TAB_UMD) &&
             !view_cloud() && !asking() && !menu_shown() && !popup_shown() && !details &&
             !gear_view_shown()) {
             options_sort_next();
@@ -846,6 +860,13 @@ int main(int argc, char *argv[]) {
            the tab. */
         int cloud = shown()->count > 0 && view_cloud() && !modal;
         if (cloud) tabs &= ~(unsigned)(PSP_CTRL_LEFT | PSP_CTRL_RIGHT);
+        /* In the UMD tab's grid they go a disc along, and turn the tab only
+           off the line's ends, the way they turn it from a list. */
+        if (shown()->count > 0 && view_grid() && !modal && count > 0) {
+            int col = cursor % shell_grid_cols();
+            if (col > 0) tabs &= ~(unsigned)PSP_CTRL_LEFT;
+            if (col < shell_grid_cols() - 1 && cursor < count - 1) tabs &= ~(unsigned)PSP_CTRL_RIGHT;
+        }
         if ((pressed & tabs) && shown()->count > 0 && !modal) {
             if (!tab_departure_saved)
                 view_remember(cursor, details ? details_of : -1, shell_details_position());
@@ -875,12 +896,21 @@ int main(int argc, char *argv[]) {
             if (pressed & PSP_CTRL_RIGHT) to = shell_cloud_step(to, 1, 0);
             if (pressed & PSP_CTRL_LEFT) to = shell_cloud_step(to, -1, 0);
             if (to != cursor) cues_post(CUE_MOVE, cursor = to);
+        } else if (view_grid() && count > 0 && !modal && shown()->count > 0) {
+            /* The grid: a line up or down, round at the ends for a press;
+               a disc along. A hold stops at the edges. */
+            int to = cursor;
+            if (pressed & PSP_CTRL_DOWN) to = shell_grid_step(to, 0, 1, !steps);
+            if (pressed & PSP_CTRL_UP) to = shell_grid_step(to, 0, -1, !steps);
+            if (pressed & PSP_CTRL_RIGHT) to = shell_grid_step(to, 1, 0, 0);
+            if (pressed & PSP_CTRL_LEFT) to = shell_grid_step(to, -1, 0, 0);
+            if (to != cursor) cues_post(CUE_MOVE, cursor = to);
         } else if ((pressed & PSP_CTRL_DOWN) && count > 0 && !modal) {
             int to = steps ? (cursor + steps < count ? cursor + steps : count - 1)
                            : (cursor + 1) % count;
             if (to != cursor) cues_post(CUE_MOVE, cursor = to);
         }
-        if ((pressed & PSP_CTRL_UP) && count > 0 && !modal && !view_cloud()) {
+        if ((pressed & PSP_CTRL_UP) && count > 0 && !modal && !view_cloud() && !view_grid()) {
             int to = steps ? (cursor - steps > 0 ? cursor - steps : 0) : (cursor + count - 1) % count;
             if (to != cursor) cues_post(CUE_MOVE, cursor = to);
         }
@@ -908,9 +938,20 @@ int main(int argc, char *argv[]) {
             if (pressed & PSP_CTRL_CIRCLE) {
                 shell_details(0);
                 details = 0;
+                /* The card goes back to the tile's version, if another was
+                   looked at. */
+                shell_reshow_card();
                 /* Information was read out of the options, so closing it
                    goes back there, on the row it was opened from. */
                 menu_return();
+            } else if ((pressed & PSP_CTRL_SQUARE) && details_of >= 0 &&
+                       (catalog.apps[details_of].state == APP_NOT_INSTALLED ||
+                        view_basket_has(details_of))) {
+                /* Square sets aside what the page is about: on an ISO's
+                   page the version its flags have chosen. */
+                view_basket_toggle(details_of);
+                cues_post(CUE_MOVE, cursor);
+                count = view_count();
             } else if ((pressed & PSP_CTRL_CROSS) && details_of >= 0) {
                 /* On the page X is the one thing to do to the package:
                    have it, have the newer one, or start it, each asked
@@ -919,7 +960,7 @@ int main(int argc, char *argv[]) {
                 if (downloads_active(details_of)) downloads_focus(details_of);
                 else if (e->state == APP_NOT_INSTALLED || e->state == APP_UPDATE)
                     downloads_enqueue(details_of);
-                else if (!strcmp(e->type, "plugin")) launch_app(details_of);
+                else if (!strcmp(e->type, "plugin") || !strcmp(e->type, "iso")) launch_app(details_of);
                 else {
                     char title[sizeof(e->name) + 32];
                     snprintf(title, sizeof(title), T_RUN_ASK, e->name);
@@ -932,6 +973,13 @@ int main(int argc, char *argv[]) {
                    that never touches the stick is not left with a page
                    that seems not to answer. */
                 shell_details_step(pressed & PSP_CTRL_DOWN ? 1 : -1);
+            } else if ((pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) && details_of >= 0 &&
+                       version_step(&details_of, pressed & PSP_CTRL_RIGHT ? 1 : -1)) {
+                /* A game of several versions turns through its versions,
+                   the page and the card following the one chosen. */
+                shell_details(&catalog.apps[details_of]);
+                preview_show(&catalog.apps[details_of], 0);
+                cues_post(CUE_MOVE, cursor);
             } else if ((pressed & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT)) && count > 0) {
                 /* Left and right turn the page to the neighbouring package
                    in the list, skipping the rows that are not packages,
@@ -1054,7 +1102,12 @@ int main(int argc, char *argv[]) {
                 catalog_force_sources();
                 refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
             }
-            if ((pressed & PSP_CTRL_SQUARE) && at >= 0 &&
+            /* A game of several versions on the UMD tab asks which. */
+            int several[VIEW_VERSIONS];
+            if ((pressed & PSP_CTRL_SQUARE) && at >= 0 && view_grid() &&
+                view_versions(at, several, VIEW_VERSIONS) > 1)
+                basket_pick_open(at);
+            else if ((pressed & PSP_CTRL_SQUARE) && at >= 0 &&
                 (catalog.apps[at].state == APP_NOT_INSTALLED || view_basket_has(at))) {
                 view_basket_toggle(at);
                 cues_post(CUE_MOVE, cursor);

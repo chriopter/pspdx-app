@@ -61,7 +61,7 @@ What PSPDX does on top:
 - **Pinned release:** `"release": {"tag": "v1.2"}` installs exactly that release, with no updates until the file changes.
 - **No `.pspdx` at the source:** GitHub's own 404 (not one after a redirect elsewhere). PSPDX installs from the catalog entry, your INBOX file or, typed into Direct Install, the repository's name. A live catalog keeps it updated; without one the latest release is asked at GitHub by the saved `.pspdx`, same ZIP rule and SHA-256. As soon as the author adds a `.pspdx`, that file counts.
 - **Catalog text:** CR LF and tabs in `description` and `summary` are read as meant; an entry with a NUL in its text is dropped, and a `sha256` of zeros is no hash.
-- **Types:** `homebrew` installs under `PSP/GAME/`; `plugin` installs the folder of its `.prx` to `seplugins/<name>/` and, when you turn it on, adds one line to ARK-4's `PLUGINS.TXT`; `iso` is listed, not installed yet.
+- **Types:** `homebrew` installs under `PSP/GAME/`; `plugin` installs the folder of its `.prx` to `seplugins/<name>/` and, when you turn it on, adds one line to ARK-4's `PLUGINS.TXT`; `iso` is one file, downloaded straight to `ISO/<name>` on the device (up to 4 GB), held to the catalog's SHA-256 and started from the PSP's game menu.
 - **`schema` field:** a `catalog.json` is read as v1 unless it names another PSPDX catalog version (`catalog-v2.json`); none, a relative path to a copy, or any other value is read as v1 and noted in the log.
 
 #### Text list
@@ -244,7 +244,7 @@ flowchart TD
 
 **×** install · **△** options · **○** back · **□** basket · **START** run · **L/R** tabs (remembering your app page and scroll position); **←/→** tabs in lists, adjacent apps on detail pages
 
-Tabs, as signs to the right, the open one named at the head of the list: **Installed**, update arrows and a count while updates wait → **Homebrews** everything published → **UMDs** coming soon → **basket** while it holds something → | → **gear** settings at the right edge; Homebrew, the UMD and the gear keep their place, the stick and the basket hang off them and come and go
+Tabs, as signs to the right, the open one named at the head of the list: **Installed**, update arrows and a count while updates wait → **Homebrews** everything published → **UMDs** the disc images, a grid of their icons, one per game, its regional versions as flags on its page → **basket** while it holds something → | → **gear** settings at the right edge; Homebrew, the UMD and the gear keep their place, the stick and the basket hang off them and come and go
 
 **△** → **Information**: version, author, licence, tags, size, id, last check, then summary and description; the **analog stick** scrolls, **○** back
 
@@ -348,6 +348,7 @@ ms0:/
 ├── seplugins/
 │   ├── usbnet/                          # Installed plugin: usbnet.prx and what its ZIP ships beside it
 │   └── PLUGINS.TXT                      # ARK-4's list; one line per plugin turned on is PSPDX's
+├── ISO/                                 # Installed disc images, one file each
 └── PSP/
     ├── GAME/
     │   ├── PSPDX/                       # Downloader

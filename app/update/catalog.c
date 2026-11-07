@@ -966,8 +966,8 @@ static int parse(struct catalog *catalog, const char *base) {
         int letters = cJSON_IsString(group) ? pspdx_characters(group->valuestring, 0) : -1;
         if (letters >= 1 && letters <= 24 && strlen(group->valuestring) < sizeof(entry->category))
             snprintf(entry->category, sizeof(entry->category), "%s", group->valuestring);
-        /* What the app is decides what may be done with it: a homebrew and
-           a plugin are installed, an ISO only listed, and a type this version
+        /* What the app is decides what may be done with it: a homebrew, a
+           plugin and an ISO are installed, and a type this version
            has never heard of is not an app it can say anything true about. */
         cJSON *kind = cJSON_GetObjectItemCaseSensitive(app, "type");
         if (kind)
@@ -978,6 +978,13 @@ static int parse(struct catalog *catalog, const char *base) {
         int known_type = homebrew || !strcmp(entry->type, "plugin") || !strcmp(entry->type, "iso");
         copy_text(&entry->license, cJSON_GetObjectItemCaseSensitive(app, "license"), 241);
         copy_text(&entry->plugin, cJSON_GetObjectItemCaseSensitive(app, "plugin"), 40);
+        /* A list's own field, which the schema lets it carry: the game an
+           ISO is a version of. One word or a few, no control character. */
+        cJSON *game = cJSON_GetObjectItemCaseSensitive(app, "game");
+        entry->game[0] = 0;
+        if (!strcmp(entry->type, "iso") && cJSON_IsString(game) &&
+            pspdx_characters(game->valuestring, 0) >= 1 && strlen(game->valuestring) < sizeof(entry->game))
+            snprintf(entry->game, sizeof(entry->game), "%s", game->valuestring);
         copy_text(&entry->repo, cJSON_GetObjectItemCaseSensitive(app, "source"), PSPDX_URL_SIZE);
         /* An entry with no repository of its own is the catalog's to name:
            its source is the catalog and the catalog's id for it, and so is
@@ -1039,7 +1046,10 @@ static int parse(struct catalog *catalog, const char *base) {
             int ok = 1;
             m->rev = pspdx_time(cJSON_IsString(published) ? published->valuestring : NULL);
             if (!m->rev) ok = 0;
-            if (cJSON_IsNumber(size) && manifest_size_in_range(size->valuedouble))
+            /* An ISO is a file as large as FAT32 holds, a package a zip. */
+            if (cJSON_IsNumber(size) && (strcmp(entry->type, "iso")
+                                             ? manifest_size_in_range(size->valuedouble)
+                                             : manifest_iso_size_in_range(size->valuedouble)))
                 m->size = (size_t)size->valuedouble;
             else
                 ok = 0;

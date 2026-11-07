@@ -86,6 +86,9 @@ struct installed {
        installed, which is the one file seplugins/<plugin>, until its next
        update moves it. Both empty for everything else. */
     char plugin[40], plugin_dir[40];
+    /* An ISO is one file under <device>/ISO/, and dir and plugin empty: its
+       name there, empty for everything else. */
+    char iso[72];
     /* The main .prx as it was installed, by its SHA-256: a file of that
        name with other bytes is not PSPDX's and is never written or removed.
        The record holds the same of every file put into the folder. */
@@ -137,6 +140,11 @@ int manifest_plugin_is_safe(const char *name);
 #define PLUGIN_FILES_MAX 64
 #define PLUGIN_PATH_MAX 96
 int manifest_plugin_path_is_safe(const char *rel);
+/* An ISO's file under <device>/ISO/, from a release URL or a record: a
+   plain name of at most ISO_NAME_MAX of [A-Za-z0-9_.-] that does not begin
+   with a dot and ends in .iso or .cso. */
+#define ISO_NAME_MAX 64
+int manifest_iso_is_safe(const char *name);
 /* Where the firmware loads an installed plugin from, as its line names it:
    <device>/seplugins/<folder>/<file>. */
 void plugin_path(const struct installed *rec, char *out, size_t size);
@@ -172,7 +180,9 @@ const char *plugin_refused(void);
    somebody's own build: folder and line both stay, so that it goes on
    loading, and only the record goes. Nothing else under seplugins/ is
    touched. Returns 0 when the package is gone,
-   for a plugin with what was left of it that is not PSPDX's. */
+   for a plugin with what was left of it that is not PSPDX's. An ISO is its
+   one file under <device>/ISO/, and a file already gone still lets the
+   record go. */
 #define UNINSTALL_LINES 1       /* lines of PLUGINS.TXT that name it */
 #define UNINSTALL_FILE 2        /* a main .prx that PSPDX did not install */
 #define UNINSTALL_KEPT 4        /* files in its folder that PSPDX did not install */
@@ -186,9 +196,13 @@ typedef void (*install_phase_cb)(void *ctx, const char *phase);
    dot, dash and underscore, at most PSPDX_ID_SIZE - 1 of them, no "..". A package is
    at most a gigabyte, and a revision fits an unsigned. */
 #define MAX_PACKAGE_BYTES (1024u * 1024u * 1024u)
+/* An ISO is not unpacked but written as it comes, and FAT32 holds a file of
+   up to 4 GB less a byte: that is its limit. */
+#define MAX_ISO_BYTES 0xFFFFFFFFu
 int manifest_id_is_safe(const char *id);
 int manifest_rev_in_range(double rev);
 int manifest_size_in_range(double size);
+int manifest_iso_size_in_range(double size);
 int manifest_has_sha256(const struct manifest *m);
 
 /* The text of the .pspdx given to the manifest, copied onto the heap, and
@@ -281,7 +295,8 @@ void install_abort(void);
    negative on the phase that failed. Nothing is left half-written. A
    homebrew goes to PSP/GAME/<dir>; a plugin, the folder of its zip that
    holds the .prx nearest the top, to seplugins/<that .prx's name>/, turned
-   off until plugin_switch turns it on. */
+   off until plugin_switch turns it on; an ISO, as it is, to ISO/<the last
+   part of its URL>. */
 int install_release_to(const struct manifest *release, const char *device,
                        struct install_report *rep, install_phase_cb phase,
                        https_progress progress, void *pctx);

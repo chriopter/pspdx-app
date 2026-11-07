@@ -140,8 +140,13 @@ static int has_tag_word(const char *tags, const char *word) {
     }
     return 0;
 }
-int view_hidden(const struct app_entry *entry) {
+/* What the store does not show: what is not released yet, unless asked
+   for, and an ISO, which has the UMD tab for its own. */
+static int unreleased(const struct app_entry *entry) {
     return !g_show_unreleased && has_tag(txt(entry->tags), "unreleased");
+}
+int view_hidden(const struct app_entry *entry) {
+    return unreleased(entry) || !strcmp(entry->type, "iso");
 }
 
 /* The row an entry stands under. "application" is what some catalogs call
@@ -336,6 +341,8 @@ int view_cloud(void) {
            g_group_open < 0;
 }
 
+int view_grid(void) { return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_UMD && g_view_count > 0; }
+
 static unsigned published(int index);
 int view_newest(int n, int browse, int *out, int max) {
     int got = 0;
@@ -497,6 +504,66 @@ static int by_name(const void *a, const void *b) {
     return order ? order : x - y;
 }
 
+/* ------------------------------------------------------------ versions */
+
+/* The region an ISO entry names in the parentheses its name ends in,
+   "LocoRoco 2 (EU)", or "" where it names none. */
+void view_region(const struct app_entry *entry, char out[8]) {
+    const char *name = entry->name, *open = strrchr(name, '(');
+    size_t n = strlen(name);
+    out[0] = 0;
+    if (!open || n < 4 || name[n - 1] != ')' || open == name || open[-1] != ' ' ||
+        (size_t)(name + n - 1 - open - 1) >= 8)
+        return;
+    snprintf(out, 8, "%.*s", (int)(name + n - 1 - open - 1), open + 1);
+}
+
+/* Where a region stands among the versions of one game: the PSP's own
+   order of release, the rest after it. */
+static int region_rank(const struct app_entry *entry) {
+    static const char *const ORDER[] = {"EU", "US", "JP", "AS", "KR"};
+    char region[8];
+    view_region(entry, region);
+    for (int i = 0; i < 5; i++)
+        if (!strcmp(region, ORDER[i])) return i;
+    return 5;
+}
+
+static int is_umd(const struct app_entry *entry) {
+    return !strcmp(entry->type, "iso") && !unreleased(entry);
+}
+
+int view_versions(int index, int *out, int max) {
+    if (!g_view_of || index < 0 || index >= g_view_of->count) return 0;
+    const struct app_entry *one = &g_view_of->apps[index];
+    if (!one->game[0]) {
+        if (max > 0) out[0] = index;
+        return 1;
+    }
+    /* By region, a tie in the catalog's order: an insertion, the versions
+       of one game being a handful. */
+    int n = 0;
+    for (int i = 0; i < g_view_of->count && n < max; i++) {
+        const struct app_entry *e = &g_view_of->apps[i];
+        if (!is_umd(e) || strcmp(e->game, one->game)) continue;
+        int at = n++;
+        while (at > 0 && region_rank(&g_view_of->apps[out[at - 1]]) > region_rank(e)) {
+            out[at] = out[at - 1];
+            at--;
+        }
+        out[at] = i;
+    }
+    return n;
+}
+
+int view_face(int index) {
+    int versions[VIEW_VERSIONS];
+    int n = view_versions(index, versions, VIEW_VERSIONS);
+    for (int i = 0; i < n; i++)
+        if (g_view_of->apps[versions[i]].state != APP_NOT_INSTALLED) return versions[i];
+    return n ? versions[0] : index;
+}
+
 static void build_view(int restart) {
     int tab = g_tabs ? g_tab[g_tab_at] : 0;
     g_view_count = 0;
@@ -512,13 +579,16 @@ static void build_view(int restart) {
         else if (tab == TAB_STICK)
             take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_BASKET) take = view_basket_has(i) || g_downloads[i] != 0;
-        else take = 0;      /* the gear's rows are not packages; the UMD has none */
+        else if (tab == TAB_UMD)
+            /* One tile per game: the version that stands for it. */
+            take = is_umd(&g_view_of->apps[i]) && view_face(i) == i;
+        else take = 0;      /* the gear's rows are not packages */
         if (take) g_view[g_view_count++] = (unsigned short)i;
     }
-    /* Homebrew and the stick list the newest release first, or by name
-       where that was chosen; what says no release date stands last, and a
-       tie keeps the catalog's order. */
-    if (tab == TAB_HOMEBREW || tab == TAB_STICK)
+    /* Homebrew, the UMDs and the stick list the newest release first, or by
+       name where that was chosen; what says no release date stands last, and
+       a tie keeps the catalog's order. */
+    if (tab == TAB_HOMEBREW || tab == TAB_STICK || tab == TAB_UMD)
         qsort(g_view, (size_t)g_view_count, sizeof(*g_view),
               g_sort == VIEW_SORT_NAME ? by_name : newest_first);
     /* On the stick, what has something waiting for it stands first, in
