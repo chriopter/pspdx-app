@@ -127,7 +127,7 @@ void ask_remove(int index) {
         error_show(T_SELF_DELETE, "remove self");
         return;
     }
-    if (db_read(entry->id, &record) < 0 || (!record.dir[0] && !record.plugin[0])) {
+    if (db_read(entry->id, &record) < 0 || (!record.dir[0] && !record.plugin[0] && !record.iso[0])) {
         /* Without a record there is no directory to name, and nothing here
            guesses at one. */
         error_show(T_NO_RECORD, "remove %s", entry->id);

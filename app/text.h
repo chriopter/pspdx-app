@@ -462,7 +462,7 @@
 #define T_STORAGE_MISSING    "The installation storage is not available."
 
 #define T_APP_FOLDER         "Folder: %s/PSP/GAME/%s"             /* device, dir */
-#define T_APP_PLUGIN         "File: %s"                           /* ms0:/seplugins/<name>/<name>.prx */
+#define T_APP_PLUGIN         "File: %s"                           /* ms0:/seplugins/<name>/<name>.prx, ms0:/ISO/<file> */
 #define T_APP_SOURCE         "Source: %s"                         /* url */
 #define T_APP_CHECKED        "Checked: %s"                        /* when */
 #define T_APP_VIA            "Via: %s"                            /* host */
