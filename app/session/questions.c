@@ -9,6 +9,7 @@
 #include <pspctrl.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "gui/preview.h"
@@ -23,6 +24,47 @@
 #include "util/runtime.h"
 #include "util/storage.h"
 #include "util/version.h"
+
+/* A host whose certificate the person said yes to once -- a server on
+   their own network with a certificate of its own making -- is not asked
+   about again: PSP/PSPDX/trusted.txt keeps it, one host a line, and every
+   start hands it to the TLS layer before the first request. */
+#define TRUSTED storage_path("PSP/PSPDX/trusted.txt")
+static char g_trust_host[128];
+
+void questions_trust_load(void) {
+    char *text;
+    if (storage_read(TRUSTED, &text, 4096) < 0)
+        return;
+    for (char *line = strtok(text, "\r\n"); line; line = strtok(NULL, "\r\n"))
+        https_doubt_trust(line);
+    free(text);
+}
+
+static void trust_remember(const char *host) {
+    char *text = NULL, line[132];
+    if (!host[0] || strchr(host, '\n'))
+        return;
+    int len = storage_read(TRUSTED, &text, 4096);
+    snprintf(line, sizeof(line), "%s\n", host);
+    /* Kept already: the host is the file's first line, or follows one. */
+    size_t n = strlen(line);
+    const char *at = len < 0 ? NULL : strstr(text, line);
+    while (at && at != text && at[-1] != '\n')
+        at = strstr(at + 1, line);
+    if (!at) {
+        size_t had = len < 0 ? 0 : (size_t)len, add = n;
+        char *all = malloc(had + add);
+        if (all) {
+            memcpy(all, len < 0 ? "" : text, had);
+            memcpy(all + had, line, add);
+            if (storage_write(TRUSTED, all, had + add) < 0)
+                logline("trust: %s not kept", host);
+            free(all);
+        }
+    }
+    free(text);
+}
 
 /* Nothing that writes to the stick starts on one press any more. The shell
    draws the question and the footer that answers it; the answer arrives
@@ -196,8 +238,8 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
        nothing else is being asked: a console that has lain in a drawer
        still has to connect, on their word. */
     if (g_question == ASK_NOTHING) {
-        char host[128];
-        enum https_doubt d = https_doubt_take(host, sizeof(host));
+        char *host = g_trust_host;
+        enum https_doubt d = https_doubt_take(host, sizeof(g_trust_host));
         if (d != HTTPS_DOUBT_NONE) {
             char line[200];
             snprintf(line, sizeof(line), d == HTTPS_DOUBT_EXPIRED ? T_TRUST_EXPIRED : T_TRUST_ISSUER, host);
@@ -237,6 +279,7 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         else if (asked == ASK_PLUGIN) switch_plugin(index);
         else if (asked == ASK_TRUST) {
             https_doubt_accept();
+            trust_remember(g_trust_host);
             refetch_now(*cursor, keep, keep_size, synced, refreshing);
         }
         else if (asked == ASK_CATALOG) {

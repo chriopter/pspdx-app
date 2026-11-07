@@ -35,6 +35,10 @@ void error_show(const char *text, const char *tag, ...) __attribute__((format(pr
 /* The same for the many things that are refused while downloads run. */
 void error_busy(void);
 
+/* The hosts said yes to on earlier runs, handed to the TLS layer: once,
+   at start, before the first request. */
+void questions_trust_load(void);
+
 /* 1 while a question stands over the browser. */
 int asking(void);
 

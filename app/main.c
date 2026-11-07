@@ -353,6 +353,7 @@ int main(int argc, char *argv[]) {
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
     install_recover();
+    questions_trust_load();
     /* After the recovery, which is what settles what is actually under
        PSP/GAME, and before the sync, which reads every record there is. The
        record PSPDX 0.5 kept of itself goes first: it names this folder, and

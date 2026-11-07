@@ -277,7 +277,7 @@ download  ->  release ZIP, following GitHub asset redirects
 
 - Not a perfect TLS 1.3, on purpose: a PSP has no trustworthy clock, no root store, no way to update either, and may have sat in a drawer for years. The goal is that it still connects, not maximum security
 - Done by [pspkit-https](https://github.com/chriopter/pspkit-https): TLS 1.3 only, ChaCha20-Poly1305 first, all of Mozilla's roots, certificate dates held only against the day it was built. Its README says how and why
-- An expired certificate, or one from an unknown issuer, asks "connect anyway?" instead of failing; a bad signature or the wrong hostname always fails
+- An expired certificate, or one from an unknown issuer, asks "connect anyway?" instead of failing, once per host: the answer is kept in `PSP/PSPDX/trusted.txt`. A bad signature or the wrong hostname always fails
 - The real guarantee: the ZIP you install is the one the catalog names (SHA-256), not that this connection is as safe as your browser's
 - Packages are not signed; a catalog SHA-256 checks ZIP integrity, not author identity
 - Seed: a sweep of the analog stick or smashed buttons when there is none yet, `CRYPTO/seed.bin` afterwards, renewed with Renew TLS Seed
@@ -364,6 +364,7 @@ ms0:/
     │   └── Cathedral.bak/               # Unmanaged folder moved aside
     └── PSPDX/
         ├── sources.txt                  # Subscriptions
+        ├── trusted.txt                  # Hosts whose certificate was accepted once
         ├── presets.seen                 # Presets already offered
         ├── INBOX/demo.pspdx             # Awaiting import
         ├── INSTALLED/
