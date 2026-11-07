@@ -533,7 +533,7 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             } else {
                 /* Named without the scheme; every source has it. */
                 const char *u = manage_url(&g_manage, g_manage.cursor);
-                if (!strncmp(u, "https://", 8)) u += 8;
+                u += sources_web(u);
                 ask(ASK_CATALOG, row->source, T_SOURCE_DELETE_ASK, u);
             }
         }

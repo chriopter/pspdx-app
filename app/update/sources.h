@@ -79,6 +79,10 @@ int sources_parse_repo(const char *url, struct source_repo *out);
    place. */
 int sources_same_url(const char *a, const char *b);
 
+/* The scheme of a web address: 8 for https://, 7 for http://, which a
+   catalog its owner hosts at home may be, and 0 for anything else. */
+int sources_web(const char *url);
+
 /* Two URLs that name the same repository, whatever tag either pins: what
    a record on the stick and a catalog entry are compared by. */
 int sources_same_repo(const char *a, const char *b);

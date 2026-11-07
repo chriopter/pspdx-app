@@ -3067,7 +3067,7 @@ static int release_to(const struct manifest *m, const char *dev, struct install_
     char why[80];
     unsigned char got[32] = {0};
     if (!manifest_id_is_safe(m->id) || !manifest_rev_in_range(m->rev) ||
-        strncmp(m->url, "https://", 8))
+        !sources_web(m->url))
         return -1;
     if (!m->raw || pspdx_parse(m->raw, strlen(m->raw), &spec, why, sizeof(why)) < 0) {
         logline("install: valid original manifest required");

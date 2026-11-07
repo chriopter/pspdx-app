@@ -268,7 +268,7 @@ download  ->  release ZIP, following GitHub asset redirects
 - With the cable chosen, and until a connection has been made once, PSPDX asks two things before the system's dialog opens: *Is the gateway running on your PC? Get it from github.com/chriopter/pspkit-usbnet* (the cable leads nowhere without the [gateway](https://github.com/chriopter/pspkit-usbnet)), then *Do you want to connect now?* with what to pick in the dialog: [New Connection] → Scan → "Hi-Speed USB". No to either leaves PSPDX offline for now
 - A plugin that is installed is left alone at start, turned on or off: nothing is asked and nothing loaded
 - Cancel to browse offline; checking again or installing can reopen the dialog
-- Everything over HTTPS
+- Everything over HTTPS, except a catalog typed as `http://`: a server somebody hosts at home, with no certificate. Nothing about it is checked, so its downloads are held to the SHA-256 the catalog gives
 - A catalog, `.pspdx` or API answer has 120 s in all; a response head 30 s
 - Only a catalog asks for gzip, inflated as it arrives into a 512 KB buffer; `pspdx.log` says `fetch: <n> bytes gzipped, <m> inflated`. A ZIP is never asked for compressed
 - TLS connections to the same host are briefly reused; a closed or expired one is reopened

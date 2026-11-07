@@ -1013,7 +1013,7 @@ static int parse(struct catalog *catalog, const char *base) {
             sources_repo_id(&source, derived, sizeof(derived));
         else if (sources_is_catalog_source(repo))
             sources_catalog_id(repo, derived, sizeof(derived));
-        else if (!strncmp(repo, "https://", 8))
+        else if (sources_web(repo))
             sources_host_id(repo, entry->name, derived, sizeof(derived));
         int own = given && id_well_formed(given) &&
                   (strncmp(given, "io.github.", 10) || !strcmp(given, derived)) &&
@@ -1068,7 +1068,7 @@ static int parse(struct catalog *catalog, const char *base) {
                     snprintf(m->version, sizeof(m->version), "%s", version);
                 else ok = 0;
             } else ok = 0;
-            ok = ok && m->rev && !strncmp(m->url, "https://", 8) && m->version[0];
+            ok = ok && m->rev && sources_web(m->url) && m->version[0];
             /* A cache that downloaded the zip says what it hashed to, and
                the install holds the download to it. One that left the
                hash out leaves the size as the check, as the origin path
@@ -1161,7 +1161,7 @@ static int parse(struct catalog *catalog, const char *base) {
             continue;
         /* Away from GitHub the entry is the app's whole word, and the install
            holds the download to the hash the entry gives. */
-        if (!github && strncmp(repo, "https://", 8))
+        if (!github && !sources_web(repo))
             continue;
         if (!derived[0]) {
             /* Away from GitHub the id is the source's host and the name, so

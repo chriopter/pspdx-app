@@ -554,7 +554,7 @@ class ClientTests(unittest.TestCase):
   for bad in [dict(base,author='a'*61),dict(base,license='l'*61),dict(base,tags=['c'*25]),dict(base,tags=['']),dict(base,tags='game'),dict(base,tags=['game','game']),dict(base,tags=['t%d'%i for i in range(9)]),dict(base,tags=[1]),dict(base,tags=['a\nb']),
               dict(base,description='d'*2501),dict(base,description='a\tb'),dict(base,description='a\r\nb'),dict(base,name='a\nb'),dict(base,summary='a\nb'),dict(base,author='a\tb'),dict(base,license='a\rb'),
               dict(base,type='theme'),dict(base,type=''),dict(base,type='Plugin'),dict(base,type='plugin',installdir='PSP/GAME/Demo'),dict(base,type='iso',installdir='PSP/GAME/Demo'),
-              dict(base,source='http://github.com/test/demo'),dict(base,source='http://example.com/demo'),dict(base,source='https://github.com/test'),dict(base,source='https://github.com/test/demo/issues'),dict(base,source='https://'),dict(base,source='https://github.com/test/.pspdx-stage')]:
+              dict(base,source='http://github.com/test/demo'),dict(base,source='https://github.com/test'),dict(base,source='https://github.com/test/demo/issues'),dict(base,source='https://'),dict(base,source='https://github.com/test/.pspdx-stage')]:
    with self.subTest(bad=bad):self.parse(bad,ok=False)
  def test_manifest_from_outside_github(self):
   # Any https source; the id is the source's host and the name, the folder the name. An old listed_by is read past.
@@ -563,7 +563,7 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(self.parse(dict(mirror,installdir='PSP/GAME/Blocks',tags=['game','demo'])),'PSP/GAME/Blocks|homebrew|org.archive.pspblocks|game,demo')
   self.assertEqual(self.parse(dict(mirror,source='https://user@lists.example.co.uk:8443?x')),'PSP/GAME/PSPBlocks|homebrew|uk.co.example.lists.pspblocks|')
   self.assertEqual(self.parse(dict(mirror,listed_by='https://wijsman.de/psp-homebrew-database/')),'PSP/GAME/PSPBlocks|homebrew|org.archive.pspblocks|')
-  for bad in [dict(mirror,name='★ ★'),dict(mirror,source='https://-/'),dict(mirror,name='.pspdx-stage'),dict(mirror,source='http://archive.org/details/psp-blocks'),
+  for bad in [dict(mirror,name='★ ★'),dict(mirror,source='https://-/'),dict(mirror,name='.pspdx-stage'),
               dict(mirror,source='https://owner.github.io/blocks/'),dict(mirror,source='https://GitHub.IO./')]:
    with self.subTest(bad=bad):self.parse(bad,ok=False)
  def test_a_category_is_one_word_of_the_file(self):
@@ -580,7 +580,8 @@ class ClientTests(unittest.TestCase):
   for url,app_id in [('https://wijsman.de/psp-homebrew-database/','de.wijsman.app'),('https://www.Wijsman.DE/list','de.wijsman.app'),
                      ('https://user@Lists.Example.co.uk:8443?x','uk.co.example.lists.app'),('https://example.org','org.example.app'),('https://wwwx.org/','org.wwwx.app')]:
    with self.subTest(url=url):self.assertEqual(made(url),app_id)
-  for url in ['http://wijsman.de/','https://','https://www./','https://user@:8443/','https://'+'h'*300,'']:
+  self.assertEqual(made('http://wijsman.de/'),'de.wijsman.app')
+  for url in ['https://','https://www./','https://user@:8443/','https://'+'h'*300,'']:
    with self.subTest(url=url):self.assertEqual(made(url),'-')
  def test_install_without_installdir_takes_the_repository_name(self):
   self.write('manifest.json',{k:v for k,v in SPEC.items() if k!='installdir'})
@@ -1425,6 +1426,19 @@ class ClientTests(unittest.TestCase):
   tiles=lambda apps:(self.write('catalog.json',dict(catalog,apps=[first]+apps)),re.search(r'tab -4 kind 4 rows (\d+) first',self.run_client('view').stdout).group(1))[1]
   self.assertEqual(tiles([disc('ULUS-10001','US',game='loco 2'),disc('UCES-01059','EU',game='loco 2')]),'1')
   self.assertEqual(tiles([disc('ULUS-10001','US'),disc('UCES-01059','EU')]),'2')
+ def test_a_catalog_at_home_is_plain_http(self):
+  # A catalog somebody hosts at home has no certificate: http:// stays http://, a bare host still becomes https://, and an ISO it lists installs, held to its hash.
+  self.fixtures();path=self.root/'ms0:/PSP/PSPDX/sources.txt'
+  self.run_client('add','http://192.168.10.107:8080/');self.assertIn('http://192.168.10.107:8080/\n',path.read_text())
+  catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink();ISO='lan.psp.disc'
+  image=b'PSP disc image '*1000;(self.root/'disc.iso').write_bytes(image);(self.root/'map.txt').write_text('ULUS-10404.iso disc.iso\n')
+  disc=dict(name='Disc',type='iso',category='game',source='http://psp.lan:8080/discs/ULUS-10404',releases=[dict(tag='1.00',published_at='2023-11-14T22:13:20Z',url='http://psp.lan:8080/discs/ULUS-10404.iso',size=len(image),sha256=hashlib.sha256(image).hexdigest())])
+  self.write('catalog.json',dict(catalog,apps=[first,disc]))
+  r=self.run_client('get',ISO,URL_MAP=self.root/'map.txt');self.assertEqual(r.stdout.strip(),'0',r.stderr)
+  self.assertEqual(self.tree(self.root/'ms0:/ISO'),{'ULUS-10404.iso':image})
+  self.assertEqual(self.state()[ISO]['source'],'http://psp.lan:8080/discs/ULUS-10404')
+  # The record that came of it is read back on the next start like any other.
+  self.assertEqual(self.run_client('uninstall',ISO).returncode,0);self.assertEqual(self.tree(self.root/'ms0:/ISO'),{})
  def test_an_iso_is_one_file_under_iso(self):
   # An ISO from a list away from GitHub, as pspdx-shelf serves one: downloaded straight to ISO/<the last part of its URL>, held to its hash, on the UMD tab and not in the store; an update replaces the file, a file of that name that is not its own is never written over, and a removal takes the file and the record.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink();ISO='lan.psp.disc'
@@ -2272,16 +2286,19 @@ class ClientTests(unittest.TestCase):
   # Not installed: a zip over http, a source under github.io and an id claiming GitHub are each not what they say.
   for gone in ('INSTALLED','CACHE'):shutil.rmtree(self.root/'ms0:/PSP/PSPDX'/gone)
   shutil.rmtree(self.root/'ms0:/PSP/GAME')
-  listing(releases=[dict(entry['releases'][0],url='http://files.example.net/blocks/v1/download.zip')]);r=self.run_client('fetch',ok=False,VERBOSE=1);self.assertEqual(r.stdout,'')
-  self.assertIn('Blocks is from outside GitHub and its release cannot be installed as it stands; dropped',r.stderr)
+  # A release on a server at home, over plain http, is listed: the list's hash is what holds it.
+  listing(releases=[dict(entry['releases'][0],url='http://files.example.net/blocks/v1/download.zip')]);self.assertIn('org.example.psp.blocks',self.run_client('fetch').stdout)
+  shutil.rmtree(self.root/'ms0:/PSP/PSPDX/CACHE')
   listing(source='https://owner.github.io/blocks/');r=self.run_client('fetch',ok=False,VERBOSE=1);self.assertEqual(r.stdout,'');self.assertIn('which only a GitHub repository has; refused',r.stderr)
   listing(id='io.github.owner.blocks');self.assertEqual(self.run_client('fetch').stdout.split()[0],blocks)
  def test_a_pspdx_from_outside_github_that_pins_its_release(self):
   # The file is read with its url and date; INBOX keeps it for a version that installs from outside GitHub, and never deletes it.
   mirror=dict(schema=SCHEMA,source='https://psp.example.org/apps/blocks',name='Blocks',release=dict(tag='v1',url='https://files.example.net/blocks/v1/download.zip',published_at='2026-01-02T00:00:00Z'))
   self.assertEqual(self.parse(mirror),'PSP/GAME/Blocks|homebrew|org.example.psp.blocks|')
-  for release in (dict(tag='v1'),dict(tag='v1',url=mirror['release']['url']),dict(tag='v1',published_at='2026-01-02'),dict(tag='v1',url='http://files.example.net/a.zip',published_at='2026-01-02')):
+  for release in (dict(tag='v1'),dict(tag='v1',url=mirror['release']['url']),dict(tag='v1',published_at='2026-01-02')):
    with self.subTest(release=release):self.parse(dict(mirror,release=release),ok=False)
+  # A server at home is plain http: its release may be too, held to the hash a list gives.
+  self.assertEqual(self.parse(dict(mirror,release=dict(tag='v1',url='http://files.example.net/a.zip',published_at='2026-01-02T00:00:00Z'))),'PSP/GAME/Blocks|homebrew|org.example.psp.blocks|')
   self.fixtures();self.write('ms0:/PSP/PSPDX/INBOX/blocks.pspdx',mirror)
   r=self.run_client('inbox',VERBOSE=1,FETCH_FIRST=1);self.assertEqual(r.stdout.strip(),'0',r.stderr);self.assertIn('from outside GitHub',r.stderr)
   self.run_client('inboxinstall');self.assertTrue((self.root/'ms0:/PSP/PSPDX/INBOX/blocks.pspdx').exists());self.assertNotIn('org.example.psp.blocks',self.state())

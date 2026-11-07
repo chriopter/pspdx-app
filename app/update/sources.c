@@ -54,6 +54,10 @@ static int trim(char *line) {
     return (int)(n - lead);
 }
 
+int sources_web(const char *url) {
+    return !strncmp(url, "https://", 8) ? 8 : !strncmp(url, "http://", 7) ? 7 : 0;
+}
+
 /* Two URLs that differ only by case or a trailing slash name the same
    place, and one of them in the file is enough. */
 int sources_same_url(const char *a, const char *b) {
@@ -69,9 +73,10 @@ int sources_same_url(const char *a, const char *b) {
     }
     if (na != nb)
         return 0;
-    if (na < 8)
+    size_t scheme = (size_t)sources_web(a);
+    if (!scheme || na < scheme)
         return !strncmp(a, b, na);
-    const char *hostend = strchr(a + 8, '/');
+    const char *hostend = strchr(a + scheme, '/');
     size_t hostlen = hostend ? (size_t)(hostend - a) : na;
     for (size_t i = 0; i < na; i++) {
         if (i < hostlen) {
@@ -114,7 +119,7 @@ int sources_load(struct sources *s) {
         char *end = strpbrk(line, "\r\n");
         if (end)
             *end++ = '\0';
-        if (trim(line) > 0 && strncmp(line, "https://", 8) == 0) {
+        if (trim(line) > 0 && sources_web(line)) {
             int dup = 0;
             for (int i = 0; i < s->count; i++)
                 dup = dup || sources_same_url(s->url[i], line);
@@ -144,10 +149,10 @@ int sources_normalize(const char *text, char *url, size_t size) {
     memcpy(line, text, strlen(text) + 1);
     if (trim(line) <= 0 || strchr(line, ' '))
         return -1;
-    if (strncmp(line, "https://", 8) == 0)
+    /* http:// stays what it was typed as: a catalog somebody hosts at home
+       has no certificate to offer. */
+    if (sources_web(line))
         n = snprintf(url, size, "%s", line);
-    else if (strncmp(line, "http://", 7) == 0)
-        n = snprintf(url, size, "https://%s", line + 7);
     else if (strncmp(line, "github.com/", 11) == 0)
         n = snprintf(url, size, "https://%s", line);
     else {
@@ -215,7 +220,7 @@ int sources_remove(const char *url) {
         size_t skip = len >= 3 && !strncmp(line, "\xEF\xBB\xBF", 3) ? 3 : 0;
         memcpy(copy, line + skip, len - skip);
         copy[len - skip] = '\0';
-        if (trim(copy) > 0 && strlen(copy) < SOURCE_URL && !strncmp(copy, "https://", 8) &&
+        if (trim(copy) > 0 && strlen(copy) < SOURCE_URL && sources_web(copy) &&
             sources_same_url(copy, url))
             found = 1;
         else {
@@ -420,9 +425,9 @@ static int put_part(char *id, size_t *used, size_t size, const char *text, size_
    and a leading www. are not part of it. 0 with the span in *host and *n,
    -1 when the URL is not https or leaves no host. */
 static int url_host(const char *url, const char **host, size_t *n) {
-    if (strncmp(url, "https://", 8))
+    if (!sources_web(url))
         return -1;
-    const char *h = url + 8;
+    const char *h = url + sources_web(url);
     /* A backslash ends the host as a slash does, the way a browser reads
        it: https://evil.example\\@good.example/ is evil.example. */
     size_t len = strcspn(h, "/?#\\");
@@ -497,7 +502,7 @@ static int unreserved(int c) {
 
 int sources_catalog_source(const char *catalog, const char *given, char *out, size_t size) {
     size_t base = strcspn(catalog, "?#");
-    if (strncmp(catalog, "https://", 8) || !given || !given[0] || base + 2 >= size)
+    if (!sources_web(catalog) || !given || !given[0] || base + 2 >= size)
         return -1;
     memcpy(out, catalog, base);
     size_t n = base;
@@ -521,7 +526,7 @@ int sources_catalog_source(const char *catalog, const char *given, char *out, si
 
 int sources_is_catalog_source(const char *source) {
     const char *hash = strchr(source, '#');
-    return !strncmp(source, "https://", 8) && hash && hash[1];
+    return sources_web(source) && hash && hash[1];
 }
 
 static int hex_value(int c) {

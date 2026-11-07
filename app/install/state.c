@@ -152,8 +152,9 @@ int state_validate(const cJSON *r) {
             for (const cJSON *other = v->next; other; other = other->next)
                 if (sources_same_repo(source, str(other, "source")))
                     return 0;
-        } else if (strncmp(source, "https://", 8) || !source[8] ||
-                   !strncmp(source, "https://github.com/", 19)) {
+        } else if (!sources_web(source) || !source[sources_web(source)] ||
+                   !strncmp(source, "https://github.com/", 19) ||
+                   !strncasecmp(source, "http://github.com/", 18)) {
             return 0;
         }
         const cJSON *check = cJSON_GetObjectItemCaseSensitive(v, "update_check");
@@ -644,7 +645,7 @@ int state_latest(const char *id, struct manifest *m) {
     m->size = number(l, "size");
     snprintf(m->version, sizeof(m->version), "%s", str(l, "version"));
     snprintf(m->url, sizeof(m->url), "%s", str(l, "download_url"));
-    if (strncmp(m->url, "https://", 8))
+    if (!sources_web(m->url))
         return -1;
     snprintf(m->checked_from, sizeof(m->checked_from), "%s", str(l, "checked_from"));
     double checked = number(l, "checked_at");

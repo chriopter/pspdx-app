@@ -211,8 +211,8 @@ static int pinned_release(const cJSON *v, struct pspdx_file *out, const char **w
         *why = "invalid release tag";
         return -1;
     }
-    if (url && (!cJSON_IsString(url) || strncmp(url->valuestring, "https://", 8) ||
-                !url->valuestring[8] || strlen(url->valuestring) >= sizeof(out->release_url) ||
+    if (url && (!cJSON_IsString(url) || !sources_web(url->valuestring) ||
+                !url->valuestring[sources_web(url->valuestring)] || strlen(url->valuestring) >= sizeof(out->release_url) ||
                 strspn(url->valuestring, "!#$%&'()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                          "[]_abcdefghijklmnopqrstuvwxyz~") !=
                     strlen(url->valuestring))) {
@@ -372,7 +372,8 @@ static int check_fields(const char *const value[PSPDX_FIELDS], const int present
     struct source_repo repo;
     memset(&repo, 0, sizeof(repo));
     int github = !strncmp(out->source, "https://github.com/", 19);
-    if (strncmp(out->source, "https://", 8) || !out->source[8] ||
+    if (!sources_web(out->source) || !out->source[sources_web(out->source)] ||
+        !strncasecmp(out->source, "http://github.com/", 18) ||
         (github && (!sources_parse_repo(out->source, &repo) || strchr(out->source, '@')))) {
         snprintf(reason, cap, "invalid source");
         return -1;
@@ -498,6 +499,13 @@ int pspdx_parse(const char *text, size_t len, struct pspdx_file *out, char *reas
     const char *why;
     if (v && pinned_release(v, out, &why) < 0) {
         snprintf(reason, cap, "%s", why);
+        goto bad;
+    }
+    /* A GitHub release is on GitHub, over https: http:// is only for a
+       server somebody hosts at home. */
+    if (v && !strncmp(out->source, "https://github.com/", 19) &&
+        !strncmp(out->release_url, "http://", 7)) {
+        snprintf(reason, cap, "invalid release url");
         goto bad;
     }
     /* GitHub says where a tag's zip is and when it was published; anywhere
