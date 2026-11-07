@@ -14,6 +14,7 @@
 #include <pspinit.h>
 #include <psploadexec_kernel.h>
 #include <systemctrl.h>
+#include <systemctrl_se.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -669,15 +670,18 @@ void launch_app(int index) {
             entry->plugin_off ? T_PLUGIN_ON_LINE : T_PLUGIN_OFF_LINE);
         return;
     }
-    if (known && record.iso[0]) {
-        shell_status(T_ISO_START);
-        return;
-    }
-    if (!known || !record.dir[0]) {
+    /* An ISO starts as the custom firmware's game menu starts one: the
+       image named to it, its own disc driver chosen, and the disc's EBOOT
+       run as if the disc were in the drive. */
+    int iso = known && record.iso[0];
+    if (!known || (!record.dir[0] && !iso)) {
         error_show(T_NO_RECORD, "launch record %s", entry->id);
         return;
     }
-    snprintf(path, sizeof(path), "%s/PSP/GAME/%s/EBOOT.PBP", record.device, record.dir);
+    if (iso)
+        snprintf(path, sizeof(path), "%s/ISO/%s", record.device, record.iso);
+    else
+        snprintf(path, sizeof(path), "%s/PSP/GAME/%s/EBOOT.PBP", record.device, record.dir);
     int fd = sceIoOpen(path, PSP_O_RDONLY, 0777);
     if (fd < 0) {
         error_show(T_NO_EBOOT, "launch open %08x %s", (unsigned)fd, path);
@@ -704,11 +708,28 @@ void launch_app(int index) {
     struct SceKernelLoadExecVSHParam vsh;
     memset(&vsh, 0, sizeof(vsh));
     vsh.size = sizeof(vsh);
+    int go = !strncmp(path, "ef0:", 4), rc;
+    if (iso) {
+        static char disc[] = "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN";
+        sctrlSESetUmdFile(path);
+        sctrlSESetBootConfFileIndex(MODE_INFERNO);
+        vsh.args = sizeof(disc);
+        vsh.argp = disc;
+        vsh.key = "umdemu";
+        rc = sctrlKernelLoadExecVSHWithApitype(go ? PSP_INIT_APITYPE_UMD_EMU_EF1 : PSP_INIT_APITYPE_UMD_EMU_MS1,
+                                               disc, &vsh);
+        /* No firmware of Sony's starts an image: without the custom
+           firmware's call there is nothing to fall back on. */
+        logline("launch: the custom firmware refused %08x", rc);
+        char said[64];
+        snprintf(said, sizeof(said), T_START_REFUSED, (unsigned)rc);
+        error_show(said, "launch iso %08x", (unsigned)rc);
+        return;
+    }
     vsh.args = strlen(path) + 1;
     vsh.argp = path;
     vsh.key = "game";
-    int rc = sctrlKernelLoadExecVSHWithApitype(strncmp(path, "ef0:", 4) ? PSP_INIT_APITYPE_MS2 : PSP_INIT_APITYPE_EF2,
-                                               path, &vsh);
+    rc = sctrlKernelLoadExecVSHWithApitype(go ? PSP_INIT_APITYPE_EF2 : PSP_INIT_APITYPE_MS2, path, &vsh);
     logline("launch: the custom firmware refused %08x", rc);
 
     /* Without that call (an emulator), the firmware's. */

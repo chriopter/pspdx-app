@@ -182,7 +182,7 @@ void menu_open(int index) {
              view_basket_has(index) ? T_MENU_BASKET_OUT : T_MENU_BASKET_IN, (char)(MARK_BASKET + 1));
     snprintf(g_choice_text[CHOICE_DETAILS], sizeof(g_choice_text[0]), T_MENU_INFO);
     /* An ISO is started from the PSP's own game menu, never from here. */
-    g_choice_on[CHOICE_RUN] = installed && !downloads_busy() && strcmp(entry->type, "iso");
+    g_choice_on[CHOICE_RUN] = installed && !downloads_busy();
     /* What cannot be installed yet keeps its row, grey, so the menu has the
        same five rows for every package. */
     g_choice_on[CHOICE_GET] = !entry->unsupported;

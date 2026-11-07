@@ -960,7 +960,7 @@ int main(int argc, char *argv[]) {
                 if (downloads_active(details_of)) downloads_focus(details_of);
                 else if (e->state == APP_NOT_INSTALLED || e->state == APP_UPDATE)
                     downloads_enqueue(details_of);
-                else if (!strcmp(e->type, "plugin") || !strcmp(e->type, "iso")) launch_app(details_of);
+                else if (!strcmp(e->type, "plugin")) launch_app(details_of);
                 else {
                     char title[sizeof(e->name) + 32];
                     snprintf(title, sizeof(title), T_RUN_ASK, e->name);
