@@ -2424,8 +2424,14 @@ void shell_details(const struct app_entry *entry) {
     /* The summary, then the description a blank line below it, either one
        alone when the other is missing; broken into lines here, once. */
     const char *about = entry->description ? entry->description : "";
-    snprintf(g_detail_text, sizeof(g_detail_text), "%s%s%s", txt(entry->summary),
-             txt(entry->summary)[0] && about[0] ? "\n\n" : "", about);
+    /* A summary that was cut from the description's own first words is
+       not said twice: the description says all of it. */
+    const char *summary = txt(entry->summary);
+    size_t said = strlen(summary);
+    if (said > 3 && !strcmp(summary + said - 3, "\xe2\x80\xa6") && !strncmp(about, summary, said - 3))
+        summary = "";
+    snprintf(g_detail_text, sizeof(g_detail_text), "%s%s%s", summary,
+             summary[0] && about[0] ? "\n\n" : "", about);
     pspdx_utf8_mend(g_detail_text);
     g_detail_count = wrap_text(g_detail_text, CINE_W, DETAIL_LINE_BYTES,
                                detail_width, NULL, g_detail_lines, DETAIL_LINES);

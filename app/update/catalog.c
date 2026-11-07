@@ -937,7 +937,15 @@ static int parse(struct catalog *catalog, const char *base) {
            is longer is shortened, a tag that breaks the rules left out. */
         fit_text(cJSON_GetObjectItemCaseSensitive(app, "name"), 40);
         fit_text(cJSON_GetObjectItemCaseSensitive(app, "author"), 60);
-        fit_text(cJSON_GetObjectItemCaseSensitive(app, "summary"), 60);
+        /* A list that writes a whole paragraph as the summary and no
+           description, as pspdev's does, would show its first 60
+           characters and nothing more: the paragraph is kept whole as the
+           description, and the summary cut as any other. */
+        cJSON *summary = cJSON_GetObjectItemCaseSensitive(app, "summary");
+        if (cJSON_IsString(summary) && pspdx_characters(summary->valuestring, 0) > 60 &&
+            !cJSON_GetObjectItemCaseSensitive(app, "description"))
+            cJSON_AddStringToObject(app, "description", summary->valuestring);
+        fit_text(summary, 60);
         fit_text(cJSON_GetObjectItemCaseSensitive(app, "license"), 60);
         fit_tags(cJSON_GetObjectItemCaseSensitive(app, "tags"));
         /* What the catalog calls the entry, read whole: an id cut to fit the
