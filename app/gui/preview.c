@@ -50,7 +50,7 @@ enum film_state { FILM_NONE, FILM_LOADING, FILM_PLAYING, FILM_FAILED };
    each picture before the cache or the network is: the stick is free, and
    the bytes are the app's own rather than what a catalog says about it. */
 struct request {
-    char id[PSPDX_ID_SIZE], shot_url[256], video_url[256], sound_url[256];
+    char id[PSPDX_ID_SIZE], shot_url[256], video_url[256], sound_url[256], icon_url[256];
     int installed, cached_only;
     char file[160];                     /* a file off the stick instead, and */
     int file_kind;                      /* what it is, a preview_file */
@@ -112,13 +112,37 @@ static void load_still(const struct request *req, unsigned gen, struct gfx_textu
         const void *png = asset_fetch(ASSET_SHOT, req->id, req->shot_url, req->cached_only, &len);
         unsigned t1 = now_us();
         if (stale(gen)) return;
-        if (!png || image_decode_png(png, len, into) != 0) {
+        if (png && image_decode_png(png, len, into) == 0) {
+            decoded = 0;
+            if (!stale(gen)) image_decode_png_screen(png, len, screen);
+            logline("shot: %u ms get, %u ms decode, %s", (t1 - t0) / 1000, (now_us() - t1) / 1000,
+                    req->id);
+        }
+    }
+    /* No picture of the screen: the icon, then, at its own 144 by 80. The
+       list keeps icons at half that, and one of those across the card is
+       its pixels doubled. It stands on the card only; a page puts no icon
+       behind itself, so no screen-sized copy is made of it. */
+    if (decoded != 0) {
+        if (req->pbp[0]) {
+            void *png;
+            size_t n;
+            if (pbp_section(req->pbp, PBP_ICON0, &png, &n) == 0) {
+                if (!stale(gen)) decoded = image_decode_png(png, n, into);
+                free(png);
+                if (stale(gen)) return;
+            }
+        }
+        if (decoded != 0 && req->icon_url[0]) {
+            size_t len = 0;
+            const void *png = asset_fetch(ASSET_ICON, req->id, req->icon_url, req->cached_only, &len);
+            if (stale(gen)) return;
+            if (png) decoded = image_decode_png(png, len, into);
+        }
+        if (decoded != 0) {
             g_still_state = STILL_FAILED;
             return;
         }
-        if (!stale(gen)) image_decode_png_screen(png, len, screen);
-        logline("shot: %u ms get, %u ms decode, %s", (t1 - t0) / 1000, (now_us() - t1) / 1000,
-                req->id);
     }
     g_still_pub = into;
     g_still_gen++;                          /* a new still: whoever caches it re-uploads */
@@ -442,6 +466,8 @@ void preview_show(const struct app_entry *entry, int immediately) {
              entry ? txt(entry->video) : "");
     snprintf(g_want.sound_url, sizeof(g_want.sound_url), "%s",
              entry ? txt(entry->sound) : "");
+    snprintf(g_want.icon_url, sizeof(g_want.icon_url), "%s",
+             entry ? txt(entry->icon) : "");
     g_want.installed = entry && entry->state != APP_NOT_INSTALLED;
     g_want.file[0] = '\0';
     g_nothing = !entry;
@@ -469,7 +495,7 @@ void preview_show_file(const char *path, enum preview_file kind) {
     if (strcmp(g_want.id, id) == 0) return;
     snprintf(g_want.id, sizeof(g_want.id), "%s", id);
     g_want.cached_only = 1;
-    g_want.shot_url[0] = g_want.video_url[0] = g_want.sound_url[0] = '\0';
+    g_want.shot_url[0] = g_want.video_url[0] = g_want.sound_url[0] = g_want.icon_url[0] = '\0';
     g_want.installed = 0;
     snprintf(g_want.file, sizeof(g_want.file), "%s", path);
     g_want.file_kind = kind;
