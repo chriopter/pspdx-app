@@ -15,12 +15,14 @@
 
 #include <malloc.h>
 #include <pspkernel.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "gui/icons.h"
 #include "gui/image.h"
 #include "pspkit-https/https.h"
+#include "session/library.h"
 #include "update/assets.h"
 #include "util/pbp.h"
 #include "util/runtime.h"
@@ -495,6 +497,135 @@ static int icons_load_cached(int index) {
     return 1;
 }
 
+/* -------------------------------------------------------------- library */
+
+/* The library's icons: out of the games on the stick, keyed by the item's
+   path hash rather than a catalog index, in slots of their own so that the
+   store's icons and these never push each other out. The main thread posts
+   the items it wants, with their paths, under a lock the thread takes only
+   to copy them; everything about the slots is the thread's, and the main
+   thread only looks for a ready one. As with the catalog's, a slot is
+   refilled only when what it held is not wanted, so not on screen. */
+#define LIB_WANTED 32
+#define LIB_SLOTS 48
+enum { LIB_FREE, LIB_READY, LIB_MISSING };
+
+struct lib_want { unsigned key; int kind; char path[LIBRARY_PATH]; };
+static struct lib_want g_lwant[LIB_WANTED];
+static int g_lwant_count;
+static volatile int g_lwant_gen;
+static SceUID g_llock = -1;
+
+static struct {
+    struct gfx_texture tex;
+    unsigned key;
+    volatile int state;
+    unsigned used;
+} g_lslot[LIB_SLOTS];
+static unsigned g_lclock;
+
+void icons_library_want(const struct library_item *const *items, int count) {
+    if (count > LIB_WANTED) count = LIB_WANTED;
+    /* The same as last frame, which is nearly every frame: nothing to do. */
+    int same = count == g_lwant_count;
+    for (int i = 0; same && i < count; i++) same = g_lwant[i].key == items[i]->key;
+    if (same || g_llock < 0) return;
+    sceKernelWaitSema(g_llock, 1, 0);
+    for (int i = 0; i < count; i++) {
+        g_lwant[i].key = items[i]->key;
+        g_lwant[i].kind = items[i]->kind;
+        snprintf(g_lwant[i].path, sizeof(g_lwant[i].path), "%s", items[i]->path);
+    }
+    g_lwant_count = count;
+    g_lwant_gen++;
+    sceKernelSignalSema(g_llock, 1);
+    icons_poke();
+}
+
+const struct gfx_texture *icons_library_get(unsigned key) {
+    for (int s = 0; s < LIB_SLOTS; s++)
+        if (g_lslot[s].state == LIB_READY && g_lslot[s].key == key) return &g_lslot[s].tex;
+    return 0;
+}
+
+static int lib_slot_of(unsigned key) {
+    for (int s = 0; s < LIB_SLOTS; s++)
+        if (g_lslot[s].state != LIB_FREE && g_lslot[s].key == key) return s;
+    return -1;
+}
+
+/* Icon thread: the first wanted item without an icon or a mark, loaded
+   into a slot. 0 when every wanted one has been seen to. */
+static int library_one(void) {
+    static struct lib_want want[LIB_WANTED];
+    static int wants, seen_gen = -1;
+    if (g_llock < 0) return 0;
+    if (seen_gen != g_lwant_gen) {
+        sceKernelWaitSema(g_llock, 1, 0);
+        wants = g_lwant_count;
+        memcpy(want, g_lwant, (size_t)wants * sizeof(*want));
+        seen_gen = g_lwant_gen;
+        sceKernelSignalSema(g_llock, 1);
+    }
+    g_lclock++;
+    int next = -1;
+    for (int i = 0; i < wants; i++) {
+        int s = lib_slot_of(want[i].key);
+        if (s >= 0) g_lslot[s].used = g_lclock;
+        else if (next < 0) next = i;
+    }
+    if (next < 0) return 0;
+    /* A free slot, else the one wanted longest ago that is not wanted now. */
+    int s = -1;
+    for (int k = 0; k < LIB_SLOTS && s < 0; k++)
+        if (g_lslot[k].state == LIB_FREE) s = k;
+    for (int k = 0; s < 0 && k < LIB_SLOTS; k++) {
+        int wanted = 0;
+        for (int i = 0; i < wants && !wanted; i++) wanted = g_lslot[k].key == want[i].key;
+        if (!wanted && (s < 0 || g_lslot[k].used < g_lslot[s].used)) s = k;
+    }
+    if (s < 0) return 0;
+    g_lslot[s].state = LIB_FREE;
+    g_lslot[s].key = want[next].key;
+    g_lslot[s].used = g_lclock;
+    /* Kept in the pack as the store's icons are, under the file's path
+       and size: a second start reads each one back as it was shrunk, and
+       no EBOOT or disc image is opened, no CSO block inflated, no PNG
+       decoded. A file replaced by one of another size is read anew. */
+    char ident[LIBRARY_PATH + 24];
+    SceIoStat st;
+    long long size = sceIoGetstat(want[next].path, &st) >= 0 ? (long long)st.st_size : -1;
+    snprintf(ident, sizeof(ident), "%s|%lld", want[next].path, size);
+    size_t kept = asset_thumb_get("library", ident, g_thumb, THUMB_MAX);
+    if (kept == MISS_LEN && !g_thumb[0] && !g_thumb[1]) {
+        g_lslot[s].state = LIB_MISSING;      /* known to have none */
+        return 1;
+    }
+    if (kept > MISS_LEN && from_thumb(&g_lslot[s].tex, g_thumb, kept) == 0) {
+        g_lslot[s].state = LIB_READY;
+        return 1;
+    }
+    void *png = 0;
+    size_t len = 0;
+    struct gfx_texture big;
+    int ok = 0;
+    if (library_icon_png(want[next].path, want[next].kind, &png, &len) == 0) {
+        if (image_decode_png(png, len, &big) == 0) {
+            ok = shrink(&big, &g_lslot[s].tex) == 0;
+            gfx_texture_free(&big);
+        }
+        free(png);
+    }
+    if (ok) {
+        asset_thumb_put("library", ident, g_thumb, to_thumb(&g_lslot[s].tex, g_thumb));
+    } else if (size >= 0) {
+        unsigned char m[MISS_LEN] = {0};
+        asset_thumb_put("library", ident, m, MISS_LEN);
+    }
+    g_lslot[s].state = ok ? LIB_READY : LIB_MISSING;
+    return 1;
+}
+
 /* ------------------------------------------------------------ the thread */
 
 /* With the card's thread, below the main thread: the list keeps its frame
@@ -538,6 +669,8 @@ static int icon_thread(SceSize args, void *argp) {
                     if (g_cache_miss[at >> 3] & (1 << (at & 7))) continue;
                     if (!icons_load_cached(at)) g_cache_miss[at >> 3] |= (unsigned char)(1 << (at & 7));
                 }
+                /* The library's are the stick's own, as a cached icon is. */
+                while (g_isoft && g_ihold && !g_iquit && library_one()) {}
                 SceUInt wait = 200 * 1000;
                 sceKernelWaitSema(g_iwake, 1, &wait);
             }
@@ -545,6 +678,9 @@ static int icon_thread(SceSize args, void *argp) {
         }
         int did = 0, at;
         while (!g_ihold && !g_iquit && (at = icons_pending_visible()) >= 0) { icons_load(at); did = 1; }
+        /* The library's grid is a screen of its own: what it wants is what
+           is on screen, read off the stick. */
+        while (!g_ihold && !g_iquit && library_one()) did = 1;
         while (!g_ihold && !g_iquit && icons_pending_visible() < 0 && (at = icons_pending()) >= 0) {
             icons_load(at);
             did = 1;
@@ -618,6 +754,7 @@ void icons_start(void) {
        them could be taken. */
     icons_reset();
     g_iquit = g_ihold = 0;
+    g_llock = sceKernelCreateSema("icons_library", 0, 1, 1, 0);
     g_iwake = sceKernelCreateSema("icons_wake", 0, 0, 64, 0);
     g_iidle = sceKernelCreateSema("icons_idle", 0, 0, 64, 0);
     g_ithread = sceKernelCreateThread("icons", icon_thread, ICON_PRIORITY, ICON_STACK,
@@ -651,6 +788,7 @@ void icons_stop(void) {
     }
     if (g_iwake >= 0) { sceKernelDeleteSema(g_iwake); g_iwake = -1; }
     if (g_iidle >= 0) { sceKernelDeleteSema(g_iidle); g_iidle = -1; }
+    if (g_llock >= 0) { sceKernelDeleteSema(g_llock); g_llock = -1; }
 }
 
 void icons_hold_begin(void) {

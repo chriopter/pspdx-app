@@ -18,6 +18,9 @@
 #include "pspkit-https/https.h"
 #include "session/actions.h"
 #include "session/downloads.h"
+#include "session/actions.h"
+#include "session/launcher.h"
+#include "session/library.h"
 #include "session/questions.h"
 #include "session/view.h"
 #include "update/inbox.h"
@@ -276,6 +279,13 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         else if (asked == ASK_RESET) reset_completely();
         else if (asked == ASK_DISCARD) clear_cache();
         else if (asked == ASK_RUN || asked == ASK_RESTART) launch_app(index);
+        else if (asked == ASK_LIBRARY) {
+            /* Found again by its key: gone from the stick since the
+               question went up, there is nothing to start. What went wrong
+               starting it is launch_local's to say. */
+            const struct library_item *item = library_item(library_find((unsigned)index));
+            if (item) launch_local(item->path, item->kind);
+        }
         else if (asked == ASK_PLUGIN) switch_plugin(index);
         else if (asked == ASK_TRUST) {
             https_doubt_accept();
@@ -288,7 +298,11 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
                 sources_remove(g_sources.url[index]) > 0)
                 refetch_now(*cursor, keep, keep_size, synced, refreshing);
             else error_show(T_SOURCE_DELETE_FAILED, "source remove %d", index);
-        } else uninstall_app(index);
+        } else {
+            uninstall_app(index);
+            /* A game gone from the stick is gone from the library. */
+            library_rescan();
+        }
         dump_diagnostics();
         /* What was just done can have emptied a tab. */
         view_settled(cursor);

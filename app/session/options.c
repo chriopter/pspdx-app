@@ -24,6 +24,7 @@
 #include "gui/osk.h"
 #include "session/manage_sources.h"
 #include "session/cable.h"
+#include "session/launcher.h"
 #include "session/options.h"
 #include "session/questions.h"
 #include "session/view.h"
@@ -544,6 +545,22 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
         }
         else if ((pressed & PSP_CTRL_CROSS) && row == SYS_RESET) {
             ask(ASK_RESET, -1, T_RESET_ASK, T_RESET_LINE);
+        }
+        else if ((pressed & PSP_CTRL_CROSS) && row == SYS_LAUNCHER) {
+            /* ARK's files, not ours: the switch moves only once they say
+               so, and what stood in the way is said. */
+            int on = !launcher_mode_on();
+            int rc = launcher_set(on);
+            if (rc == 0) {
+                shell_status(on ? T_LAUNCHER_ON : T_LAUNCHER_OFF);
+                cues_post(CUE_DONE, 0);
+            } else {
+                error_show(rc == LAUNCHER_NO_ARK ? T_LAUNCHER_NO_ARK
+                           : rc == LAUNCHER_NO_SETTINGS ? T_LAUNCHER_NO_SETTINGS
+                           : rc == LAUNCHER_NO_SELF ? T_LAUNCHER_NO_SELF : T_LAUNCHER_FAILED,
+                           "launcher %s %d", on ? "on" : "off", rc);
+                cues_post(CUE_FAIL, 0);
+            }
         }
         else if (pressed & PSP_CTRL_CROSS) {
             /* A value or a switch flips and the view stays, its value or

@@ -11,9 +11,11 @@
    then the thing that was asked about -- an action, session/actions.h's. */
 
 /* Which question stands, and what it is about: a catalog index for the
-   ones about a package, a row of the sources list for ASK_CATALOG, -1 for
-   the rest. */
-enum question { ASK_NOTHING, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART, ASK_TRUST, ASK_PLUGIN, ASK_ERROR };
+   ones about a package, a row of the sources list for ASK_CATALOG, an
+   item's key for ASK_LIBRARY -- the library may be read again under the
+   question --, -1 for the rest. */
+enum question { ASK_NOTHING, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RESET, ASK_DISCARD, ASK_RUN, ASK_RESTART, ASK_TRUST, ASK_PLUGIN, ASK_ERROR,
+                ASK_LIBRARY };
 
 /* Confirm removing a package, fetching the whole tab, or the INBOX. */
 void ask_remove(int index);

@@ -21,6 +21,7 @@
 #include "gui/icons.h"
 #include "gui/image.h"
 #include "update/assets.h"
+#include "util/iso.h"
 #include "util/pbp.h"
 #include "util/runtime.h"
 #include "video/mp4.h"
@@ -303,6 +304,37 @@ static int media_thread(SceSize args, void *argp) {
         free(g_psmf);
         g_psmf = 0;
 
+        if (req.file[0] && req.file_kind == PREVIEW_FILE_TITLE) {
+            /* A title on the stick: its film and its sound out of the
+               EBOOT, or out of PSP_GAME in a disc image. Either may be
+               missing; most homebrew has neither. */
+            void *pmf = NULL, *at3 = NULL;
+            size_t pn = 0, an = 0;
+            if (iso_name(req.file)) {
+                iso_file(req.file, "PSP_GAME/ICON1.PMF", 2 * 1024 * 1024, &pmf, &pn);
+                if (!stale(gen)) iso_file(req.file, "PSP_GAME/SND0.AT3", 1024 * 1024, &at3, &an);
+            } else {
+                if (pbp_section(req.file, PBP_ICON1, &pmf, &pn) != 0) pmf = NULL;
+                if (!stale(gen) && pbp_section(req.file, PBP_SND0, &at3, &an) != 0) at3 = NULL;
+            }
+            if (stale(gen)) {
+                free(pmf);
+                free(at3);
+                continue;
+            }
+            if (pmf) {
+                g_film_state = FILM_LOADING;
+                play_psmf(pmf, pn, gen);    /* the player's to keep or free */
+            } else {
+                g_film_state = FILM_FAILED;
+            }
+            if (at3) {
+                audio_sound_play(at3, an);
+                free(at3);
+            }
+            if (gen == g_want.gen) g_done_gen = gen;
+            continue;
+        }
         if (req.file[0]) {
             /* One file for its own sake: read whole, played, nothing else
                touched. The still is left empty on purpose. */

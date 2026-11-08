@@ -28,12 +28,14 @@ int view_row(int index);      /* catalog index -> view row, -1 if hidden */
 unsigned view_generation(void);
 
 /* The tabs, in the order they are shown and walked, left to right: the
-   stick, then Homebrew and the UMD -- what is published -- then the basket
-   and the gear at the far edge. The stick and the basket come and go with
-   what is in them, and both carry one row that is not a package but the
-   whole tab as a thing to do. */
+   stick, then Homebrew -- what is published --, the library in the middle
+   of the header -- what is on the stick to be started --, the basket beside
+   it, and the gear at the far edge. The stick and the basket come and go
+   with what is in them, and both carry one row that is not a package but
+   the whole tab as a thing to do. Homebrew, the library and the gear are
+   there before any catalog is: the library and the gear need none. */
 enum view_tab_kind { VIEW_TAB_HOMEBREW, VIEW_TAB_STICK, VIEW_TAB_BASKET,
-                     VIEW_TAB_GEAR, VIEW_TAB_UMD };
+                     VIEW_TAB_GEAR, VIEW_TAB_LIBRARY };
 enum view_tab_kind view_tab_kind(void);
 
 /* A tab is a number: Homebrew, everything the catalogs publish, at zero, and
@@ -42,8 +44,16 @@ enum view_tab_kind view_tab_kind(void);
 #define TAB_BASKET  (-1)
 #define TAB_STICK   (-2)
 #define TAB_GEAR    (-3)
-#define TAB_UMD     (-4)
+#define TAB_LIBRARY (-4)
 #define TAB_COUNT   5       /* all of them on screen at once */
+
+/* The library's rows are not the catalog's: session/library.c reads them
+   off the stick, and the view is only told how many there are, so that a
+   cursor on the library is walked and remembered like any other.
+   view_index() answers -1 for them -- no package. */
+void view_library_count(int n);
+/* The tab named opened, if it is on screen; 0 if it is not. */
+int view_tab_open(int tab);
 
 /* The tab that is open; the ones on screen, in their order, by position;
    and which position is the open one. */
@@ -69,7 +79,7 @@ int view_updates_waiting(void);
 #define VIEW_TAGS 128           /* the most tags there are */
 #define VIEW_TAG_MIN 2          /* and the fewest apps one stands for */
 #define VIEW_CATEGORIES_MORE 12  /* categories the catalogs name beyond the store's own four */
-#define VIEW_GROUPS (4 + VIEW_CATEGORIES_MORE + VIEW_TAGS + 16)
+#define VIEW_GROUPS (4 + 1 + VIEW_CATEGORIES_MORE + VIEW_TAGS + 16)   /* the UMDs among them */
 enum view_group_kind { VIEW_GROUP_CATEGORY, VIEW_GROUP_TAG, VIEW_GROUP_SOURCE };
 int view_group_count(void);                 /* rows there are to browse by, of every way */
 const char *view_group_word(int n);         /* the word, as the catalogs write it */
@@ -93,9 +103,14 @@ int view_browse_close(void);
 /* The tags stand open as a cloud, not as a list: their rows are the
    chips, in the order of their words. */
 int view_cloud(void);
-/* Whether the open tab shows its packages as a grid of their icons rather
-   than as rows: the UMD tab, as the PSP's own game menu shows discs. */
+/* Whether the open list shows its packages as a grid of their icons rather
+   than as rows: the store's UMDs, as the PSP's own game menu shows discs. */
 int view_grid(void);
+/* The store's category row "UMDs": the disc images the catalogs publish,
+   one tile a game, which no other list of the store shows. Its group
+   number, and whether it is the one the store is narrowed to. */
+int view_umd_group(void);
+int view_umd_open(void);
 /* The versions of the game an ISO entry is one of -- the entries with its
    "game", EU, US, JP, AS, KR and then the rest -- into out, at most max;
    an entry with none is its own one version. How many there are. */
@@ -137,10 +152,10 @@ int view_home(void);
 #define VIEW_ROW_ACTION (-2)
 
 /* Under the gear the rows are not packages but the things this session can
-   do to itself, the first of them the UI's mode, flipped where it stands: view_index() answers VIEW_ROW_SETTING minus the
+   do to itself, the first of them the way out to the home menu and then the UI's mode, flipped where it stands: view_index() answers VIEW_ROW_SETTING minus the
    row's number for them, so the one list draws and walks both kinds. */
 #define VIEW_ROW_SETTING (-1000)     /* below every VIEW_ROW_GROUP */
-#define VIEW_SETTINGS 7
+#define VIEW_SETTINGS 8
 
 /* The word on a row under the gear. */
 const char *view_setting(int n);
@@ -177,7 +192,7 @@ int view_tabs_refresh(void);
 void view_show_unreleased(int on);
 int view_unreleased_shown(void);
 /* Whether the store leaves this package out: by that switch, and an ISO,
-   which the UMD tab lists instead. */
+   which only the store's UMDs list. */
 int view_hidden(const struct app_entry *entry);
 
 /* How many tabs are on screen: none until there is a catalog. */

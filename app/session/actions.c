@@ -13,6 +13,7 @@
 #include <pspiofilemgr.h>
 #include <pspinit.h>
 #include <psploadexec_kernel.h>
+#include <pspumd.h>
 #include <systemctrl.h>
 #include <systemctrl_se.h>
 #include <stdio.h>
@@ -36,6 +37,7 @@
 #include "session/actions.h"
 #include "session/cable.h"
 #include "session/downloads.h"
+#include "session/launcher.h"
 #include "session/options.h"
 #include "session/questions.h"
 #include "session/view.h"
@@ -466,8 +468,8 @@ int tunnel_is_set_up(void) {
     return g_tunnel_set;
 }
 
-void tunnel_set_up(void) {
-    if (downloads_busy()) { error_busy(); return; }
+int tunnel_set_up(void) {
+    if (downloads_busy()) { error_busy(); return 0; }
     char *text = NULL, key[160];
     int n = storage_read(storage_path(TUNNEL_TXT), &text, 8192);
     if (n < 0 && tunnel_is_set_up()) {
@@ -477,8 +479,8 @@ void tunnel_set_up(void) {
         tunnel_state(state, sizeof(state));
         snprintf(said, sizeof(said), "%s. %s", tunnel_state(NULL, 0) == TUNNEL_UP ? state : "Set up",
                  T_TUNNEL_AGAIN);
-        if (!answer_with(T_SET_TUNNEL, said, T_TUNNEL_REMOVE, T_HINT_BACK)) return;
-        if (!answer(T_TUNNEL_REMOVE_ASK, T_TUNNEL_REMOVE_LINE)) return;
+        if (!answer_with(T_SET_TUNNEL, said, T_TUNNEL_REMOVE, T_HINT_BACK)) return 0;
+        if (!answer(T_TUNNEL_REMOVE_ASK, T_TUNNEL_REMOVE_LINE)) return 0;
         preview_quiesce();
         shell_ask_with(T_SET_TUNNEL, T_TUNNEL_REMOVE_ASK, NULL, NULL);
         shell_draw(g_catalog, 0);
@@ -489,20 +491,20 @@ void tunnel_set_up(void) {
         preview_resume();
         answer_with(T_SET_TUNNEL, rc == 0 ? T_TUNNEL_REMOVED : rc > 0 ? T_TUNNEL_REMOVED_OFF
                                                                   : T_TUNNEL_NOT_REMOVED, T_OK, NULL);
-        return;
+        return 1;                           /* its sources go direct now */
     }
-    if (n < 0) { answer_with(T_SET_TUNNEL, T_TUNNEL_NO_FILE, T_OK, NULL); return; }
+    if (n < 0) { answer_with(T_SET_TUNNEL, T_TUNNEL_NO_FILE, T_OK, NULL); return 0; }
     int found = tunnel_find_key(text, key, sizeof(key));
     memset(text, 0, (size_t)n);
     free(text);
-    if (found < 0) { answer_with(T_SET_TUNNEL, T_TUNNEL_NO_KEY, T_OK, NULL); return; }
+    if (found < 0) { answer_with(T_SET_TUNNEL, T_TUNNEL_NO_KEY, T_OK, NULL); return 0; }
 
     preview_quiesce();
     if (!connect_online()) {
         memset(key, 0, sizeof(key));
         preview_resume();
         error_show(T_STATUS_OFFLINE, "tunnel setup");
-        return;
+        return 0;
     }
     /* Afresh, with this key: a tunnel already running went by the old
        keys, and a setup asked for again is a setup. */
@@ -548,6 +550,8 @@ void tunnel_set_up(void) {
     }
     preview_resume();
     answer_with(T_SET_TUNNEL, said, T_OK, NULL);
+    /* Joined: the sources it carries are fetched again, through it. */
+    return st == TUNNEL_UP;
 }
 
 void cable_set_up_again(void) {
@@ -800,10 +804,87 @@ void view_settled(int *cursor) {
     else if (*cursor >= count) *cursor = count > 0 ? count - 1 : 0;
 }
 
-/* Hands the PSP over to the package the cursor is on. Nothing comes back from
-   this call, so everything the session was holding has to be on the stick
-   before it: the pool above all, which otherwise only reaches the seed file
-   when the user quits through HOME. */
+/* Everything the session was holding, on the stick before the PSP is handed
+   over: the pool above all, which otherwise only reaches the seed file when
+   the user quits through HOME. LoadExec replaces this process without
+   running the HOME exit callback, so a changed graphics mode is kept here
+   too, beside the rest that must outlive the run. */
+static void leave_session(void) {
+    entropy_save(entropy_screen_is_replay());
+    options_settings_save();
+    tunnel_stop();
+    audio_stop();
+    log_dump();
+}
+
+/* Hands the PSP over to the title at path, the way the custom firmware's own
+   game menu starts each kind. Only returns when it was refused, said. */
+static int start_title(const char *path, int kind) {
+    static char file[256];
+    static char disc[] = "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN";
+    snprintf(file, sizeof(file), "%s", path);
+    leave_session();
+
+    /* The firmware lets only a game from a disc start another program:
+       sceKernelLoadExec refuses an app that was started from the Memory
+       Stick or the Go's own storage (80020149). The custom firmware's own
+       call is what starts a homebrew from either, as the XMB does: by the
+       device the app is on. */
+    struct SceKernelLoadExecVSHParam vsh;
+    memset(&vsh, 0, sizeof(vsh));
+    vsh.size = sizeof(vsh);
+    int go = !strncmp(file, "ef0:", 4), apitype;
+    if (kind == LAUNCH_ISO || kind == LAUNCH_PSN) {
+        /* An image is named to the custom firmware with its own disc
+           driver chosen, and a PSN game's EBOOT carries its disc inside
+           with no image to name; either way the disc's EBOOT then runs as
+           if the disc were in the drive. */
+        if (kind == LAUNCH_ISO) {
+            sctrlSESetDiscType(PSP_UMD_TYPE_GAME);
+            sctrlSESetBootConfFileIndex(MODE_INFERNO);
+            sctrlSESetUmdFile(file);
+        } else {
+            sctrlSESetBootConfFileIndex(MODE_UMD);
+            sctrlSESetUmdFile("");
+        }
+        vsh.args = sizeof(disc);
+        vsh.argp = disc;
+        vsh.key = "umdemu";
+        apitype = go ? PSP_INIT_APITYPE_UMD_EMU_EF1 : PSP_INIT_APITYPE_UMD_EMU_MS1;
+    } else {
+        vsh.args = strlen(file) + 1;
+        vsh.argp = file;
+        vsh.key = kind == LAUNCH_PS1 ? "pops" : "game";
+        apitype = kind == LAUNCH_PS1 ? (go ? PSP_INIT_APITYPE_EF5 : PSP_INIT_APITYPE_MS5)
+                                     : (go ? PSP_INIT_APITYPE_EF2 : PSP_INIT_APITYPE_MS2);
+    }
+    int rc = sctrlKernelLoadExecVSHWithApitype(apitype, file, &vsh);
+    logline("launch: the custom firmware refused %08x", rc);
+    char said[64];
+    snprintf(said, sizeof(said), T_START_REFUSED, (unsigned)rc);
+    if (kind != LAUNCH_HOMEBREW) {
+        /* No firmware of Sony's starts an image or a game off the stick:
+           without the custom firmware's call there is nothing to fall
+           back on. */
+        error_show(said, "launch kind %d %08x", kind, (unsigned)rc);
+        return -1;
+    }
+
+    /* Without that call (an emulator), the firmware's. */
+    struct SceKernelLoadExecParam param;
+    memset(&param, 0, sizeof(param));
+    param.size = sizeof(param);
+    param.args = strlen(file) + 1;
+    param.argp = file;
+    param.key = "game";
+    int plain = sceKernelLoadExec(file, &param);
+    /* Only reached when both refused it. */
+    logline("launch: refused %08x", plain);
+    error_show(said, "launch %08x %08x", (unsigned)rc, (unsigned)plain);
+    return -1;
+}
+
+/* Hands the PSP over to the package the cursor is on. */
 void launch_app(int index) {
     if (downloads_busy()) { error_busy(); return; }
     const struct app_entry *entry = &g_catalog->apps[index];
@@ -841,60 +922,41 @@ void launch_app(int index) {
 
     cues_post(CUE_OPEN, 0);
     logline("launching %s", path);
-    entropy_save(entropy_screen_is_replay());
-    /* LoadExec replaces this process without running the HOME exit callback.
-       Persist a changed graphics mode here as well, beside the other session
-       state that must survive a normal app launch. */
-    options_settings_save();
-    tunnel_stop();
-    audio_stop();
-    log_dump();
+    start_title(path, iso ? LAUNCH_ISO : LAUNCH_HOMEBREW);
+}
 
-    /* The firmware lets only a game from a disc start another program:
-       sceKernelLoadExec refuses an app that was started from the Memory
-       Stick or the Go's own storage (80020149). The custom firmware's own
-       call is what starts a homebrew from either, as the XMB does: by the
-       device the app is on. */
-    struct SceKernelLoadExecVSHParam vsh;
-    memset(&vsh, 0, sizeof(vsh));
-    vsh.size = sizeof(vsh);
-    int go = !strncmp(path, "ef0:", 4), rc;
-    if (iso) {
-        static char disc[] = "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN";
-        sctrlSESetUmdFile(path);
-        sctrlSESetBootConfFileIndex(MODE_INFERNO);
-        vsh.args = sizeof(disc);
-        vsh.argp = disc;
-        vsh.key = "umdemu";
-        rc = sctrlKernelLoadExecVSHWithApitype(go ? PSP_INIT_APITYPE_UMD_EMU_EF1 : PSP_INIT_APITYPE_UMD_EMU_MS1,
-                                               disc, &vsh);
-        /* No firmware of Sony's starts an image: without the custom
-           firmware's call there is nothing to fall back on. */
-        logline("launch: the custom firmware refused %08x", rc);
-        char said[64];
-        snprintf(said, sizeof(said), T_START_REFUSED, (unsigned)rc);
-        error_show(said, "launch iso %08x", (unsigned)rc);
+int launch_local(const char *path, int kind) {
+    if (downloads_busy()) { error_busy(); return -1; }
+    int fd = sceIoOpen(path, PSP_O_RDONLY, 0777);
+    if (fd < 0) {
+        error_show(T_NO_EBOOT, "launch local open %08x %s", (unsigned)fd, path);
+        return -1;
+    }
+    sceIoClose(fd);
+    cues_post(CUE_OPEN, 0);
+    logline("launching %s as kind %d", path, kind);
+    return start_title(path, kind);
+}
+
+void leave_to_xmb(void) {
+    if (downloads_busy()) { error_busy(); return; }
+    /* With ARK's launcher on, the home menu would start PSPDX again in its
+       own place: the launcher is off for this once, and the next start of
+       PSPDX turns it on again. Left on, the way out would lead back in. */
+    int launcher = launcher_mode_on();
+    if (launcher && launcher_suspend() < 0) {
+        error_show(T_XMB_FAILED, "xmb launcher");
+        cues_post(CUE_FAIL, 0);
         return;
     }
-    vsh.args = strlen(path) + 1;
-    vsh.argp = path;
-    vsh.key = "game";
-    rc = sctrlKernelLoadExecVSHWithApitype(go ? PSP_INIT_APITYPE_EF2 : PSP_INIT_APITYPE_MS2, path, &vsh);
-    logline("launch: the custom firmware refused %08x", rc);
-
-    /* Without that call (an emulator), the firmware's. */
-    struct SceKernelLoadExecParam param;
-    memset(&param, 0, sizeof(param));
-    param.size = sizeof(param);
-    param.args = strlen(path) + 1;
-    param.argp = path;
-    param.key = "game";
-    int plain = sceKernelLoadExec(path, &param);
-    /* Only reached when both refused it. */
-    logline("launch: refused %08x", plain);
-    char said[64];
-    snprintf(said, sizeof(said), T_START_REFUSED, (unsigned)rc);
-    error_show(said, "launch %08x %08x", (unsigned)rc, (unsigned)plain);
+    logline("leaving for the home menu%s", launcher ? ", launcher off until the next start" : "");
+    downloads_shutdown();
+    leave_session();
+    /* The custom firmware's way to the home menu goes there itself; the
+       game's way out goes wherever ARK sends an exit, which with the
+       launcher is the launcher. */
+    if (launcher) logline("xmb: the custom firmware refused %08x", sctrlKernelExitVSH(NULL));
+    sceKernelExitGame();
 }
 
 /* The action row taken: everything the tab holds, one after another, in the

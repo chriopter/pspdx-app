@@ -60,8 +60,9 @@ void cable_connected(void);
    it was. */
 void cable_set_up_again(void);
 /* The gear's Tailscale row: joins the tailnet with the key in
-   PSP/PSPDX/tunnel.txt, and says what came of it. */
-void tunnel_set_up(void);
+   PSP/PSPDX/tunnel.txt, or leaves it, and says what came of it. 1 when the
+   way to the sources changed, so their catalogs are to be fetched again. */
+int tunnel_set_up(void);
 /* Whether the tunnel is set up on this PSP: its keys are on the stick. */
 int tunnel_is_set_up(void);
 /* A source's Test: its catalog fetched, and how that went said. */
@@ -75,6 +76,20 @@ void uninstall_app(int index);
    on or off, which switch_plugin then does. */
 void launch_app(int index);
 void switch_plugin(int index);
+
+/* What a title on the stick is, which says how the custom firmware starts
+   it: a homebrew's EBOOT.PBP, a PSN game's or a mini's (PARAM.SFO's
+   CATEGORY "EG"), a PS1 game's ("ME"), or an ISO or CSO image. */
+enum launch_kind { LAUNCH_HOMEBREW, LAUNCH_PSN, LAUNCH_PS1, LAUNCH_ISO };
+/* Starts the title at path, asked about already: the session put on the
+   stick and the PSP handed over to it. Only returns when that was refused,
+   which it has said; <0 then. */
+int launch_local(const char *path, int kind);
+
+/* The gear's XMB row: the session put on the stick and the PSP handed back
+   to its home menu -- with ARK's launcher turned off for the while, or ARK
+   would start PSPDX again in its place. Returns only when it could not. */
+void leave_to_xmb(void);
 
 /* The action row taken: everything the tab holds, one after another. */
 void install_all(void);

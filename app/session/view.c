@@ -22,7 +22,8 @@
    is waiting for it at the top -- and the basket this session has filled,
    each only while it holds anything, because what is one's own comes before
    what is merely there to browse. Then Homebrew, every entry the catalogs
-   publish whatever its type or tags, and the UMD, which holds nothing yet. */
+   publish whatever its type or tags, and the library, what is on the stick
+   to be started. */
 static int g_tab[TAB_COUNT];
 static int g_tabs;
 static int g_tab_at;                    /* index into g_tab */
@@ -31,6 +32,8 @@ static unsigned short g_view[MAX_APPS];
 static int g_view_count;                /* packages; the action row is extra */
 static int g_view_action;               /* whether the view has an action row */
 static unsigned g_generation;           /* counted up when the rows stand for other packages */
+static int g_library_count;             /* the library's rows, session/library.c's */
+static int g_umd_group = -1;            /* the store's category row of disc images */
 
 /* The basket: catalog indices set aside this session, a bit each. */
 static unsigned char g_basket[(MAX_APPS + 7) / 8];
@@ -141,7 +144,7 @@ static int has_tag_word(const char *tags, const char *word) {
     return 0;
 }
 /* What the store does not show: what is not released yet, unless asked
-   for, and an ISO, which has the UMD tab for its own. */
+   for, and an ISO, which only the store's own row of UMDs lists. */
 static int unreleased(const struct app_entry *entry) {
     return !g_show_unreleased && has_tag(txt(entry->tags), "unreleased");
 }
@@ -156,12 +159,15 @@ static int category_of(const struct app_entry *entry) {
     if (!named[0]) return -1;
     const char *word = same_word(named, "application") ? "app" : named;
     for (int c = 0; c < g_groups; c++)
-        if (g_group[c].kind == VIEW_GROUP_CATEGORY && same_word(g_group[c].word, word)) return c;
+        if (c != g_umd_group && g_group[c].kind == VIEW_GROUP_CATEGORY && same_word(g_group[c].word, word))
+            return c;
     return -1;
 }
+static int is_umd_face(const struct app_entry *entry);
 int view_in_group(const struct app_entry *entry, int n) {
     if (n < 0 || n >= g_groups) return 0;
     const struct group *g = &g_group[n];
+    if (n == g_umd_group) return is_umd_face(entry);
     if (g->kind == VIEW_GROUP_CATEGORY) return category_of(entry) == n;
     if (g->kind == VIEW_GROUP_TAG) return has_tag_word(txt(entry->tags), g->word);
     return entry->source > 0 && entry->source <= SOURCES_MAX && ((g->sources >> (entry->source - 1)) & 1);
@@ -171,6 +177,10 @@ int view_in_group(const struct app_entry *entry, int n) {
    catalog fills them or not. Any other category a catalog writes gets a
    row of its own after them, in the order the catalogs first name it. */
 static const char *const STORE_CATEGORIES[] = { "game", "demo", "app", "emulator" };
+/* And after them the disc images, a row the catalogs' own words never
+   fill: what the UMD tab held before the tab became the library. */
+#define UMD_WORD "UMDs"
+static const struct catalog *g_versions_of;
 
 /* The tags the most packages carry: every tag of every package the store
    shows counted once, in a table of places kept by the tag's letters,
@@ -305,7 +315,16 @@ static void collect_groups(void) {
         snprintf(g_group[g_groups].word, sizeof(g_group[0].word), "%s", STORE_CATEGORIES[c]);
         g_group[g_groups++].kind = VIEW_GROUP_CATEGORY;
     }
+    g_umd_group = g_groups;
+    memset(&g_group[g_groups], 0, sizeof(g_group[0]));
+    snprintf(g_group[g_groups].word, sizeof(g_group[0].word), "%s", UMD_WORD);
+    g_group[g_groups++].kind = VIEW_GROUP_CATEGORY;
     if (g_view_of) {
+        /* One a game, as its grid shows them; the versions of this catalog,
+           not of one before it under the same address. */
+        g_versions_of = 0;
+        for (int i = 0; i < g_view_of->count; i++)
+            g_group[g_umd_group].apps += is_umd_face(&g_view_of->apps[i]);
         int fixed = g_groups;
         for (int i = 0; i < g_view_of->count; i++) {
             const struct app_entry *e = &g_view_of->apps[i];
@@ -341,7 +360,12 @@ int view_cloud(void) {
            g_group_open < 0;
 }
 
-int view_grid(void) { return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_UMD && g_view_count > 0; }
+int view_umd_group(void) { return g_umd_group; }
+int view_umd_open(void) {
+    return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_HOMEBREW && g_umd_group >= 0 &&
+           g_group_open == g_umd_group && !g_searching;
+}
+int view_grid(void) { return view_umd_open() && g_view_count > 0; }
 
 static unsigned published(int index);
 int view_newest(int n, int browse, int *out, int max) {
@@ -349,7 +373,8 @@ int view_newest(int n, int browse, int *out, int max) {
     if (!g_view_of || max <= 0) return 0;
     for (int i = 0; i < g_view_of->count; i++) {
         const struct app_entry *e = &g_view_of->apps[i];
-        if (view_hidden(e)) continue;
+        /* The UMDs' row stands for what the rest of the store hides. */
+        if (n >= 0 && n == g_umd_group ? !is_umd_face(e) : view_hidden(e)) continue;
         int in = 0;
         if (n >= 0) in = view_in_group(e, n);
         else if (browse == VIEW_GROUP_CATEGORY) in = category_of(e) >= 0;
@@ -539,6 +564,47 @@ static int is_umd(const struct app_entry *entry) {
     return !strcmp(entry->type, "iso") && !unreleased(entry);
 }
 
+/* The versions of every game, worked out once for the catalog as it stands
+   and kept: the grid asks for them for each disc it draws, every frame, and
+   a walk of the whole catalog per disc -- thousands of entries, twenty-five
+   discs -- was most of a frame's time. Each UMD's group starts at g_version_head
+   and runs on through g_version_next, in region order, a tie in the
+   catalog's. */
+static int g_version_head[MAX_APPS], g_version_next[MAX_APPS];
+static int g_versions_count;
+static unsigned g_versions_generation;
+
+static int by_game(const void *a, const void *b) {
+    const struct app_entry *x = &g_view_of->apps[*(const int *)a], *y = &g_view_of->apps[*(const int *)b];
+    int c = strcmp(x->game, y->game);
+    if (c) return c;
+    c = region_rank(x) - region_rank(y);
+    return c ? c : *(const int *)a - *(const int *)b;
+}
+
+static void group_versions(void) {
+    if (g_versions_of == g_view_of && g_versions_count == g_view_of->count && g_versions_generation == g_generation)
+        return;
+    static int order[MAX_APPS];
+    int n = 0;
+    for (int i = 0; i < g_view_of->count && i < MAX_APPS; i++) {
+        g_version_head[i] = -1;
+        g_version_next[i] = -1;
+        const struct app_entry *e = &g_view_of->apps[i];
+        if (e->game[0] && is_umd(e)) order[n++] = i;
+    }
+    qsort(order, (size_t)n, sizeof(order[0]), by_game);
+    for (int k = 0; k < n; k++) {
+        int head = k > 0 && !strcmp(g_view_of->apps[order[k]].game, g_view_of->apps[order[k - 1]].game)
+                       ? g_version_head[order[k - 1]] : order[k];
+        g_version_head[order[k]] = head;
+        if (head != order[k]) g_version_next[order[k - 1]] = order[k];
+    }
+    g_versions_of = g_view_of;
+    g_versions_count = g_view_of->count;
+    g_versions_generation = g_generation;
+}
+
 int view_versions(int index, int *out, int max) {
     if (!g_view_of || index < 0 || index >= g_view_of->count) return 0;
     const struct app_entry *one = &g_view_of->apps[index];
@@ -546,20 +612,17 @@ int view_versions(int index, int *out, int max) {
         if (max > 0) out[0] = index;
         return 1;
     }
-    /* By region, a tie in the catalog's order: an insertion, the versions
-       of one game being a handful. */
+    group_versions();
     int n = 0;
-    for (int i = 0; i < g_view_of->count && n < max; i++) {
-        const struct app_entry *e = &g_view_of->apps[i];
-        if (!is_umd(e) || strcmp(e->game, one->game)) continue;
-        int at = n++;
-        while (at > 0 && region_rank(&g_view_of->apps[out[at - 1]]) > region_rank(e)) {
-            out[at] = out[at - 1];
-            at--;
-        }
-        out[at] = i;
-    }
+    for (int i = g_version_head[index]; i >= 0 && n < max; i = g_version_next[i]) out[n++] = i;
     return n;
+}
+
+/* A disc that stands for its game in the UMDs' grid. */
+static int is_umd_face(const struct app_entry *entry) {
+    if (!g_view_of || entry < g_view_of->apps || entry >= g_view_of->apps + g_view_of->count) return 0;
+    int i = (int)(entry - g_view_of->apps);
+    return is_umd(entry) && view_face(i) == i;
 }
 
 int view_face(int index) {
@@ -577,7 +640,10 @@ static void build_view(int restart) {
     if (!g_view_of || g_tabs <= 0) return;
     for (int i = 0; i < g_view_of->count; i++) {
         int take;
-        if (tab == TAB_HOMEBREW)
+        if (tab == TAB_HOMEBREW && view_umd_open())
+            /* One tile per game: the version that stands for it. */
+            take = is_umd_face(&g_view_of->apps[i]);
+        else if (tab == TAB_HOMEBREW)
             take = !view_hidden(&g_view_of->apps[i]) &&
                    (g_searching ? matches(&g_view_of->apps[i])
                     : g_group_open >= 0 ? view_in_group(&g_view_of->apps[i], g_group_open)
@@ -585,16 +651,13 @@ static void build_view(int restart) {
         else if (tab == TAB_STICK)
             take = g_view_of->apps[i].state != APP_NOT_INSTALLED;
         else if (tab == TAB_BASKET) take = view_basket_has(i) || g_downloads[i] != 0;
-        else if (tab == TAB_UMD)
-            /* One tile per game: the version that stands for it. */
-            take = is_umd(&g_view_of->apps[i]) && view_face(i) == i;
-        else take = 0;      /* the gear's rows are not packages */
+        else take = 0;      /* the gear's and the library's rows are not packages */
         if (take) g_view[g_view_count++] = (unsigned short)i;
     }
-    /* Homebrew, the UMDs and the stick list the newest release first, by
-       name, or what is installed first, as was chosen; what says no release
-       date stands last, and a tie keeps the catalog's order. */
-    if (tab == TAB_HOMEBREW || tab == TAB_STICK || tab == TAB_UMD)
+    /* Homebrew, the UMDs among it and the stick list the newest release
+       first, by name, or what is installed first, as was chosen; what says
+       no release date stands last, and a tie keeps the catalog's order. */
+    if (tab == TAB_HOMEBREW || tab == TAB_STICK)
         qsort(g_view, (size_t)g_view_count, sizeof(*g_view),
               g_sort == VIEW_SORT_NAME ? by_name : g_sort == VIEW_SORT_INSTALLED ? installed_first
                                                                     : newest_first);
@@ -638,13 +701,19 @@ static int collect_tabs(int keep) {
     int found = 0;
     g_tabs = 0;
     g_tab_at = 0;
-    if (!g_view_of || g_view_of->count <= 0) return 0;
+    /* Before any catalog, or with none to be had, the store is a wait and
+       the library and the gear work as ever. */
     int installed = 0;
-    for (int i = 0; i < g_view_of->count; i++)
+    for (int i = 0; g_view_of && i < g_view_of->count; i++)
         if (g_view_of->apps[i].state != APP_NOT_INSTALLED) installed = 1;
-    if (installed) g_tab[g_tabs++] = TAB_STICK;
+    /* Updates, the library, the store: the library in the middle. The
+       updates' tab stands whether or not a catalog has said yet what is
+       installed -- a launcher's start has read none, and that tab is how
+       one gets read. */
+    (void)installed;
+    g_tab[g_tabs++] = TAB_STICK;
+    g_tab[g_tabs++] = TAB_LIBRARY;
     g_tab[g_tabs++] = TAB_HOMEBREW;
-    g_tab[g_tabs++] = TAB_UMD;
     if (g_basket_n > 0 || view_download_count()) g_tab[g_tabs++] = TAB_BASKET;
     g_tab[g_tabs++] = TAB_GEAR;
     for (int i = 0; i < g_tabs; i++)
@@ -695,8 +764,20 @@ int view_tabs_refresh(void) {
     return kept;
 }
 
+void view_library_count(int n) { g_library_count = n > 0 ? n : 0; }
+
+int view_tab_open(int tab) {
+    for (int i = 0; i < g_tabs; i++)
+        if (g_tab[i] == tab) {
+            if (i != g_tab_at) view_tab_move(i - g_tab_at);
+            return 1;
+        }
+    return 0;
+}
+
 int view_count(void) {
     if (g_tabs && g_tab[g_tab_at] == TAB_GEAR) return VIEW_SETTINGS;
+    if (g_tabs && g_tab[g_tab_at] == TAB_LIBRARY) return g_library_count;
     return root_rows() + g_view_count + g_view_action;
 }
 
@@ -705,6 +786,7 @@ static int view_action(int row) { return g_view_action && row == 0; }
 int view_index(int row) {
     if (g_tabs && g_tab[g_tab_at] == TAB_GEAR)
         return row >= 0 && row < VIEW_SETTINGS ? VIEW_ROW_SETTING - row : -1;
+    if (g_tabs && g_tab[g_tab_at] == TAB_LIBRARY) return -1;
     int roots = root_rows();
     if (row >= 0 && row < roots) return root_index(row);
     row -= roots;
@@ -724,7 +806,7 @@ enum view_tab_kind view_tab_kind(void) {
     return tab == TAB_GEAR ? VIEW_TAB_GEAR
          : tab == TAB_STICK ? VIEW_TAB_STICK
          : tab == TAB_BASKET ? VIEW_TAB_BASKET
-         : tab == TAB_UMD ? VIEW_TAB_UMD : VIEW_TAB_HOMEBREW;
+         : tab == TAB_LIBRARY ? VIEW_TAB_LIBRARY : VIEW_TAB_HOMEBREW;
 }
 
 void view_action_plan(struct view_plan *plan) {
@@ -783,6 +865,7 @@ unsigned view_generation(void) { return g_generation; }
    the band that says what it is. A row here is read and taken the way a
    package's row is, because at this depth nothing is deeper. */
 static const char *const SETTING[VIEW_SETTINGS] = {
+    T_SET_XMB,
     T_SET_UI,
     T_SET_SOURCES,
     T_SET_SYSTEM,

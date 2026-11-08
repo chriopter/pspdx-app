@@ -2,6 +2,7 @@
 #include "install/state.h"
 #include "pspiofilemgr.h"
 #include "session/cable.h"
+#include "session/launcher.h"
 #include "session/manage_sources.h"
 #include "session/view.h"
 #include "update/assets.h"
@@ -14,6 +15,9 @@
 #include "gui/cloud.h"
 #include "util/storage.h"
 #include "util/pbp.h"
+#include "util/iso.h"
+#include "util/sfo.h"
+#include "session/library.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -157,6 +161,17 @@ int main(int argc, char **argv) {
         int asks = cable_asks(choice);
         if (!asks) cable_start(choice);
         printf("%d %d %d\n", asks, cable_installed(), cable_ready());
+        return 0;
+    }
+    if (!strcmp(argv[1], "launcher")) {
+        /* launcher [on|off|suspend|resume]: what came of it, then whether
+           ARK's SETTINGS.TXT has the launcher on after it. */
+        int rc = 0;
+        if (argc > 2 && !strcmp(argv[2], "on")) rc = launcher_set(1);
+        else if (argc > 2 && !strcmp(argv[2], "off")) rc = launcher_set(0);
+        else if (argc > 2 && !strcmp(argv[2], "suspend")) rc = launcher_suspend();
+        else if (argc > 2 && !strcmp(argv[2], "resume")) launcher_resume();
+        printf("%d %d\n", rc, launcher_mode_on());
         return 0;
     }
     if (!strcmp(argv[1], "plugin")) {
@@ -410,6 +425,54 @@ int main(int argc, char **argv) {
         kept = view_tabs_refresh();
         printf("emptied kept %d kind %d tabs %d moved %d\n", kept, view_tab_kind(),
                view_tab_count(), view_generation() != gen);
+        return 0;
+    }
+    if (!strcmp(argv[1], "umds")) {
+        /* The store's UMDs: the tiles its grid holds, whether it is a grid,
+           and the count its category row says. */
+        catalog_fetch(&catalog);
+        catalog_check_updates(&catalog);
+        view_rebuild(&catalog);
+        while (view_tab_kind() != VIEW_TAB_HOMEBREW) view_tab_move(1);
+        view_group_open(view_umd_group());
+        printf("umds %d grid %d row %d\n", view_count(), view_grid(), view_group_apps(view_umd_group()));
+        return 0;
+    }
+    if (!strcmp(argv[1], "library")) {
+        /* What the library lists of the stick: each item's section, launch
+           kind, title and path, in order; then the grid walked one way
+           from the first item, to show a section starts a line. */
+        library_scan_now();
+        for (int n = 0; n < library_count(); n++) {
+            const struct library_item *it = library_item(n);
+            printf("%d %d %s %s\n", it->section, it->kind, it->title, it->path);
+        }
+        if (argc > 2 && library_count() > 0) {
+            int n = 0;
+            printf("walk");
+            for (const char *p = argv[2]; *p; p++) {
+                n = library_step(n, *p == 'r' ? 1 : *p == 'l' ? -1 : 0, *p == 'd' ? 1 : *p == 'u' ? -1 : 0, 1);
+                printf(" %d", n);
+            }
+            printf("\n");
+        }
+        return 0;
+    }
+    if (!strcmp(argv[1], "iso") && argc > 3) {
+        /* One file out of a disc image, as the library reads PARAM.SFO and
+           ICON0: its bytes, or what an SFO says under a key. */
+        void *data;
+        size_t len;
+        if (iso_file(argv[2], argv[3], 1 << 20, &data, &len) != 0) {
+            printf("none\n");
+            return 0;
+        }
+        char value[128];
+        if (argc > 4)
+            printf("%s\n", sfo_string(data, len, argv[4], value, sizeof(value)) == 0 ? value : "(no key)");
+        else
+            fwrite(data, 1, len, stdout);
+        free(data);
         return 0;
     }
     if (!strcmp(argv[1], "reach")) {

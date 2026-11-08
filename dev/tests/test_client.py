@@ -20,6 +20,64 @@ def raw_zip(entries):
   local+=struct.pack('<IHHHHHIIIHH',0x04034b50,20,0,0,0,0,crc,len(data),len(data),len(name),0)+name+data
   central+=struct.pack('<IHHHHHHIIIHHHHHII',0x02014b50,20,20,0,0,0,0,crc,len(data),len(data),len(name),0,0,0,0,0,off)+name
  return local+central+struct.pack('<IHHHHIIH',0x06054b50,0,0,len(entries),len(entries),len(central),len(local),0)
+def sfo(**keys):
+ """A PARAM.SFO of string keys, laid out as Sony's tools write one."""
+ import struct
+ index=b'';names=b'';data=b''
+ for k,v in keys.items():
+  value=v.encode()+b'\0';room=(len(value)+3)//4*4
+  index+=struct.pack('<HHIII',len(names),0x0204,len(value),room,len(data))
+  names+=k.encode()+b'\0';data+=value.ljust(room,b'\0')
+ names=names.ljust((len(names)+3)//4*4,b'\0')
+ start=20+len(index)
+ return b'\0PSF'+struct.pack('<IIII',0x101,start,start+len(names),len(keys))+index+names+data
+def pbp(param,icon=b''):
+ """An EBOOT.PBP: the header's eight offsets, the SFO, the ICON0, a program."""
+ import struct
+ a=40;b=a+len(param);c=b+len(icon)
+ return b'\0PBP'+struct.pack('<I',0x10000)+struct.pack('<8I',a,b,c,c,c,c,c,c)+param+icon+b'PROGRAM'
+def iso_image(files):
+ """A small ISO 9660 image of PSP_GAME/<name> files: the primary volume
+ descriptor in sector 16, the root at 18, PSP_GAME at 19, the files after."""
+ import struct
+ def record(name,lba,size,folder):
+  n=name if isinstance(name,bytes) else name.encode();length=33+len(n)+(33+len(n))%2
+  r=bytearray(length);r[0]=length;r[2:6]=struct.pack('<I',lba);r[6:10]=struct.pack('>I',lba)
+  r[10:14]=struct.pack('<I',size);r[14:18]=struct.pack('>I',size);r[25]=2 if folder else 0;r[32]=len(n);r[33:33+len(n)]=n
+  return bytes(r)
+ sectors={};at=20;game=record(b'\0',19,2048,1)+record(b'\1',18,2048,1)
+ for name,data in files.items():
+  game+=record(name+';1',at,len(data),0);sectors[at]=data;at+=(len(data)+2047)//2048
+ root=record(b'\0',18,2048,1)+record(b'\1',18,2048,1)+record('PSP_GAME',19,2048,1)
+ pvd=bytearray(2048);pvd[0]=1;pvd[1:6]=b'CD001';pvd[6]=1;pvd[156:156+34]=record(b'\0',18,2048,1)
+ image=bytearray(at*2048);image[16*2048:17*2048]=pvd;image[18*2048:18*2048+len(root)]=root;image[19*2048:19*2048+len(game)]=game
+ for lba,data in sectors.items():image[lba*2048:lba*2048+len(data)]=data
+ return bytes(image)
+def cso(image,stored=lambda b,data:False):
+ """The image as a CSO: 2 KB blocks deflated, the ones stored(b) says
+ kept as they are, their index entries' top bit set."""
+ import struct,zlib
+ blocks=[image[i:i+2048] for i in range(0,len(image),2048)];index=[];body=b'';start=24+4*(len(blocks)+1)
+ for b,data in enumerate(blocks):
+  keep=stored(b,data);z=zlib.compressobj(9,zlib.DEFLATED,-15)
+  packed=data if keep else z.compress(data)+z.flush()
+  index.append((start+len(body))|(0x80000000 if keep else 0));body+=packed
+ index.append(start+len(body))
+ return b'CISO'+struct.pack('<IQIBBH',24,len(image),2048,1,0,0)+struct.pack('<%dI'%len(index),*index)+body
+def zso(image):
+ """The image as a ZSO: each 2 KB block LZ4, a block of zeros as one
+ literal and a long match, any other as literals alone."""
+ import struct
+ def lz4(data):
+  if data==bytes(len(data)):
+   return bytes([0x1f,0])+struct.pack('<H',1)+bytes([255]*7+[len(data)-1-4-15-255*7])
+  n=len(data)-15;out=bytes([0xf0])
+  while n>=255:out+=b'\xff';n-=255
+  return out+bytes([n])+data
+ blocks=[image[i:i+2048] for i in range(0,len(image),2048)];index=[];body=b'';start=24+4*(len(blocks)+1)
+ for data in blocks:index.append(start+len(body));body+=lz4(data)
+ index.append(start+len(body))
+ return b'ZISO'+struct.pack('<IQIBBH',24,len(image),2048,1,0,0)+struct.pack('<%dI'%len(index),*index)+body
 class ClientTests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.root=pathlib.Path(self.tmp.name);(self.root/'ms0:').mkdir();(self.root/'ef0:').mkdir()
@@ -362,10 +420,52 @@ class ClientTests(unittest.TestCase):
   app=dict(id=ID,name='Demo',author='test',tags=['demo'],source=SPEC['source'],installdir=SPEC['installdir'],releases=[dict(tag='v2',published_at='1970-01-01T00:00:02Z',size=size,url='https://github.com/test/demo/releases/download/v2/download.zip')])
   self.write('catalog.json',dict(schema='https://chriopter.github.io/pspdx/schema/catalog-v1.json',generated_at=NOW(),apps=[app]));self.write('release.json',dict(tag_name='v3',published_at='2026-09-12T00:00:00Z',assets=[dict(name='download.zip',size=size,browser_download_url='https://github.com/test/demo/releases/download/v2/download.zip')]))
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\n')
+ def test_a_disc_image_gives_up_its_param_sfo_and_icon_as_iso_cso_and_zso(self):
+  # PSP_GAME/PARAM.SFO and ICON0.PNG out of a plain image, a CSO with stored and deflated blocks, and a ZSO; the name looked up case aside, a file over several sectors whole, a path not in the image and a file that is no image at all answered with none.
+  icon=bytes(random.Random(7).randrange(256) for _ in range(5000))
+  image=iso_image({'PARAM.SFO':sfo(CATEGORY='UG',TITLE='Patapon 2',DISC_ID='UCES01177'),'ICON0.PNG':icon})
+  (self.root/'a.iso').write_bytes(image);(self.root/'a.cso').write_bytes(cso(image,lambda b,data:b%2==1));(self.root/'a.zso').write_bytes(zso(image))
+  (self.root/'junk.iso').write_bytes(b'not an image'*300)
+  for name in ('a.iso','a.cso','a.zso'):
+   with self.subTest(name=name):
+    self.assertEqual(self.run_client('iso',name,'PSP_GAME/PARAM.SFO','TITLE').stdout,'Patapon 2\n')
+    self.assertEqual(self.run_client('iso',name,'psp_game/param.sfo','DISC_ID').stdout,'UCES01177\n')
+    r=subprocess.run([BIN,'iso',name,'PSP_GAME/ICON0.PNG'],cwd=self.root,capture_output=True,env=dict(os.environ,ASAN_OPTIONS='detect_leaks=0'))
+    self.assertEqual(r.stdout,icon)
+    self.assertEqual(self.run_client('iso',name,'PSP_GAME/PIC1.PNG').stdout,'none\n')
+  self.assertEqual(self.run_client('iso','junk.iso','PSP_GAME/PARAM.SFO','TITLE').stdout,'none\n')
+ def test_the_library_lists_what_is_on_the_stick_by_section(self):
+  # Disc images under ISO and a folder below it on either storage, never ISO/VIDEO or deeper, named by their PARAM.SFO or else their file; EBOOTs under PSP/GAME and PSP/APPS sorted by their CATEGORY -- ME a PS1 game, EG a PSN one with the discs, MG and whatever else homebrew, PG an update and not listed at all --, a folder hidden, kxploit, set aside or without an EBOOT left out; each section by title, case aside. A second reading takes every title from the cache and opens nothing; a file that changed size is read again.
+  def put(path,data):
+   p=self.root/path;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+  disc=lambda title:iso_image({'PARAM.SFO':sfo(CATEGORY='UG',TITLE=title)})
+  put('ms0:/ISO/Game One.iso',disc('Patapon'));put('ms0:/ISO/Sub/Second.cso',cso(disc('LocoRoco')))
+  put('ef0:/ISO/third.zso',zso(disc('Zeta')));put('ms0:/ISO/broken.iso',b'nothing')
+  put('ms0:/ISO/VIDEO/film.iso',disc('Film'));put('ms0:/ISO/Sub/Deeper/deep.iso',disc('Deep'));put('ms0:/ISO/notes.txt',b'x')
+  put('ms0:/PSP/GAME/HB/EBOOT.PBP',pbp(sfo(CATEGORY='MG',TITLE='homebrew B'),b'ICON'))
+  put('ms0:/PSP/GAME/NPUZ00001/EBOOT.PBP',pbp(sfo(CATEGORY='EG',TITLE='Minis')))
+  put('ms0:/PSP/GAME/SLUS00001/EBOOT.PBP',pbp(sfo(CATEGORY='ME',TITLE='"Final" Fantasy VII')))
+  put('ms0:/PSP/GAME/UPDATE/EBOOT.PBP',pbp(sfo(CATEGORY='PG',TITLE='Update 1.01')))
+  put('ms0:/PSP/GAME/NOSFO/EBOOT.PBP',b'not a pbp')
+  for hidden in ('%HB','.stage','Old.bak'):put('ms0:/PSP/GAME/%s/EBOOT.PBP'%hidden,pbp(sfo(CATEGORY='MG',TITLE=hidden)))
+  (self.root/'ms0:/PSP/GAME/EMPTY').mkdir(parents=True)
+  put('ms0:/PSP/APPS/App2/EBOOT.PBP',pbp(sfo(TITLE='Another')))
+  r=self.run_client('library','ddrrruul',VERBOSE=1)
+  rows=[line.replace(str(self.root)+'/','') for line in r.stdout.splitlines()]
+  self.assertEqual(rows,['0 3 broken ms0:/ISO/broken.iso','0 3 LocoRoco ms0:/ISO/Sub/Second.cso','0 1 Minis ms0:/PSP/GAME/NPUZ00001/EBOOT.PBP',
+                         '0 3 Patapon ms0:/ISO/Game One.iso','0 3 Zeta ef0:/ISO/third.zso','1 2 "Final" Fantasy VII ms0:/PSP/GAME/SLUS00001/EBOOT.PBP',
+                         '2 0 Another ms0:/PSP/APPS/App2/EBOOT.PBP','2 0 homebrew B ms0:/PSP/GAME/HB/EBOOT.PBP','2 0 NOSFO ms0:/PSP/GAME/NOSFO/EBOOT.PBP',
+                         # A section starts a line: down from the first disc to the PS1 game, to the first homebrew, along it to its end and no further, up to the PS1 line's one item, up to the discs' column, and left along them.
+                         'walk 5 6 7 8 8 5 0 0'],r.stderr)
+  self.assertIn('library: 10 found, 10 read',r.stderr)
+  r=self.run_client('library',VERBOSE=1);self.assertEqual(r.stdout.splitlines(),rows[:-1]);self.assertIn('library: 10 found, 0 read',r.stderr)
+  put('ms0:/PSP/GAME/HB/EBOOT.PBP',pbp(sfo(CATEGORY='EG',TITLE='Now a PSN title'),b'A NEW ICON'))
+  r=self.run_client('library',VERBOSE=1);self.assertIn('library: 10 found, 1 read',r.stderr)
+  self.assertIn('0 1 Now a PSN title ms0:/PSP/GAME/HB/EBOOT.PBP',[line.replace(str(self.root)+'/','') for line in r.stdout.splitlines()])
  def test_view_tabs_come_and_go(self):
-  # One app, installed with a newer one published: stick, Homebrew, the UMD, which has no rows, and the gear; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
+  # One app, installed with a newer one published: the stick, the library, whose rows are not the catalog's, Homebrew and the gear, walked from Homebrew; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
   self.fixtures();r=self.run_client('view')
-  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 5 first -4 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -3 kind 3 rows 7 first -1000 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
+  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 -4 0 -3','tab 0 kind 0 rows 5 first -4 plan 0 0','tab -3 kind 3 rows 8 first -1000 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','tab -4 kind 4 rows 0 first -1 plan 0 0','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
  def test_catalog_offline_fallback(self):
   self.fixtures();r=self.run_client('fetch');self.assertIn(ID+' 2 1',r.stdout)
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)
@@ -1438,11 +1538,11 @@ class ClientTests(unittest.TestCase):
   plug={k:v for k,v in dict(SPEC,type='iso',source='https://github.com/test/disc').items() if k!='installdir'}
   self.write('ms0:/PSP/PSPDX/INBOX/disc.pspdx',plug);r=self.run_client('inbox',VERBOSE=1);self.assertNotIn('cannot install yet',r.stderr)
  def test_versions_of_one_game_are_one_umd_tile(self):
-  # Two ISO entries with the same "game" are one tile on the UMD tab, the EU version standing for it; without "game" each stands alone, and a "game" on anything but an ISO is not read.
+  # Two ISO entries with the same "game" are one tile among the store's UMDs, the EU version standing for it; without "game" each stands alone, and a "game" on anything but an ISO is not read.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink()
   def disc(key,region,**more):
    return dict(name='Loco 2 (%s)'%region,type='iso',category='game',summary='%s, %s, 1 MB'%(key,region),source='https://psp.lan/discs/'+key,releases=[dict(tag='1.00',published_at='2023-11-14T22:13:20Z',url='https://psp.lan/discs/%s.iso'%key,size=1000,sha256='2'*64)],**more)
-  tiles=lambda apps:(self.write('catalog.json',dict(catalog,apps=[first]+apps)),re.search(r'tab -4 kind 4 rows (\d+) first',self.run_client('view').stdout).group(1))[1]
+  tiles=lambda apps:(self.write('catalog.json',dict(catalog,apps=[first]+apps)),re.search(r'umds (\d+) grid',self.run_client('umds').stdout).group(1))[1]
   self.assertEqual(tiles([disc('ULUS-10001','US',game='loco 2'),disc('UCES-01059','EU',game='loco 2')]),'1')
   self.assertEqual(tiles([disc('ULUS-10001','US'),disc('UCES-01059','EU')]),'2')
  def test_a_password_is_kept_per_host_and_handed_on(self):
@@ -1468,7 +1568,7 @@ class ClientTests(unittest.TestCase):
   # The record that came of it is read back on the next start like any other.
   self.assertEqual(self.run_client('uninstall',ISO).returncode,0);self.assertEqual(self.tree(self.root/'ms0:/ISO'),{})
  def test_an_iso_is_one_file_under_iso(self):
-  # An ISO from a list away from GitHub, as pspdx-shelf serves one: downloaded straight to ISO/<the last part of its URL>, held to its hash, on the UMD tab and not in the store; an update replaces the file, a file of that name that is not its own is never written over, and a removal takes the file and the record.
+  # An ISO from a list away from GitHub, as pspdx-shelf serves one: downloaded straight to ISO/<the last part of its URL>, held to its hash, under the store's UMDs and in no other list of it; an update replaces the file, a file of that name that is not its own is never written over, and a removal takes the file and the record.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink();ISO='lan.psp.disc'
   image=b'PSP disc image '*1000;(self.root/'disc.iso').write_bytes(image);(self.root/'map.txt').write_text('ULUS-10404.iso disc.iso\n')
   disc=dict(id='local.shelf.ulus-10404',name='Disc',type='iso',category='game',source='https://psp.lan/discs/ULUS-10404',releases=[dict(tag='1.00',published_at='2023-11-14T22:13:20Z',url='https://psp.lan/discs/ULUS-10404.iso',size=len(image),sha256=hashlib.sha256(image).hexdigest())])
@@ -1476,7 +1576,7 @@ class ClientTests(unittest.TestCase):
   # The list's id is a word to the stick: the source's host and the name make the one it keeps.
   rows={row.split()[0]:row.split() for row in self.run_client('fetch',URL_MAP=self.root/'map.txt').stdout.splitlines()};self.assertEqual(rows[ISO][3:],['1','0'])
   self.assertNotIn(ISO,self.run_client('listing','game',URL_MAP=self.root/'map.txt').stdout.split())
-  self.assertIn('tab -4 kind 4 rows 1 ',self.run_client('view',URL_MAP=self.root/'map.txt').stdout)
+  self.assertEqual(self.run_client('umds',URL_MAP=self.root/'map.txt').stdout,'umds 1 grid 1 row 1\n')
   r=self.run_client('get',ISO,URL_MAP=self.root/'map.txt');self.assertEqual(r.stdout.strip(),'0',r.stderr)
   self.assertEqual(self.tree(self.root/'ms0:/ISO'),{'ULUS-10404.iso':image})
   self.assertEqual(self.state()[ISO]['installed']['installdir'],'ISO/ULUS-10404.iso')
@@ -1633,7 +1733,7 @@ class ClientTests(unittest.TestCase):
   lines=self.wrap_bytes('—é😀'.encode(),1000,2)
   self.assertEqual(lines,['—'.encode(),'é'.encode(),'😀'.encode()])
  def test_one_tab_holds_everything_published(self):
-  # No tab per category: whatever an entry is tagged and whatever category or type it names, it stands in Homebrew, the one tab for what is published, a plugin too; the tabs stay the stick, Homebrew, the empty UMD and the gear. Homebrew opens with the three category rows the console has words for, before the package, whatever the entry names.
+  # No tab per category: whatever an entry is tagged and whatever category or type it names, it stands in Homebrew, the one tab for what is published, a plugin too; the tabs stay the stick, the library, Homebrew and the gear. Homebrew opens with the three category rows the console has words for, before the package, whatever the entry names.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]
   for tags,kind,category in ((['Jeu','games','Game'],None,None),([],None,None),(None,None,None),(['game','demo','emulator'],None,None),(['plugin'],None,None),(['game'],'plugin',None),
                              (['puzzle'],None,'game'),(['game','demo'],None,'emulator'),(['game'],None,'Puzzle'),(['game'],None,'Game'),(['demo'],'plugin','app')):
@@ -1644,7 +1744,7 @@ class ClientTests(unittest.TestCase):
     if kind:a['type']=kind;a.pop('installdir')
     self.write('catalog.json',dict(catalog,apps=[a]))
     # The store opens with its three ways to browse it by -- category, tag, source -- whatever the entry names, the package below them.
-    self.assertEqual(self.run_client('view').stdout.splitlines()[:3],['tabs 4: -2 0 -4 -3','tab 0 kind 0 rows 5 first -4 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0'])
+    self.assertEqual(self.run_client('view').stdout.splitlines()[:3],['tabs 4: -2 -4 0 -3','tab 0 kind 0 rows 5 first -4 plan 0 0','tab -3 kind 3 rows 8 first -1000 plan 0 0'])
  def test_the_store_is_browsed_by_category_tag_and_source(self):
   # Three rows above the packages, one a way to browse by, with how many rows it lists: the categories, the tags at least two shown apps carry (rare, one, has no chip), the most carried first, spelled as first met, "unreleased" never, nor a contest's tag with its year in it (a model number after a dash is no year), and the sources by the name their catalog gives or their URL makes. Back out of a row lands on it, back out of a way on the way; a tag or a source narrows the list to its apps.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]
@@ -1657,13 +1757,13 @@ class ClientTests(unittest.TestCase):
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\nhttps://example.com/second.json\n')
   (self.root/'map.txt').write_text('https://example.com/second.json %s\n'%(self.root/'second.json'))
   r=self.run_client('groups',URL_MAP=self.root/'map.txt')
-  self.assertEqual(r.stdout.splitlines(),['Browse by Category 4','Browse by Tag 3','Browse by Source 2','then 1',
-                                          '> Browse by Category','0 game 4','0 demo 0','0 app 0','0 emulator 0','apps 0 back 3','root 1',
+  self.assertEqual(r.stdout.splitlines(),['Browse by Category 5','Browse by Tag 3','Browse by Source 2','then 1',
+                                          '> Browse by Category','0 game 4','0 demo 0','0 app 0','0 emulator 0','0 UMDs 0','apps 0 back 4','root 1',
                                           '> Browse by Tag','1 Racing 3','1 PSP-2000+ only 2','1 puzzle 2','apps 2 back 2','root 2',
                                           '> Browse by Source','2 example.com 4','2 PSPDX Community 1','apps 1 back 1','root 3'],r.stderr)
   # Shown, the unreleased count, puzzle has its row, and the switch itself is never a tag row.
   r=self.run_client('groups',URL_MAP=self.root/'map.txt',UNRELEASED=1)
-  self.assertEqual(r.stdout.splitlines()[4:19],['> Browse by Category','0 game 7','0 demo 1','0 app 0','0 emulator 0','apps 0 back 3','root 1',
+  self.assertEqual(r.stdout.splitlines()[4:20],['> Browse by Category','0 game 7','0 demo 1','0 app 0','0 emulator 0','0 UMDs 0','apps 0 back 4','root 1',
                                                 '> Browse by Tag','1 Racing 5','1 puzzle 4','1 PSP-2000+ only 2','apps 2 back 2','root 2','> Browse by Source','2 example.com 8'],r.stderr)
   ids=lambda *a:[i.rsplit('.',1)[-1] for i in self.run_client('listing',*a,URL_MAP=self.root/'map.txt').stdout.split()]
   self.assertEqual(sorted(ids('Racing')),['app1','app3','app8'])
@@ -2755,6 +2855,37 @@ class ClientTests(unittest.TestCase):
   if not IMAGE_BIN:self.skipTest('no image decoder built')
   r=subprocess.run([IMAGE_BIN,*names],cwd=self.root,env=dict(os.environ,ASAN_OPTIONS='detect_leaks=1'),capture_output=True,text=True)
   self.assertEqual(r.returncode,0,r.stderr[-2000:]);self.assertNotIn('Sanitizer',r.stderr);self.assertNotIn('runtime error:',r.stderr);return r.stdout.splitlines()
+ def test_the_launcher_line_is_the_only_one_written(self):
+  me=pbp(sfo(CATEGORY='MG',TITLE='PSPDX'))   # an EBOOT that is PSPDX by its PARAM.SFO, as the launcher tells it
+  # Without ARK there is nothing to turn on; with its folder and no SETTINGS.TXT, neither.
+  launcher=lambda *a:self.run_client('launcher',*a).stdout.split()
+  self.assertEqual(launcher('on'),['-1','0'])
+  ark=self.root/'ms0:/PSP/SAVEDATA/ARK_01234';ark.mkdir(parents=True)
+  self.assertEqual(launcher('on'),['-2','0'])
+  # Without PSPDX's own EBOOT there is nothing to put in.
+  settings=b'# ARK\r\nalways, usbcharge, on\r\nvsh , Launcher ,off\r\ngame, highmem, on'
+  (ark/'SETTINGS.TXT').write_bytes(settings);(ark/'VBOOT.PBP').write_bytes(b'ark menu')
+  self.assertEqual(launcher('on'),['-3','0']);self.assertEqual((ark/'SETTINGS.TXT').read_bytes(),settings)
+  game=self.root/'ms0:/PSP/GAME/PSPDX';game.mkdir(parents=True);(game/'EBOOT.PBP').write_bytes(me)
+  # On: ARK's VBOOT put aside, ours in, the launcher line alone rewritten, its line ending kept.
+  self.assertEqual(launcher('on'),['0','1'])
+  self.assertEqual((ark/'SETTINGS.TXT').read_bytes(),b'# ARK\r\nalways, usbcharge, on\r\nalways, launcher, on\r\ngame, highmem, on')
+  self.assertEqual((ark/'VBOOT.PBP').read_bytes(),me);self.assertEqual((ark/'VBOOT_ARK.PBP').read_bytes(),b'ark menu')
+  self.assertEqual(launcher(),['0','1'])
+  # On again over ours: the backup is never written over.
+  self.assertEqual(launcher('on'),['0','1']);self.assertEqual((ark/'VBOOT_ARK.PBP').read_bytes(),b'ark menu')
+  # The way to the home menu: off, with a mark the next start turns back on.
+  self.assertEqual(launcher('suspend'),['0','0']);self.assertTrue((self.root/'ms0:/PSP/PSPDX/launcher.resume').exists())
+  self.assertEqual(launcher('resume'),['0','1']);self.assertFalse((self.root/'ms0:/PSP/PSPDX/launcher.resume').exists())
+  self.assertEqual(launcher('resume'),['0','1'])
+  # Off: ARK's own back, the backup gone with it.
+  self.assertEqual(launcher('off'),['0','0'])
+  self.assertEqual((ark/'VBOOT.PBP').read_bytes(),b'ark menu');self.assertFalse((ark/'VBOOT_ARK.PBP').exists())
+  self.assertEqual((ark/'SETTINGS.TXT').read_bytes(),b'# ARK\r\nalways, usbcharge, on\r\nalways, launcher, off\r\ngame, highmem, on')
+  # Off with a VBOOT that is not ours and nothing put aside: it stays. A file with no launcher line gets one, in its own line ending.
+  (ark/'SETTINGS.TXT').write_bytes(b'always, usbcharge, on')
+  self.assertEqual(launcher('off'),['0','0']);self.assertEqual((ark/'VBOOT.PBP').read_bytes(),b'ark menu')
+  self.assertEqual((ark/'SETTINGS.TXT').read_bytes(),b'always, usbcharge, on\nalways, launcher, off\n')
  def test_a_picture_larger_than_a_texture_is_scaled_down_to_fit(self):
   halves=lambda w,left,right:lambda y:left*(w//2)+right*(w-w//2)
   cases=[(self.png('screenshot.png',640,480,halves(640,b'\xff\0\0',b'\0\0\xff'),kind=2),'0 256x192 256x256 255,0,0,255 0,0,255,255'),

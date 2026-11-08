@@ -24,6 +24,15 @@
 #define T_UMD_NONE_HINT      "Add a source with disc images under Sources."
 #define T_UMD_VERSIONS       "  -  %d versions"   /* after the game's name in the grid */
 #define T_PICK_VERSION       "Which version?"
+/* The library: what is on the Memory Stick to be started, by section. */
+#define T_HEAD_LIBRARY       "Library"
+#define T_LIBRARY_PSP        "PSP Games"
+#define T_LIBRARY_PS1        "PS1 Games"
+#define T_LIBRARY_APPS       "Homebrew"
+#define T_LIBRARY_READING    "Reading the Memory Stick..."
+#define T_LIBRARY_NONE       "Nothing to start yet"
+#define T_LIBRARY_NONE_HINT  "Games in ISO and PSP/GAME on the Memory Stick are listed here."
+#define T_HINT_START         "Start"
 #define T_IN_BASKET          "In basket"
 
 /* ------------------------------------------------------ waiting and status */
@@ -265,6 +274,7 @@
 #define T_SOURCE_TUNNEL_FULL "Too many sources through Tailscale: eight at most."
 #define T_VALUE_ON           "On"
 #define T_VALUE_OFF          "Off"
+#define T_VALUE_ERROR        "Error"
 /* Tailscale under the gear, its questions and what it came to. */
 #define T_TUNNEL_NO_FILE     "Put your auth key in PSP/PSPDX/tunnel.txt."
 #define T_TUNNEL_NO_KEY      "tunnel.txt holds no tskey-auth- key."
@@ -296,6 +306,7 @@
 
 /* The four rows under the gear, the way the system names its own: a noun
    each, and on the right what taking the row comes to. */
+#define T_SET_XMB            "XMB"
 #define T_SET_UI             "UI Mode"
 #define T_SET_SOURCES        "Sources"
 #define T_SET_SYSTEM         "Options"
@@ -304,6 +315,8 @@
 #define T_SET_FILES          "Data"
 #define T_SET_ABOUT          "About"
 #define T_SET_DIRECT         "Direct Install"
+#define T_NOTE_XMB           "Leaves PSPDX for the PSP's home menu."
+#define T_XMB_FAILED         "Could not turn the launcher off for the home menu."
 #define T_NOTE_SOURCES       "Manages the catalogs apps are listed from."
 #define T_NOTE_SYSTEM        "Adjusts display, testing and default settings."
 #define T_NOTE_CABLE         "Connects over Wi-Fi or the USB cable. Turn USBNet off or delete it under Installed."
@@ -335,7 +348,15 @@
 #define T_SYS_FILL           "Fill Cache When Idle"
 #define T_SYS_FILL_NOTE      "While PSPDX is left alone, fetches every app's icon so lists show at once. Any key pauses it."
 #define T_FILLING            "Filling cache for faster browsing  %d%%"
-#define T_SYS_SWEEP_NOTE     "Generates a new seed for secure connections."
+#define T_SYS_LAUNCHER       "Launcher"
+#define T_SYS_LAUNCHER_NOTE  "Starts PSPDX instead of the home menu (ARK). SELECT at power-on still opens the home menu."
+#define T_LAUNCHER_ON        "PSPDX now starts instead of the home menu."
+#define T_LAUNCHER_OFF       "The home menu starts again."
+#define T_LAUNCHER_NO_ARK    "ARK was not found in PSP/SAVEDATA/ARK_01234."
+#define T_LAUNCHER_NO_SETTINGS "ARK's SETTINGS.TXT was not found."
+#define T_LAUNCHER_NO_SELF   "PSPDX's EBOOT.PBP was not found in PSP/GAME."
+#define T_LAUNCHER_FAILED    "Could not change the launcher on the Memory Stick."
+#define T_SYS_SWEEP_NOTE    "Generates a new seed for secure connections."
 #define T_SYS_RESET_NOTE     "Restores all settings to their defaults. Installed apps are not deleted."
 #define T_HINT_CHANGE        "Change"
 #define T_HINT_TOGGLE        "Toggle"

@@ -27,7 +27,10 @@ void preview_show(const struct app_entry *entry, int immediately);
 /* A film or a sound off the stick, shown for its own sake -- the cache
    browser's -- in place of the card's entry: read whole, nothing fetched.
    preview_show puts an entry back. */
-enum preview_file { PREVIEW_FILE_FILM = 1, PREVIEW_FILE_SOUND };
+/* PREVIEW_FILE_TITLE: a game or an app on the stick -- an EBOOT.PBP or a
+   disc image -- whose own ICON1.PMF and SND0.AT3 play, as the XMB plays
+   them over its icon. */
+enum preview_file { PREVIEW_FILE_FILM = 1, PREVIEW_FILE_SOUND, PREVIEW_FILE_TITLE };
 void preview_show_file(const char *path, enum preview_file kind);
 
 /* Once per frame: sends the request out once the cursor has rested and

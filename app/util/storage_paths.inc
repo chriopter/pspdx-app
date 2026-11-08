@@ -10,6 +10,7 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX", ""},
     {"PSP/PSPDX/CACHE", ""},
     {"PSP/PSPDX/CACHE/catalogs", ""},
+    {"PSP/PSPDX/CACHE/library.txt", ""},     /* the library's titles, by path and size */
     {"PSP/PSPDX/CACHE/font.pgf", ""},        /* the font the program carries, for intraFont, which reads files */
     {"PSP/PSPDX/CACHE/media", ""},
     {"PSP/PSPDX/CACHE/usbnet.prx", ""},      /* the carried plugin as a file, to load for a session it is not installed in */
@@ -44,6 +45,7 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX/TMP/cleanup.txt", ""},
     {"PSP/PSPDX/TMP/download.zip", ""},
     {"PSP/PSPDX/TMP/transaction.json", ""},
+    {"PSP/PSPDX/launcher.resume", ""},       /* left for the home menu with the launcher turned off for it */
     {"PSP/PSPDX/presets.seen", ""},
     {"PSP/PSPDX/settings.txt", ""},
     {"PSP/PSPDX/passwords.txt", ""},

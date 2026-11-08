@@ -45,6 +45,14 @@ const struct gfx_texture *icons_get_entry(const struct app_entry *entry);
 /* Main thread: the icon of an entry, or NULL while it is not here. */
 const struct gfx_texture *icons_get(int index);
 
+/* The library's icons, out of the games on the stick themselves: the items
+   on screen and just past it, in the order they matter, posted once a frame
+   (nothing is done when they are the ones posted last); and the icon of
+   one, by its key, or NULL while it is not here or it has none. */
+struct library_item;
+void icons_library_want(const struct library_item *const *items, int count);
+const struct gfx_texture *icons_library_get(unsigned key);
+
 /* The icons have a thread of their own, beside the card's: a still or a
    film being fetched for the card never holds up the rows. It is started,
    held and stopped with the card's media thread (gui/preview.c). */

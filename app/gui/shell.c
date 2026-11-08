@@ -22,6 +22,7 @@
 #include "pspkit-https/https.h"
 #include "gui/image.h"
 #include "gui/usbnet_icon.h"
+#include "pspkit-tunnel/tunnel.h"
 #include "session/actions.h"
 #include "gui/shell.h"
 #include "gui/flags.h"
@@ -33,6 +34,8 @@
 #include "gui/gfx.h"
 #include "gui/icons.h"
 #include "gui/lattice.h"
+#include "gui/library_view.h"
+#include "session/library.h"
 
 /* The full-frame bloom (a screen readback plus a spread of additive quads) is
    the most visible frame-time trade in the browser. 1 = keep, 0 = off; off on
@@ -92,7 +95,7 @@ static struct rgb tab_tint(int tab) {
     float hue;
     switch (tab) {
     case TAB_STICK:  hue = 0.36f; break;    /* green */
-    case TAB_UMD:    hue = 0.07f; break;    /* amber */
+    case TAB_LIBRARY: hue = 0.07f; break;   /* amber */
     case TAB_BASKET: hue = 0.50f; break;    /* teal */
     case TAB_GEAR:   hue = 0.80f; break;    /* violet */
     default:         return DEFAULT_TINT;   /* the store: the room's own blue */
@@ -297,7 +300,7 @@ static enum mark tab_mark(int tab) {
     case TAB_GEAR: return MARK_GEAR;
     case TAB_BASKET: return view_download_current() >= 0 ? MARK_DOWNLOAD : MARK_BASKET;
     case TAB_HOMEBREW: return MARK_STORE;
-    case TAB_UMD: return MARK_UMD;
+    case TAB_LIBRARY: return MARK_UMD;     /* the disc the UMD tab had */
     default: return view_updates_waiting() > 0 ? MARK_UPDATE : MARK_INSTALLED;
     }
 }
@@ -307,24 +310,26 @@ static float tab_width(int tab) {
     return tab_counted(tab) ? w + 6 + font_width(FONT_BODY, tab_count(tab)) : w;
 }
 
-/* The tabs stand where they stand. The published ones -- Homebrew and the
-   UMD -- start at a fixed column over the panel and step right by a fixed
-   gap, so each is always in the same place. The stick hangs to the left of
-   that column and grows leftward with its count, so its coming and going
-   moves nothing. The gear stands at the right edge, as far in as the word
-   starts from the left, and the basket appears to the left of the gear
-   while it holds something, growing leftward too, a hair of light between
-   the two: nothing the eye has learned the place of ever moves. The
-   active one is lit rather than boxed: the sign in the text colour with
-   the room's own light welling up under it. */
-/* The column the published signs start at: where Homebrew's sign, the
-   first of them, stands with its middle on the middle of the screen, so
-   the header is symmetrical about it -- the stick to its left, the UMD to
-   its right, the word and the gear at the two edges. */
-#define TAB_X (SCR_W / 2.0f - tab_width(TAB_HOMEBREW) / 2.0f)
+/* The tabs stand where they stand. The library -- what the console is
+   for, the games on it -- stands with its middle on the middle of the
+   screen, and the basket appears to its right while it holds something,
+   growing rightward. Homebrew hangs to the library's left, and the stick to
+   the left of Homebrew, growing leftward with its count, so the coming and
+   going of either moves nothing else. The gear stands at the right edge, as
+   far in as the word starts from the left: nothing the eye has learned the
+   place of ever moves. The active one is lit rather than boxed: the sign
+   in the text colour with the room's own light welling up under it. */
+#define TAB_X (SCR_W / 2.0f - tab_width(TAB_LIBRARY) / 2.0f)
 #define TAB_GAP 16.0f
 
-static int tab_published(int tab) { return tab == TAB_HOMEBREW || tab == TAB_UMD; }
+/* Where the leftmost sign the word must stop short of starts: Homebrew's,
+   or the stick's left of it. */
+static float tabs_left(void) {
+    float x = TAB_X - TAB_GAP - tab_width(TAB_HOMEBREW);
+    for (int i = 0; i < view_tab_count(); i++)
+        if (view_tab_at(i) == TAB_STICK) x -= TAB_GAP + tab_width(TAB_STICK);
+    return x;
+}
 
 /* The signs stand on the header word's own middle: its capitals run from
    14 to 25, so their centre is where a sign's centre goes. */
@@ -358,42 +363,28 @@ static void draw_tab(int tab, int on, float x, float t) {
 static void draw_tabs(float t) {
     int tabs = view_tab_count(), at = view_tab_active();
     if (tabs <= 1) return;
-    float x = TAB_X;    /* once: tab_width is asked for every sign otherwise */
-    for (int i = 0; i < tabs; i++) {
-        if (!tab_published(view_tab_at(i))) continue;
-        draw_tab(view_tab_at(i), i == at, x, t);
-        x += tab_width(view_tab_at(i)) + TAB_GAP;
-    }
-    x = TAB_X - TAB_GAP;
-    for (int i = tabs - 1; i >= 0; i--) {
-        if (view_tab_at(i) != TAB_STICK) continue;
-        x -= tab_width(view_tab_at(i));
-        draw_tab(view_tab_at(i), i == at, x, t);
-        x -= TAB_GAP;
-    }
-    /* The jobs at the right edge: the gear last, the basket before it.
-       Walked from the end so the gear takes the edge and the basket
-       hangs off it. */
-    x = SCR_W - LIST_X;
-    for (int i = tabs - 1; i >= 0; i--) {
+    /* From the library out: rightward to the basket, leftward through
+       Homebrew to the stick, in the order they are walked. */
+    float lib = TAB_X;  /* once: tab_width is asked for every sign otherwise */
+    float right = lib, left = lib;
+    int middle = -1;
+    for (int i = 0; i < tabs; i++)
+        if (view_tab_at(i) == TAB_LIBRARY) middle = i;
+    for (int i = middle; middle >= 0 && i < tabs; i++) {
         int tab = view_tab_at(i);
-        if (tab != TAB_GEAR && tab != TAB_BASKET) continue;
-        if (tab == TAB_BASKET) {
-            /* A hair between the basket and the gear, there only while
-               the basket is: the basket is a job on packages, the gear
-               is not, and the eye should not read them as one row of
-               the same kind. Lit the way the header's rule is, brightest
-               in its middle. */
-            unsigned bright = rgb_pack(rgb_mix(g_tint, RGB_WHITE, 0.5f), 120);
-            unsigned clear = rgb_pack(g_tint, 0);
-            int sx = (int)(x + TAB_GAP / 2.0f);
-            gfx_vgrad(sx, TAB_Y - 9, 1, 9, clear, bright);
-            gfx_vgrad(sx, TAB_Y, 1, 9, bright, clear);
-        }
-        x -= tab_width(tab);
-        draw_tab(tab, i == at, x, t);
-        x -= TAB_GAP;
+        if (tab == TAB_GEAR) continue;
+        draw_tab(tab, i == at, right, t);
+        right += tab_width(tab) + TAB_GAP;
     }
+    for (int i = middle - 1; i >= 0; i--) {
+        int tab = view_tab_at(i);
+        left -= TAB_GAP + tab_width(tab);
+        draw_tab(tab, i == at, left, t);
+    }
+    /* The gear at the right edge. */
+    for (int i = 0; i < tabs; i++)
+        if (view_tab_at(i) == TAB_GEAR)
+            draw_tab(TAB_GEAR, i == at, SCR_W - LIST_X - tab_width(TAB_GEAR), t);
 }
 
 /* The open tab's word: what the list under it holds. A view standing over
@@ -431,7 +422,7 @@ static const char *tab_word(int tab) {
     case TAB_GEAR: return T_HEAD_GEAR;
     case TAB_STICK: return T_HEAD_STICK;
     case TAB_BASKET: return T_HEAD_BASKET;
-    case TAB_UMD: return T_HEAD_UMD;
+    case TAB_LIBRARY: return T_HEAD_LIBRARY;
     default: return T_HEAD_HOMEBREW;
     }
 }
@@ -448,14 +439,11 @@ static void draw_chrome(const struct catalog *catalog, float t) {
        item and with nothing behind it but the room. Nothing is counted;
        the list is there to be looked at. */
     /* A tag or a source can be a long word: it stops short of the signs. */
+    (void)catalog;
     float room = SCR_W - 2 * LIST_X;
-    if (catalog->count > 0 && view_tab_count() > 1) {
-        room = TAB_X - TAB_GAP - 10 - LIST_X;
-        for (int i = 0; i < view_tab_count(); i++)
-            if (view_tab_at(i) == TAB_STICK) room -= tab_width(TAB_STICK) + TAB_GAP;
-    }
+    if (view_tab_count() > 1) room = tabs_left() - 10 - LIST_X;
     font_print_clipped(FONT_TITLE, LIST_X, 25, room, g_text, tab_word(view_tab_current()));
-    if (catalog->count > 0) draw_tabs(t);
+    draw_tabs(t);
 }
 
 /* ------------------------------------------------------------------- list */
@@ -511,9 +499,9 @@ static void draw_action_row(int y, int selected, float t) {
                          action_title(), selected ? hover_age(0, VIEW_ROW_ACTION) : 0.0f);
 }
 
-/* The first row is named by the side it is on: Baked at 30, Mercy at 60. */
+/* The UI's row is named by the side it is on: Baked at 30, Mercy at 60. */
 static const char *setting_word(int n) {
-    if (n == 0) return options_fps_requested() ? T_SYS_BAKED : T_SYS_MERCY;
+    if (n == 1) return options_fps_requested() ? T_SYS_BAKED : T_SYS_MERCY;
     return view_setting(n);
 }
 
@@ -522,7 +510,7 @@ static const char *setting_word(int n) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[VIEW_SETTINGS] = {
-        MARK_PILL, MARK_WORLD, MARK_SLIDERS, MARK_PLUGINS, MARK_WORLD, MARK_FOLDER, MARK_INFO,
+        MARK_HOME, MARK_PILL, MARK_WORLD, MARK_SLIDERS, MARK_PLUGINS, MARK_WORLD, MARK_FOLDER, MARK_INFO,
     };
     float dx = g_page_dx;
     float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
@@ -543,11 +531,13 @@ static void draw_setting_row(int n, int y, int selected, float t) {
                    faded(g_dim, selected ? 230 : 150), value);
         w -= (int)vw + 16;
     }
-    if (n == 4 && tunnel_is_set_up()) {
-        /* Tailscale says that it is set up, as Mercy UI says its rate. */
-        float vw = font_width(FONT_META, T_VALUE_ON);
+    if (n == 5 && tunnel_is_set_up()) {
+        /* Tailscale says that it is set up, as Mercy UI says its rate --
+           or that it was and the tailnet will not have it now. */
+        const char *value = tunnel_state(NULL, 0) == TUNNEL_FAILED ? T_VALUE_ERROR : T_VALUE_ON;
+        float vw = font_width(FONT_META, value);
         font_print(FONT_META, LIST_X + LIST_W - 8 + dx - vw, y + 21,
-                   faded(g_dim, selected ? 230 : 150), T_VALUE_ON);
+                   faded(g_dim, selected ? 230 : 150), value);
         w -= (int)vw + 16;
     }
     font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, w,
@@ -744,7 +734,7 @@ static void draw_cloud(int cursor, float t) {
 
 /* ----------------------------------------------------------------- grid */
 
-/* The UMD tab as the PSP's own game menu shows discs: their ICON0s in a
+/* The store's UMDs as the PSP's own game menu shows discs: their ICON0s in a
    grid across the whole room, at the size the icon cache keeps them, one
    to one on whole pixels so they are no softer than they are; the chosen
    one grows a little, and its name stands under the grid. The icons are
@@ -930,7 +920,8 @@ static void draw_group_row(int n, int y, int selected, float t) {
                    : !strcmp(word, "demo") ? MARK_DEMOS
                    : !strcmp(word, "app")  ? MARK_APPS
                    : !strcmp(word, "emulator") ? MARK_EMULATORS
-                   : !strcmp(word, "plugin") ? MARK_PLUGINS : MARK_STORE;
+                   : !strcmp(word, "plugin") ? MARK_PLUGINS
+                   : n == view_umd_group() ? MARK_UMD : MARK_STORE;
     mark_draw(sign, gx, gy, selected ? g_text : faded(g_dim, 170),
               selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
     char count[16];
@@ -1034,7 +1025,8 @@ static const char *group_names(int n, int apps_only) {
     int named = 0;
     for (int i = 0; g_catalog && i < g_catalog->count && at < sizeof(note) - 1; i++) {
         const struct app_entry *e = &g_catalog->apps[i];
-        if (view_hidden(e) || !view_in_group(e, n)) continue;
+        /* The UMDs' row names what the rest of the store hides. */
+        if ((n != view_umd_group() && view_hidden(e)) || !view_in_group(e, n)) continue;
         at += (size_t)snprintf(note + at, sizeof(note) - at, "%s%s", named ? ", " : "", e->name);
         named++;
     }
@@ -2273,6 +2265,7 @@ static void read_storage(void) {
 /* What each row does, said on the right while the cursor is on it: the
    list names the thing, the panel says what it comes to. */
 static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
+    T_NOTE_XMB,
     T_SYS_FRAME_RATE_NOTE,
     T_NOTE_SOURCES,
     T_NOTE_SYSTEM,
@@ -2716,24 +2709,30 @@ static void draw_footer(void) {
     /* The gear's own rows carry the legend the views under them carry:
        X into a row, L and R across the tabs. It is the one list that is about the client rather than
        about packages, and the place a hand learns its keys. */
-    int gear = !g_details && !g_status[0] && !g_info && g_catalog && g_catalog->count > 0 &&
+    int gear = !g_details && !g_status[0] && !g_info && g_catalog &&
                view_tab_kind() == VIEW_TAB_GEAR && !files_view_shown() &&
                !sources_view_shown() && !system_view_shown();
     /* Over a list of packages the foot names the one key no row shows:
        SELECT, and the order it has put the lists in. */
     int lists = !g_details && !g_status[0] && !g_info && g_catalog && g_catalog->count > 0 &&
-                (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK ||
-                 view_tab_kind() == VIEW_TAB_UMD) &&
+                (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK) &&
                 !view_cloud();
-    if (!g_details && !g_status[0] && !gear && !lists) return;
+    /* The library's keys: X starts, L and R go across. */
+    int library = !g_details && !g_status[0] && !g_info && view_tab_kind() == VIEW_TAB_LIBRARY &&
+                  library_count() > 0;
+    if (!g_details && !g_status[0] && !gear && !lists && !library) return;
     /* No edge: the strip comes in as a shadow rising from the bottom, the
        way the PSP's own bars sit on their backgrounds. */
     gfx_vgrad(0, FOOTER_Y - 28, SCR_W, 28, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 120));
     gfx_vgrad(0, FOOTER_Y, SCR_W, SCR_H - FOOTER_Y, RGBA(0, 0, 0, 120),
               RGBA(0, 0, 0, 200));
-    if (gear) {
+    if (library) {
+        float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_HINT_START, g_dim);
+        x = draw_hint(x, FOOTER_BASE, MARK_L, "/", g_dim) - HINT_SPACE;
+        draw_hint(x, FOOTER_BASE, MARK_R, T_HINT_TABS, g_dim);
+    } else if (gear) {
         float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS,
-                            g_cursor == 0 ? T_HINT_TOGGLE : T_HINT_ENTER, g_dim);
+                            g_cursor == 1 ? T_HINT_TOGGLE : T_HINT_ENTER, g_dim);
         x = draw_hint(x, FOOTER_BASE, MARK_L, "/", g_dim) - HINT_SPACE;
         draw_hint(x, FOOTER_BASE, MARK_R, T_HINT_TABS, g_dim);
     } else if (lists) {
@@ -2832,12 +2831,20 @@ int draw_setting_note(const char *title, const char *note, float age) {
     return draw_note_lines(title, note, age, 3);
 }
 
+/* Set up, what the tunnel says when it has given up -- not in the tailnet
+   any more, a refused key -- and the usual note while it is fine. */
+static const char *tunnel_note(void) {
+    static char text[96];
+    if (tunnel_state(text, sizeof(text)) == TUNNEL_FAILED) return text;
+    return T_NOTE_TUNNEL_ON;
+}
+
 static void draw_setting_panel(int n) {
-    int lines = draw_setting_note(setting_word(n), n == 0 && downloads_busy()
+    int lines = draw_setting_note(setting_word(n), n == 1 && downloads_busy()
                                   ? "Downloads temporarily use the 60 FPS UI. Your selected mode returns when the queue is finished."
-                                  : n == 4 && tunnel_is_set_up() ? T_NOTE_TUNNEL_ON
+                                  : n == 5 && tunnel_is_set_up() ? tunnel_note()
                                   : SETTING_NOTE[n], 0.0f);
-    if (n == 3) { /* USBNet: illustrate the explanation, not the list row. */
+    if (n == 4) { /* USBNet: illustrate the explanation, not the list row. */
         static struct gfx_texture icon;
         static int tried;
         if (!tried) {
@@ -2873,7 +2880,12 @@ void shell_draw(const struct catalog *catalog, int cursor) {
     static struct rgb target = { 80, 140, 255 };
     static int lit_for = -1000;
     int tab = view_tab_current();
-    if (catalog->count <= 0) target = DEFAULT_TINT;
+    /* The library and the gear are rooms of their own before any catalog
+       is; the store waits in the default light. */
+    if (catalog->count <= 0 && tab != TAB_LIBRARY && tab != TAB_GEAR) {
+        target = DEFAULT_TINT;
+        lit_for = -1000;
+    }
     else if (tab != lit_for) {
         lit_for = tab;
         target = tab_tint(tab);
@@ -2942,7 +2954,9 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         sources_view_draw(t);
     } else if (system_view_shown()) {
         system_view_draw(t);
-    } else if (catalog->count > 0 && view_tab_kind() == VIEW_TAB_UMD && view_count() == 0) {
+    } else if (view_tab_kind() == VIEW_TAB_LIBRARY) {
+        library_view_draw(cursor, t);
+    } else if (catalog->count > 0 && view_umd_open() && view_count() == 0) {
         /* No source lists an ISO: saying so in the middle of the room under
            the header, and below it, smaller, where some would come from. */
         float mid = (HEADER_H + SCR_H) / 2.0f;
@@ -2954,7 +2968,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         draw_cloud(cursor, t);
     } else if (catalog->count > 0 && view_grid()) {
         draw_grid(catalog, cursor, t);
-    } else if (catalog->count > 0 && view_count() > 0) {
+    } else if ((catalog->count > 0 || view_tab_kind() == VIEW_TAB_GEAR) && view_count() > 0) {
         int rows = view_count();
         int index = view_index(cursor < rows ? cursor : 0);
         draw_list(catalog, cursor, t);
@@ -3057,6 +3071,20 @@ int shell_settled(void) {
 void shell_shot_sync(const struct catalog *catalog, int cursor) {
     follow_view();
     if (files_view_sync()) return;
+    /* A row number is not enough to say the selection changed: removing an
+       entry from the basket slides the rows up under a cursor that has not
+       moved, and the row then stands for another package. */
+    static const struct app_entry *g_shown;
+    static int cleared;
+    /* The library has no card: the picture of the package last looked at
+       in the store goes, and comes back when the store is. */
+    if (view_tab_kind() == VIEW_TAB_LIBRARY) {
+        if (g_shown || g_last_cursor >= 0) preview_show(0, 0);
+        g_shown = 0;
+        g_last_cursor = -1;
+        preview_tick();
+        return;
+    }
     int index = view_index(cursor);
     if (catalog->count <= 0 || index == -1) return;
     /* The action row is a row with no package behind it, and the card is
@@ -3064,11 +3092,6 @@ void shell_shot_sync(const struct catalog *catalog, int cursor) {
        passed on its way here. */
     const struct app_entry *entry = index >= 0 ? &catalog->apps[index] : 0;
 
-    /* A row number is not enough to say the selection changed: removing an
-       entry from the basket slides the rows up under a cursor that has not
-       moved, and the row then stands for another package. */
-    static const struct app_entry *g_shown;
-    static int cleared;
     if ((cursor != g_last_cursor || entry != g_shown) && g_held && g_last_cursor >= 0) {
         /* Up or down still held: the card's words follow the cursor, but
            nothing is fetched for a row it is only passing. The picture of

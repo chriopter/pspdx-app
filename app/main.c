@@ -40,6 +40,8 @@
 #include "session/view.h"
 #include "session/actions.h"
 #include "session/downloads.h"
+#include "session/launcher.h"
+#include "session/library.h"
 #include "session/questions.h"
 #include "update/sources.h"
 #include "session/options.h"
@@ -167,8 +169,13 @@ static const char *files_name_of(const char *id) {
     return NULL;
 }
 
+static int g_keys_loaded;
 static void keys_load(void) {
     static char text[4096];
+    /* Once a run: at the first sync, or at the start where none comes. */
+    if (g_keys_loaded) return;
+    g_keys_loaded = 1;
+    g_keys_since = now_ms();
     int fd = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.KEYS"), PSP_O_RDONLY, 0777);
     if (fd < 0) return;
     int n = sceIoRead(fd, text, sizeof(text) - 1);
@@ -354,12 +361,56 @@ static int version_step(int *index, int step) {
     return 0;
 }
 
+/* The network, and the catalogs over it: how to connect asked where that is
+   a question, the system's dialog, then the sync on its thread. At the
+   start as ever; with the launcher on, only once a tab that lists what is
+   published is opened -- the library and the gear need none of it, and a
+   console started to start a game has no reason to wait for a radio. */
+static void go_online(int midway) {
+    int offline = storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.OFFLINE"));
+    /* Mid-session the media thread is parked for the dialog, as every
+       connection asked for later is. */
+    if (midway) preview_quiesce();
+    /* Before anything connects: how, where the release's copy of the
+       cable's plugin makes that a question, and the cable set up if so. */
+    if (!offline) offline = !cable_at_start();
+    if (!offline) offline = netconf_connect() < 0;
+    if (!offline) cable_connected();
+    if (midway) preview_resume();
+    shell_word(T_WORD_CONNECTING);
+    sync_set_offline(offline);
+    sync_start(&catalog);
+}
+
+/* Whether the open tab has rows to walk: the store's and the stick's are
+   the catalog's, the library's and the gear's are there without one. */
+static int browsable(void) {
+    return shown()->count > 0 || view_tab_kind() == VIEW_TAB_LIBRARY || view_tab_kind() == VIEW_TAB_GEAR;
+}
+
 int main(int argc, char *argv[]) {
+    /* How long the start takes to its first frame, step by step, for the
+       log: the launcher is only worth having if that is short. */
+    unsigned start_ms = now_ms(), shell_ms = 0, sweep_ms = 0, net_ms = 0;
     /* Full speed: the film decodes and the piano plays on the same CPU
        the interface draws with. The default is two thirds of it. */
     storage_init(argc > 0 ? argv[0] : NULL);
     options_settings_load();
+    /* Back from the home menu the gear's XMB row left for: the launcher on
+       again, before anything asks whether it is. */
+    launcher_note_start(argc > 0 ? argv[0] : NULL);
+    launcher_resume();
     state_load();
+    /* A launcher's start: the stick is read on its own thread from here,
+       while the fonts and the sound come up, so the library is there with
+       the first frame. Started by ARK, that is -- not merely with ARK's
+       launcher on, which it also is when PSPDX is opened from the home
+       menu. */
+    int launcher = launcher_started();
+    /* Every start opens on the library, which is the stick's and needs no
+       radio: it is read from here on, while the fonts and the sound come
+       up. The network waits for a tab that lists what is published. */
+    library_rescan();
     scePowerSetClockFrequency(333, 333, 166);
     if (setup_callbacks() < 0) {
         gui_init();
@@ -470,6 +521,7 @@ int main(int argc, char *argv[]) {
        the sweep is not skipped); done here the ME comes up clean and
        audio_start() below just reuses it. */
     audio_load_modules();
+    shell_ms = now_ms();
 
     if (sweep) {
         unsigned since = now_ms();
@@ -478,19 +530,28 @@ int main(int argc, char *argv[]) {
                 entropy_screen_is_replay() ? " (replay)" : "");
     }
     entropy_save(entropy_screen_is_replay());
+    sweep_ms = now_ms();
 
     /* The tune starts with the shell and keeps going through installs and
        sweeps; it lives on its own thread and never waits for a frame. */
     audio_start();
     actions_init(&catalog);
-    int offline = storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.OFFLINE"));
-    /* Before anything connects: how, where the release's copy of the
-       cable's plugin makes that a question, and the cable set up if so. */
-    if (!offline) offline = !cable_at_start();
-    if (!offline) offline = netconf_connect() < 0;
-    if (!offline) cable_connected();
-    sync_set_offline(offline);
-    sync_start(&catalog);
+    /* No connection at the start, the launcher's or any other: the
+       system's dialog and the sync come with the first tab that lists what
+       is published (or a gear row that needs them). */
+    int net_started = 0;
+    net_ms = now_ms();
+    /* The tabs there are before any catalog -- the store waiting, the
+       library, the gear -- and with the launcher on, the library open. */
+    view_rebuild(shown());
+    int library_asked = 1;
+    view_tab_open(TAB_LIBRARY);
+    if (launcher) {
+        /* The rig drives a launcher without waiting for a sync that does
+           not come. */
+        keys_load();
+    }
+    int first_frame = 1;
 
     /* Connect, fetch and check in the background while the first frames
        go up; the status line follows along. */
@@ -527,9 +588,26 @@ int main(int argc, char *argv[]) {
     unsigned bucket[4] = { 0, 0, 0, 0 };
     osk_frame(osk_draw, &cursor);
     for (;;) {
-        if (!synced || downloads_busy()) keep_awake();
+        if ((net_started && !synced) || downloads_busy()) keep_awake();
         int download_modal = asking() || menu_shown() || popup_shown();
-        if (synced && downloads_tick(cursor, download_modal)) view_settled(&cursor);
+        if (synced && downloads_tick(cursor, download_modal)) {
+            view_settled(&cursor);
+            /* An install or a removal has changed what is on the stick. */
+            if (library_asked) library_rescan();
+        }
+        /* A reading of the stick finished: the library's rows are the new
+           ones, the cursor on the item it was on if it is still there. */
+        {
+            const struct library_item *was = view_tab_kind() == VIEW_TAB_LIBRARY ? library_item(cursor) : 0;
+            unsigned key = was ? was->key : 0;
+            if (library_poll()) {
+                view_library_count(library_count());
+                if (view_tab_kind() == VIEW_TAB_LIBRARY) {
+                    int at = was ? library_find(key) : -1;
+                    cursor = at >= 0 ? at : cursor < library_count() ? cursor : library_count() > 0 ? library_count() - 1 : 0;
+                }
+            }
+        }
         /* The unattended rig's second screenshot belongs after completion,
            not after the asynchronous enqueue call. */
         if (automatic >= 0 && !downloads_busy() && !download_modal) {
@@ -626,7 +704,7 @@ int main(int argc, char *argv[]) {
         }
         g_mark[0] = now_us();
 
-        if (!synced) {
+        if (net_started && !synced) {
             shell_status(sync_message());
             /* The connecting screen, for the rig: a second and a half in,
                while there is still something to connect to. */
@@ -651,8 +729,9 @@ int main(int argc, char *argv[]) {
                 }
                 /* A fresh catalog is a fresh set of tabs, and the icons
                    cached against the old one no longer stand for the same
-                   entries. */
-                cursor = 0;
+                   entries. The library's rows are not the catalog's: a
+                   cursor there stays where it is. */
+                if (view_tab_kind() != VIEW_TAB_LIBRARY) cursor = 0;
                 view_rebuild(&catalog);
                 if (keep[0]) {
                     /* Back to the package the cursor was on, if the catalog
@@ -712,7 +791,6 @@ int main(int argc, char *argv[]) {
                 /* Files names an app by the catalog's word for it, once
                    there is a catalog to ask. */
                 files_names(files_name_of);
-                g_keys_since = now_ms();
                 record_start();
                 int bench = sceIoOpen(storage_path("PSP/PSPDX/DEBUG/PSPDX.BENCH"), PSP_O_RDONLY, 0777);
                 if (bench >= 0) {
@@ -784,14 +862,13 @@ int main(int argc, char *argv[]) {
                                                                           : scroll_steps(0);
         if (steps) pressed |= vertical;
         shell_scroll_fast(g_scroll_fast);
-        if (synced) pressed |= keys_pressed();
+        pressed |= keys_pressed();          /* none before they are loaded */
         /* SELECT over a list of packages turns its order, newest first, by
            name or what is installed first, for every list and for good; the
            foot says which. The
            cursor goes to the head of the list, where the new order starts. */
         if ((pressed & PSP_CTRL_SELECT) && !info && shown()->count > 0 &&
-            (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK ||
-             view_tab_kind() == VIEW_TAB_UMD) &&
+            (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK) &&
             !view_cloud() && !asking() && !menu_shown() && !popup_shown() && !details &&
             !gear_view_shown()) {
             options_sort_next();
@@ -801,8 +878,10 @@ int main(int argc, char *argv[]) {
         }
         /* Everything below counts in rows of the shell's view -- the
            catalog filtered to the active tab -- and there are none of those
-           while the catalog is being fetched. */
-        int count = shown()->count > 0 ? view_count() : 0;
+           while the catalog is being fetched, but for the library's and the
+           gear's, which are not the catalog's. */
+        int count = browsable() ? view_count() : 0;
+        int on_library = view_tab_kind() == VIEW_TAB_LIBRARY;
 
         /* With something standing over the browser, the list stays where it
            is: a question that scrolls out from under its answer is a trap,
@@ -875,14 +954,19 @@ int main(int argc, char *argv[]) {
            the tab. */
         int cloud = shown()->count > 0 && view_cloud() && !modal;
         if (cloud) tabs &= ~(unsigned)(PSP_CTRL_LEFT | PSP_CTRL_RIGHT);
-        /* In the UMD tab's grid they go a disc along, and turn the tab only
+        /* In the UMDs' grid they go a disc along, and turn the tab only
            off the line's ends, the way they turn it from a list. */
         if (shown()->count > 0 && view_grid() && !modal && count > 0) {
             int col = cursor % shell_grid_cols();
             if (col > 0) tabs &= ~(unsigned)PSP_CTRL_LEFT;
             if (col < shell_grid_cols() - 1 && cursor < count - 1) tabs &= ~(unsigned)PSP_CTRL_RIGHT;
         }
-        if ((pressed & tabs) && shown()->count > 0 && !modal) {
+        /* The library's grid the same, a section's line at a time. */
+        if (on_library && !modal && count > 0) {
+            if (library_step(cursor, -1, 0, 0) != cursor) tabs &= ~(unsigned)PSP_CTRL_LEFT;
+            if (library_step(cursor, 1, 0, 0) != cursor) tabs &= ~(unsigned)PSP_CTRL_RIGHT;
+        }
+        if ((pressed & tabs) && view_tab_count() > 1 && !modal) {
             if (!tab_departure_saved)
                 view_remember(cursor, details ? details_of : -1, shell_details_position());
             view_tab_move(pressed & (PSP_CTRL_RTRIGGER | PSP_CTRL_RIGHT) ? 1 : -1);
@@ -896,7 +980,20 @@ int main(int argc, char *argv[]) {
             modal = details;
             pressed &= ~tabs;
             cues_post(CUE_MOVE, cursor);
-            count = view_count();
+            on_library = view_tab_kind() == VIEW_TAB_LIBRARY;
+            count = browsable() ? view_count() : 0;
+        }
+        /* The library read at its first look, where the start did not. */
+        if (on_library && !library_asked) {
+            library_asked = 1;
+            library_rescan();
+        }
+        /* The launcher's start made no connection: the first tab that lists
+           what is published makes it, exactly as a start would have. */
+        if (!net_started && !on_library && view_tab_kind() != VIEW_TAB_GEAR && !modal) {
+            net_started = 1;
+            synced = 0;
+            go_online(1);
         }
         modal = modal || info;
         /* The list is a ring for a press: past the last entry comes the
@@ -920,12 +1017,21 @@ int main(int argc, char *argv[]) {
             if (pressed & PSP_CTRL_RIGHT) to = shell_grid_step(to, 1, 0, 0);
             if (pressed & PSP_CTRL_LEFT) to = shell_grid_step(to, -1, 0, 0);
             if (to != cursor) cues_post(CUE_MOVE, cursor = to);
+        } else if (on_library && count > 0 && !modal) {
+            /* The library's grid: the same, its sections' lines one after
+               another. */
+            int to = cursor;
+            if (pressed & PSP_CTRL_DOWN) to = library_step(to, 0, 1, !steps);
+            if (pressed & PSP_CTRL_UP) to = library_step(to, 0, -1, !steps);
+            if (pressed & PSP_CTRL_RIGHT) to = library_step(to, 1, 0, 0);
+            if (pressed & PSP_CTRL_LEFT) to = library_step(to, -1, 0, 0);
+            if (to != cursor) cues_post(CUE_MOVE, cursor = to);
         } else if ((pressed & PSP_CTRL_DOWN) && count > 0 && !modal) {
             int to = steps ? (cursor + steps < count ? cursor + steps : count - 1)
                            : (cursor + 1) % count;
             if (to != cursor) cues_post(CUE_MOVE, cursor = to);
         }
-        if ((pressed & PSP_CTRL_UP) && count > 0 && !modal && !view_cloud() && !view_grid()) {
+        if ((pressed & PSP_CTRL_UP) && count > 0 && !modal && !view_cloud() && !view_grid() && !on_library) {
             int to = steps ? (cursor - steps > 0 ? cursor - steps : 0) : (cursor + count - 1) % count;
             if (to != cursor) cues_post(CUE_MOVE, cursor = to);
         }
@@ -1025,6 +1131,19 @@ int main(int argc, char *argv[]) {
             int was = view_group_open_at() >= 0 ? view_group_close() : view_browse_close();
             cues_post(CUE_MOVE, cursor = was);
             count = view_count();
+        } else if (on_library && count > 0) {
+            /* X asks before the game is started, as a package's Run does,
+               and nothing starts one unasked: a START pressed while the
+               launcher comes up must not drop anyone into a game. The
+               question holds the item's key, not its place: the stick can be
+               read again while it stands. */
+            const struct library_item *item = library_item(cursor);
+            if ((pressed & PSP_CTRL_CROSS) && item) {
+                char title[LIBRARY_TITLE + 32];
+                snprintf(title, sizeof(title), T_RUN_ASK, item->title);
+                pspdx_utf8_mend(title);
+                ask(ASK_LIBRARY, (int)item->key, title, T_RUN_LINE);
+            }
         } else if (count > 0) {
             int at = view_index(cursor);
             if ((pressed & PSP_CTRL_CROSS) && at == VIEW_ROW_SEARCH) {
@@ -1055,26 +1174,38 @@ int main(int argc, char *argv[]) {
                 cues_post(CUE_MOVE, cursor = view_home());
                 count = view_count();
             } else if ((pressed & PSP_CTRL_CROSS) && at <= VIEW_ROW_SETTING) {
-                /* A row under the gear does what it says: the UI's mode a switch, Sources, Options
+                /* A row under the gear does what it says: XMB leaves for the
+                   home menu, the UI's mode a switch, Sources, Options
                    and Data are views in the list's place, About the band.
                    Sources waits for a sync, since what it lists is what
                    the last fetch read. */
                 int which = VIEW_ROW_SETTING - at;
-                if (which == 0) {
+                /* Sources, USBNet and Tailscale need the connection the
+                   start did not make: asked for here, they make it, and
+                   are there to be taken once the sync is through. */
+                if (!net_started && (which == 2 || which == 4 || which == 5)) {
+                    net_started = 1;
+                    synced = 0;
+                    go_online(1);
+                }
+                if (which == 0) leave_to_xmb();
+                else if (which == 1) {
                     /* The UI's mode flips where it stands, and is kept. */
                     options_fps_toggle_saved();
                     cues_post(CUE_MOVE, cursor);
-                } else if (which == 1 && synced) sources_open();
-                else if (which == 2) system_open();
-                else if (which == 3 && synced) {
+                } else if (which == 2 && synced) sources_open();
+                else if (which == 3) system_open();
+                else if (which == 4 && synced) {
                     /* How to connect, asked again as at the first start;
                        it ends in a new connection, so it waits for a sync
                        as Sources does. */
                     cable_set_up_again();
                     count = view_count();
-                } else if (which == 4 && synced) tunnel_set_up();
-                else if (which == 5) files_view_open();
-                else if (which == 6) shell_info(info = 1);
+                } else if (which == 5 && synced) {
+                    if (tunnel_set_up()) refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
+                }
+                else if (which == 6) files_view_open();
+                else if (which == 7) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X opens the package's page; the job rows do their job.
                    The options, with the same things and the rest, are on
@@ -1147,6 +1278,12 @@ int main(int argc, char *argv[]) {
         unsigned tick = now_us() - tick0;
         if (tick > g_worst_tick) g_worst_tick = tick;
         shell_draw(shown(), cursor);
+        if (first_frame) {
+            first_frame = 0;
+            logline("start: first frame at %u ms: settings to shell %u, sweep %u, network %u, to the frame %u%s",
+                    now_ms() - start_ms, shell_ms - start_ms, sweep_ms - shell_ms, net_ms - sweep_ms,
+                    now_ms() - net_ms, launcher ? " (launcher, no network)" : "");
+        }
         g_mark[3] = now_us();
         record_frame();
         g_mark[4] = now_us();

@@ -203,6 +203,7 @@ int sceIoDread(int n, SceIoDirent *out) {
     struct stat st;
     fstatat(dirfd(dirs[n]), d->d_name, &st, 0);
     out->d_stat.st_mode = st.st_mode;
+    out->d_stat.st_size = st.st_size;
     return 1;
 }
 int sceKernelUtilsSha1Digest(unsigned char *b, size_t n, unsigned char *out) {
