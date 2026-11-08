@@ -123,18 +123,37 @@ void actions_download_complete(int i, struct app_entry *e, const struct install_
     if (rc == 0) catalog.apps[i].state = APP_CURRENT;
     order[order_n++] = i;
 }
+/* The catalog's entries own these here; a copy owns its own. The texts that
+   are never NULL point at one shared "" while empty, as in the catalog. */
+static char none[1];
+static void drop(char **field) {
+    if (*field && *field != none) free(*field);
+    *field = none;
+}
 void entry_clear(struct app_entry *e) {
     free(e->description);
     free(e->release.raw);
+    drop(&e->id);
+    drop(&e->name);
+    drop(&e->category);
+    drop(&e->game);
     memset(e, 0, sizeof(*e));
+    e->id = e->name = e->category = e->game = none;
 }
-/* The catalog's entries own only these two here; a copy owns its own. */
 int entry_copy(struct app_entry *dst, const struct app_entry *src) {
     entry_clear(dst);
     *dst = *src;
     dst->description = src->description ? strdup(src->description) : NULL;
     dst->release.raw = src->release.raw ? strdup(src->release.raw) : NULL;
+    dst->id = strdup(src->id);
+    dst->name = strdup(src->name);
+    dst->category = strdup(src->category);
+    dst->game = strdup(src->game);
     return 0;
+}
+static void set(char **field, const char *value) {
+    drop(field);
+    *field = strdup(value);
 }
 int entry_manifest(const struct app_entry *e, struct manifest *m) {
     memset(m, 0, sizeof(*m));
@@ -267,9 +286,13 @@ int main(void) {
     catalog.capacity = 3;
     catalog.count = 3;
     for (int i = 0; i < 3; i++) {
-        sprintf(catalog.apps[i].name, "Test %d", i);
-        sprintf(catalog.apps[i].id, "test.%d", i);
-        strcpy(catalog.apps[i].category, "game");
+        char text[16];
+        snprintf(text, sizeof(text), "Test %d", i);
+        set(&catalog.apps[i].name, text);
+        snprintf(text, sizeof(text), "test.%d", i);
+        set(&catalog.apps[i].id, text);
+        set(&catalog.apps[i].category, "game");
+        set(&catalog.apps[i].game, "");
         catalog.apps[i].state = APP_NOT_INSTALLED;
         catalog.apps[i].description = strdup("original");
         catalog.apps[i].release.raw = strdup("manifest");
@@ -288,12 +311,12 @@ int main(void) {
     assert(view_group_open_at() == 0 && view_index(saved_cursor) == 1);
     assert(saved_details == 1 && saved_scroll == 42.0f);
     /* A removed app must never restore a different package at its old row. */
-    strcpy(catalog.apps[1].id, "replacement");
+    set(&catalog.apps[1].id, "replacement");
     view_tab_move(1);
     view_tab_move(-1);
     view_recall(&saved_cursor, &saved_details, &saved_scroll);
     assert(saved_details == -1);
-    strcpy(catalog.apps[1].id, "test.1");
+    set(&catalog.apps[1].id, "test.1");
     view_group_close();
     view_remember(0, -1, 0);
     assert(downloads_enqueue(1) == 0 && forced && paused && downloads_focused());

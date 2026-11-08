@@ -133,7 +133,7 @@ void ask_remove(int index) {
         error_show(T_NO_RECORD, "remove %s", entry->id);
         return;
     }
-    char title[sizeof(entry->name) + 32], line[96];
+    char title[ENTRY_NAME_SIZE + 32], line[96];
     snprintf(title, sizeof(title), T_REMOVE_ASK, entry->name);
     snprintf(line, sizeof(line), "%s", record.plugin[0] ? T_PLUGIN_OFF_LINE : T_REMOVE_LINE);
     shell_ask(title, line);
@@ -224,7 +224,7 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
     if (g_question == ASK_NOTHING) {
         int of = plugin_installed_take();
         if (of >= 0) {
-            char title[sizeof(actions_catalog()->apps[of].name) + 32];
+            char title[ENTRY_NAME_SIZE + 32];
             snprintf(title, sizeof(title), T_PLUGIN_INSTALLED_ASK, actions_catalog()->apps[of].name);
             pspdx_utf8_mend(title);
             shell_ask(title, T_PLUGIN_TURN_ON_LINE);

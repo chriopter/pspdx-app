@@ -519,7 +519,7 @@ void actions_download_complete(int index, struct app_entry *prepared,
     }
     /* A name and a version of 64 characters whole; the status line cuts it
        to its own room, between letters. */
-    char message[sizeof(entry->name) + VERSION_SIZE + 64];
+    char message[ENTRY_NAME_SIZE + VERSION_SIZE + 64];
     int first = entry->state == APP_NOT_INSTALLED;
     if (rc == 0) {
         entry->state = APP_CURRENT;
@@ -584,7 +584,7 @@ void uninstall_app(int index) {
     if (downloads_busy()) { error_busy(); return; }
     struct app_entry *entry = &g_catalog->apps[index];
     /* Room for the longest name whole; the line it is shown in cuts it. */
-    char message[sizeof(entry->name) + 32];
+    char message[ENTRY_NAME_SIZE + 32];
 
     cues_post(CUE_OPEN, 0);
     int plugin = !strcmp(entry->type, "plugin");

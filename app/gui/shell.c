@@ -885,7 +885,7 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
     if (index >= 0) {
         /* The game's name: the version's without the region it ends in,
            where it is one of several. */
-        char name[sizeof(catalog->apps[index].name)], region[8];
+        char name[ENTRY_NAME_SIZE], region[8];
         int versions[VIEW_VERSIONS];
         snprintf(name, sizeof(name), "%s", catalog->apps[index].name);
         view_region(&catalog->apps[index], region);

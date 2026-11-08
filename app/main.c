@@ -313,7 +313,7 @@ static void osk_draw(void *ctx) {
 /* The catalog is back: the repository typed is either in it, and the
    question is asked, or it is not, and the status line says why. */
 static int wanted_settled(int *cursor) {
-    char message[sizeof(catalog.apps[0].name) + 32];
+    char message[ENTRY_NAME_SIZE + 32];
     int found = catalog_find_repo(&catalog, wanted_url());
     if (found < 0) {
         refused_line(catalog_refused(wanted_url()), wanted_name(), message, sizeof(message));
@@ -965,7 +965,7 @@ int main(int argc, char *argv[]) {
                     downloads_enqueue(details_of);
                 else if (!strcmp(e->type, "plugin")) launch_app(details_of);
                 else {
-                    char title[sizeof(e->name) + 32];
+                    char title[ENTRY_NAME_SIZE + 32];
                     snprintf(title, sizeof(title), T_RUN_ASK, e->name);
                     ask(ASK_RUN, details_of, title, T_RUN_LINE);
                 }

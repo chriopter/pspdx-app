@@ -55,57 +55,66 @@ struct entry_release {
     char *raw;
     struct text added_from, checked_from, root;
     unsigned checked_at;
-    char dir[64];
-    int pinned;
+    char dir[33];                   /* PSP/GAME/<dir>: at most 32, a plain name */
+    unsigned char pinned;
 };
 
+/* The most bytes an entry's text fields hold, their terminator included. */
+#define ENTRY_ID_SIZE PSPDX_ID_SIZE
+#define ENTRY_NAME_SIZE 161
+#define ENTRY_CATEGORY_SIZE PSPDX_CATEGORY_SIZE
+#define ENTRY_GAME_SIZE 64
+
 struct app_entry {
-    char id[PSPDX_ID_SIZE];
-    char name[161];
+    /* Texts of their own size on the heap, never NULL: "" points at one
+       shared empty string. What they may hold is at most ENTRY_*_SIZE - 1
+       bytes, as the fixed arrays they were held to; entry_text sets them. */
+    char *id;
+    char *name;
     struct text author, summary, license;
     /* The file's tags, a newline between them: the tabs are made of the ones
        the browser knows, and an app may stand in several. */
     struct text tags;
     /* The one group the app names, which decides its tab over the tags;
        empty when it names none. */
-    char category[PSPDX_CATEGORY_SIZE];
+    char *category;
     /* The file's description, on the heap and owned by the entry, or NULL
        when it has none: kilobytes that only the details band reads. */
     char *description;
     /* Listed and not installable by this version: an ISO. An app from
        outside GitHub installs from its catalog entry, which is all there is
        of it, and is updated only through a catalog. */
-    int unsupported;
+    unsigned char unsupported;
     char type[12];              /* homebrew, plugin or iso */
     /* The game an ISO entry is a version of, as the list names it -- its
        title, normalised, the same for the EU, US and JP discs -- or empty:
        the UMD tab shows one tile per game. */
-    char game[64];
+    char *game;
     /* The .prx a plugin's entry says its folder is loaded by; empty where
        it names none, and one .prx in the folder is the one. */
     struct text plugin;
     /* An installed plugin whose line in PLUGINS.TXT does not turn it on. */
-    int plugin_off;
+    unsigned char plugin_off;
     /* The release the entry installs from, as a cache derived it or as
        GitHub answered at the origin, so what is current is known without
        a fetch per app. repo is the repository it came from: it goes into
        the record on the stick, and it is how a list's line and a cache's
        entry are known to be the same app. */
     struct entry_release release;
-    int has_release;
+    unsigned char has_release;
     /* The repository answered that it has no .pspdx, and the entry is made
        out of something else: PSPDX_FROM_FILE the .pspdx the user put in
        INBOX, PSPDX_FROM_REPOSITORY the repository's own name, for a
        repository the user typed. 0 for every other entry. */
-    int no_pspdx;
+    unsigned char no_pspdx;
     /* A .pspdx from INBOX stands in the release until catalog_prepare has
        asked the repository whether it has one of its own, which wins. */
-    int from_inbox;
+    unsigned char from_inbox;
     /* The release's tag as the list or GitHub wrote it, "v" and all: what a
        pinned tag is compared with, exactly. Empty where neither said. */
     struct text tag;
-    int fresh;
-    int media_cached_only;
+    unsigned char fresh;
+    unsigned char media_cached_only;
     struct text repo;
     /* Absolute already: the catalog serves these relative to itself, and
        resolving them once at parse time keeps the base URL in this file. */
@@ -115,7 +124,7 @@ struct app_entry {
     unsigned local_rev, remote_rev;
     /* The installed zip's SHA-256 out of its record, when the record has one. */
     unsigned char local_sha256[32];
-    int local_has_sha;
+    unsigned char local_has_sha;
     struct text local_version, remote_version;
     /* The line of sources.txt the entry came from, counted from 1; 0 for
        one that came from none this fetch -- an installed app no source
@@ -137,6 +146,10 @@ static inline const char *entry_category(const struct app_entry *entry) {
    slot of a catalog is either zeros or an entry that owns its text, so this
    is safe on any of them, whether or not it was ever counted. */
 void entry_clear(struct app_entry *entry);
+/* One of an entry's own texts (id, name, category, game) set to value, cut
+   to size - 1 bytes as snprintf would; "" or NULL makes it the shared "".
+   -1 without memory, the text then "". */
+int entry_text(char **field, const char *value, size_t size);
 /* dst, cleared first, becomes a copy of src that owns its own text. -1
    without memory, dst then empty. */
 int entry_copy(struct app_entry *dst, const struct app_entry *src);

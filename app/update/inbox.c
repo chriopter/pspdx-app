@@ -182,7 +182,7 @@ int inbox_scan(struct catalog *catalog) {
         entry->description = pspdx_description(raw, strlen(raw));
         snprintf(entry->release.dir, sizeof(entry->release.dir), "%.32s", spec.installdir + 9);
         text_set(&entry->release.added_from, "INBOX");
-        snprintf(entry->name, sizeof(entry->name), "%s", spec.name);
+        entry_text(&entry->name, spec.name, ENTRY_NAME_SIZE);
         queue[count].item = i;
         queue[count].index = at;
         queue[count].raw = raw;

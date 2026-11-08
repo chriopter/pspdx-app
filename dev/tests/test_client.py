@@ -303,6 +303,24 @@ class ClientTests(unittest.TestCase):
   self.run_client('recover');self.assertEqual(before,self.state())
   foreign=self.root/'ms0:/PSP/GAME/Unrelated.old';foreign.mkdir();(foreign/'keep').write_text('safe')
   self.run_client('recover');self.assertEqual((foreign/'keep').read_text(),'safe')
+ def test_a_catalog_is_read_one_app_at_a_time(self):
+  # The apps are found in the text and read one by one: wherever "apps" stands among the other keys, with brackets, braces and escaped quotes inside strings, the first of two "apps" counting as cJSON would; an empty list is a catalog with nothing in it, and one broken app makes the whole catalog no JSON, nothing of it kept.
+  self.fixtures();app=json.loads((self.root/'catalog.json').read_text())['apps'][0]
+  head='"schema":"https://chriopter.github.io/pspdx/schema/catalog-v1.json","generated_at":"%s"'%NOW()
+  tricky=dict(app,description='a } b ] c { d [ e \\" f \\\\ "]}')
+  for text in ('{"name":"x ] } [ {",%s,"note":{"a":[1,{"b":"]\\""}]},"apps":[%s],"after":{"apps":[]}}'%(head,json.dumps(tricky)),
+               '{"apps":[%s],%s}'%(json.dumps(app),head),
+               '{%s,"apps":[%s],"apps":[]}'%(head,json.dumps(app)),
+               '{%s,"\\u0061pps":[%s],"apps":[]}'%(head,json.dumps(app))):
+   with self.subTest(text=text[:40]):
+    (self.root/'catalog.json').write_text(text)
+    r=self.run_client('fetch',FORCE=1,VERBOSE=1);self.assertIn('catalog: 1 of 1 entries taken',r.stderr);self.assertIn(ID,r.stdout)
+  (self.root/'catalog.json').write_text('{%s,"apps":[]}'%head)
+  self.assertIn('catalog: 0 of 0 entries taken',self.run_client('fetch',FORCE=1,VERBOSE=1).stderr)
+  for broken in ('[%s,{"id":tru}]','[%s,,{}]','[%s{}]','[,%s]','[%s,]','[%s,truejunk]'):
+   with self.subTest(broken=broken[:6]):
+    (self.root/'catalog.json').write_text('{%s,"apps":%s}'%(head,broken%json.dumps(app)))
+    r=self.run_client('fetch',FORCE=1,VERBOSE=1);self.assertIn('catalog: not json',r.stderr);self.assertNotIn('entries taken',r.stderr.split('catalog: not json')[0].split('fetch:')[-1])
  def test_corrupt_catalog_preserves_cache(self):
   self.fixtures();self.run_client('fetch')
   (self.root/'catalog.json').write_text('{broken')

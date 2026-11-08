@@ -158,16 +158,50 @@ static void release_forget_raw(struct entry_release *r) {
     r->raw = NULL;
 }
 
+/* The one empty text every entry's id, name, category and game start as. */
+static char g_none[1];
+
+static void field_free(char **field) {
+    if (*field && *field != g_none) free(*field);
+    *field = g_none;
+}
+
+int entry_text(char **field, const char *value, size_t size) {
+    size_t n = value ? strnlen(value, size - 1) : 0;
+    char *copy = n ? malloc(n + 1) : NULL;
+    if (n && !copy) {
+        field_free(field);
+        return -1;
+    }
+    if (copy) {
+        memcpy(copy, value, n);
+        copy[n] = '\0';
+    }
+    field_free(field);
+    if (copy) *field = copy;
+    return 0;
+}
+
+/* A place with nothing in it: zeros, and the texts that are never NULL "". */
+static void entry_blank(struct app_entry *entry) {
+    memset(entry, 0, sizeof(*entry));
+    entry->id = entry->name = entry->category = entry->game = g_none;
+}
+
 void entry_clear(struct app_entry *entry) {
     release_clear(&entry->release);
     free(entry->description);
+    field_free(&entry->id);
+    field_free(&entry->name);
+    field_free(&entry->category);
+    field_free(&entry->game);
     struct text *texts[] = {&entry->author, &entry->summary, &entry->license, &entry->tags,
                             &entry->tag, &entry->repo, &entry->icon, &entry->screenshot,
                             &entry->video, &entry->sound, &entry->local_version,
                             &entry->remote_version, &entry->plugin};
     for (size_t i = 0; i < sizeof(texts) / sizeof(*texts); i++)
         text_free(texts[i]);
-    memset(entry, 0, sizeof(*entry));
+    entry_blank(entry);
 }
 
 static int text_copy(struct text *dst, struct text src) {
@@ -188,6 +222,12 @@ int entry_copy(struct app_entry *dst, const struct app_entry *src) {
         texts[i]->s = NULL;
     dst->description = NULL;
     dst->release.raw = NULL;
+    dst->id = dst->name = dst->category = dst->game = g_none;
+    if (entry_text(&dst->id, src->id, ENTRY_ID_SIZE) < 0 ||
+        entry_text(&dst->name, src->name, ENTRY_NAME_SIZE) < 0 ||
+        entry_text(&dst->category, src->category, ENTRY_CATEGORY_SIZE) < 0 ||
+        entry_text(&dst->game, src->game, ENTRY_GAME_SIZE) < 0)
+        goto fail;
     const struct text *from[] = {&src->author, &src->summary, &src->license, &src->tags,
                                  &src->tag, &src->repo, &src->icon, &src->screenshot,
                                  &src->video, &src->sound, &src->local_version,
@@ -279,12 +319,21 @@ static int catalog_reserve(struct catalog *catalog, int want) {
     int cap = catalog->capacity ? catalog->capacity : 64;
     while (cap < want)
         cap *= 2;
+    /* An entry is the better part of a kilobyte: doubling 2048 to 4096 for
+       a catalog that wants 2400 asks for three megabytes, while the old
+       places are still held, and a PSP may not have them. Past what is
+       wanted by more than a little, only what is wanted, to the next 64. */
+    if (cap > want + 256)
+        cap = (want + 63) & ~63;
     if (cap > MAX_APPS)
         cap = MAX_APPS;
     struct app_entry *grown = realloc(catalog->apps, (size_t)cap * sizeof(*grown));
-    if (!grown)
+    if (!grown) {
+        logline("catalog: no room for %d entries; %d are kept", cap, catalog->capacity);
         return -1;
-    memset(grown + catalog->capacity, 0, (size_t)(cap - catalog->capacity) * sizeof(*grown));
+    }
+    for (int i = catalog->capacity; i < cap; i++)
+        entry_blank(&grown[i]);
     catalog->apps = grown;
     catalog->capacity = cap;
     return 0;
@@ -844,6 +893,94 @@ static void folder_taken(struct catalog *catalog, const char *from, const char *
 /* The "name" of the last catalog read for the source being fetched. */
 static char g_catalog_name[CATALOG_NAME_SIZE];
 
+/* Where the JSON value at s[at] ends, one past it, or 0 for something that
+   is not one; whitespace before it is skipped. Strings, escapes and nesting
+   are followed and nothing else is judged: cJSON reads each piece itself. */
+static size_t json_end(const char *s, size_t n, size_t at) {
+    int depth = 0;
+    while (at < n && strchr(" \t\r\n", s[at])) at++;
+    if (at >= n) return 0;
+    do {
+        char c = s[at];
+        if (c == '"') {
+            for (at++; at < n && s[at] != '"'; at++)
+                if (s[at] == '\\' && ++at >= n) return 0;
+            if (at >= n) return 0;
+            at++;
+        } else if (c == '{' || c == '[') {
+            if (++depth > CJSON_NESTING_LIMIT) return 0;
+            at++;
+        } else if (c == '}' || c == ']') {
+            if (--depth < 0) return 0;
+            at++;
+        } else if (depth == 0) {
+            /* A number or a literal on its own: up to what ends it. */
+            size_t from = at;
+            while (at < n && !strchr(",}] \t\r\n", s[at])) at++;
+            return at > from ? at : 0;
+        } else {
+            at++;
+        }
+    } while (depth > 0 && at < n);
+    return depth ? 0 : at;
+}
+
+/* The span of the top-level "apps" value: [*from, *to). 0, or -1 when the
+   text is no object or names no apps (the first, where it names two, as
+   cJSON reads it). */
+static int apps_span(const char *s, size_t n, size_t *from, size_t *to) {
+    size_t at = 0;
+    while (at < n && strchr(" \t\r\n", s[at])) at++;
+    if (at >= n || s[at] != '{') return -1;
+    for (at++;;) {
+        while (at < n && strchr(" \t\r\n,", s[at])) at++;
+        if (at >= n || s[at] == '}') return -1;
+        size_t key = at, key_end = json_end(s, n, at);
+        if (!key_end || s[key] != '"') return -1;
+        at = key_end;
+        while (at < n && strchr(" \t\r\n", s[at])) at++;
+        if (at >= n || s[at] != ':') return -1;
+        size_t value = at + 1, end = json_end(s, n, value);
+        if (!end) return -1;
+        /* A key written with escapes is the name it decodes to, as cJSON reads it. */
+        int apps = key_end - key == 6 && !memcmp(s + key, "\"apps\"", 6);
+        if (!apps && memchr(s + key, '\\', key_end - key)) {
+            cJSON *named = cJSON_ParseWithLength(s + key, key_end - key);
+            apps = cJSON_IsString(named) && !strcmp(named->valuestring, "apps");
+            cJSON_Delete(named);
+        }
+        if (apps) {
+            while (value < end && strchr(" \t\r\n", s[value])) value++;
+            *from = value;
+            *to = end;
+            return 0;
+        }
+        at = end;
+    }
+}
+
+/* The next element of the array at s[*at] (start it at the '['): its span,
+   or 0 when the array is through or broken (*broken then set). Elements
+   stand one comma apart, none before the first or after the last. */
+static int next_element(const char *s, size_t end, size_t *at, size_t *from, size_t *to, int *broken) {
+    size_t i = *at;
+    int first = s[i] == '[';
+    if (first) i++;
+    while (i < end && strchr(" \t\r\n", s[i])) i++;
+    if (i < end && s[i] == ']') return 0;
+    if (!first) {
+        if (i >= end || s[i] != ',') { *broken = 1; return 0; }
+        for (i++; i < end && strchr(" \t\r\n", s[i]); i++) {}
+    }
+    if (i >= end || s[i] == ']' || s[i] == ',') { *broken = 1; return 0; }
+    size_t e = json_end(s, end, i);
+    if (!e) { *broken = 1; return 0; }
+    *from = i;
+    *to = e;
+    *at = e;
+    return 1;
+}
+
 /* A catalog.json in the response buffer, merged into the catalog. base is
    the URL it came from, for the assets it names relative to itself.
    Returns the entries taken, or -1 for something that is not a catalog. */
@@ -852,7 +989,26 @@ static int parse(struct catalog *catalog, const char *base) {
     /* A NUL inside a string would cut the text short where it goes on; it is
        made a control character first, and the entry that holds one goes. */
     pspdx_json_mark_nul(response, response_len);
-    cJSON *root = cJSON_ParseWithLengthOpts(response, response_len + 1, NULL, 1);
+    /* A catalog of thousands of apps is read one app at a time: the whole
+       of it as one cJSON tree is megabytes a PSP does not have. What is
+       around the apps, its schema, name and date, is read by cJSON from
+       the text without them, and every app on its own after. */
+    size_t apps_from = 0, apps_to = 0;
+    if (apps_span(response, response_len, &apps_from, &apps_to) < 0 || response[apps_from] != '[') {
+        cJSON *whole = cJSON_ParseWithLengthOpts(response, response_len + 1, NULL, 1);
+        logline(whole ? "catalog: no apps array" : "catalog: not json");
+        cJSON_Delete(whole);
+        return -1;
+    }
+    size_t rest = response_len - (apps_to - apps_from) + 2;
+    char *outline = malloc(rest + 1);
+    if (!outline) return -1;
+    memcpy(outline, response, apps_from);
+    memcpy(outline + apps_from, "[]", 2);
+    memcpy(outline + apps_from + 2, response + apps_to, response_len - apps_to);
+    outline[rest] = '\0';
+    cJSON *root = cJSON_ParseWithLengthOpts(outline, rest + 1, NULL, 1);
+    free(outline);
     if (!root) {
         logline("catalog: not json");
         return -1;
@@ -908,18 +1064,44 @@ static int parse(struct catalog *catalog, const char *base) {
         return -1;
     }
     int before = catalog->count;
-    int taken = 0;
-    cJSON *app;
+    int taken = 0, listed = 0, broken = 0, full = 0;
+    size_t at = apps_from, from, to;
+    while (next_element(response, apps_to, &at, &from, &to, &broken)) listed++;
+    if (broken) {
+        logline("catalog: not json");
+        cJSON_Delete(root);
+        return -1;
+    }
+    cJSON *app = NULL;
     /* Room for all of them at once, rather than a move per doubling. */
     if (catalog->grow)
-        catalog_reserve(catalog, catalog->count + cJSON_GetArraySize(apps) + 1);
+        catalog_reserve(catalog, catalog->count + listed + 1);
     index_build(catalog);
     held_load();
     int room = MAX_APPS - state_count();
-    cJSON_ArrayForEach(app, apps) {
-        struct app_entry *entry = next_place(catalog);
-        if (!entry)
-            break;
+    for (at = apps_from; next_element(response, apps_to, &at, &from, &to, &broken);) {
+        /* The one before goes as this one comes, whatever ended it. */
+        cJSON_Delete(app);
+        const char *parsed_to = NULL;
+        app = cJSON_ParseWithLengthOpts(response + from, to - from, &parsed_to, 0);
+        if (!app || parsed_to != response + to) {
+            /* One that is not JSON, whole, makes the whole catalog none:
+               what it gave before is taken back. */
+            cJSON_Delete(app);
+            for (int i = before; i < catalog->count; i++) entry_clear(&catalog->apps[i]);
+            catalog->count = before;
+            held_forget();
+            logline("catalog: not json");
+            cJSON_Delete(root);
+            return -1;
+        }
+        /* Full: the rest is still read through, so that a broken one past
+           the room left makes the catalog none, as it always has. */
+        struct app_entry *entry = full ? NULL : next_place(catalog);
+        if (!entry) {
+            full = 1;
+            continue;
+        }
         entry_clear(entry);
         cJSON *releases = cJSON_GetObjectItemCaseSensitive(app, "releases");
         if (names_twice(app, APP_KEYS) ||
@@ -954,7 +1136,11 @@ static int parse(struct catalog *catalog, const char *base) {
            buffer could look like one it never was. */
         cJSON *named = cJSON_GetObjectItemCaseSensitive(app, "id");
         const char *given = cJSON_IsString(named) ? named->valuestring : NULL;
-        copy_str(entry->name, sizeof(entry->name), cJSON_GetObjectItemCaseSensitive(app, "name"));
+        {
+            cJSON *named = cJSON_GetObjectItemCaseSensitive(app, "name");
+            const char *v = cJSON_IsString(named) ? named->valuestring : NULL;
+            entry_text(&entry->name, v && strlen(v) < ENTRY_NAME_SIZE ? v : NULL, ENTRY_NAME_SIZE);
+        }
         copy_text(&entry->author, cJSON_GetObjectItemCaseSensitive(app, "author"), 241);
         copy_text(&entry->summary, cJSON_GetObjectItemCaseSensitive(app, "summary"), MAX_SUMMARY);
         {
@@ -966,8 +1152,8 @@ static int parse(struct catalog *catalog, const char *base) {
            character; one that is not is left out, as a tag would be. */
         cJSON *group = cJSON_GetObjectItemCaseSensitive(app, "category");
         int letters = cJSON_IsString(group) ? pspdx_characters(group->valuestring, 0) : -1;
-        if (letters >= 1 && letters <= 24 && strlen(group->valuestring) < sizeof(entry->category))
-            snprintf(entry->category, sizeof(entry->category), "%s", group->valuestring);
+        if (letters >= 1 && letters <= 24 && strlen(group->valuestring) < ENTRY_CATEGORY_SIZE)
+            entry_text(&entry->category, group->valuestring, ENTRY_CATEGORY_SIZE);
         /* What the app is decides what may be done with it: a homebrew, a
            plugin and an ISO are installed, and a type this version
            has never heard of is not an app it can say anything true about. */
@@ -983,10 +1169,10 @@ static int parse(struct catalog *catalog, const char *base) {
         /* A list's own field, which the schema lets it carry: the game an
            ISO is a version of. One word or a few, no control character. */
         cJSON *game = cJSON_GetObjectItemCaseSensitive(app, "game");
-        entry->game[0] = 0;
+        field_free(&entry->game);
         if (!strcmp(entry->type, "iso") && cJSON_IsString(game) &&
-            pspdx_characters(game->valuestring, 0) >= 1 && strlen(game->valuestring) < sizeof(entry->game))
-            snprintf(entry->game, sizeof(entry->game), "%s", game->valuestring);
+            pspdx_characters(game->valuestring, 0) >= 1 && strlen(game->valuestring) < ENTRY_GAME_SIZE)
+            entry_text(&entry->game, game->valuestring, ENTRY_GAME_SIZE);
         copy_text(&entry->repo, cJSON_GetObjectItemCaseSensitive(app, "source"), PSPDX_URL_SIZE);
         /* An entry with no repository of its own is the catalog's to name:
            its source is the catalog and the catalog's id for it, and so is
@@ -1022,11 +1208,11 @@ static int parse(struct catalog *catalog, const char *base) {
                   !(db_read(given, &record) == 0 && !sources_same_repo(record.repo, repo)) &&
                   !(derived[0] && strcmp(given, derived) && db_read(derived, &record) == 0 &&
                     sources_same_repo(record.repo, repo));
-        snprintf(entry->id, sizeof(entry->id), "%s", own ? given : derived);
+        entry_text(&entry->id, own ? given : derived, ENTRY_ID_SIZE);
         const char *kept = record_for_source(repo, &record);
         if (kept && strcmp(kept, entry->id)) {
             logline("catalog: %s is kept on this stick as %s", entry->id, kept);
-            snprintf(entry->id, sizeof(entry->id), "%s", kept);
+            entry_text(&entry->id, kept, ENTRY_ID_SIZE);
         }
 
         /* The newest release is the first, and the only one a console
@@ -1235,12 +1421,12 @@ static int parse(struct catalog *catalog, const char *base) {
         taken++;
     }
     held_forget();
-    int empty = cJSON_GetArraySize(apps) == 0;
+    int empty = listed == 0;
     g_parsed_empty = empty;
     int rc = taken || empty || before > 0 ? taken : -1;
     /* A catalog that was not taken says nothing about how old the list is. */
     if (rc >= 0) {
-        catalog->total += cJSON_GetArraySize(apps);
+        catalog->total += listed;
         if (!catalog->generated || when < catalog->generated) {
             catalog->generated = when;
             /* The host alone: a line on the console has no room for a URL,
@@ -1252,8 +1438,8 @@ static int parse(struct catalog *catalog, const char *base) {
                      host);
         }
     }
-    logline("catalog: %d of %d entries taken in %u ms", taken, cJSON_GetArraySize(apps),
-            now_ms() - began);
+    cJSON_Delete(app);
+    logline("catalog: %d of %d entries taken in %u ms", taken, listed, now_ms() - began);
     cJSON_Delete(root);
     return rc;
 }
@@ -1504,11 +1690,15 @@ static int origin_entry(struct app_entry *entry, const struct source_repo *repo,
     }
     logline("origin: %s/%s .pspdx: %s, %s", repo->owner, repo->name, file.name, file.type);
 
-    sources_repo_id(repo, entry->id, sizeof(entry->id));
+    {
+        char id[ENTRY_ID_SIZE];
+        sources_repo_id(repo, id, sizeof(id));
+        entry_text(&entry->id, id, ENTRY_ID_SIZE);
+    }
     text_set(&entry->repo, url);
-    snprintf(entry->name, sizeof(entry->name), "%s", file.name);
+    entry_text(&entry->name, file.name, ENTRY_NAME_SIZE);
     text_set(&entry->tags, file.tags);
-    memcpy(entry->category, file.category, sizeof(entry->category));
+    entry_text(&entry->category, file.category, ENTRY_CATEGORY_SIZE);
     snprintf(entry->type, sizeof(entry->type), "%s", file.type);
     entry->unsupported = !pspdx_type_installable(file.type);
     text_set(&entry->author, file.author[0] ? file.author : repo->owner);
@@ -1700,7 +1890,7 @@ static int take_origin(struct catalog *catalog, const struct source_repo *repo, 
     /* A repository with no .pspdx is not an app a list can name. */
     if (origin_entry(entry, repo, NULL, make) <= 0)
         return -1;
-    snprintf(entry->id, sizeof(entry->id), "%s", id);
+    entry_text(&entry->id, id, ENTRY_ID_SIZE);
     char folder[64];
     install_target(id, entry->release.dir, folder, sizeof(folder));
     snprintf(entry->release.dir, sizeof(entry->release.dir), "%s", folder);
@@ -1897,7 +2087,7 @@ int catalog_add_file(struct catalog *catalog, const char *raw) {
     if (!entry || origin_entry(entry, &repo, raw, 0) <= 0)
         return -1;
     entry->no_pspdx = PSPDX_FROM_FILE;
-    snprintf(entry->id, sizeof(entry->id), "%s", id);
+    entry_text(&entry->id, id, ENTRY_ID_SIZE);
     char folder[64];
     install_target(id, entry->release.dir, folder, sizeof(folder));
     snprintf(entry->release.dir, sizeof(entry->release.dir), "%s", folder);
@@ -1925,6 +2115,7 @@ int catalog_ask_pinned(struct app_entry *entry, const char *raw) {
         pspdx_parse(raw, strlen(raw), &file, why, sizeof(why)) < 0 || !file.release_tag[0])
         return -1;
     struct app_entry *one = calloc(1, sizeof(*one));
+    if (one) entry_clear(one);              /* the texts that are never NULL */
     if (!one)
         return -1;
     /* The file is given, so its .pspdx is not asked for: one request, the
@@ -2011,6 +2202,7 @@ static void restore_installed(struct catalog *catalog) {
         /* One entry to ask into, not a catalog: an app at a time. */
         int ask = due && !g_offline && sources_parse_repo(source, &repo);
         struct app_entry *one = ask ? calloc(1, sizeof(*one)) : NULL;
+        if (one) entry_clear(one);              /* the texts that are never NULL */
         /* The status line follows the apps being asked, the way it follows a
            list being walked; a full check is nearly all of this. */
         if (one)
@@ -2102,7 +2294,7 @@ static void restore_installed(struct catalog *catalog) {
                 memset(one, 0, sizeof(*one));
                 /* The record's id, which a catalog may have given it rather
                    than the repository. */
-                snprintf(dst->id, sizeof(dst->id), "%s", id);
+                entry_text(&dst->id, id, ENTRY_ID_SIZE);
                 settle_state(dst);
                 note_latest(dst);
             }
@@ -2113,11 +2305,11 @@ static void restore_installed(struct catalog *catalog) {
         } else if (at < 0 && n >= 0 && next_place(catalog)) {
             struct app_entry *e = &catalog->apps[catalog->count++];
             entry_clear(e);
-            snprintf(e->id, sizeof(e->id), "%s", id);
+            entry_text(&e->id, id, ENTRY_ID_SIZE);
             text_set(&e->repo, source);
-            snprintf(e->name, sizeof(e->name), "%s", file.name);
+            entry_text(&e->name, file.name, ENTRY_NAME_SIZE);
             text_set(&e->tags, file.tags);
-            memcpy(e->category, file.category, sizeof(e->category));
+            entry_text(&e->category, file.category, ENTRY_CATEGORY_SIZE);
             snprintf(e->type, sizeof(e->type), "%s", file.type);
             e->unsupported = !pspdx_type_installable(file.type);
             text_set(&e->author, file.author);
@@ -2414,6 +2606,7 @@ int catalog_validate_source(const char *url, int repository) {
     /* A repository is one app: asked into one entry. */
     if (repository) {
         struct app_entry *one = calloc(1, sizeof(*one));
+    if (one) entry_clear(one);              /* the texts that are never NULL */
         struct source_repo repo;
         if (!one)
             return -1;
