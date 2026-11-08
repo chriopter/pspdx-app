@@ -54,7 +54,8 @@ void options_settings_load(void) {
        and fill the cache when idle; an explicit 30 FPS or fill=0 is kept. */
     g_settings_fps_cap30 = n > 0 && strstr(text, "fps=30\n") == text;
     g_fill_cache = !(n > 0 && strstr(text, "\nfill=0\n"));
-    view_sort_set(n > 0 && strstr(text, "\nsort=name\n") ? VIEW_SORT_NAME : VIEW_SORT_NEWEST);
+    view_sort_set(n > 0 && strstr(text, "\nsort=name\n") ? VIEW_SORT_NAME
+                  : n > 0 && strstr(text, "\nsort=installed\n") ? VIEW_SORT_INSTALLED : VIEW_SORT_NEWEST);
     /* How to connect, once it has been answered; no line while it has not. */
     g_cable = n <= 0 ? CABLE_UNASKED : strstr(text, "\ncable=wifi\n") ? CABLE_WIFI
               : strstr(text, "\ncable=usb\n") ? CABLE_USB
@@ -70,7 +71,9 @@ void options_settings_save(void) {
     static const char *const cable[] = {"", "cable=wifi\n", "cable=usb\n", "cable=usb,known\n"};
     char text[72];
     int n = snprintf(text, sizeof(text), "fps=%d\nfill=%d\nsort=%s\n%s", g_settings_fps_cap30 ? 30 : 60,
-                     g_fill_cache, view_sort() == VIEW_SORT_NAME ? "name" : "new", cable[g_cable]);
+                     g_fill_cache,
+                     view_sort() == VIEW_SORT_NAME ? "name" : view_sort() == VIEW_SORT_INSTALLED ? "installed" : "new",
+                     cable[g_cable]);
     if (storage_write(storage_path(SETTINGS_PATH), text, (size_t)n) == 0)
         g_settings_dirty = 0;
 }

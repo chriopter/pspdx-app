@@ -491,6 +491,12 @@ static int newest_first(const void *a, const void *b) {
     if (px != py) return px > py ? -1 : 1;
     return x - y;
 }
+/* What is on the stick first, newest first among it, then the rest so. */
+static int installed_first(const void *a, const void *b) {
+    int x = *(const unsigned short *)a, y = *(const unsigned short *)b;
+    int hx = g_view_of->apps[x].state != APP_NOT_INSTALLED, hy = g_view_of->apps[y].state != APP_NOT_INSTALLED;
+    return hx != hy ? hy - hx : newest_first(a, b);
+}
 /* A name is filed under its first letter or digit: a quote, a bracket or
    a space before it does not put it ahead of the alphabet. */
 static const char *filed(const char *name) {
@@ -585,12 +591,13 @@ static void build_view(int restart) {
         else take = 0;      /* the gear's rows are not packages */
         if (take) g_view[g_view_count++] = (unsigned short)i;
     }
-    /* Homebrew, the UMDs and the stick list the newest release first, or by
-       name where that was chosen; what says no release date stands last, and
-       a tie keeps the catalog's order. */
+    /* Homebrew, the UMDs and the stick list the newest release first, by
+       name, or what is installed first, as was chosen; what says no release
+       date stands last, and a tie keeps the catalog's order. */
     if (tab == TAB_HOMEBREW || tab == TAB_STICK || tab == TAB_UMD)
         qsort(g_view, (size_t)g_view_count, sizeof(*g_view),
-              g_sort == VIEW_SORT_NAME ? by_name : newest_first);
+              g_sort == VIEW_SORT_NAME ? by_name : g_sort == VIEW_SORT_INSTALLED ? installed_first
+                                                                    : newest_first);
     /* On the stick, what has something waiting for it stands first, in
        that order; the rest after, likewise. */
     if (tab == TAB_STICK) {

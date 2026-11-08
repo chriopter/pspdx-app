@@ -771,8 +771,9 @@ int main(int argc, char *argv[]) {
         if (steps) pressed |= vertical;
         shell_scroll_fast(g_scroll_fast);
         if (synced) pressed |= keys_pressed();
-        /* SELECT over a list of packages turns its order, newest first or
-           by name, for every list and for good; the foot says which. The
+        /* SELECT over a list of packages turns its order, newest first, by
+           name or what is installed first, for every list and for good; the
+           foot says which. The
            cursor goes to the head of the list, where the new order starts. */
         if ((pressed & PSP_CTRL_SELECT) && !info && shown()->count > 0 &&
             (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK ||

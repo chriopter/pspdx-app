@@ -2718,8 +2718,16 @@ static void draw_footer(void) {
         x = draw_hint(x, FOOTER_BASE, MARK_L, "/", g_dim) - HINT_SPACE;
         draw_hint(x, FOOTER_BASE, MARK_R, T_HINT_TABS, g_dim);
     } else if (lists) {
-        draw_hint(LIST_X, FOOTER_BASE, MARK_SELECT,
-                  view_sort() == VIEW_SORT_NAME ? T_SORT_NAME : T_SORT_NEWEST, g_dim);
+        /* At the head of a list; once it is scrolled down the hint fades,
+           out of the way of the rows, and comes back at the top. */
+        static float shown = 1.0f;
+        int top = view_grid() ? g_grid_first == 0 : g_first == 0;
+        shown += ((top ? 1.0f : 0.0f) - shown) * 0.2f;
+        if (shown > 0.05f)
+            draw_hint(LIST_X, FOOTER_BASE, MARK_SELECT,
+                      view_sort() == VIEW_SORT_NAME ? T_SORT_NAME
+                      : view_sort() == VIEW_SORT_INSTALLED ? T_SORT_INSTALLED : T_SORT_NEWEST,
+                      faded(g_dim, (int)(255 * shown)));
     } else if (g_details) {
         const struct app_entry *e = g_details;
         float x = LIST_X;

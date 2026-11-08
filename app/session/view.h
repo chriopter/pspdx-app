@@ -124,7 +124,7 @@ const char *view_search_last(void);     /* the word last typed, "" before the fi
 
 /* The order of every list of packages on the store and the stick, turned
    by SELECT. */
-enum { VIEW_SORT_NEWEST, VIEW_SORT_NAME, VIEW_SORTS };
+enum { VIEW_SORT_NEWEST, VIEW_SORT_NAME, VIEW_SORT_INSTALLED, VIEW_SORTS };
 int view_sort(void);
 void view_sort_set(int sort);
 /* The row of the first package on the open list, under whatever rows

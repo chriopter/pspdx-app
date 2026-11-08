@@ -364,6 +364,7 @@
 #define T_OSK_SEARCH         "Search apps"
 #define T_SORT_NEWEST        "Sorted by newest"
 #define T_SORT_NAME          "Sorted by name"
+#define T_SORT_INSTALLED     "Installed first"
 #define T_BROWSE_CATEGORY    "Browse by Category"
 #define T_BROWSE_TAG         "Browse by Tag"
 #define T_BROWSE_SOURCE      "Browse by Source"
