@@ -807,11 +807,16 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
     icons_bind(catalog);
     if (icons_want(wanted, want_count, visible)) icons_poke();
 
-    gfx_clip(0, GRID_TOP - GRID_POP / 2, SCR_W, GRID_BOTTOM - (GRID_TOP - GRID_POP / 2));
     int from = (int)(g_grid_scroll / GRID_LINE) * GRID_COLS, to = from + (GRID_LINES + 1) * GRID_COLS;
     if (to > count) to = count;
-    /* The chosen disc last, grown a little over its neighbours. */
-    for (int pass = 0; pass < 2; pass++)
+    /* The chosen disc last, grown a little over its neighbours. The rest
+       are cut to the four lines exactly, so not a pixel of the next one
+       shows below them; only the chosen one has room to grow past them. */
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass)
+            gfx_clip(0, GRID_TOP - GRID_POP / 2, SCR_W, GRID_BOTTOM - (GRID_TOP - GRID_POP / 2));
+        else
+            gfx_clip(0, GRID_TOP, SCR_W, GRID_LINES * GRID_LINE - GRID_GAP);
         for (int i = from; i < to; i++) {
             int selected = i == cursor, index = view_index(i);
             if (selected != pass || index < 0) continue;
@@ -871,6 +876,7 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
                 gfx_rect(x, y + h - 3, (int)(w * fraction), 3, g_accent);
             }
         }
+    }
     gfx_unclip();
 
     /* Under the grid the chosen disc's name, and how far down the grid is
