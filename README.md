@@ -104,7 +104,7 @@ https://github.com/someone/project@v1.2
 - Sources are validated before they land in `PSP/PSPDX/sources.txt`; a catalog that does not answer at that moment is saved all the same and tried again at every refresh, so nobody types it twice
 - Adding a catalog installs nothing; Direct Install and INBOX do
 - Removing a source keeps installed apps, their manifests and state
-- × on a source: **Edit address** (typed again, the old one goes once the new one is in), **Password**, **Delete**
+- × or △ on a source: **Edit address** (typed again, the old one goes once the new one is in), **Password**, **Delete**
 - A catalog behind a password answers 401: PSPDX asks for it when the source is added, keeps it per host in `PSP/PSPDX/passwords.txt` and sends it as HTTP Basic with every request to that host, and to no other
 
 #### Presets

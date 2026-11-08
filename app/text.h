@@ -97,6 +97,7 @@
 #define T_HINT_BACK          "Back"
 #define T_HINT_CANCEL        "Cancel"
 #define T_HINT_DELETE        "Delete"
+#define T_HINT_EDIT          "Edit"
 
 /* --------------------------------------------------------------- questions */
 

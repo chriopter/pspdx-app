@@ -551,9 +551,11 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
         if (pressed & PSP_CTRL_DOWN) { manage_move(&g_manage, 1); shell_status(""); cues_post(CUE_MOVE, 0); }
         else if (pressed & PSP_CTRL_UP) { manage_move(&g_manage, -1); shell_status(""); cues_post(CUE_MOVE, 0); }
         else if (pressed & PSP_CTRL_CIRCLE) sources_close();
-        else if ((pressed & PSP_CTRL_CROSS) && *synced) {
+        else if ((pressed & (PSP_CTRL_CROSS | PSP_CTRL_TRIANGLE)) && *synced &&
+                 ((pressed & PSP_CTRL_CROSS) || g_manage.row[g_manage.cursor].kind == MANAGE_SOURCE)) {
             /* Nothing is added or deleted while a fetch runs: the sources
-               it is reading are the ones it was started with. */
+               it is reading are the ones it was started with. Triangle
+               only on a source, where it is what X is. */
             const struct manage_row *row = &g_manage.row[g_manage.cursor];
             g_manage_stale = 1;
             if (row->kind == MANAGE_ADD) {
