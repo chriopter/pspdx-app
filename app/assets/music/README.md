@@ -5,8 +5,8 @@ the PSP's audio thread; nothing here is loaded from a file. What is in this
 directory is what that code sounds like, rendered once on a desk, so that
 a change to the code can be compared against what was chosen.
 
-- `tune.mp3` — the room's music, one full loop (128 s): two passes of the
-  64 s chord cycle with different entries and different bells.
+- `tune.mp3` — the room's music, one whole chord cycle (274 s): two passes
+  with different voicings, entries and bells.
 - `keys.mp3` — the interface: a scroll down five rows, an open, a done, a
   fail, two seconds apart.
 
@@ -16,9 +16,9 @@ The same code renders to a WAV on the desk:
 
     cd app
     cc -O2 -I. audio/synth.c audio/music.c audio/cues.c ../dev/render-music.c -lm -o render
-    ./render out.wav 138          # 128 s of tune, then the cues in the tail
-    ffmpeg -i out.wav -t 128 -c:a libmp3lame -q:a 4 assets/music/tune.mp3
-    ffmpeg -i out.wav -ss 128 -c:a libmp3lame -q:a 4 assets/music/keys.mp3
+    ./render out.wav 284          # 274 s of tune, then the cues in the tail
+    ffmpeg -i out.wav -t 274 -c:a libmp3lame -q:a 4 assets/music/tune.mp3
+    ffmpeg -i out.wav -ss 274 -c:a libmp3lame -q:a 4 assets/music/keys.mp3
 
 `render` prints the peak; keep it under about 26000 of 32767.
 
@@ -35,34 +35,34 @@ sounds like a keyboard being played:
 - C, "choral shimmer": vocal-like pads with slow unison beating, a hall of
   five seconds, one harmonic cycle a minute. Not taken.
 
-The result, A2:
+A2, the first tune, was a wall of pseudo-strings: four pad voices, a sub,
+shimmers and eight bells a pass, ringing so long that 28 to 32 voices sat
+on top of each other all the time, nearly everything under 500 Hz. It read
+as a cheap orchestra. A3, from 2026-11-08, keeps the place and drops the
+orchestra:
 
-- Six chords of uneven length over 64 s: E add9, C#m11, A maj9#11, F#m9,
-  B add9, G#m11, roots E1 to C#2 under a near-sine sub. Each pad voice
-  arrives staggered over five seconds in an order that differs per chord;
-  outer voices sit at ±0.8 and swap sides each chord. With twelve-second
-  decays every chord still rings under the next.
-- The pad (`SYNTH_DRIFT`) is a stereo chorus made of the timbre itself:
-  fundamental and octave a few cents sharp on the left, flat on the right,
-  a slow amplitude LFO per voice with a rate that differs per note.
-- The music voices go through their own bus: a two-pole low-pass whose
-  cutoff drifts between 450 Hz and 2.5 kHz on two slow sines that never
-  line up, plus band-limited noise, about 25 dB under the pads, breathing
-  on two other sines.
-- Bells (`SYNTH_BELL`, partials 1 : 2 : 2.756 : 5.404, a quarter heard
-  direct and the rest through a hall of six combs and four allpasses) on
-  chord tones in the D5–A5 region, eight a pass, never on a grid, sides
-  alternating. The hall runs only while a bell is sounding and for eight
-  seconds after.
-- The interface is the same glass, damped (`SYNTH_CHIME`: half the ring, a third of the hall): one strike per key, quieter and single
-  during a held scroll, two for an open, four rising for a done, two low
-  and close together for a fail (`app/audio/cues.c`). It stays out of the
-  music bus so it is not darkened with the pads, and it is not ducked
-  under a film.
+- Six modal chords out of one scale, D dorian with a lydian turn on B flat:
+  D, B flat, F, C, A minor, G sus. None is a dominant, so nothing cadences.
+  Three voices and a soft root each, 19 to 26 s a chord; the second pass
+  changes voicings and entries and leaves two roots out, so the cycle comes
+  round only after 274 s.
+- The pad (`SYNTH_HAZE`) is FM whose index moves slowly, a filter opening
+  and closing, with a plain sine seven cents sharp beating against it in
+  the same channel: warmth without stereo copies that cancel between the
+  PSP's speakers. The root (`SYNTH_ROOT`) is a low tone with a twin three
+  cents off.
+- Over it, four short electric-piano phrases (`SYNTH_KEYS`, a bright strike
+  that settles to near a sine), one to three notes each, every one on a
+  loop of its own length (23.3, 29.9, 37.1 and 44.3 s) and skipping rounds.
+  All their notes are G A C D E, which sit on every chord, so they meet
+  differently each time and never clash: about ten notes a minute.
+- Three faint glass bells a pass (`SYNTH_FAR`), heard mostly as room.
+- The music has a room of its own: a darkening one-pole into three small
+  allpasses feeding the two echoes the interface already uses; two taps of
+  it are heard directly, one a side. After 20 s of silence the room is
+  emptied and its loop skipped.
+- The interface keys are unchanged (`SYNTH_CHIME`, `app/audio/cues.c`).
 
-Cost on the console, measured on the desk render against the tune before
-it: about 29 % more time in the synth, 65 KB more static memory for the
-hall.
-
-The candidates themselves were not kept; the brief above and the code are
-what they came to.
+Cost on the console, against A2: about 37 % fewer instructions a sample on
+average (452 against 713), 11 voices sounding on average instead of 29. Peak
+24967, 2.4 dB quieter on average, to sit further under the menu.

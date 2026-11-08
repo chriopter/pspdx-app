@@ -1,26 +1,27 @@
 #ifndef PSPDX_SYNTH_H
 #define PSPDX_SYNTH_H
 
-/* Six instruments over one sine table. For the interface: a piano whose
-   upper partials die away faster than its fundamental, which is most of
-   what makes a struck string sound struck; a glass that swells in and
-   rings on evenly; and a pad that takes most of a second to arrive and
-   stays for many. For the tune: a drift, which is a pad a few cents sharp
-   on the left and flat on the right so the room slowly turns; a sub, the
-   floor under it; a shimmer, the drift high up and quieter; and a bell,
-   cold and inharmonic, heard mostly through a long hall of its own. The
-   tune also goes through a gentle low-pass with a little filtered noise for
-   air. Plain C with no platform in it, so the
-   same code renders on a PSP audio thread and into a WAV on a desk.
+/* The interface's instruments are additive, over one sine table: a piano
+   whose upper partials die away faster than its fundamental, a glass that
+   swells in and rings on evenly, a pad, and the chime every key rings.
+   The tune's are two-operator FM over the same table, the brightness of
+   each a slowly moving index rather than a filter: a haze, a warm pad
+   beating gently against a twin a few cents off; a root, the low tone
+   under it; keys, an electric piano struck soft; and a far glass, a bell
+   heard mostly through the room. The tune goes through a gentle low-pass
+   and, by its own send, a short cloud of allpasses before the echoes.
+   Plain C with no platform in it, so the same code renders on a PSP audio
+   thread and into a WAV on a desk.
 
    Only the audio thread may call into here. Other threads post through
    cues.h. */
 
-/* Pads ring for many seconds and a chord brings five; a dozen voices was
-   a pool that every new note had to steal from. */
+/* Pads ring for many seconds, a chord brings four and the phrases ring
+   on under them; a dozen voices was a pool that every new note had to
+   steal from. */
 #define SYNTH_VOICES 32
 
-enum synth_timbre { SYNTH_PIANO, SYNTH_GLASS, SYNTH_PAD, SYNTH_DRIFT, SYNTH_SUB, SYNTH_SHIMMER, SYNTH_BELL,
+enum synth_timbre { SYNTH_PIANO, SYNTH_GLASS, SYNTH_PAD, SYNTH_HAZE, SYNTH_ROOT, SYNTH_KEYS, SYNTH_FAR,
                     SYNTH_CHIME };
 
 void synth_init(int sample_rate);
