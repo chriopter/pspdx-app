@@ -933,12 +933,38 @@ void reset_completely(void) {
 
 /* Reads a source from the keyboard and adds it. Returns 1 when the catalog
    should be fetched again, 0 when there is nothing new. */
+static int add_typed(const char *text, int install);
+
 int type_source(int install) {
     if (downloads_busy()) { error_busy(); return 0; }
-    char text[SOURCE_URL], url[SOURCE_URL];
+    char text[SOURCE_URL];
     int rc = osk_read(install ? T_OSK_GITHUB : T_OSK_SOURCE, "", text, sizeof(text));
     if (rc <= 0 || !text[0]) return 0;
-    rc = sources_normalize(text,url,sizeof(url));
+    return add_typed(text, install);
+}
+
+/* A source typed again, mistyped the first time: the new address is added
+   as any is, and the old one goes once it is in. The password goes with it
+   to a new host. */
+int edit_source(const char *old) {
+    if (downloads_busy()) { error_busy(); return 0; }
+    char text[SOURCE_URL], password[104];
+    if (osk_read(T_OSK_SOURCE, old, text, sizeof(text)) <= 0 || !text[0] || !strcmp(text, old))
+        return 0;
+    int had = sources_password(old, password, sizeof(password));
+    if (!add_typed(text, 0)) return 0;
+    char url[SOURCE_URL];
+    if (sources_normalize(text, url, sizeof(url)) == 0 && !sources_same_url(url, old)) {
+        sources_remove(old);
+        char other[104];
+        if (had && !sources_password(url, other, sizeof(other))) sources_password_set(url, password);
+    }
+    return 1;
+}
+
+static int add_typed(const char *text, int install) {
+    char url[SOURCE_URL];
+    int rc = sources_normalize(text,url,sizeof(url));
     struct source_repo parsed;
     if(rc<0 || (install && !sources_parse_repo(url,&parsed))) {error_show(T_BAD_ADDRESS, "source address");return 0;}
     preview_quiesce();
@@ -949,6 +975,14 @@ int type_source(int install) {
     }
     catalog_offline(0);
     rc=catalog_validate_source(url,install);
+    /* A catalog behind a password says so with 401: asked for, kept for
+       its host, and the catalog asked again with it. */
+    if (rc < 0 && !install && catalog_last_status() == 401) {
+        char password[104];
+        if (osk_read(T_OSK_PASSWORD, "", password, sizeof(password)) > 0 && password[0] &&
+            sources_password_set(url, password) == 0)
+            rc = catalog_validate_source(url, install);
+    }
     preview_resume();
     /* A catalog that does not answer now -- off, out of reach, or behind a
        certificate still to be said yes to -- is kept all the same: it is

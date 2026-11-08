@@ -32,6 +32,8 @@
    of all sources is through, so a large catalog does not hold its size for
    the rest of the run. */
 #define RESPONSE_MAX (4u * 1024u * 1024u)
+/* What the last text fetched was answered with: 401 asks for a password. */
+static long g_last_status;
 static char *response;
 static size_t response_room, response_len;
 static void response_release(void) {
@@ -1285,6 +1287,7 @@ static int fetch_text(const char *url, struct https_result *out) {
     unsigned start = now_ms();
     https_set_time_limit(TEXT_LIMIT_S);
     int rc = https_get(url, response_sink, NULL, NULL, NULL, &r);
+    g_last_status = r.status;
     https_set_time_limit(0);
     https_set_accept_gzip(0);
     const char *bad = gunzip_end(&g_gunzip, r.content_encoding);
@@ -2399,6 +2402,8 @@ int catalog_prepare(struct app_entry *entry) {
     snprintf(entry->type, sizeof(entry->type), "%s", file.type);
     return 0;
 }
+long catalog_last_status(void) { return g_last_status; }
+
 int catalog_validate_source(const char *url, int repository) {
     int rc = -1;
     attempted_count = 0;

@@ -472,6 +472,17 @@ int main(int argc, char **argv) {
         presets_offer(list);
         return 0;
     }
+    if (!strcmp(argv[1], "password") && argc > 3)
+        return sources_password_set(argv[2], argv[3]) < 0;
+    if (!strcmp(argv[1], "passwordof") && argc > 2) {
+        char password[104];
+        printf("%d %s\n", sources_password(argv[2], password, sizeof(password)), password);
+        return 0;
+    }
+    if (!strcmp(argv[1], "passwordsload")) {
+        sources_passwords_load();
+        return 0;
+    }
     if (!strcmp(argv[1], "add")) {
         char url[SOURCE_URL];
         if(sources_normalize(argv[2],url,sizeof(url))<0)return 1;

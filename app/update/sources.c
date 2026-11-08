@@ -7,11 +7,14 @@
 #include <string.h>
 #include <strings.h>
 
+#include "pspkit-https/https.h"
 #include "update/sources.h"
 #include "util/runtime.h"
 
 #define SOURCES_DIR storage_path("PSP/PSPDX")
 #define SOURCES_PATH storage_path("PSP/PSPDX/sources.txt")
+#define PASSWORDS_PATH storage_path("PSP/PSPDX/passwords.txt")
+#define PASSWORD_USER "pspdx"
 
 static char g_text[16 * 1024];
 
@@ -685,4 +688,71 @@ void sources_name(const char *url, char *out, size_t size) {
     const char *shown = !strncmp(host, "www.", 4) ? host + 4 : host;
     if (parts) snprintf(out, size, "%s / %s", shown, part[0]);
     else snprintf(out, size, "%s", shown);
+}
+
+/* The host a web URL asks, lower case, as the TLS layer names it: no user,
+   no port. 0, or -1 for something that is not one. */
+static int web_host(const char *url, char *out, size_t size) {
+    int scheme = sources_web(url);
+    if (!scheme) return -1;
+    const char *h = url + scheme, *at = strchr(h, '@'), *end = h + strcspn(h, "/?#");
+    if (at && at < end) h = at + 1;
+    size_t n = strcspn(h, ":/?#");
+    if (!n || n >= size) return -1;
+    for (size_t i = 0; i < n; i++) out[i] = (char)tolower((unsigned char)h[i]);
+    out[n] = '\0';
+    return 0;
+}
+
+int sources_password(const char *url, char *out, size_t size) {
+    char host[128], *text = NULL;
+    int found = 0;
+    if (size) out[0] = '\0';
+    if (web_host(url, host, sizeof(host)) < 0 || storage_read(PASSWORDS_PATH, &text, 8192) < 0) return 0;
+    for (char *line = strtok(text, "\r\n"); line && !found; line = strtok(NULL, "\r\n")) {
+        char *space = strchr(line, ' ');
+        if (!space) continue;
+        *space = '\0';
+        if (!strcmp(line, host)) {
+            snprintf(out, size, "%s", space + 1);
+            found = 1;
+        }
+    }
+    free(text);
+    return found;
+}
+
+int sources_password_set(const char *url, const char *password) {
+    char host[128], *text = NULL;
+    if (web_host(url, host, sizeof(host)) < 0 || strpbrk(password, "\r\n") || strlen(password) > 100)
+        return -1;
+    int len = storage_read(PASSWORDS_PATH, &text, 8192);
+    size_t cap = (len > 0 ? (size_t)len : 0) + strlen(host) + strlen(password) + 3, at = 0;
+    char *all = malloc(cap);
+    if (!all) { free(text); return -1; }
+    /* Every line but the host's own, then the host's, unless it goes. */
+    for (char *line = len > 0 ? strtok(text, "\r\n") : NULL; line; line = strtok(NULL, "\r\n")) {
+        size_t n = strcspn(line, " ");
+        if (n == strlen(host) && !strncmp(line, host, n)) continue;
+        at += (size_t)snprintf(all + at, cap - at, "%s\n", line);
+    }
+    if (*password) at += (size_t)snprintf(all + at, cap - at, "%s %s\n", host, password);
+    int rc = storage_write(PASSWORDS_PATH, all, at);
+    free(all);
+    free(text);
+    if (rc < 0) return -1;
+    https_set_basic(host, PASSWORD_USER, password);
+    return 0;
+}
+
+void sources_passwords_load(void) {
+    char *text = NULL;
+    if (storage_read(PASSWORDS_PATH, &text, 8192) < 0) return;
+    for (char *line = strtok(text, "\r\n"); line; line = strtok(NULL, "\r\n")) {
+        char *space = strchr(line, ' ');
+        if (!space) continue;
+        *space = '\0';
+        https_set_basic(line, PASSWORD_USER, space + 1);
+    }
+    free(text);
 }

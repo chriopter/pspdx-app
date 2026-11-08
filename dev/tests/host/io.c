@@ -235,6 +235,12 @@ static int net_aborted;
 void https_abort(void) { net_aborted = 1; }
 static int accept_gzip;
 void https_set_accept_gzip(int on) { accept_gzip = on != 0; }
+/* What a password would have been sent with: basic.log, a line each. */
+int https_set_basic(const char *host, const char *user, const char *password) {
+    FILE *f = fopen("basic.log", "a");
+    if (f) { fprintf(f, "%s %s %s\n", host, user, password ? password : ""); fclose(f); }
+    return 0;
+}
 /* The library's bound on a whole get, held against the clock above between
    pieces: FAILED before the body, TRUNCATED after, as the library says. */
 static unsigned time_limit;

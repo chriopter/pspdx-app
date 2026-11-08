@@ -239,6 +239,12 @@
 /* Direct Install and sources. */
 #define T_OSK_GITHUB         "Enter GitHub owner/repository"
 #define T_OSK_SOURCE         "Enter source URL"
+#define T_OSK_PASSWORD       "Password"
+#define T_SOURCE_EDIT        "Edit address"
+#define T_SOURCE_PASSWORD    "Password"
+#define T_SOURCE_DELETE      "Delete"
+#define T_SOURCE_PASSWORD_SET "Password saved."
+#define T_SOURCE_PASSWORD_GONE "Password removed."
 #define T_BAD_ADDRESS        "The address is not valid."
 #define T_GITHUB_FORMAT      "Enter it as owner/repository."
 #define T_SOURCE_UNAVAILABLE "Could not add the source."

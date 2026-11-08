@@ -88,6 +88,9 @@ void refetch_now(int cursor, char *keep, size_t keep_size, int *synced,
    repository and remembers it as wanted. Returns 1 when the catalog should
    be fetched again, 0 when there is nothing new. */
 int type_source(int install);
+/* The source at old typed again, its address put right. 1 when the sources
+   changed and want fetching. */
+int edit_source(const char *old);
 
 /* The repository "Install from GitHub" typed, while the catalog it should
    turn up in is fetched: its URL, empty while none is waited for, and

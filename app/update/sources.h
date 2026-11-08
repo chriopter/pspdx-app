@@ -83,6 +83,16 @@ int sources_same_url(const char *a, const char *b);
    catalog its owner hosts at home may be, and 0 for anything else. */
 int sources_web(const char *url);
 
+/* A catalog somebody keeps behind a password, per host, in
+   PSP/PSPDX/passwords.txt, "<host> <password>" a line. sources_password
+   copies the one for url's host and returns 1, 0 for none. Setting one
+   ("" takes it away) writes the file and hands it to the TLS layer, which
+   sends it with every request to that host and no other.
+   sources_passwords_load hands every one over, once, at start. */
+int sources_password(const char *url, char *out, size_t size);
+int sources_password_set(const char *url, const char *password);
+void sources_passwords_load(void);
+
 /* Two URLs that name the same repository, whatever tag either pins: what
    a record on the stick and a catalog entry are compared by. */
 int sources_same_repo(const char *a, const char *b);

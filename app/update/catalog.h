@@ -195,6 +195,8 @@ void catalog_offline(int value);
 int catalog_too_large(void);
 void catalog_force_sources(void);
 int catalog_prepare(struct app_entry *entry);
+/* The HTTP status of the last catalog or list fetched, 0 without one. */
+long catalog_last_status(void);
 int catalog_validate_source(const char *url,int repository);
 
 /* One repository asked at the origin and put into the catalog, for the

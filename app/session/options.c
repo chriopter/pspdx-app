@@ -21,6 +21,7 @@
 #include "gui/system_view.h"
 #include "session/actions.h"
 #include "session/downloads.h"
+#include "gui/osk.h"
 #include "session/manage_sources.h"
 #include "session/cable.h"
 #include "session/options.h"
@@ -308,8 +309,12 @@ void options_fps_runtime_toggle(void) {
     apply_fps();
 }
 
+/* The source the popup is about, while it is SUB_SOURCE. */
+static char g_sub_url[SOURCE_URL];
+static int g_sub_source;
+
 static void sub_push(void) {
-    g_menu.title = T_SUB_DIRECT;
+    g_menu.title = g_sub == SUB_SOURCE ? g_sub_url + sources_web(g_sub_url) : T_SUB_DIRECT;
     memset(g_menu.flag, 0, sizeof(g_menu.flag));
     shell_menu(&g_menu);
 }
@@ -357,8 +362,15 @@ static void sources_close(void) {
 void sub_open(enum sub which) {
     g_sub = which;
     g_menu.count = 0;
-    g_menu.item[g_menu.count++] = T_SUB_FROM_GITHUB;
-    g_menu.item[g_menu.count++] = T_SUB_FROM_INBOX;
+    if (which == SUB_SOURCE) {
+        /* A source: its address put right, its password, or gone. */
+        g_menu.item[g_menu.count++] = T_SOURCE_EDIT;
+        g_menu.item[g_menu.count++] = T_SOURCE_PASSWORD;
+        g_menu.item[g_menu.count++] = T_SOURCE_DELETE;
+    } else {
+        g_menu.item[g_menu.count++] = T_SUB_FROM_GITHUB;
+        g_menu.item[g_menu.count++] = T_SUB_FROM_INBOX;
+    }
     for (int i = 0; i < g_menu.count; i++) { g_menu.on[i] = 1; g_menu.key[i] = -1; g_menu.value[i] = NULL; }
     g_menu.cursor = 0;
     sub_push();
@@ -421,8 +433,23 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
         else if (pressed & PSP_CTRL_CIRCLE) sub_close();
         else if (pressed & PSP_CTRL_CROSS) {
             int chosen = g_menu.cursor;
+            enum sub was = g_sub;
             sub_close();
-            if (chosen == 0 && *synced && type_source(1))
+            if (was == SUB_SOURCE) {
+                if (chosen == 0 && *synced && edit_source(g_sub_url))
+                    refetch_now(*cursor, keep, keep_size, synced, refreshing);
+                else if (chosen == 1 && *synced) {
+                    char password[104];
+                    sources_password(g_sub_url, password, sizeof(password));
+                    /* Empty takes it away. */
+                    if (osk_read(T_OSK_PASSWORD, password, password, sizeof(password)) >= 0 &&
+                        sources_password_set(g_sub_url, password) == 0) {
+                        shell_status(password[0] ? T_SOURCE_PASSWORD_SET : T_SOURCE_PASSWORD_GONE);
+                        refetch_now(*cursor, keep, keep_size, synced, refreshing);
+                    }
+                } else if (chosen == 2)
+                    ask(ASK_CATALOG, g_sub_source, T_SOURCE_DELETE_ASK, g_sub_url + sources_web(g_sub_url));
+            } else if (chosen == 0 && *synced && type_source(1))
                 refetch_now(*cursor, keep, keep_size, synced, refreshing);
             else if (chosen == 1 && *synced) ask_inbox();
         }
@@ -534,10 +561,10 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             } else if (row->kind == MANAGE_DIRECT) {
                 sub_open(SUB_ADD);
             } else {
-                /* Named without the scheme; every source has it. */
-                const char *u = manage_url(&g_manage, g_manage.cursor);
-                u += sources_web(u);
-                ask(ASK_CATALOG, row->source, T_SOURCE_DELETE_ASK, u);
+                /* A source: edit its address, set its password, or delete it. */
+                snprintf(g_sub_url, sizeof(g_sub_url), "%s", manage_url(&g_manage, g_manage.cursor));
+                g_sub_source = row->source;
+                sub_open(SUB_SOURCE);
             }
         }
     } else return 0;

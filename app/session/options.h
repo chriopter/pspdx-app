@@ -16,7 +16,7 @@ void menu_open(int index);
 void basket_pick_open(int index);
 
 /* The one popup under the gear: the two ways a .pspdx comes in directly. */
-enum sub { SUB_NONE, SUB_ADD };
+enum sub { SUB_NONE, SUB_ADD, SUB_SOURCE };
 /* The lists' order turned to the next one, and kept on the stick. */
 void options_sort_next(void);
 void sub_open(enum sub which);

@@ -1427,6 +1427,15 @@ class ClientTests(unittest.TestCase):
   tiles=lambda apps:(self.write('catalog.json',dict(catalog,apps=[first]+apps)),re.search(r'tab -4 kind 4 rows (\d+) first',self.run_client('view').stdout).group(1))[1]
   self.assertEqual(tiles([disc('ULUS-10001','US',game='loco 2'),disc('UCES-01059','EU',game='loco 2')]),'1')
   self.assertEqual(tiles([disc('ULUS-10001','US'),disc('UCES-01059','EU')]),'2')
+ def test_a_password_is_kept_per_host_and_handed_on(self):
+  # A catalog behind a password: kept for its host, whatever path or port the source has, handed to the TLS layer when set and at every start, and gone again with an empty one.
+  self.fixtures();f=self.root/'ms0:/PSP/PSPDX/passwords.txt';log=self.root/'basic.log'
+  self.run_client('password','https://Shelf.Lan:8443/games/','0096');self.run_client('password','http://other.lan/','x y')
+  self.assertEqual(f.read_text(),'shelf.lan 0096\nother.lan x y\n')
+  self.assertEqual(self.run_client('passwordof','https://shelf.lan/').stdout.strip(),'1 0096')
+  self.assertEqual(self.run_client('passwordof','https://elsewhere.lan/').stdout.strip(),'0')
+  log.unlink();self.run_client('passwordsload');self.assertEqual(log.read_text(),'shelf.lan pspdx 0096\nother.lan pspdx x y\n')
+  self.run_client('password','https://shelf.lan/','');self.assertEqual(f.read_text(),'other.lan x y\n')
  def test_a_catalog_at_home_is_plain_http(self):
   # A catalog somebody hosts at home has no certificate: http:// stays http://, a bare host still becomes https://, and an ISO it lists installs, held to its hash.
   self.fixtures();path=self.root/'ms0:/PSP/PSPDX/sources.txt'

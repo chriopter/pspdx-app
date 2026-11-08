@@ -40,6 +40,7 @@
 #include "session/actions.h"
 #include "session/downloads.h"
 #include "session/questions.h"
+#include "update/sources.h"
 #include "session/options.h"
 #include "update/catalog.h"
 #include "update/sync.h"
@@ -367,6 +368,7 @@ int main(int argc, char *argv[]) {
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
     install_recover();
     questions_trust_load();
+    sources_passwords_load();
     /* After the recovery, which is what settles what is actually under
        PSP/GAME, and before the sync, which reads every record there is. The
        record PSPDX 0.5 kept of itself goes first: it names this folder, and
