@@ -33,6 +33,7 @@
 #include <cjson/cJSON.h>
 #include <pspiofilemgr.h>
 #include <pspkernel.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -143,21 +144,70 @@ static volatile int g_abort;
 /* A download arrives in pieces of a few kilobytes, and storage written a
    piece at a time is the slowest part of it: a PSP Go's own flash took
    1.1 MB/s that way and 2.6 MB/s in blocks, with the cable delivering 4.8.
-   So the pieces are gathered and written a block at a time; where there is
-   no memory for the block they are written as they come. */
+   So the pieces are gathered and written a block at a time -- and on a
+   thread of their own, two blocks taking turns: while one is written the
+   next fills from the network, which would otherwise stand still for as
+   long as the stick takes, its window closing, and come back in a wave.
+   Where there is no memory or no thread they are written as they come. */
 #define DL_BLOCK (256 * 1024)
+
+/* The writer's thread and the two counts it is told by: blocks full and
+   waiting to be written, blocks free to fill. On the console a thread and
+   semaphores of the kernel's, the writer just above the download in
+   priority so that a block is written the moment it is full; elsewhere,
+   for the tests, POSIX's. */
+#ifdef __PSP__
+typedef SceUID dl_sem;
+static int dl_sem_init(dl_sem *s, int n) { *s = sceKernelCreateSema("dl", 0, n, 2, NULL); return *s < 0 ? -1 : 0; }
+static void dl_sem_wait(dl_sem *s) { sceKernelWaitSema(*s, 1, NULL); }
+static void dl_sem_post(dl_sem *s) { sceKernelSignalSema(*s, 1); }
+static void dl_sem_free(dl_sem *s) { sceKernelDeleteSema(*s); }
+#else
+#include <semaphore.h>
+typedef sem_t dl_sem;
+static int dl_sem_init(dl_sem *s, int n) { return sem_init(s, 0, (unsigned)n); }
+static void dl_sem_wait(dl_sem *s) { while (sem_wait(s) != 0) {} }
+static void dl_sem_post(dl_sem *s) { sem_post(s); }
+static void dl_sem_free(dl_sem *s) { sem_destroy(s); }
+#endif
 
 struct dl {
     int fd;
     wc_Sha256 sha;
     size_t written, expected;
-    unsigned char *block;
+    unsigned char *block;           /* the one filling: buf[fill] */
     size_t held;
+    /* The writer: buf[i] waiting to be written for pending[i] bytes. */
+    unsigned char *buf[2];
+    volatile size_t pending[2];
+    int fill, next_write, threaded;
+    volatile int quit, write_failed;
+    dl_sem full, free_;
+#ifdef __PSP__
+    SceUID writer;
+#else
+    pthread_t writer;
+#endif
+    unsigned write_us, write_max_us, wait_us;
+    /* Going on from a .part: the bytes it held, whether the server's answer
+       has said yet that it sends the rest (206) or all of it again (200),
+       and what is passed on to the caller's progress. */
+    const char *path;
+    size_t from;
+    int decided, bad;
+    https_progress up;
+    void *up_ctx;
+    unsigned said_at;               /* the log's last word on the rate */
+    size_t said_bytes;
 };
 
 static int dl_write(struct dl *d, const void *data, size_t len) {
     while (len) {
+        unsigned t0 = now_us();
         int n = sceIoWrite(d->fd, data, len);
+        unsigned us = now_us() - t0;
+        d->write_us += us;
+        if (us > d->write_max_us) d->write_max_us = us;
         if (n <= 0) {
             logline("write failed %d", n);
             return -1;
@@ -168,15 +218,110 @@ static int dl_write(struct dl *d, const void *data, size_t len) {
     return 0;
 }
 
-/* What is still held goes to the file: before it is closed. */
-static int dl_flush(struct dl *d) {
+/* Each full block in turn, until one comes with nothing in it. */
+static void dl_writer_loop(struct dl *d) {
+    for (;;) {
+        dl_sem_wait(&d->full);
+        int i = d->next_write;
+        size_t len = d->pending[i];
+        if (!len || d->quit) break;
+        if (!d->write_failed && dl_write(d, d->buf[i], len) < 0) d->write_failed = 1;
+        d->pending[i] = 0;
+        d->next_write = i ^ 1;
+        dl_sem_post(&d->free_);
+    }
+}
+#ifdef __PSP__
+static int dl_writer(SceSize args, void *argp) {
+    (void)args;
+    dl_writer_loop(*(struct dl **)argp);
+    return 0;
+}
+#define DL_WRITER_PRIORITY 0x23         /* the download thread is 0x24 */
+#else
+static void *dl_writer(void *arg) {
+    dl_writer_loop(arg);
+    return NULL;
+}
+#endif
+
+/* The two blocks and the writer, or one block written in place, or none. */
+static void dl_start(struct dl *d) {
+    memset(d->buf, 0, sizeof(d->buf));
+    d->pending[0] = d->pending[1] = 0;
+    d->fill = d->next_write = d->threaded = d->quit = d->write_failed = 0;
+    d->write_us = d->write_max_us = d->wait_us = 0;
+    d->held = 0;
+    d->buf[0] = malloc(DL_BLOCK);
+    d->buf[1] = d->buf[0] ? malloc(DL_BLOCK) : NULL;
+    if (d->buf[1] && dl_sem_init(&d->full, 0) == 0) {
+        /* One block free besides the one being filled. */
+        if (dl_sem_init(&d->free_, 1) == 0) {
+#ifdef __PSP__
+            d->writer = sceKernelCreateThread("dl_writer", dl_writer, DL_WRITER_PRIORITY, 16 * 1024,
+                                              PSP_THREAD_ATTR_USER, NULL);
+            struct dl *self = d;
+            if (d->writer >= 0 && sceKernelStartThread(d->writer, sizeof(self), &self) >= 0) d->threaded = 1;
+            else if (d->writer >= 0) sceKernelDeleteThread(d->writer);
+#else
+            if (pthread_create(&d->writer, NULL, dl_writer, d) == 0) d->threaded = 1;
+#endif
+            if (!d->threaded) dl_sem_free(&d->free_);
+        }
+        if (!d->threaded) dl_sem_free(&d->full);
+    }
+    if (!d->threaded && d->buf[1]) { free(d->buf[1]); d->buf[1] = NULL; }
+    d->block = d->buf[0];
+}
+
+/* The block that filled handed to the writer, and the other one taken as
+   soon as it is free. */
+static int dl_hand_over(struct dl *d) {
     size_t held = d->held;
     d->held = 0;
-    return held ? dl_write(d, d->block, held) : 0;
+    if (!held) return 0;
+    if (!d->threaded) return dl_write(d, d->block, held);
+    d->pending[d->fill] = held;
+    dl_sem_post(&d->full);
+    d->fill ^= 1;
+    unsigned t0 = now_us();
+    dl_sem_wait(&d->free_);
+    d->wait_us += now_us() - t0;
+    d->block = d->buf[d->fill];
+    return d->write_failed ? -1 : 0;
+}
+
+/* What is still held goes to the file, the writer finishes and goes:
+   before the file is closed. */
+static int dl_finish(struct dl *d) {
+    int rc = dl_hand_over(d);
+    if (d->threaded) {
+        /* The block that may still be on its way, then a block of nothing,
+           which is the writer's word to stop. */
+        dl_sem_wait(&d->free_);
+        d->quit = 1;
+        dl_sem_post(&d->full);
+#ifdef __PSP__
+        sceKernelWaitThreadEnd(d->writer, NULL);
+        sceKernelDeleteThread(d->writer);
+#else
+        pthread_join(d->writer, NULL);
+#endif
+        dl_sem_free(&d->full);
+        dl_sem_free(&d->free_);
+        if (d->write_failed) rc = -1;
+        d->threaded = 0;
+    }
+    free(d->buf[0]);
+    free(d->buf[1]);
+    d->buf[0] = d->buf[1] = d->block = NULL;
+    return rc;
 }
 
 static int file_sink(void *ctx, const void *data, size_t len) {
     struct dl *d = ctx;
+    if (d->bad || !d->decided)
+        return -1;
     if (len > d->expected - d->written)
         return -1;
     if (wc_Sha256Update(&d->sha, data, (word32)len) != 0)
@@ -190,7 +335,7 @@ static int file_sink(void *ctx, const void *data, size_t len) {
         d->held += k;
         data = (const char *)data + k;
         len -= k;
-        if (d->held == DL_BLOCK && dl_flush(d) < 0)
+        if (d->held == DL_BLOCK && dl_hand_over(d) < 0)
             return -1;
     }
     return 0;
@@ -213,34 +358,109 @@ static void why(const char *fmt, ...) {
     va_end(ap);
 }
 
-/* One attempt: the file at path written afresh from url. The https result
-   says how the server answered; the return is https_get's. */
+/* The answer's length says what the server sends: the rest after a
+   range was asked for, or the whole file again from a server that does not
+   do ranges -- then the .part starts over. Anything else is not this file. */
+static void dl_progress(void *ctx, size_t done, size_t total) {
+    struct dl *d = ctx;
+    if (!d->decided && total) {
+        d->decided = 1;
+        if (total == d->expected - d->from) {
+            logline("download: going on from %lu of %lu", (unsigned long)d->from,
+                    (unsigned long)d->expected);
+        } else if (total == d->expected) {
+            logline("download: the server sends it whole; starting over");
+            sceIoClose(d->fd);
+            d->fd = sceIoOpen(d->path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+            d->from = d->written = d->held = 0;  /* the writer has had nothing yet */
+            if (d->fd < 0 || wc_InitSha256(&d->sha) != 0) d->bad = 1;
+        } else {
+            logline("download: %lu bytes announced, wanted %lu", (unsigned long)total,
+                    (unsigned long)(d->expected - d->from));
+            d->bad = 1;
+        }
+    }
+    if (d->up) d->up(d->up_ctx, d->from + done, d->expected);
+    /* Every ten seconds the log says how it goes: a download that slows
+       down or comes in waves shows in it as a rate and a stick time. */
+    unsigned now = now_ms();
+    if (!d->said_at) { d->said_at = now; d->said_bytes = d->written; }
+    else if (now - d->said_at >= 10000) {
+        size_t got = d->written >= d->said_bytes ? d->written - d->said_bytes : 0;
+        logline("download: %lu of %lu, %u KB/s, stick %u ms, waited %u ms",
+                (unsigned long)d->written, (unsigned long)d->expected,
+                (unsigned)(got / (now - d->said_at)), d->write_us / 1000, d->wait_us / 1000);
+        d->said_at = now;
+        d->said_bytes = d->written;
+    }
+}
+
+/* What a .part already holds goes into the hash again, so that the check
+   at the end covers the whole file. The bytes read, or -1. */
+static long long dl_rehash(struct dl *d) {
+    int fd = sceIoOpen(d->path, PSP_O_RDONLY, 0777);
+    if (fd < 0) return -1;
+    long long total = 0;
+    unsigned char *buf = d->block;
+    for (;;) {
+        int n = sceIoRead(fd, buf, DL_BLOCK);
+        if (n < 0 || g_abort) { total = -1; break; }
+        if (n == 0) break;
+        if (wc_Sha256Update(&d->sha, buf, (word32)n) != 0) { total = -1; break; }
+        total += n;
+    }
+    sceIoClose(fd);
+    return total;
+}
+
+/* One attempt: the file at path written from url -- afresh, or from byte
+   `from` on where a .part holds that much already. The https result says
+   how the server answered; the return is https_get's. */
 static int fetch_archive(const char *path, const char *url, struct dl *d, https_progress progress,
-                         void *pctx, struct https_result *r, int *close_rc) {
+                         void *pctx, struct https_result *r, int *close_rc, size_t from) {
     memset(r, 0, sizeof(*r));
     d->written = 0;
+    d->path = path;
+    d->bad = 0;
+    d->up = progress;
+    d->up_ctx = pctx;
     *close_rc = 0;
     if (wc_InitSha256(&d->sha) != 0)
         return -1;
-    d->fd = sceIoOpen(path, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    dl_start(d);
+    if (from && (!d->block || from >= d->expected || dl_rehash(d) != (long long)from)) {
+        logline("download: the .part cannot be gone on with; starting over");
+        from = 0;
+        if (wc_InitSha256(&d->sha) != 0) { dl_finish(d); return -1; }
+    }
+    d->from = d->written = from;
+    d->decided = !from;
+    d->fd = sceIoOpen(path, from ? PSP_O_WRONLY | PSP_O_CREAT : PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
+    if (d->fd >= 0 && from && sceIoLseek(d->fd, (SceOff)from, PSP_SEEK_SET) != (SceOff)from) {
+        sceIoClose(d->fd);
+        d->fd = -1;
+    }
     if (d->fd < 0) {
         logline("cannot create %s", path);
+        dl_finish(d);
         *close_rc = -1;
         return -1;
     }
     unsigned start = now_ms();
-    d->block = malloc(DL_BLOCK);
-    d->held = 0;
-    int rc = https_get(url, file_sink, d, progress, pctx, r);
-    int flushed = dl_flush(d);
-    free(d->block);
-    d->block = NULL;
-    *close_rc = sceIoClose(d->fd);
+    d->said_at = 0;
+    https_set_range(from);
+    int rc = https_get(url, file_sink, d, dl_progress, d, r);
+    https_set_range(0);
+    int flushed = dl_finish(d);
+    *close_rc = d->fd >= 0 ? sceIoClose(d->fd) : -1;
     if (flushed < 0 && *close_rc >= 0)
         *close_rc = -1;
     unsigned ms = now_ms() - start;
-    logline("download: rc=%d status=%ld %lu bytes in %u.%us", rc, r->status,
-            (unsigned long)d->written, ms / 1000, (ms % 1000) / 100);
+    /* Where the time went: the stick's share, its slowest block, and how
+       long the network side waited for it. */
+    logline("download: rc=%d status=%ld %lu bytes in %u.%us; stick %u ms, slowest block %u ms, waited %u ms",
+            rc, r->status, (unsigned long)d->written, ms / 1000, (ms % 1000) / 100, d->write_us / 1000,
+            d->write_max_us / 1000, d->wait_us / 1000);
     return rc;
 }
 
@@ -378,22 +598,31 @@ static int archive_moved(const struct manifest *m, char out[512]) {
     return found == 1;
 }
 
+/* A download that breaks off -- the radio gone a moment, a stall, the
+   tunnel's relay changing -- is asked again from where it got to, a few
+   times, waiting a little longer each time. */
+#define DL_RETRIES 5
+static const unsigned DL_BACKOFF_S[DL_RETRIES] = {2, 5, 10, 20, 30};
+
+static int ok_status(long status) { return status == 200 || status == 206; }
+
 /* The release to path: the archive for a package, the file itself for an
-   ISO. */
+   ISO. from: the bytes a .part at path already holds, to go on from. */
 static int download(const struct manifest *m, const char *path, https_progress progress, void *pctx,
-                    unsigned char *got) {
+                    unsigned char *got, size_t from) {
     struct dl d;
     struct https_result r;
     int close_rc;
     char moved[512];
     const char *url = m->url;
+    memset(&d, 0, sizeof(d));
     d.expected = m->size;
-    int rc = fetch_archive(path, m->url, &d, progress, pctx, &r, &close_rc);
+    int rc = fetch_archive(path, m->url, &d, progress, pctx, &r, &close_rc, from);
     if (!g_abort && close_rc >= 0 && r.status == 404) {
         if (archive_moved(m, moved)) {
             url = moved;
             logline("download: archive.org file moved; trying %s", moved);
-            rc = fetch_archive(path, moved, &d, progress, pctx, &r, &close_rc);
+            rc = fetch_archive(path, moved, &d, progress, pctx, &r, &close_rc, 0);
         }
     }
     if (!g_abort && close_rc >= 0 && r.status >= 500 && r.status < 600) {
@@ -401,17 +630,34 @@ static int download(const struct manifest *m, const char *path, https_progress p
         int n = archive_mirrors(url, mirror);
         for (int i = 0; i < n && !g_abort; i++) {
             logline("download: %ld from the mirror; trying %s", r.status, mirror[i]);
-            rc = fetch_archive(path, mirror[i], &d, progress, pctx, &r, &close_rc);
+            url = mirror[i];
+            rc = fetch_archive(path, mirror[i], &d, progress, pctx, &r, &close_rc, 0);
             if (rc == 0 && r.status == 200 && close_rc >= 0) break;
         }
+    }
+    /* Broken off with the server answering as it should, or not answering
+       at all: again from what is on the stick. An answer like 404 is not
+       asked again. */
+    for (int attempt = 0; attempt < DL_RETRIES && !g_abort && close_rc >= 0 &&
+                          (rc != 0 || !ok_status(r.status)) && (!r.status || ok_status(r.status));
+         attempt++) {
+        size_t at = d.written < m->size ? d.written : 0;
+        logline("download: broke off at %lu of %lu; again in %u s", (unsigned long)at,
+                (unsigned long)m->size, DL_BACKOFF_S[attempt]);
+        for (unsigned waited = 0; waited < DL_BACKOFF_S[attempt] * 10 && !g_abort; waited++) {
+            if (progress) progress(pctx, at, m->size);
+            sceKernelDelayThread(100 * 1000);
+        }
+        if (g_abort) break;
+        rc = fetch_archive(path, url, &d, progress, pctx, &r, &close_rc, at);
     }
     if (close_rc < 0)
         why(T_WHY_STICK);
     else if (rc != 0 && !r.status)
         why(T_WHY_NO_ANSWER);
-    else if (r.status != 200)
+    else if (!ok_status(r.status))
         why(T_WHY_STATUS, r.status);
-    if (rc != 0 || r.status != 200 || close_rc < 0) return close_rc < 0 && !r.status ? -2 : -3;
+    if (rc != 0 || !ok_status(r.status) || close_rc < 0) return close_rc < 0 && !r.status ? -2 : -3;
     if (d.written != m->size) {
         logline("download: size %lu, release says %lu", (unsigned long)d.written,
                 (unsigned long)m->size);
@@ -2546,7 +2792,7 @@ static int plugin_release(const struct manifest *m, const struct installed *exis
     } else {
         if (phase)
             phase(ctx, "download");
-        if (download(m, ARCHIVE, progress, ctx, got) < 0) {
+        if (download(m, ARCHIVE, progress, ctx, got, 0) < 0) {
             if (g_abort)
                 rc = INSTALL_CANCELLED;
             goto end;
@@ -2851,8 +3097,9 @@ end:
    PSP, so there is one: it is downloaded straight into <file>.part beside
    its place, hashed as it arrives, and renamed into place once size and
    SHA-256 agree. Nothing is unpacked and nothing copied, and no journal is
-   kept: a rename is the one step, and a .part a power cut leaves goes at the
-   next install of the same file. */
+   kept: a rename is the one step. A .part a broken connection or a power
+   cut leaves is gone on with at the next install of the same file, from
+   where it ends. */
 
 /* The name an ISO takes: the last part of its URL where that is a plain
    one, as an ISO server names its files; otherwise the id's. */
@@ -2883,22 +3130,41 @@ static int iso_release(const struct manifest *m, const struct installed *existin
         why(T_WHY_ISO_TAKEN);
         return -1;
     }
+    /* A .part from before -- a download that broke off, a console switched
+       off in the middle -- is gone on with where it is no larger than the
+       file; one that is, is not this file's. */
+    size_t from = 0;
+    SceIoStat st;
+    memset(&st, 0, sizeof(st));
+    if (sceIoGetstat(part, &st) >= 0 && !FIO_S_ISDIR(st.st_mode)) {
+        if ((unsigned long long)st.st_size < (unsigned long long)m->size) from = (size_t)st.st_size;
+        else sceIoRemove(part);
+    }
     /* Room for the file beside the one it replaces: the old one goes only
-       once the new one is in place. */
+       once the new one is in place. What the .part holds is there already. */
     unsigned cluster = 1;
     storage_free_bytes_on(target(), &cluster);
     if (!room_on(target(),
-                 ((unsigned long long)m->size + cluster - 1) / cluster * cluster + ROOM_FOR_RECORDS,
+                 ((unsigned long long)(m->size - from) + cluster - 1) / cluster * cluster + ROOM_FOR_RECORDS,
                  rep))
         return INSTALL_NO_SPACE;
     sceIoMkdir(dir, 0777);
-    sceIoRemove(part);
     g_abort = 0;
     if (phase)
         phase(ctx, "download");
     unsigned char got[32] = {0};
-    if (download(m, part, progress, ctx, got) < 0) {
+    int got_rc = download(m, part, progress, ctx, got, from);
+    /* Gone on with and not the file after all -- a .part of another release
+       under the same name: once more from the start. */
+    if (got_rc == -5 && from && !g_abort) {
+        logline("install: the .part was not this release's; downloading it whole");
         sceIoRemove(part);
+        got_rc = download(m, part, progress, ctx, got, 0);
+    }
+    if (got_rc < 0) {
+        /* Kept for the next try where only the connection failed; a cancel,
+           a wrong size or hash, or a full stick takes it. */
+        if (g_abort || got_rc == -4 || got_rc == -5 || got_rc == -2) sceIoRemove(part);
         return g_abort ? INSTALL_CANCELLED : -2;
     }
     if (phase)
@@ -3155,7 +3421,7 @@ static int release_to(const struct manifest *m, const char *dev, struct install_
         goto end;
     if (phase)
         phase(ctx, "download");
-    if (download(m, ARCHIVE, progress, ctx, got) < 0) {
+    if (download(m, ARCHIVE, progress, ctx, got, 0) < 0) {
         if (g_abort)
             rc = INSTALL_CANCELLED;
         goto end;

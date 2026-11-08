@@ -1022,6 +1022,24 @@ int auto_install_index(void) {
     sceIoClose(fd);
     if (n <= 0) return -1;
     text[n] = '\0';
+    /* Or lines of "name:<the start of a catalog entry's name>": each found
+       queued, one after the other -- a run of downloads for the rig. */
+    if (!strncmp(text, "name:", 5)) {
+        for (char *line = text; line && *line;) {
+            char *end = strpbrk(line, "\r\n");
+            if (end) *end++ = '\0';
+            if (!strncmp(line, "name:", 5))
+                for (int i = 0; i < g_catalog->count; i++)
+                    if (!strncmp(g_catalog->apps[i].name, line + 5, strlen(line + 5))) {
+                        logline("PSPDX.INSTALL: queued %s", g_catalog->apps[i].name);
+                        downloads_enqueue(i);
+                        break;
+                    }
+            while (end && (*end == '\r' || *end == '\n')) end++;
+            line = end;
+        }
+        return -1;
+    }
     char *newline = strpbrk(text, "\r\n");
     if (newline) *newline = '\0';
     if (strncmp(text, "https://", 8) == 0) snprintf(url, sizeof(url), "%s", text);

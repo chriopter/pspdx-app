@@ -17,7 +17,8 @@ enum download_state {
 struct download_status {
     enum download_state state;
     size_t done, total;
-    size_t bytes_per_second;
+    size_t bytes_per_second;    /* smoothed over the last seconds */
+    unsigned eta_seconds;       /* left at that rate, 0 while not known */
     unsigned order;
     char phase[24];
     int cancel_requested;

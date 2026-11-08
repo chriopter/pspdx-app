@@ -445,13 +445,19 @@ static void draw_chrome(const struct catalog *catalog, float t) {
 /* ------------------------------------------------------------------- list */
 
 /* A rate only while bytes are arriving: one kept from before a question
-   or the unpack would say the download were still going. */
-static void download_speed(char text[24], const struct download_status *s) {
+   or the unpack would say the download were still going. With it, the time
+   left at that rate once it is known. */
+static void download_speed(char text[40], const struct download_status *s) {
     if (s->state != DOWNLOAD_RUNNING || strcmp(s->phase, "download")) {
         text[0] = 0;
         return;
     }
-    snprintf(text, 24, "%.2f MB/s", s->bytes_per_second / 1000000.0);
+    int n = snprintf(text, 40, "%.2f MB/s", s->bytes_per_second / 1000000.0);
+    unsigned left = s->eta_seconds;
+    if (!left) return;
+    if (left < 60) snprintf(text + n, 40 - n, T_ETA_SECONDS, left);
+    else if (left < 3600) snprintf(text + n, 40 - n, T_ETA_MINUTES, (left + 30) / 60);
+    else snprintf(text + n, 40 - n, T_ETA_HOURS, left / 3600, (left % 3600 + 30) / 60);
 }
 
 /* The two words the action row is headed with, and the sentence under them.
@@ -1260,7 +1266,7 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
             gfx_rect((int)(NAME_X + dx), y + ITEM_H - 3, name_w, 2, RGBA(255,255,255,35));
             gfx_rect((int)(NAME_X + dx), y + ITEM_H - 3, (int)(name_w * fraction), 2, g_accent);
             if (downloading) {
-                char speed[24];
+                char speed[40];
                 download_speed(speed, &download);
                 font_print(FONT_CAPTION, NAME_X + dx, y + 26, g_dim, speed);
             }
@@ -1449,14 +1455,20 @@ void draw_rows_bar(int count, float first, float t) {
    what X is going to fetch. What the space is worth instead is the bill --
    every package that would come down, what each weighs, the total, and how
    long that is over a PSP's own radio. */
+static const char *stick_free(size_t done);
 static void draw_action_panel(const struct catalog *catalog, float t) {
     if (view_tab_kind() == VIEW_TAB_BASKET) {
         struct view_plan pending;
         view_action_plan(&pending);
         if (!pending.apps && view_download_count()) {
-            draw_setting_note(downloads_busy() ? "Downloading" : "Clear finished",
-                downloads_busy() ? "Press X for quiet download progress. Music and background motion pause. Circle returns to the cart."
-                                 : "Finished downloads stay here until you clear them. Installed apps are also in Installed.", 0);
+            char note[200];
+            struct download_status now;
+            int current = view_download_current();
+            if (current < 0 || !downloads_status(current, &now)) now.done = 0;
+            snprintf(note, sizeof(note), "%s\n%s", stick_free(now.done),
+                     downloads_busy() ? "Press X for quiet download progress. Music and background motion pause. Circle returns to the cart."
+                                      : "Finished downloads stay here until you clear them. Installed apps are also in Installed.");
+            draw_setting_note(downloads_busy() ? "Downloading" : "Clear finished", note, 0);
             return;
         }
     }
@@ -2270,6 +2282,26 @@ static void size_words(unsigned long long bytes, char *out, size_t size) {
         snprintf(out, size, "%lu MB", (unsigned long)(bytes >> 20));
 }
 
+/* What the stick has left, in words, for the downloads. Asking walks the
+   FAT, a second on a large card, so it is asked once a download and
+   counted down by what that download has written since: done is the
+   current one's bytes, and fewer than last time means another one. */
+static const char *stick_free(size_t done) {
+    static char words[48];
+    static long long left = -2;
+    static size_t done_then;
+    if (left == -2 || done < done_then) {
+        left = storage_free_bytes(NULL);
+        done_then = done;
+    }
+    if (left < 0) return "";
+    long long now = left - (long long)(done - done_then);
+    char size[24];
+    size_words(now > 0 ? (unsigned long long)now : 0, size, sizeof(size));
+    snprintf(words, sizeof(words), T_STICK_FREE, size);
+    return words;
+}
+
 static void read_storage(void) {
     struct ms_info {
         unsigned max_clusters, free_clusters, max_sectors, sector_size, sector_count;
@@ -2625,7 +2657,7 @@ static void draw_details(void) {
     struct download_status download;
     int at = g_catalog ? (int)(e - g_catalog->apps) : -1;
     if (downloads_status(at, &download)) {
-        char speed[24], status[96];
+        char speed[40], status[112];
         download_speed(speed, &download);
         snprintf(status, sizeof(status), "%s  %s", downloads_label(&download), speed);
         float f = download.total ? (float)download.done / download.total : 0;
@@ -2750,8 +2782,8 @@ static void draw_footer(void) {
                 (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK ||
                  view_tab_kind() == VIEW_TAB_UMD) &&
                 !view_cloud();
-    /* The library's keys: X starts, SQUARE marks a favourite, L and R go
-       across. */
+    /* The library's keys: X starts, SQUARE marks a favourite, TRIANGLE
+       opens the item's options, L and R go across. */
     int library = !g_details && !g_status[0] && !g_info && view_tab_kind() == VIEW_TAB_LIBRARY &&
                   library_count() > 0;
     if (!g_details && !g_status[0] && !gear && !lists && !library) return;
@@ -2763,6 +2795,7 @@ static void draw_footer(void) {
     if (library) {
         float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_HINT_START, g_dim);
         x = draw_hint(x, FOOTER_BASE, MARK_SQUARE, T_HINT_FAVOURITE, g_dim);
+        x = draw_hint(x, FOOTER_BASE, MARK_TRIANGLE, T_HINT_OPTIONS, g_dim);
         x = draw_hint(x, FOOTER_BASE, MARK_L, "/", g_dim) - HINT_SPACE;
         draw_hint(x, FOOTER_BASE, MARK_R, T_HINT_TABS, g_dim);
     } else if (gear) {
@@ -3057,7 +3090,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
             else if (index >= 0 && view_tab_kind() == VIEW_TAB_BASKET &&
                      downloads_active(index)) {
                 struct download_status s;
-                char note[160], speed[24];
+                char note[160], speed[40];
                 downloads_status(index, &s);
                 download_speed(speed, &s);
                 char state[64];
@@ -3423,7 +3456,7 @@ void shell_layout_draw(const struct app_entry *entry, const struct install_layou
 }
 
 void shell_download_draw(const struct app_entry *entry, const struct download_status *s) {
-    char amount[96], percent[16], speed[24];
+    char amount[96], percent[16], speed[40];
     float f = s->total ? (float)s->done / s->total : 0;
     if (f > 1) f = 1;
     gfx_veil(256);
@@ -3446,6 +3479,8 @@ void shell_download_draw(const struct app_entry *entry, const struct download_st
     if (s->total) snprintf(amount, sizeof(amount), "%.2f / %.2f MB", s->done / 1048576.0, s->total / 1048576.0);
     else snprintf(amount, sizeof(amount), "Your download will continue if you leave this screen.");
     font_print(FONT_META, 40, 175, dim, amount);
+    const char *left = stick_free(s->done);
+    font_print(FONT_META, 440 - font_width(FONT_META, left), 175, dim, left);
     download_speed(speed, s);
     font_print(FONT_META, 40, 195, dim, speed);
     mark_draw(MARK_CIRCLE, 46, 221, text, MARK_PLAIN, 0, 0);

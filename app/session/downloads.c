@@ -29,6 +29,9 @@ struct job {
     unsigned since;
     unsigned rate_since;
     size_t rate_bytes;
+    float rate;                 /* bytes a second, smoothed over ~10 s */
+    unsigned rate_started;      /* when the bytes began, for the first estimate */
+    size_t rate_base;           /* bytes already there then: a resumed .part's; -1 until seen */
 };
 /* One job per package that has been queued since the list was last
    cleared, on the heap, NULL for every other package: most of a catalog
@@ -190,8 +193,11 @@ static void phase(void *ctx, const char *name) {
     snprintf(j->status.phase, sizeof(j->status.phase), "%s", name);
     j->status.done = j->status.total = 0;
     j->status.bytes_per_second = 0;
-    j->rate_since = now_ms();
+    j->status.eta_seconds = 0;
+    j->rate_since = j->rate_started = now_ms();
     j->rate_bytes = 0;
+    j->rate_base = (size_t)-1;
+    j->rate = 0;
     pthread_mutex_unlock(&lock);
     progress(ctx, 0, 0);
 }
@@ -285,10 +291,36 @@ int downloads_tick(int cursor, int modal) {
     if (current >= 0) {
         struct job *j = jobs[current];
         pthread_mutex_lock(&lock);
+        /* A download going on from a .part reports its bytes at once --
+           megabytes where a fresh one's first report is one read: those
+           came earlier and count for no rate. */
+        if (!strcmp(j->status.phase, "download") && j->rate_base == (size_t)-1 && j->status.done) {
+            j->rate_base = j->status.done > 512 * 1024 ? j->status.done : 0;
+            if (j->rate_base) {
+                j->rate_bytes = j->rate_base;
+                j->rate_since = j->rate_started = now_ms();
+            }
+        }
         unsigned elapsed = now_ms() - j->rate_since;
         if (!strcmp(j->status.phase, "download") && elapsed >= 500) {
             size_t bytes = j->status.done >= j->rate_bytes ? j->status.done - j->rate_bytes : 0;
-            j->status.bytes_per_second = (unsigned long long)bytes * 1000 / elapsed;
+            float sample = (float)bytes * 1000.0f / elapsed;
+            /* What the eye and the estimate want is the rate over the last
+               seconds, not over the last half second: bytes arrive in
+               bursts, and a rate that jumps between 0 and 0.4 says nothing.
+               Until a few seconds have passed the average since the start
+               stands for it. */
+            unsigned running = now_ms() - j->rate_started;
+            if (running < 4000)
+                j->rate = running && j->rate_base != (size_t)-1
+                          ? (float)(j->status.done - j->rate_base) * 1000.0f / running : sample;
+            else if (bytes) /* in a stall the rate before it stands for when it ends */
+                j->rate += (sample - j->rate) * (elapsed / 10000.0f > 1.0f ? 1.0f : elapsed / 10000.0f);
+            /* Nothing at all for half a second is a stall, not a slow
+               patch: it says 0 and no time left until bytes come again. */
+            j->status.bytes_per_second = bytes ? (size_t)j->rate : 0;
+            j->status.eta_seconds = bytes && j->rate > 1000.0f && j->status.total > j->status.done && running >= 3000
+                                    ? (unsigned)((j->status.total - j->status.done) / j->rate) + 1 : 0;
             j->rate_bytes = j->status.done;
             j->rate_since += elapsed;
         }

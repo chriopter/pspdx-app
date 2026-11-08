@@ -25,6 +25,7 @@
 #include "session/manage_sources.h"
 #include "session/cable.h"
 #include "session/launcher.h"
+#include "session/library.h"
 #include "session/options.h"
 #include "session/questions.h"
 #include "session/view.h"
@@ -328,6 +329,10 @@ void options_fps_runtime_toggle(void) {
 static char g_sub_url[SOURCE_URL];
 static int g_sub_source;
 
+/* The launcher item the popup is about, while it is SUB_LIBRARY. */
+static unsigned g_sub_key;
+static char g_sub_title[LIBRARY_TITLE];
+
 /* Auto Connect's rows past Off: which connection each is, and its name. */
 static int g_auto_profile[WIFI_PROFILES];
 static char g_auto_name[WIFI_PROFILES][64];
@@ -335,7 +340,8 @@ static char g_auto_name[WIFI_PROFILES][64];
 static void sub_push(void) {
     g_menu.title = g_sub == SUB_SOURCE ? g_sub_url + sources_web(g_sub_url)
                  : g_sub == SUB_AUTO ? T_SYS_AUTO
-                 : g_sub == SUB_RESTORE ? T_SYS_RESET_ALL : T_SUB_DIRECT;
+                 : g_sub == SUB_RESTORE ? T_SYS_RESET_ALL
+                 : g_sub == SUB_LIBRARY ? g_sub_title : T_SUB_DIRECT;
     memset(g_menu.flag, 0, sizeof(g_menu.flag));
     shell_menu(&g_menu);
 }
@@ -402,6 +408,10 @@ void sub_open(enum sub which) {
             g_menu.item[g_menu.count++] = g_auto_name[n];
         }
         if (g_menu.count == 1) shell_status(T_SYS_NO_NETWORKS);
+    } else if (which == SUB_LIBRARY) {
+        g_menu.item[g_menu.count++] = T_LIBRARY_START;
+        g_menu.item[g_menu.count++] = T_LIBRARY_FAVOURITE;
+        g_menu.item[g_menu.count++] = T_LIBRARY_DELETE;
     } else if (which == SUB_RESTORE) {
         g_menu.item[g_menu.count++] = T_RESET_SETTINGS;
         g_menu.item[g_menu.count++] = T_SYS_SWEEP;
@@ -411,6 +421,7 @@ void sub_open(enum sub which) {
     }
     for (int i = 0; i < g_menu.count; i++) { g_menu.on[i] = 1; g_menu.key[i] = -1; g_menu.value[i] = NULL; }
     if (which == SUB_SOURCE) g_menu.value[2] = sources_tunneled(g_sub_url) ? T_VALUE_ON : T_VALUE_OFF;
+    if (which == SUB_LIBRARY) g_menu.value[1] = library_favourite(g_sub_key) ? T_VALUE_ON : T_VALUE_OFF;
     g_menu.cursor = 0;
     if (which == SUB_AUTO) {
         int at = 0;
@@ -428,6 +439,14 @@ static void sub_close(void) {
 }
 
 void auto_connect_open(void) { sub_open(SUB_AUTO); }
+
+void library_menu_open(unsigned key) {
+    const struct library_item *item = library_item(library_find(key));
+    if (!item) return;
+    g_sub_key = key;
+    snprintf(g_sub_title, sizeof(g_sub_title), "%s", item->title);
+    sub_open(SUB_LIBRARY);
+}
 
 void system_open(void) {
     system_view_open();
@@ -486,6 +505,17 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             if (was == SUB_AUTO) {
                 options_auto_connect_set(chosen > 0 ? g_auto_profile[chosen - 1] : 0);
                 cues_post(CUE_MOVE, 0);
+            } else if (was == SUB_LIBRARY) {
+                const struct library_item *item = library_item(library_find(g_sub_key));
+                if (item && chosen == 0) launch_local(item->path, item->kind);
+                else if (item && chosen == 1) {
+                    /* Marked or not, and the cursor goes with it. */
+                    library_favourite_toggle(g_sub_key);
+                    shell_status(library_favourite(g_sub_key) ? T_FAVOURITE_ON : T_FAVOURITE_OFF);
+                    *cursor = library_place_of(library_find(g_sub_key));
+                    *count = library_places();
+                    cues_post(CUE_MOVE, *cursor);
+                } else if (item && chosen == 2) ask_library_delete(g_sub_key);
             } else if (was == SUB_RESTORE) {
                 if (chosen == 0) ask(ASK_RESET, -1, T_RESET_ASK, T_RESET_LINE);
                 else sweep_again();

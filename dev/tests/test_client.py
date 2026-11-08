@@ -1590,6 +1590,32 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(self.run_client('uninstall',ISO).returncode,0);self.assertEqual(self.tree(self.root/'ms0:/ISO'),{});self.assertNotIn(ISO,self.state())
   (self.root/'ms0:/ISO/ULUS-10404.iso').write_bytes(b'mine');disc['releases'][0].update(sha256=hashlib.sha256(newer).hexdigest());self.write('catalog.json',dict(catalog,apps=[first,disc]))
   r=self.run_client('get',ISO,ok=False,URL_MAP=self.root/'map.txt');self.assertIn('ISO/ has a file of that name',r.stderr);self.assertEqual(self.tree(self.root/'ms0:/ISO'),{'ULUS-10404.iso':b'mine'})
+ def test_an_iso_download_goes_on_where_it_broke_off(self):
+  # A download that breaks off is asked again from what the .part holds, with a range, and the hash still covers the whole file; a .part from an earlier run is gone on with too, one larger than the file is not, and a server that does not do ranges sends it whole and the .part starts over. A .part that turns out not to be this release's is thrown away and the file fetched whole.
+  self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink();ISO='lan.psp.disc'
+  image=os.urandom(60000);(self.root/'disc.iso').write_bytes(image);(self.root/'map.txt').write_text('ULUS-10404.iso disc.iso\n')
+  disc=dict(id='local.shelf.ulus-10404',name='Disc',type='iso',category='game',source='https://psp.lan/discs/ULUS-10404',releases=[dict(tag='1.00',published_at='2023-11-14T22:13:20Z',url='https://psp.lan/discs/ULUS-10404.iso',size=len(image),sha256=hashlib.sha256(image).hexdigest())])
+  self.write('catalog.json',dict(catalog,apps=[first,disc]))
+  iso=self.root/'ms0:/ISO';part=iso/'ULUS-10404.iso.part';ranges=self.root/'range.log'
+  def get(**env):
+   if ranges.exists():ranges.unlink()
+   r=self.run_client('get',ISO,URL_MAP=self.root/'map.txt',VERBOSE=1,**env);self.assertEqual(r.stdout.strip(),'0',r.stderr)
+   self.assertEqual(self.tree(iso),{'ULUS-10404.iso':image});self.assertEqual(self.run_client('uninstall',ISO).returncode,0)
+   return [int(l.split()[-1]) for l in ranges.read_text().splitlines()] if ranges.exists() else [],r.stderr
+  # Broken off every 16 KB: each attempt goes on from the last.
+  asked,log=get(NET_DROP_AFTER=16384);self.assertEqual(asked,[16384,32768,49152],log);self.assertIn('broke off at 16384 of 60000',log)
+  # A .part an earlier run left: gone on with from its end.
+  iso.mkdir(exist_ok=True);part.write_bytes(image[:25000]);asked,log=get();self.assertEqual(asked,[25000]);self.assertIn('going on from 25000 of 60000',log)
+  # A server that sends the whole file again: the .part starts over and the file is still right.
+  part.write_bytes(image[:25000]);asked,log=get(NO_RANGE=1);self.assertEqual(asked,[25000]);self.assertIn('sends it whole; starting over',log)
+  # A .part as large as the file or larger is not this download's: a fresh one.
+  part.write_bytes(image+b'x');asked,log=get();self.assertEqual(asked,[])
+  # A .part of another release under the same name: the hash says so, and the file comes whole.
+  part.write_bytes(b'z'*25000);asked,log=get();self.assertEqual(asked,[25000]);self.assertIn('not this release',log)
+  # Broken off for good: the .part stays for the next try, which goes on from it.
+  r=self.run_client('get',ISO,URL_MAP=self.root/'map.txt',NET_DROP_AFTER=4096,ok=False);self.assertNotEqual(r.stdout.strip(),'0')
+  self.assertTrue(part.exists());held=part.stat().st_size;self.assertGreater(held,0)
+  asked,log=get();self.assertEqual(asked,[held])
  def test_a_catalog_names_its_entries_as_it_likes(self):
   # A catalog's id that is one is kept; a word, a path, nothing or too much gives way to the id the source makes, and only that names a file.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink()
@@ -2496,6 +2522,7 @@ class ClientTests(unittest.TestCase):
        if existing:self.assertEqual((game/'save.dat').read_bytes(),b'user save\x00unchanged')
        self.run_client('remove');self.assertFalse(game.exists())
  def test_interrupted_download_keeps_old_files_and_can_retry(self):
+  # The network gone for good part way through: the download's own retries find no answer, and what was on the stick stays as it was.
   for device in ('ms0:', 'ef0:'):
    for existing in (False, True):
     for after in (1, 8192, 16384):
@@ -2509,7 +2536,7 @@ class ClientTests(unittest.TestCase):
        (game/'save.dat').write_bytes(b'my save')
       before=self.state()
       self.zip('new.zip',{'EBOOT.PBP':os.urandom(20000),'data.txt':b'updated'})
-      r=self.run_client('install',INSTALL_DEVICE=device,NET_DROP_AFTER=after,ok=False)
+      r=self.run_client('install',INSTALL_DEVICE=device,NET_DEAD_AFTER=after,ok=False)
       self.assertNotEqual(r.returncode,0)
       self.assertNotEqual(r.stdout.split()[0],'-9')  # failure, not user cancellation
       self.assertEqual(self.state(),before)

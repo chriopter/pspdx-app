@@ -393,8 +393,15 @@ static void go_online(int midway) {
 static int auto_connect(void) {
     char name[64];
     int profile = options_auto_connect(), cable = options_cable();
-    if (!profile || wifi_profile_name(profile, name, sizeof(name)) < 0) return 0;
-    if (cable == CABLE_USB || cable_asks((enum cable)cable)) return 0;
+    if (!profile) return 0;
+    if (wifi_profile_name(profile, name, sizeof(name)) < 0) {
+        logline("wifi: auto connect: connection %d is not set up (first there is: %d)", profile, wifi_profile_next(0));
+        return 0;
+    }
+    if (cable == CABLE_USB || cable_asks((enum cable)cable)) {
+        logline("wifi: auto connect: not with cable choice %d", cable);
+        return 0;
+    }
     cable_start((enum cable)cable);
     if (cable_restart_needed()) return 0;
     shell_word(T_WORD_CONNECTING);
@@ -1223,6 +1230,9 @@ int main(int argc, char *argv[]) {
             const struct library_item *item = library_item(library_place_item(cursor));
             if ((pressed & (PSP_CTRL_CROSS | PSP_CTRL_START)) && item && expired(start_ms, 1000)) {
                 launch_local(item->path, item->kind);
+            } else if ((pressed & PSP_CTRL_TRIANGLE) && item) {
+                /* TRIANGLE: Start, Favorite and Delete, in the popup. */
+                library_menu_open(item->key);
             } else if ((pressed & PSP_CTRL_SQUARE) && item) {
                 unsigned key = item->key;
                 library_favourite_toggle(key);

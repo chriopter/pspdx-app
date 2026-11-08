@@ -18,10 +18,12 @@ void basket_pick_open(int index);
 /* The popups under the gear, in the panel at the right: the two ways a
    .pspdx comes in directly, a source's choices, Auto Connect's connections
    and the two ways back to defaults. */
-enum sub { SUB_NONE, SUB_ADD, SUB_SOURCE, SUB_AUTO, SUB_RESTORE };
+enum sub { SUB_NONE, SUB_ADD, SUB_SOURCE, SUB_AUTO, SUB_RESTORE, SUB_LIBRARY };
 /* The lists' order turned to the next one, and kept on the stick. */
 void options_sort_next(void);
 void sub_open(enum sub which);
+/* The launcher's TRIANGLE: Start, Favorite and Delete for one item. */
+void library_menu_open(unsigned key);
 
 /* A missing or malformed settings file means the 60 FPS
    default. Saves wait for orderly exit, so a menu choice never stalls a

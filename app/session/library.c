@@ -191,6 +191,44 @@ int library_place_of(int item) {
 }
 const char *library_heading(void) { return T_HEAD_LIBRARY; }
 
+/* A folder and everything in it. */
+static int remove_tree(const char *path) {
+    SceUID d = sceIoDopen(path);
+    if (d < 0) return sceIoRemove(path) < 0 ? -1 : 0;
+    SceIoDirent e;
+    char sub[LIBRARY_PATH + 64];
+    int rc = 0;
+    for (;;) {
+        memset(&e, 0, sizeof(e));
+        if (sceIoDread(d, &e) <= 0) break;
+        if (!strcmp(e.d_name, ".") || !strcmp(e.d_name, "..")) continue;
+        if (snprintf(sub, sizeof(sub), "%s/%s", path, e.d_name) >= (int)sizeof(sub)) { rc = -1; break; }
+        if ((FIO_S_ISDIR(e.d_stat.st_mode) ? remove_tree(sub) : sceIoRemove(sub)) < 0) { rc = -1; break; }
+    }
+    sceIoDclose(d);
+    return rc < 0 || sceIoRmdir(path) < 0 ? -1 : 0;
+}
+
+int library_delete(unsigned key) {
+    const struct library_item *item = library_item(library_find(key));
+    if (!item) return -1;
+    char path[LIBRARY_PATH];
+    snprintf(path, sizeof(path), "%s", item->path);
+    int rc;
+    if (item->kind == LAUNCH_ISO) {
+        rc = sceIoRemove(path) < 0 ? -1 : 0;
+    } else {
+        /* An EBOOT's folder, the EBOOT.PBP's name taken off. */
+        char *slash = strrchr(path, '/');
+        if (!slash) return -1;
+        *slash = '\0';
+        rc = remove_tree(path);
+    }
+    logline("library: deleted %s: %d", path, rc);
+    library_rescan();
+    return rc;
+}
+
 /* The place in column col of line line, or the last of a line too short
    to have one there. */
 static int place_at(int line, int col) {

@@ -217,6 +217,7 @@ unsigned wall_time(void) {
     return (unsigned)time(NULL);
 }
 
+unsigned now_us(void) { return 0; }
 unsigned now_ms(void) {
     static unsigned now;
     const char *step = getenv("CLOCK_STEP_MS");
@@ -236,6 +237,16 @@ static int net_aborted;
 void https_abort(void) { net_aborted = 1; }
 static int accept_gzip;
 void https_set_accept_gzip(int on) { accept_gzip = on != 0; }
+/* The waits between a download's attempts, counted and not slept. */
+int sceKernelDelayThread(unsigned us) { (void)us; return 0; }
+/* A range asked for: range.log, a line "<url> <from>" each; NO_RANGE makes
+   a server that sends the whole file again with 200. */
+static size_t range_from;
+void https_set_range(size_t from) { range_from = from; }
+/* NET_DEAD_AFTER: the bytes of downloads (a .zip, an .iso) delivered in
+   all, and whether the network has gone since. */
+static unsigned long delivered;
+static int net_gone;
 /* What a password would have been sent with: basic.log, a line each. */
 int https_set_basic(const char *host, const char *user, const char *password) {
     FILE *f = fopen("basic.log", "a");
@@ -305,6 +316,8 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
     const char *path = NULL;
     if (getenv("OFFLINE"))
         return -1;
+    if (net_gone)
+        return HTTPS_FAILED;
     unsigned start = now_ms();
     /* The host the request went to, as the library reports the last one. */
     const char *host = strstr(url, "://");
@@ -358,6 +371,21 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
         return -1;
     }
     r->status = 200;
+    fseek(f, 0, SEEK_END);
+    size_t total = (size_t)ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (range_from) {
+        FILE *ranges = fopen("range.log", "a");
+        if (ranges) { fprintf(ranges, "%s %lu\n", url, (unsigned long)range_from); fclose(ranges); }
+        if (!getenv("NO_RANGE") && range_from < total) {
+            fseek(f, (long)range_from, SEEK_SET);
+            total -= range_from;
+            r->status = 206;
+        }
+    }
+    r->content_length = total;
+    /* The head read: the length announced before the first byte. */
+    if (cb) cb(pc, 0, total);
     char b[4096];
     size_t n;
     enum https_outcome rc = HTTPS_COMPLETE;
@@ -375,10 +403,19 @@ enum https_outcome https_get(const char *url, https_sink sink, void *ctx, https_
             break;
         }
         r->body_len += n;
-        if (cb) cb(pc, r->body_len, 0);
+        if (cb) cb(pc, r->body_len, total);
         if (net_aborted) { rc = HTTPS_TRUNCATED; break; }
         const char *drop = getenv("NET_DROP_AFTER");
         if (drop && r->body_len >= strtoul(drop, NULL, 10)) {
+            rc = HTTPS_TRUNCATED;
+            break;
+        }
+        /* The network gone for good after that many bytes in all: this get
+           breaks off and every one after it has no answer. */
+        const char *dead = getenv("NET_DEAD_AFTER");
+        if (dead && (strstr(url, ".zip") || strstr(url, ".iso"))) delivered += n;
+        if (dead && delivered >= strtoul(dead, NULL, 10)) {
+            net_gone = 1;
             rc = HTTPS_TRUNCATED;
             break;
         }

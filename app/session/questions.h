@@ -19,6 +19,8 @@ enum question { ASK_NOTHING, ASK_REMOVE, ASK_ALL, ASK_INBOX, ASK_CATALOG, ASK_RE
 
 /* Confirm removing a package, fetching the whole tab, or the INBOX. */
 void ask_remove(int index);
+/* The launcher's Delete for the item with this key: asked first. */
+void ask_library_delete(unsigned key);
 void ask_all(void);
 void ask_inbox(void);
 

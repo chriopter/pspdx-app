@@ -144,6 +144,35 @@ void ask_remove(int index) {
     g_question_of = index;
 }
 
+/* The launcher's Delete: what PSPDX installed goes the way the store
+   removes it, its record with it; anything else is deleted as it is, once
+   asked. PSPDX itself never. */
+void ask_library_delete(unsigned key) {
+    const struct library_item *item = library_item(library_find(key));
+    if (!item) return;
+    const char *slash = strrchr(item->path, '/');
+    if (item->kind != LAUNCH_ISO && slash && slash - item->path >= 6 && !strncmp(slash - 6, "/PSPDX", 6)) {
+        error_show(T_SELF_DELETE, "library delete self");
+        return;
+    }
+    const struct catalog *c = actions_catalog();
+    for (int i = 0; c && i < c->count; i++) {
+        if (c->apps[i].state != APP_CURRENT && c->apps[i].state != APP_UPDATE) continue;
+        struct installed record;
+        if (db_read(c->apps[i].id, &record) < 0) continue;
+        int mine = item->kind == LAUNCH_ISO
+                   ? record.iso[0] && slash && !strcmp(record.iso, slash + 1)
+                   : record.dir[0] && slash && strstr(item->path, "/PSP/GAME/") &&
+                     !strncmp(slash - strlen(record.dir), record.dir, strlen(record.dir)) &&
+                     slash[-(int)strlen(record.dir) - 1] == '/';
+        if (mine) { ask_remove(i); return; }
+    }
+    char title[LIBRARY_TITLE + 32];
+    snprintf(title, sizeof(title), T_REMOVE_ASK, item->title);
+    pspdx_utf8_mend(title);
+    ask(ASK_LIBRARY, (int)key, title, item->kind == LAUNCH_ISO ? T_LIBRARY_DELETE_ISO : T_LIBRARY_DELETE_FOLDER);
+}
+
 /* The action row's question, over the whole tab rather than one package. The
    shell has already worked out what would be fetched -- the rows are its
    business, not this loop's -- so all that happens here is putting the tally
@@ -281,10 +310,10 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         else if (asked == ASK_RUN || asked == ASK_RESTART) launch_app(index);
         else if (asked == ASK_LIBRARY) {
             /* Found again by its key: gone from the stick since the
-               question went up, there is nothing to start. What went wrong
-               starting it is launch_local's to say. */
-            const struct library_item *item = library_item(library_find((unsigned)index));
-            if (item) launch_local(item->path, item->kind);
+               question went up, there is nothing to delete. */
+            if (downloads_busy()) { error_busy(); return 1; }
+            if (library_delete((unsigned)index) == 0) shell_status(T_LIBRARY_DELETED);
+            else error_show(T_LIBRARY_DELETE_FAILED, "library delete %08x", (unsigned)index);
         }
         else if (asked == ASK_PLUGIN) switch_plugin(index);
         else if (asked == ASK_TRUST) {

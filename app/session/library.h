@@ -70,6 +70,9 @@ const char *library_heading(void);
 /* Favourites: marked with SQUARE, first in the list, kept on the stick. */
 int library_favourite(unsigned key);
 void library_favourite_toggle(unsigned key);
+/* Main thread: an item's file or folder off the stick -- an ISO, or the
+   EBOOT's whole folder -- and the stick read again. 0, or -1. */
+int library_delete(unsigned key);
 
 /* Icon thread: an item's ICON0 PNG into a malloc'd buffer, out of its
    image or its EBOOT. -1 when it has none. */
