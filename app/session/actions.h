@@ -54,11 +54,21 @@ int plugin_installed_take(void);
 int cable_at_start(void);
 /* The cable has connected: the way through the dialog is not said again. */
 void cable_connected(void);
-/* The gear's row "Set up USBNet": the first start's question again, and
+/* The gear's row "USBNet": the first start's question again, and
    what its answer leads to, through to the system's dialog. Wi-Fi only
    remembers the choice, the plugin stays as it is; O leaves everything as
    it was. */
 void cable_set_up_again(void);
+/* The gear's Tailscale row: joins the tailnet with the key in
+   PSP/PSPDX/tunnel.txt, and says what came of it. */
+void tunnel_set_up(void);
+/* Whether the tunnel is set up on this PSP: its keys are on the stick. */
+int tunnel_is_set_up(void);
+/* A source's Test: its catalog fetched, and how that went said. */
+void source_test(const char *url);
+/* Whether an answered question left presses in the pad's buffer that the
+   main loop must not read as its own; asking clears it. */
+int input_take_resync(void);
 
 void uninstall_app(int index);
 /* Starts an app. A plugin is not started: it is asked whether to turn it

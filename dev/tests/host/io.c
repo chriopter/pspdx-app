@@ -241,6 +241,17 @@ int https_set_basic(const char *host, const char *user, const char *password) {
     if (f) { fprintf(f, "%s %s %s\n", host, user, password ? password : ""); fclose(f); }
     return 0;
 }
+/* Which hosts were routed through the tunnel: transport.log, a line each,
+   "<host> on" or "<host> off". */
+int https_set_transport(const char *host, const struct https_transport *t) {
+    FILE *f = fopen("transport.log", "a");
+    if (f) { fprintf(f, "%s %s\n", host, t ? "on" : "off"); fclose(f); }
+    return 0;
+}
+const struct https_transport *tunnel_transport(void) {
+    static struct https_transport none;
+    return &none;
+}
 /* The library's bound on a whole get, held against the clock above between
    pieces: FAILED before the body, TRUNCATED after, as the library says. */
 static unsigned time_limit;

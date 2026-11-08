@@ -35,6 +35,7 @@
 #include "install/install.h"
 #include "pspkit-https/entropy.h"
 #include "pspkit-https/https.h"
+#include "pspkit-tunnel/tunnel.h"
 #include "network/bench.h"
 #include "session/view.h"
 #include "session/actions.h"
@@ -64,6 +65,7 @@ static int exit_callback(int a, int b, void *c) {
        stick -- 32 bytes, once, instead of the same sector every few
        seconds. */
     downloads_shutdown();
+    tunnel_stop();
     entropy_save(entropy_screen_is_replay());
     options_settings_save();
     sceKernelExitGame();
@@ -369,6 +371,13 @@ int main(int argc, char *argv[]) {
     install_recover();
     questions_trust_load();
     sources_passwords_load();
+    /* The tunnel: its keys beside the rest, the name the tailnet shows,
+       and the hosts reached through it routed there. Nothing starts until
+       a request to one of them. */
+    tunnel_set_dir(storage_path("PSP/PSPDX"));
+    tunnel_set_name("pspdx");
+    tunnel_set_log(https_log);
+    sources_tunneled_load();
     /* After the recovery, which is what settles what is actually under
        PSP/GAME, and before the sync, which reads every record there is. The
        record PSPDX 0.5 kept of itself goes first: it names this folder, and
@@ -727,6 +736,9 @@ int main(int argc, char *argv[]) {
            taken for a press. */
         SceCtrlData pads[16];
         int read = sceCtrlReadBufferPositive(pads, 16);
+        /* A question was answered since the last read: what the buffer
+           holds from it was that answer, not a press for here. */
+        if (input_take_resync()) pad_seen = 0;
         SceCtrlData pad;
         memset(&pad, 0, sizeof(pad));
         if (read > 0) pad = pads[read - 1];
@@ -1060,8 +1072,9 @@ int main(int argc, char *argv[]) {
                        as Sources does. */
                     cable_set_up_again();
                     count = view_count();
-                } else if (which == 4) files_view_open();
-                else if (which == 5) shell_info(info = 1);
+                } else if (which == 4 && synced) tunnel_set_up();
+                else if (which == 5) files_view_open();
+                else if (which == 6) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X opens the package's page; the job rows do their job.
                    The options, with the same things and the rest, are on

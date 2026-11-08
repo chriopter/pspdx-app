@@ -54,6 +54,7 @@ endif
 # its headers, wolfSSL and the import stubs they need. After LIBS and before
 # build.mak, which reads all of it.
 include lib/pspkit-https/module.mk
+include lib/pspkit-tunnel/module.mk
 
 PSPSDK = $(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build.mak

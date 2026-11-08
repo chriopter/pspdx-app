@@ -7,6 +7,7 @@ Install and update homebrew directly on your PlayStation Portable, using the [PS
 - 📦 **Download & update** homebrew right on the PSP, no PC needed
 - 🧩 **Plugins too**: install, turn on and off, update
 - 🔌 **Works on the PSP Street (E1000)**: online over the USB cable with [USBNet](https://github.com/chriopter/pspkit-usbnet)
+- 🌐 **Your catalog from anywhere**: a source at home reached through Tailscale with [pspkit-tunnel](https://github.com/chriopter/pspkit-tunnel)
 
 **[→ Download PSPDX](https://github.com/chriopter/pspdx-app/releases/latest)**
 
@@ -28,7 +29,8 @@ before the carried one.
 - **Basket:** add apps with **Triangle**, then *Download all*. Running downloads are listed there too.
 - **Find:** *Search* on the first page looks through names, authors, tags and descriptions. **SELECT** sorts any list by newest or by name.
 - **Display:** 60 FPS by default; the first row under the wrench switches to a calmer 30 FPS mode.
-- **No Wi-Fi (PSP Street):** at its first start PSPDX asks whether to connect via Wi-Fi or the USB cable. *USB cable* installs the [USBNet](https://github.com/chriopter/pspkit-usbnet) plugin the package carries and turns it on. Run its gateway on a PC, plug in the cable, and in the connection dialog choose [New Connection] → Scan → "Hi-Speed USB" the first time. The row **Set up USBNet** under the gear asks again later. Its preview appears under the explanation on the right.
+- **Tailscale:** put an auth key from the admin console (or the whole install command it shows) in `PSP/PSPDX/tunnel.txt`, then take the row **Tailscale** under the gear: the PSP joins the tailnet and the file is deleted. In a source's options, **Tailscale** on reaches it through the tunnel from any network. The row shows *On*; taking it again offers **Remove**.
+- **No Wi-Fi (PSP Street):** at its first start PSPDX asks whether to connect via Wi-Fi or the USB cable. *USB cable* installs the [USBNet](https://github.com/chriopter/pspkit-usbnet) plugin the package carries and turns it on. Run its gateway on a PC, plug in the cable, and in the connection dialog choose [New Connection] → Scan → "Hi-Speed USB" the first time. The row **USBNet** under the gear asks again later. Its preview appears under the explanation on the right.
 
 **Network settings won’t open in PSPDX or XMB?** A clean reinstall of official firmware 6.61 followed by ARK-5 fixed this on an affected PSP Street. Back up your data and follow the installation guide for your model.
 
@@ -104,7 +106,10 @@ https://github.com/someone/project@v1.2
 - Sources are validated before they land in `PSP/PSPDX/sources.txt`; a catalog that does not answer at that moment is saved all the same and tried again at every refresh, so nobody types it twice
 - Adding a catalog installs nothing; Direct Install and INBOX do
 - Removing a source keeps installed apps, their manifests and state
-- × or △ on a source: **Edit address** (typed again, the old one goes once the new one is in), **Password**, **Delete**
+- × or △ on a source: **Edit** (the address typed again, the old one goes once the new one is in), **Password**, **Tailscale**, **Test**, **Delete**
+- **Tailscale** on a source routes its host through [pspkit-tunnel](https://github.com/chriopter/pspkit-tunnel), kept per host in `PSP/PSPDX/tunneled.txt`; the tunnel starts with the first request to such a host. TLS, the certificate check and the password stay as they are, inside the tunnel
+- **Test** fetches the catalog the way adding it does and says how long it took, which way it went, and, when it failed, why: the password, the server's answer, the tunnel's state or no answer at all
+- The row **Tailscale** under the gear joins the tailnet with the key in `PSP/PSPDX/tunnel.txt` (the key alone or any text it is in), keeps the device's own keys in `PSP/PSPDX/tunnel.key` and deletes `tunnel.txt`, which could join any other device too. Taken again it says how the tunnel stands and offers **Remove**: logged out at the coordination server, `tunnel.key` deleted, every source direct again
 - A catalog behind a password answers 401: PSPDX asks for it when the source is added, keeps it per host in `PSP/PSPDX/passwords.txt` and sends it as HTTP Basic with every request to that host, and to no other
 
 #### Presets
@@ -265,7 +270,7 @@ download  ->  release ZIP, following GitHub asset redirects
 ```
 
 - At startup the PSP system network dialog lets you select or create a Wi-Fi connection
-- Over the USB cable: asked once, at the first start, where PSPDX carries the plugin (every release does; a build without it offers no cable), custom firmware can load it and no cable plugin is there yet (a record of it, or the module loaded by the firmware). The answer is kept in `PSP/PSPDX/settings.txt` (`cable=wifi`, `cable=usb`) and asked again by the row **Set up USBNet** under the gear, which runs the same question and what follows it; O there leaves everything as it was
+- Over the USB cable: asked once, at the first start, where PSPDX carries the plugin (every release does; a build without it offers no cable), custom firmware can load it and no cable plugin is there yet (a record of it, or the module loaded by the firmware). The answer is kept in `PSP/PSPDX/settings.txt` (`cable=wifi`, `cable=usb`) and asked again by the row **USBNet** under the gear, which runs the same question and what follows it; O there leaves everything as it was
 - *USB cable* installs that copy through the plugin installer as `io.github.chriopter.pspkitusbnet`, turns it on and loads it for the session, so no restart is needed; from then on the store updates it like any plugin. What the installer refuses is said in one line, and the carried copy is then loaded for the session instead, from `PSP/PSPDX/CACHE/usbnet.prx`, since the firmware loads a module from a file. *Wi-Fi* installs and loads nothing; switching back to Wi-Fi later only stores the choice
 - With the cable chosen, and until a connection has been made once, PSPDX asks two things before the system's dialog opens: *Is the gateway running on your PC? Get it from github.com/chriopter/pspkit-usbnet* (the cable leads nowhere without the [gateway](https://github.com/chriopter/pspkit-usbnet)), then *Do you want to connect now?* with what to pick in the dialog: [New Connection] → Scan → "Hi-Speed USB". No to either leaves PSPDX offline for now
 - A plugin that is installed is left alone at start, turned on or off: nothing is asked and nothing loaded
@@ -369,6 +374,9 @@ ms0:/
         ├── sources.txt                  # Subscriptions
         ├── trusted.txt                  # Hosts whose certificate was accepted once
         ├── passwords.txt                # A password per host, for catalogs behind one
+        ├── tunnel.txt                   # An auth key put here for the Tailscale row; deleted once joined
+        ├── tunnel.key                   # The device's own keys in the tailnet
+        ├── tunneled.txt                 # Hosts reached through the tunnel
         ├── presets.seen                 # Presets already offered
         ├── INBOX/demo.pspdx             # Awaiting import
         ├── INSTALLED/
@@ -455,7 +463,7 @@ make -C app
 ```
 
 - Output: `app/EBOOT.PBP`
-- Libraries: pspkit-https (wolfSSL), cJSON, intraFont, libpng, zlib, PSP SDK
+- Libraries: pspkit-https (wolfSSL), pspkit-tunnel (lwIP), cJSON, intraFont, libpng, zlib, PSP SDK
 - CI builds inside `pspdev/pspdev:latest`, through `dev/pack` like a release, with pspkit-usbnet's newest release compiled in
 
 #### Release
@@ -508,6 +516,7 @@ dev/start --mock      ->  the same against the local mock catalog
 | `app/network/` | The cipher benchmark the rig asks for, and what the kernel does for `usbnet.prx` |
 | `app/session/cable.c` | Wi-Fi or the USB cable: when to ask, and the carried plugin installed, turned on and loaded |
 | [`app/lib/pspkit-https/`](https://github.com/chriopter/pspkit-https) | HTTPS, the entropy pool and the sweep's stick step, as a submodule |
+| [`app/lib/pspkit-tunnel/`](https://github.com/chriopter/pspkit-tunnel) | The tunnel into a tailnet, as a submodule |
 | `app/audio/`, `app/video/` | Audio and video playback |
 | `app/util/` | Storage paths, PBP access and runtime helpers |
 | `app/util/files.c` | What Data reads off the stick: sources, installs, INBOX, the client's own files, filled into the view `gui/files_view.c` draws |

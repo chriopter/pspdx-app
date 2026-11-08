@@ -49,4 +49,6 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX/passwords.txt", ""},
     {"PSP/PSPDX/sources.txt", ""},
     {"PSP/PSPDX/trusted.txt", ""},
+    {"PSP/PSPDX/tunnel.txt", ""},            /* an auth key dropped here for the Tailscale row */
+    {"PSP/PSPDX/tunneled.txt", ""},          /* hosts reached through the tunnel */
 };

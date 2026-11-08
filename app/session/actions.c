@@ -16,6 +16,7 @@
 #include <systemctrl.h>
 #include <systemctrl_se.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "audio/audio.h"
@@ -31,6 +32,7 @@
 #include "install/state.h"
 #include "pspkit-https/entropy.h"
 #include "pspkit-https/https.h"
+#include "pspkit-tunnel/tunnel.h"
 #include "session/actions.h"
 #include "session/cable.h"
 #include "session/downloads.h"
@@ -38,6 +40,7 @@
 #include "session/questions.h"
 #include "session/view.h"
 #include "update/assets.h"
+#include "update/catalog.h"
 #include "update/inbox.h"
 #include "update/sources.h"
 #include "update/sync.h"
@@ -186,12 +189,24 @@ static int install_device(const struct app_entry *entry, int row, char out[5]) {
 
 /* The answer's button let go before the caller reads the pad again: under
    Options the O that left a question would leave the view too. */
+/* A question answered here was answered with a key the main loop's
+   buffered read sees too, once it reads again: it would take that press for
+   one of its own and act on the row under the band. So every answer tells
+   the loop to forget what the buffer holds. */
+static int g_resync;
+int input_take_resync(void) {
+    int was = g_resync;
+    g_resync = 0;
+    return was;
+}
+
 static void released(void) {
     SceCtrlData pad;
     do {
         shell_draw(g_catalog, 0);
         sceCtrlPeekBufferPositive(&pad, 1);
     } while (pad.Buttons & (PSP_CTRL_CROSS | PSP_CTRL_CIRCLE));
+    g_resync = 1;
 }
 
 /* A question of the caller's standing over the room until X or O: 1 for X.
@@ -212,6 +227,36 @@ static int answer_with(const char *title, const char *line, const char *yes, con
     shell_ask(NULL, NULL);
     released();
     return said;
+}
+
+/* Takes a source's catalog the way adding it does, and says how that went:
+   how long, which way, and if it failed, the likeliest reason. */
+void source_test(const char *url) {
+    if (downloads_busy()) { error_busy(); return; }
+    char said[200];
+    int via = sources_tunneled(url);
+    preview_quiesce();
+    shell_ask_with(T_SOURCE_TEST, T_TEST_RUNNING, NULL, NULL);
+    shell_draw(g_catalog, 0);
+    if (!connect_online()) {
+        snprintf(said, sizeof(said), "%s", T_STATUS_OFFLINE);
+    } else {
+        https_close_idle();                 /* a new connection: the test is of the way there */
+        unsigned t0 = sceKernelGetSystemTimeLow();
+        int rc = catalog_validate_source(url, 0);
+        float s = (sceKernelGetSystemTimeLow() - t0) / 1e6f;
+        long status = catalog_last_status();
+        char state[96];
+        if (rc == 0) snprintf(said, sizeof(said), T_TEST_OK, via ? T_TEST_TUNNEL : T_TEST_DIRECT, s);
+        else if (status == 401) snprintf(said, sizeof(said), "%s", T_TEST_401);
+        else if (status > 0 && status != 200) snprintf(said, sizeof(said), T_TEST_STATUS, status);
+        else if (via && tunnel_state(state, sizeof(state)) != TUNNEL_UP)
+            snprintf(said, sizeof(said), T_TEST_NO_TUNNEL, state);
+        else snprintf(said, sizeof(said), "%s", T_TEST_NOTHING);
+    }
+    shell_ask(NULL, NULL);
+    preview_resume();
+    answer_with(T_SOURCE_TEST, said, T_OK, NULL);
 }
 
 static int answer(const char *title, const char *line) {
@@ -404,6 +449,107 @@ int cable_at_start(void) {
     return gateway_asked(CABLE_USB);
 }
 
+/* The gear's Tailscale row: the auth key out of PSP/PSPDX/tunnel.txt -- the key
+   alone or the whole install command it came in -- and the tailnet joined
+   with it while the band says how far that has got. Joined, the key has
+   done its work: the device's own keys are in tunnel.key, and tunnel.txt,
+   which could join any other device too, is deleted. Not joined, it stays
+   for the next try. The tunnel runs on its own thread; this only watches. */
+#define TUNNEL_TXT "PSP/PSPDX/tunnel.txt"
+#define TUNNEL_SETUP_US (60 * 1000000u)
+
+/* Whether this PSP is in a tailnet, for the gear's row: asked of the stick
+   once, then kept by the setup that changes it. */
+static int g_tunnel_set = -1;
+int tunnel_is_set_up(void) {
+    if (g_tunnel_set < 0) g_tunnel_set = tunnel_has_keys();
+    return g_tunnel_set;
+}
+
+void tunnel_set_up(void) {
+    if (downloads_busy()) { error_busy(); return; }
+    char *text = NULL, key[160];
+    int n = storage_read(storage_path(TUNNEL_TXT), &text, 8192);
+    if (n < 0 && tunnel_is_set_up()) {
+        /* Set up already, and no new key: what it is, how to redo it, and
+           the way out of the tailnet. */
+        char said[200], state[96];
+        tunnel_state(state, sizeof(state));
+        snprintf(said, sizeof(said), "%s. %s", tunnel_state(NULL, 0) == TUNNEL_UP ? state : "Set up",
+                 T_TUNNEL_AGAIN);
+        if (!answer_with(T_SET_TUNNEL, said, T_TUNNEL_REMOVE, T_HINT_BACK)) return;
+        if (!answer(T_TUNNEL_REMOVE_ASK, T_TUNNEL_REMOVE_LINE)) return;
+        preview_quiesce();
+        shell_ask_with(T_SET_TUNNEL, T_TUNNEL_REMOVE_ASK, NULL, NULL);
+        shell_draw(g_catalog, 0);
+        int rc = tunnel_forget();
+        sources_tunneled_clear();
+        g_tunnel_set = tunnel_has_keys();
+        shell_ask(NULL, NULL);
+        preview_resume();
+        answer_with(T_SET_TUNNEL, rc == 0 ? T_TUNNEL_REMOVED : rc > 0 ? T_TUNNEL_REMOVED_OFF
+                                                                  : T_TUNNEL_NOT_REMOVED, T_OK, NULL);
+        return;
+    }
+    if (n < 0) { answer_with(T_SET_TUNNEL, T_TUNNEL_NO_FILE, T_OK, NULL); return; }
+    int found = tunnel_find_key(text, key, sizeof(key));
+    memset(text, 0, (size_t)n);
+    free(text);
+    if (found < 0) { answer_with(T_SET_TUNNEL, T_TUNNEL_NO_KEY, T_OK, NULL); return; }
+
+    preview_quiesce();
+    if (!connect_online()) {
+        memset(key, 0, sizeof(key));
+        preview_resume();
+        error_show(T_STATUS_OFFLINE, "tunnel setup");
+        return;
+    }
+    /* Afresh, with this key: a tunnel already running went by the old
+       keys, and a setup asked for again is a setup. */
+    tunnel_stop();
+    int started = tunnel_start(key) == 0;
+    memset(key, 0, sizeof(key));
+
+    char line[96] = "", shown[96] = "";
+    enum tunnel_state st = started ? TUNNEL_JOINING : TUNNEL_FAILED;
+    SceCtrlData pad;
+    sceCtrlPeekBufferPositive(&pad, 1);
+    unsigned last = pad.Buttons, since = sceKernelGetSystemTimeLow();
+    int left = 0;
+    while (started && !left) {
+        st = tunnel_state(line, sizeof(line));
+        if (st != TUNNEL_JOINING || sceKernelGetSystemTimeLow() - since > TUNNEL_SETUP_US) break;
+        if (strcmp(line, shown)) {
+            snprintf(shown, sizeof(shown), "%s", line);
+            shell_ask_with(T_SET_TUNNEL, shown, NULL, T_HINT_CANCEL);
+        }
+        shell_draw(g_catalog, 0);
+        sceCtrlPeekBufferPositive(&pad, 1);
+        left = (pad.Buttons & ~last & PSP_CTRL_CIRCLE) != 0;
+        last = pad.Buttons;
+    }
+    shell_ask(NULL, NULL);
+    if (left) released();
+
+    char said[300];
+    if (st == TUNNEL_UP && !tunnel_has_keys()) {
+        /* Up, but nothing kept to come back as: the key stays. */
+        snprintf(said, sizeof(said), "%s", T_TUNNEL_NOT_SAVED);
+    } else if (st == TUNNEL_UP) {
+        int gone = sceIoRemove(storage_path(TUNNEL_TXT)) >= 0 || !storage_exists(storage_path(TUNNEL_TXT));
+        g_tunnel_set = 1;
+        snprintf(said, sizeof(said), "%s. %s", line, gone ? T_TUNNEL_GONE : T_TUNNEL_KEPT);
+    } else {
+        tunnel_stop();
+        g_tunnel_set = tunnel_has_keys();
+        if (left) snprintf(said, sizeof(said), "%s", T_TUNNEL_CANCELLED);
+        else if (st == TUNNEL_JOINING) snprintf(said, sizeof(said), "%s", T_TUNNEL_TIMEOUT);
+        else snprintf(said, sizeof(said), "%s", line[0] ? line : T_TUNNEL_TIMEOUT);
+    }
+    preview_resume();
+    answer_with(T_SET_TUNNEL, said, T_OK, NULL);
+}
+
 void cable_set_up_again(void) {
     if (downloads_busy()) { error_busy(); return; }
     int chosen = cable_asked();
@@ -415,6 +561,9 @@ void cable_set_up_again(void) {
     /* And the connection made anew, through the system's dialog, since
        the one that stands may be the other kind. */
     preview_quiesce();
+    /* The tunnel's sockets are on the connection about to go; the next
+       request through it starts it again on the new one. */
+    tunnel_stop();
     https_net_disconnect();
     int online = connect_system() == 0 && https_net_connect() == 0;
     catalog_offline(!online);
@@ -697,6 +846,7 @@ void launch_app(int index) {
        Persist a changed graphics mode here as well, beside the other session
        state that must survive a normal app launch. */
     options_settings_save();
+    tunnel_stop();
     audio_stop();
     log_dump();
 
@@ -925,6 +1075,7 @@ void clear_cache(void) {
    apps under PSP/GAME are not its to remove. */
 void reset_completely(void) {
     if (downloads_busy()) { error_busy(); return; }
+    tunnel_stop();
     log_dump();
     if (storage_remove_tree(storage_path("PSP/PSPDX")) < 0)
         logline("reset: some of PSP/PSPDX would not go");

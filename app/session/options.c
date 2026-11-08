@@ -363,15 +363,19 @@ void sub_open(enum sub which) {
     g_sub = which;
     g_menu.count = 0;
     if (which == SUB_SOURCE) {
-        /* A source: its address put right, its password, or gone. */
+        /* A source: its address put right, its password, its way through
+           Tailscale, a test of it, or gone. */
         g_menu.item[g_menu.count++] = T_SOURCE_EDIT;
         g_menu.item[g_menu.count++] = T_SOURCE_PASSWORD;
+        g_menu.item[g_menu.count++] = T_SOURCE_TUNNEL;
+        g_menu.item[g_menu.count++] = T_SOURCE_TEST;
         g_menu.item[g_menu.count++] = T_SOURCE_DELETE;
     } else {
         g_menu.item[g_menu.count++] = T_SUB_FROM_GITHUB;
         g_menu.item[g_menu.count++] = T_SUB_FROM_INBOX;
     }
     for (int i = 0; i < g_menu.count; i++) { g_menu.on[i] = 1; g_menu.key[i] = -1; g_menu.value[i] = NULL; }
+    if (which == SUB_SOURCE) g_menu.value[2] = sources_tunneled(g_sub_url) ? T_VALUE_ON : T_VALUE_OFF;
     g_menu.cursor = 0;
     sub_push();
 }
@@ -447,8 +451,18 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
                         shell_status(password[0] ? T_SOURCE_PASSWORD_SET : T_SOURCE_PASSWORD_GONE);
                         refetch_now(*cursor, keep, keep_size, synced, refreshing);
                     }
-                } else if (chosen == 2)
+                } else if (chosen == 4)
                     ask(ASK_CATALOG, g_sub_source, T_SOURCE_DELETE_ASK, g_sub_url + sources_web(g_sub_url));
+                else if (chosen == 3 && *synced) source_test(g_sub_url);
+                else if (chosen == 2 && *synced) {
+                    /* The host from now on through the tunnel, or straight
+                       again; fetched anew the way it now goes. */
+                    int on = !sources_tunneled(g_sub_url);
+                    if (sources_tunneled_set(g_sub_url, on) == 0) {
+                        shell_status(on ? T_SOURCE_TUNNEL_ON : T_SOURCE_TUNNEL_OFF);
+                        refetch_now(*cursor, keep, keep_size, synced, refreshing);
+                    } else shell_status(T_SOURCE_TUNNEL_FULL);
+                }
             } else if (chosen == 0 && *synced && type_source(1))
                 refetch_now(*cursor, keep, keep_size, synced, refreshing);
             else if (chosen == 1 && *synced) ask_inbox();

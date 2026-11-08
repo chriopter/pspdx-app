@@ -93,6 +93,17 @@ int sources_password(const char *url, char *out, size_t size);
 int sources_password_set(const char *url, const char *password);
 void sources_passwords_load(void);
 
+/* A catalog reached through the tunnel (pspkit-tunnel), per host, in
+   PSP/PSPDX/tunneled.txt, a host a line. Marking one writes the file and
+   routes every request to that host through the tunnel, which starts on the
+   first; unmarking routes it back. sources_tunneled_load does that for each
+   one, once, at start. */
+int sources_tunneled(const char *url);
+int sources_tunneled_set(const char *url, int on);
+void sources_tunneled_load(void);
+/* Every host back to going direct, and the file gone: Tailscale removed. */
+void sources_tunneled_clear(void);
+
 /* Two URLs that name the same repository, whatever tag either pins: what
    a record on the stick and a catalog entry are compared by. */
 int sources_same_repo(const char *a, const char *b);

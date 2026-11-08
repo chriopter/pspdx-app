@@ -8,12 +8,14 @@
 #include <strings.h>
 
 #include "pspkit-https/https.h"
+#include "pspkit-tunnel/tunnel.h"
 #include "update/sources.h"
 #include "util/runtime.h"
 
 #define SOURCES_DIR storage_path("PSP/PSPDX")
 #define SOURCES_PATH storage_path("PSP/PSPDX/sources.txt")
 #define PASSWORDS_PATH storage_path("PSP/PSPDX/passwords.txt")
+#define TUNNELED_PATH storage_path("PSP/PSPDX/tunneled.txt")
 #define PASSWORD_USER "pspdx"
 
 static char g_text[16 * 1024];
@@ -754,5 +756,60 @@ void sources_passwords_load(void) {
         *space = '\0';
         https_set_basic(line, PASSWORD_USER, space + 1);
     }
+    free(text);
+}
+
+int sources_tunneled(const char *url) {
+    char host[128], *text = NULL;
+    int found = 0;
+    if (web_host(url, host, sizeof(host)) < 0 || storage_read(TUNNELED_PATH, &text, 4096) < 0) return 0;
+    for (char *line = strtok(text, "\r\n"); line && !found; line = strtok(NULL, "\r\n"))
+        found = !strcmp(line, host);
+    free(text);
+    return found;
+}
+
+int sources_tunneled_set(const char *url, int on) {
+    char host[128], *text = NULL;
+    if (web_host(url, host, sizeof(host)) < 0) return -1;
+    int len = storage_read(TUNNELED_PATH, &text, 4096);
+    size_t cap = (len > 0 ? (size_t)len : 0) + strlen(host) + 2, at = 0;
+    char *all = malloc(cap);
+    if (!all) { free(text); return -1; }
+    /* The route before the file: the table it goes in holds eight, and a
+       host the file names but the table could not take would go straight. */
+    if (https_set_transport(host, on ? tunnel_transport() : NULL) < 0) {
+        free(all);
+        free(text);
+        return -1;
+    }
+    for (char *line = len > 0 ? strtok(text, "\r\n") : NULL; line; line = strtok(NULL, "\r\n"))
+        if (strcmp(line, host)) at += (size_t)snprintf(all + at, cap - at, "%s\n", line);
+    if (on) at += (size_t)snprintf(all + at, cap - at, "%s\n", host);
+    int rc = storage_write(TUNNELED_PATH, all, at);
+    free(all);
+    free(text);
+    if (rc < 0) {
+        https_set_transport(host, on ? NULL : tunnel_transport());
+        return -1;
+    }
+    return 0;
+}
+
+void sources_tunneled_clear(void) {
+    char *text = NULL;
+    if (storage_read(TUNNELED_PATH, &text, 4096) >= 0) {
+        for (char *line = strtok(text, "\r\n"); line; line = strtok(NULL, "\r\n"))
+            if (*line) https_set_transport(line, NULL);
+        free(text);
+    }
+    sceIoRemove(TUNNELED_PATH);
+}
+
+void sources_tunneled_load(void) {
+    char *text = NULL;
+    if (storage_read(TUNNELED_PATH, &text, 4096) < 0) return;
+    for (char *line = strtok(text, "\r\n"); line; line = strtok(NULL, "\r\n"))
+        if (*line) https_set_transport(line, tunnel_transport());
     free(text);
 }

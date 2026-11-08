@@ -22,6 +22,7 @@
 #include "pspkit-https/https.h"
 #include "gui/image.h"
 #include "gui/usbnet_icon.h"
+#include "session/actions.h"
 #include "gui/shell.h"
 #include "gui/flags.h"
 #include "gui/shell_internal.h"
@@ -521,7 +522,7 @@ static const char *setting_word(int n) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[VIEW_SETTINGS] = {
-        MARK_PILL, MARK_WORLD, MARK_SLIDERS, MARK_PLUGINS, MARK_FOLDER, MARK_INFO,
+        MARK_PILL, MARK_WORLD, MARK_SLIDERS, MARK_PLUGINS, MARK_WORLD, MARK_FOLDER, MARK_INFO,
     };
     float dx = g_page_dx;
     float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
@@ -540,6 +541,13 @@ static void draw_setting_row(int n, int y, int selected, float t) {
         float vw = font_width(FONT_META, value);
         font_print(FONT_META, LIST_X + LIST_W - 8 + dx - vw, y + 21,
                    faded(g_dim, selected ? 230 : 150), value);
+        w -= (int)vw + 16;
+    }
+    if (n == 4 && tunnel_is_set_up()) {
+        /* Tailscale says that it is set up, as Mercy UI says its rate. */
+        float vw = font_width(FONT_META, T_VALUE_ON);
+        font_print(FONT_META, LIST_X + LIST_W - 8 + dx - vw, y + 21,
+                   faded(g_dim, selected ? 230 : 150), T_VALUE_ON);
         w -= (int)vw + 16;
     }
     font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, w,
@@ -879,7 +887,7 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
     }
     gfx_unclip();
 
-    /* Under the grid the chosen disc's name, and how far down the grid is
+    /* Under the grid the chosen disc's name, and which of how many it is
        when there is more of it than the room shows. */
     int index = view_index(cursor);
     if (index >= 0) {
@@ -901,8 +909,8 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
                              GRID_NAME_Y, room, g_text, name, hover_age(4, index));
     }
     if (lines > GRID_LINES) {
-        char where[24];
-        snprintf(where, sizeof(where), "%d / %d", line + 1, lines);
+        char where[32];
+        snprintf(where, sizeof(where), "%d / %d", cursor + 1, count);   /* the game, not the row */
         font_print(FONT_CAPTION, SCR_W - LIST_X - font_width(FONT_CAPTION, where) + dx, GRID_NAME_Y,
                    faded(g_dim, 170), where);
     }
@@ -2269,6 +2277,7 @@ static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
     T_NOTE_SOURCES,
     T_NOTE_SYSTEM,
     T_NOTE_CABLE,
+    T_NOTE_TUNNEL,
     T_NOTE_FILES,
     T_NOTE_ABOUT,
 };
@@ -2826,8 +2835,9 @@ int draw_setting_note(const char *title, const char *note, float age) {
 static void draw_setting_panel(int n) {
     int lines = draw_setting_note(setting_word(n), n == 0 && downloads_busy()
                                   ? "Downloads temporarily use the 60 FPS UI. Your selected mode returns when the queue is finished."
+                                  : n == 4 && tunnel_is_set_up() ? T_NOTE_TUNNEL_ON
                                   : SETTING_NOTE[n], 0.0f);
-    if (n == 3) { /* Set up USBNet: illustrate the explanation, not the list row. */
+    if (n == 3) { /* USBNet: illustrate the explanation, not the list row. */
         static struct gfx_texture icon;
         static int tried;
         if (!tried) {

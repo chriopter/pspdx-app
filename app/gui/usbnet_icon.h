@@ -1,7 +1,7 @@
 #ifndef PSPDX_USBNET_ICON_H
 #define PSPDX_USBNET_ICON_H
 
-/* USBNet's icon below the "Set up USBNet" explanation, shown
+/* USBNet's icon below the gear's USBNet explanation, shown
    offline and before any catalog was read: pspkit-usbnet's assets/icon0.png
    (144x80) at 86x48, as a PNG. Made with Pillow:
    resize((86, 48), LANCZOS), quantize(64), save(optimize=True); MIT, see

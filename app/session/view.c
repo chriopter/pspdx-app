@@ -787,6 +787,7 @@ static const char *const SETTING[VIEW_SETTINGS] = {
     T_SET_SOURCES,
     T_SET_SYSTEM,
     T_SET_CABLE,
+    T_SET_TUNNEL,
     T_SET_FILES,
     T_SET_ABOUT,
 };
