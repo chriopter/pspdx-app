@@ -50,6 +50,9 @@ void preview_resume(void);
 /* What to draw on the card, bottom to top: the still (or NULL), then the
    film over it (or NULL), each with how far it has faded in (0..255). */
 const struct gfx_texture *preview_still(int *alpha);
+/* The still at the screen's size, swizzled 5650, while the still is up; 0
+   where there is none. For the backdrop of a page. */
+const struct gfx_texture *preview_screen(void);
 /* Bumped each time a still is published: a VRAM copy keyed on it re-uploads. */
 unsigned preview_still_gen(void);
 const struct gfx_texture *preview_film(int *alpha);

@@ -69,7 +69,54 @@ static void shrink_row(unsigned *sum, unsigned width, unsigned char *out) {
     }
 }
 
+static int decode(const void *data, size_t len, struct gfx_texture *out, unsigned max_dim);
+
 int image_decode_png(const void *data, size_t len, struct gfx_texture *out) {
+    return decode(data, len, out, MAX_DIM);
+}
+
+/* The picture at the screen's own size, 480 by 272 for a PIC1.PNG, as 5650
+   texels in swizzled blocks of 16 bytes by 8 rows: what a page puts behind
+   itself, drawn every frame. Rows are allocated to the next eight past the
+   picture's height and eight more; the GE is never asked for one below. */
+int image_decode_png_screen(const void *data, size_t len, struct gfx_texture *out) {
+    struct gfx_texture rgba;
+    memset(out, 0, sizeof(*out));
+    if (decode(data, len, &rgba, 512) != 0) return -1;
+    /* A block of rows more than the picture: a filtered texel at its foot
+       reads one row past it. */
+    unsigned rows = (((unsigned)rgba.h + 7) & ~7u) + 8, pitch = (unsigned)rgba.tw * 2;
+    unsigned char *texels = memalign(16, (size_t)pitch * rows);
+    if (!texels) {
+        gfx_texture_free(&rgba);
+        return -1;
+    }
+    memset(texels, 0, (size_t)pitch * rows);
+    for (unsigned y = 0; y < (unsigned)rgba.h; y++) {
+        const unsigned char *in = (const unsigned char *)rgba.pixels + (size_t)y * rgba.tw * 4;
+        for (unsigned x = 0; x < (unsigned)rgba.w; x++, in += 4) {
+            unsigned short c = (unsigned short)((in[0] >> 3) | ((in[1] >> 2) << 5) | ((in[2] >> 3) << 11));
+            /* Byte i of row y lands in block (i / 16, y / 8), at (i % 16, y % 8). */
+            for (unsigned b = 0; b < 2; b++) {
+                unsigned i = x * 2 + b;
+                size_t at = ((size_t)(y / 8) * (pitch / 16) + i / 16) * 128 + (y % 8) * 16 + i % 16;
+                texels[at] = (unsigned char)(c >> (8 * b));
+            }
+        }
+    }
+    sceKernelDcacheWritebackRange(texels, pitch * rows);
+    out->w = rgba.w;
+    out->h = rgba.h;
+    out->tw = rgba.tw;
+    out->th = rgba.th;
+    out->pixels = texels;
+    out->opaque = 1;
+    out->swizzled565 = 1;
+    gfx_texture_free(&rgba);
+    return 0;
+}
+
+static int decode(const void *data, size_t len, struct gfx_texture *out, unsigned max_dim) {
     struct source src = { data, len, 0 };
     /* Set after setjmp and read by its error path: volatile, or a longjmp
        hands back what they held at the setjmp and the memory leaks. */
@@ -114,7 +161,6 @@ int image_decode_png(const void *data, size_t len, struct gfx_texture *out) {
        30 Hz path already kept exactly that resolution in its VRAM copy.
        Shrink on the media thread so neither mode ever asks the GE to fetch a
        full 512x512 system-RAM texture. */
-    unsigned max_dim = MAX_DIM;
     unsigned tw = w, th = h;
     int shrink = w > max_dim || h > max_dim;
     if (shrink) {

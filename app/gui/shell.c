@@ -2500,13 +2500,17 @@ static void draw_details(void) {
 
     /* The package's own screen behind everything, fading with the page:
        bright at the top where nothing is read, dark toward the foot, and
-       darker again down the left where the words are. */
-    if (gfx_fps_cap30() && still && still_alpha > 0) {
+       darker again down the left where the words are. At its own 480 by
+       272, at either rate: swizzled and 16-bit it is a fraction of a frame
+       for the GE, and the water it stands in for is not drawn behind it. */
+    const struct gfx_texture *screen = preview_screen();
+    const struct gfx_texture *back_tex = screen ? screen : gfx_fps_cap30() ? still : 0;
+    if (back_tex && still_alpha > 0) {
         /* Whole and opaque once it is in: the fade ends a hair under 255
            and would leave the room showing through by a hair. */
         int back = still_alpha >= PAGE_STILL_FULL ? 255 : still_alpha;
-        gfx_texture_vram_drop(still);
-        gfx_texture_draw(still, 0, 0, SCR_W, SCR_H, RGBA(255, 255, 255, (int)(back * ease)));
+        if (back_tex == still) gfx_texture_vram_drop(still);
+        gfx_texture_draw(back_tex, 0, 0, SCR_W, SCR_H, RGBA(255, 255, 255, (int)(back * ease)));
     }
     gfx_vgrad(0, 0, SCR_W, SCR_H, RGBA(0, 0, 0, (int)(10 * ease)), RGBA(0, 0, 0, (int)(225 * ease)));
     gfx_hgrad(0, 0, CINE_X + CINE_W + 30, SCR_H, RGBA(0, 0, 0, (int)(120 * ease)), RGBA(0, 0, 0, 0));

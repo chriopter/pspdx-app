@@ -183,6 +183,10 @@ struct gfx_texture {
     /* The alpha channel means nothing: take colour only. sceMpeg writes
        every pixel with alpha zero, as the PSP does. */
     int opaque;
+    /* 16-bit 5650 texels in the GE's swizzled blocks, opaque: a picture the
+       size of the screen that the GE fetches from system RAM at half the
+       bytes and with the texture cache on its side. 8888 linear otherwise. */
+    int swizzled565;
 };
 
 /* Keep this texture in VRAM (the panel's still, sampled by the card and the

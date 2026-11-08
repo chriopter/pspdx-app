@@ -67,6 +67,8 @@ static int g_nothing;                   /* the selection has no picture at all *
    pointer moves. The GE may still be reading the old one this frame; it
    is not written again before the next request, frames later. */
 static struct gfx_texture g_stills[2];
+/* Beside each, the same picture at the screen's size, for a page's backdrop. */
+static struct gfx_texture g_screens[2];
 static int g_still_slot;
 static const struct gfx_texture *volatile g_still_pub;
 static volatile enum still_state g_still_state;
@@ -92,12 +94,14 @@ static volatile unsigned g_done_gen;    /* gen the thread has finished with */
 static int stale(unsigned gen) { return gen != g_want.gen || g_quit || g_hold; }
 
 static void load_still(const struct request *req, unsigned gen, struct gfx_texture *into) {
+    struct gfx_texture *screen = &g_screens[into - g_stills];
     int decoded = -1;
     if (req->pbp[0]) {
         void *png;
         size_t n;
         if (pbp_section(req->pbp, PBP_PIC1, &png, &n) == 0) {
             if (!stale(gen)) decoded = image_decode_png(png, n, into);
+            if (decoded == 0 && !stale(gen)) image_decode_png_screen(png, n, screen);
             free(png);
             if (stale(gen)) return;
         }
@@ -112,6 +116,7 @@ static void load_still(const struct request *req, unsigned gen, struct gfx_textu
             g_still_state = STILL_FAILED;
             return;
         }
+        if (!stale(gen)) image_decode_png_screen(png, len, screen);
         logline("shot: %u ms get, %u ms decode, %s", (t1 - t0) / 1000, (now_us() - t1) / 1000,
                 req->id);
     }
@@ -298,9 +303,10 @@ static int media_thread(SceSize args, void *argp) {
         int slot = g_still_slot ^ 1;
         gfx_texture_vram_drop(&g_stills[slot]);    /* never sample a freed still from VRAM */
         gfx_texture_free(&g_stills[slot]);
+        gfx_texture_free(&g_screens[slot]);
         g_still_state = STILL_LOADING;
         load_still(&req, gen, &g_stills[slot]);
-        if (stale(gen)) { gfx_texture_free(&g_stills[slot]); continue; }
+        if (stale(gen)) { gfx_texture_free(&g_stills[slot]); gfx_texture_free(&g_screens[slot]); continue; }
         g_still_slot = slot;
 
         /* The cache is tried even without a link, so this is asked of
@@ -378,6 +384,8 @@ void preview_shutdown(void) {
     if (g_wake >= 0) { sceKernelDeleteSema(g_wake); g_wake = -1; }
     if (g_idle >= 0) { sceKernelDeleteSema(g_idle); g_idle = -1; }
     gfx_texture_free(&g_stills[0]);
+    gfx_texture_free(&g_screens[0]);
+    gfx_texture_free(&g_screens[1]);
     gfx_texture_free(&g_stills[1]);
     g_still_pub = 0;
     free(g_film_buf[0]);
@@ -513,6 +521,13 @@ const struct gfx_texture *preview_still(int *alpha) {
     if (g_still_state != STILL_READY || !t) { *alpha = 0; return 0; }
     *alpha = (int)(g_still_alpha * 255.0f);
     return t;
+}
+
+const struct gfx_texture *preview_screen(void) {
+    const struct gfx_texture *t = g_still_pub;
+    if (g_still_state != STILL_READY || !t) return 0;
+    const struct gfx_texture *s = &g_screens[t - g_stills];
+    return s->pixels ? s : 0;
 }
 
 const struct gfx_texture *preview_film(int *alpha) {

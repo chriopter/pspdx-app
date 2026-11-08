@@ -392,6 +392,8 @@ static void bind(const struct gfx_texture *t) {
         sceGuClutMode(GU_PSM_8888, 0, 0xff, 0);
         sceGuClutLoad(32, g_glow_clut);
         sceGuTexMode(GU_PSM_T8, 0, 0, GU_FALSE);
+    } else if (t->swizzled565) {
+        sceGuTexMode(GU_PSM_5650, 0, 0, GU_TRUE);
     } else {
         sceGuTexMode(GU_PSM_8888, 0, 0, GU_FALSE);
     }
