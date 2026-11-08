@@ -455,8 +455,8 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(rows,['0 3 broken ms0:/ISO/broken.iso','0 3 LocoRoco ms0:/ISO/Sub/Second.cso','0 1 Minis ms0:/PSP/GAME/NPUZ00001/EBOOT.PBP',
                          '0 3 Patapon ms0:/ISO/Game One.iso','0 3 Zeta ef0:/ISO/third.zso','1 2 "Final" Fantasy VII ms0:/PSP/GAME/SLUS00001/EBOOT.PBP',
                          '2 0 Another ms0:/PSP/APPS/App2/EBOOT.PBP','2 0 homebrew B ms0:/PSP/GAME/HB/EBOOT.PBP','2 0 NOSFO ms0:/PSP/GAME/NOSFO/EBOOT.PBP',
-                         # A section starts a line: down from the first disc to the PS1 game, to the first homebrew, along it to its end and no further, up to the PS1 line's one item, up to the discs' column, and left along them.
-                         'walk 5 6 7 8 8 5 0 0'],r.stderr)
+                         # The launcher's places, four to a line: each section from a new line, its sign first, a place like the others so a column stays one. Down from the discs' sign to the fourth disc, down onto the PS1 sign, right to its game and no further, up to the fifth disc, up to the first, and left onto the sign.
+                         'walk 4 6 7 7 7 5 1 0'],r.stderr)
   self.assertIn('library: 10 found, 10 read',r.stderr)
   r=self.run_client('library',VERBOSE=1);self.assertEqual(r.stdout.splitlines(),rows[:-1]);self.assertIn('library: 10 found, 0 read',r.stderr)
   put('ms0:/PSP/GAME/HB/EBOOT.PBP',pbp(sfo(CATEGORY='EG',TITLE='Now a PSN title'),b'A NEW ICON'))
@@ -465,7 +465,7 @@ class ClientTests(unittest.TestCase):
  def test_view_tabs_come_and_go(self):
   # One app, installed with a newer one published: the stick, the library, whose rows are not the catalog's, Homebrew and the gear, walked from Homebrew; the basket's tab appears with the first package set aside and goes with it, and its going is what the caller is told.
   self.fixtures();r=self.run_client('view')
-  self.assertEqual(r.stdout.splitlines(),['tabs 4: -2 -4 0 -3','tab 0 kind 0 rows 5 first -4 plan 0 0','tab -3 kind 3 rows 8 first -1000 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','tab -4 kind 4 rows 0 first -1 plan 0 0','basket 1 kept 1 tabs 5 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 4 moved 1'],r.stderr)
+  self.assertEqual(r.stdout.splitlines(),['tabs 5: 0 -4 -5 -2 -3','tab 0 kind 0 rows 5 first -4 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0','tab -5 kind 5 rows 0 first -1 plan 0 0','tab -2 kind 1 rows 2 first -2 plan 1 1','tab -3 kind 3 rows 6 first -1001 plan 0 0','basket 1 kept 1 tabs 6 moved 0','basket tab rows 2 first -2 index 0 row 1','emptied kept 0 kind 0 tabs 5 moved 1'],r.stderr)
  def test_catalog_offline_fallback(self):
   self.fixtures();r=self.run_client('fetch');self.assertIn(ID+' 2 1',r.stdout)
   r=self.run_client('fetch',CATALOG_DOWN=1);self.assertIn(ID+' 3 1',r.stdout)
@@ -1744,7 +1744,7 @@ class ClientTests(unittest.TestCase):
     if kind:a['type']=kind;a.pop('installdir')
     self.write('catalog.json',dict(catalog,apps=[a]))
     # The store opens with its three ways to browse it by -- category, tag, source -- whatever the entry names, the package below them.
-    self.assertEqual(self.run_client('view').stdout.splitlines()[:3],['tabs 4: -2 -4 0 -3','tab 0 kind 0 rows 5 first -4 plan 0 0','tab -3 kind 3 rows 8 first -1000 plan 0 0'])
+    self.assertEqual(self.run_client('view').stdout.splitlines()[:3],['tabs 5: 0 -4 -5 -2 -3','tab 0 kind 0 rows 5 first -4 plan 0 0','tab -4 kind 4 rows 0 first -1 plan 0 0'])
  def test_the_store_is_browsed_by_category_tag_and_source(self):
   # Three rows above the packages, one a way to browse by, with how many rows it lists: the categories, the tags at least two shown apps carry (rare, one, has no chip), the most carried first, spelled as first met, "unreleased" never, nor a contest's tag with its year in it (a model number after a dash is no year), and the sources by the name their catalog gives or their URL makes. Back out of a row lands on it, back out of a way on the way; a tag or a source narrows the list to its apps.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());app=catalog['apps'][0]
@@ -1757,14 +1757,14 @@ class ClientTests(unittest.TestCase):
   (self.root/'ms0:/PSP/PSPDX/sources.txt').write_text('https://example.com/catalog.json\nhttps://example.com/second.json\n')
   (self.root/'map.txt').write_text('https://example.com/second.json %s\n'%(self.root/'second.json'))
   r=self.run_client('groups',URL_MAP=self.root/'map.txt')
-  self.assertEqual(r.stdout.splitlines(),['Browse by Category 5','Browse by Tag 3','Browse by Source 2','then 1',
-                                          '> Browse by Category','0 game 4','0 demo 0','0 app 0','0 emulator 0','0 UMDs 0','apps 0 back 4','root 1',
+  self.assertEqual(r.stdout.splitlines(),['Browse by Category 4','Browse by Tag 3','Browse by Source 2','then 1',
+                                          '> Browse by Category','0 game 4','0 demo 0','0 app 0','0 emulator 0','apps 0 back 3','root 1',
                                           '> Browse by Tag','1 Racing 3','1 PSP-2000+ only 2','1 puzzle 2','apps 2 back 2','root 2',
                                           '> Browse by Source','2 example.com 4','2 PSPDX Community 1','apps 1 back 1','root 3'],r.stderr)
   # Shown, the unreleased count, puzzle has its row, and the switch itself is never a tag row.
   r=self.run_client('groups',URL_MAP=self.root/'map.txt',UNRELEASED=1)
-  self.assertEqual(r.stdout.splitlines()[4:20],['> Browse by Category','0 game 7','0 demo 1','0 app 0','0 emulator 0','0 UMDs 0','apps 0 back 4','root 1',
-                                                '> Browse by Tag','1 Racing 5','1 puzzle 4','1 PSP-2000+ only 2','apps 2 back 2','root 2','> Browse by Source','2 example.com 8'],r.stderr)
+  self.assertEqual(r.stdout.splitlines()[4:20],['> Browse by Category','0 game 7','0 demo 1','0 app 0','0 emulator 0','apps 0 back 3','root 1',
+                                                '> Browse by Tag','1 Racing 5','1 puzzle 4','1 PSP-2000+ only 2','apps 2 back 2','root 2','> Browse by Source','2 example.com 8','2 PSPDX Community 1'],r.stderr)
   ids=lambda *a:[i.rsplit('.',1)[-1] for i in self.run_client('listing',*a,URL_MAP=self.root/'map.txt').stdout.split()]
   self.assertEqual(sorted(ids('Racing')),['app1','app3','app8'])
   self.assertEqual(ids('PSPDX Community'),['app8'])

@@ -23,6 +23,7 @@
 #include "session/actions.h"
 #include "session/launcher.h"
 #include "session/library.h"
+#include "text.h"
 #include "update/pspdx.h"
 #include "util/iso.h"
 #include "util/pbp.h"
@@ -69,6 +70,8 @@ int library_find(unsigned key) {
     return -1;
 }
 
+static void lay_places(void);
+
 static void adopt(void) {
     free(g_items);
     g_items = g_offer;
@@ -79,56 +82,141 @@ static void adopt(void) {
     for (int s = 0, at = 0; s < LIBRARY_SECTIONS; at += g_in[s++]) g_first[s] = at;
     g_ready = 1;
     g_offered = 0;
+    lay_places();
 }
 
 /* ------------------------------------------------------------- the grid */
 
-static int section_of(int n) {
-    for (int s = 0; s < LIBRARY_SECTIONS; s++)
-        if (n >= g_first[s] && n < g_first[s] + g_in[s]) return s;
-    return LIBRARY_SECTIONS - 1;
-}
-static int lines_of(int s) { return (g_in[s] + LIBRARY_COLS - 1) / LIBRARY_COLS; }
+/* What the launcher shows is places, not items: one list, four to a line.
+   The favourites come first, by title, with no sign of their own; then
+   every section starts a line, its sign in the first place -- a place the
+   cursor stands on too, so a column stays a column -- and the rest of it
+   by title.
+   A place holds an item's index, or PLACE_SIGN - section for a sign. */
+#define PLACE_SIGN (-2)
+#define FAVOURITES_PATH "PSP/PSPDX/favorites.txt"
+#define FAVOURITES_MAX 256
 
-int library_lines(void) {
-    int lines = 0;
-    for (int s = 0; s < LIBRARY_SECTIONS; s++) lines += lines_of(s);
-    return lines;
+static int g_place[LIBRARY_MAX + LIBRARY_SECTIONS];
+static int g_place_line[LIBRARY_MAX + LIBRARY_SECTIONS];
+static int g_place_col[LIBRARY_MAX + LIBRARY_SECTIONS];
+static int g_places, g_lines;
+static unsigned g_favourite[FAVOURITES_MAX];   /* keys */
+static int g_favourites, g_favourites_loaded;
+
+static void favourites_load(void) {
+    if (g_favourites_loaded) return;
+    g_favourites_loaded = 1;
+    char *text = NULL;
+    int n = storage_read(storage_path(FAVOURITES_PATH), &text, 16 * 1024);
+    if (n <= 0) { free(text); return; }
+    for (char *p = text; *p && g_favourites < FAVOURITES_MAX;) {
+        char *end = strchr(p, '\n');
+        if (end) *end = '\0';
+        if (*p) g_favourite[g_favourites++] = (unsigned)strtoul(p, NULL, 16);
+        if (!end) break;
+        p = end + 1;
+    }
+    free(text);
 }
 
-int library_line(int n) {
-    int s = section_of(n), line = 0;
-    for (int k = 0; k < s; k++) line += lines_of(k);
-    return line + (n - g_first[s]) / LIBRARY_COLS;
+int library_favourite(unsigned key) {
+    favourites_load();
+    for (int i = 0; i < g_favourites; i++)
+        if (g_favourite[i] == key) return 1;
+    return 0;
 }
 
-/* The item in column col of grid line line, or the last of a line too
-   short to have one there. */
-static int item_at(int line, int col) {
+static void place(int item, int *line, int *col) {
+    if (*col == LIBRARY_COLS) { ++*line; *col = 0; }
+    g_place[g_places] = item;
+    g_place_line[g_places] = *line;
+    g_place_col[g_places] = (*col)++;
+    g_places++;
+}
+
+static void lay_places(void) {
+    favourites_load();
+    g_places = 0;
+    int line = 0, col = 0;
+    for (int n = 0; n < g_count; n++)
+        if (library_favourite(g_items[n].key)) place(n, &line, &col);
     for (int s = 0; s < LIBRARY_SECTIONS; s++) {
-        if (line < lines_of(s)) {
-            int k = line * LIBRARY_COLS + col;
-            return g_first[s] + (k < g_in[s] ? k : g_in[s] - 1);
+        int first = 1;
+        for (int n = g_first[s]; n < g_first[s] + g_in[s]; n++) {
+            if (library_favourite(g_items[n].key)) continue;
+            if (first) {
+                if (col) { line++; col = 0; }
+                place(PLACE_SIGN - s, &line, &col);
+                first = 0;
+            }
+            place(n, &line, &col);
         }
-        line -= lines_of(s);
     }
-    return g_count - 1;
+    g_lines = g_places ? line + 1 : 0;
 }
 
-int library_step(int n, int dx, int dy, int ring) {
-    if (g_count <= 0) return 0;
-    if (n < 0 || n >= g_count) n = 0;
-    int s = section_of(n), k = n - g_first[s], col = k % LIBRARY_COLS;
+/* Marked or unmarked, kept on the stick at once, and the list laid out
+   again with it first or back in its section. */
+void library_favourite_toggle(unsigned key) {
+    favourites_load();
+    int at = -1;
+    for (int i = 0; i < g_favourites; i++)
+        if (g_favourite[i] == key) at = i;
+    if (at >= 0) {
+        memmove(g_favourite + at, g_favourite + at + 1, (size_t)(g_favourites - at - 1) * sizeof(*g_favourite));
+        g_favourites--;
+    } else if (g_favourites < FAVOURITES_MAX) {
+        g_favourite[g_favourites++] = key;
+    }
+    char text[FAVOURITES_MAX * 9 + 1];
+    size_t len = 0;
+    for (int i = 0; i < g_favourites; i++) len += (size_t)snprintf(text + len, sizeof(text) - len, "%08x\n", g_favourite[i]);
+    storage_write(storage_path(FAVOURITES_PATH), text, len);
+    lay_places();
+}
+
+int library_places(void) { return g_places; }
+int library_lines(void) { return g_lines; }
+int library_line(int p) { return p >= 0 && p < g_places ? g_place_line[p] : 0; }
+int library_column(int p) { return p >= 0 && p < g_places ? g_place_col[p] : 0; }
+int library_place_item(int p) { return p >= 0 && p < g_places && g_place[p] >= 0 ? g_place[p] : -1; }
+int library_place_sign(int p) {
+    return p >= 0 && p < g_places && g_place[p] <= PLACE_SIGN ? PLACE_SIGN - g_place[p] : -1;
+}
+int library_place_of(int item) {
+    for (int p = 0; p < g_places; p++)
+        if (g_place[p] == item) return p;
+    return -1;
+}
+const char *library_heading(void) { return T_HEAD_LIBRARY; }
+
+/* The place in column col of line line, or the last of a line too short
+   to have one there. */
+static int place_at(int line, int col) {
+    int best = -1;
+    for (int p = 0; p < g_places; p++) {
+        if (g_place_line[p] != line) continue;
+        best = p;
+        if (g_place_col[p] >= col) break;
+    }
+    return best >= 0 ? best : g_places - 1;
+}
+
+int library_step(int p, int dx, int dy, int ring) {
+    if (g_places <= 0) return 0;
+    if (p < 0 || p >= g_places) p = 0;
     if (dx) {
-        if (col + dx < 0 || col + dx >= LIBRARY_COLS || k + dx < 0 || k + dx >= g_in[s]) return n;
-        return n + dx;
+        int to = p + dx;
+        if (to < 0 || to >= g_places || g_place_line[to] != g_place_line[p]) return p;
+        return to;
     }
-    int lines = library_lines(), to = library_line(n) + dy;
-    if (to < 0 || to >= lines) {
-        if (!ring) return n;
-        to = to < 0 ? lines - 1 : 0;
+    int to = g_place_line[p] + dy;
+    if (to < 0 || to >= g_lines) {
+        if (!ring) return p;
+        to = to < 0 ? g_lines - 1 : 0;
     }
-    return item_at(to, col);
+    return place_at(to, g_place_col[p]);
 }
 
 /* -------------------------------------------------------------- reading */

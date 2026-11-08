@@ -35,7 +35,7 @@ unsigned view_generation(void);
    the whole tab as a thing to do. Homebrew, the library and the gear are
    there before any catalog is: the library and the gear need none. */
 enum view_tab_kind { VIEW_TAB_HOMEBREW, VIEW_TAB_STICK, VIEW_TAB_BASKET,
-                     VIEW_TAB_GEAR, VIEW_TAB_LIBRARY };
+                     VIEW_TAB_GEAR, VIEW_TAB_LIBRARY, VIEW_TAB_UMD };
 enum view_tab_kind view_tab_kind(void);
 
 /* A tab is a number: Homebrew, everything the catalogs publish, at zero, and
@@ -45,7 +45,8 @@ enum view_tab_kind view_tab_kind(void);
 #define TAB_STICK   (-2)
 #define TAB_GEAR    (-3)
 #define TAB_LIBRARY (-4)
-#define TAB_COUNT   5       /* all of them on screen at once */
+#define TAB_UMD     (-5)
+#define TAB_COUNT   6       /* all of them on screen at once */
 
 /* The library's rows are not the catalog's: session/library.c reads them
    off the stick, and the view is only told how many there are, so that a
@@ -106,9 +107,9 @@ int view_cloud(void);
 /* Whether the open list shows its packages as a grid of their icons rather
    than as rows: the store's UMDs, as the PSP's own game menu shows discs. */
 int view_grid(void);
-/* The store's category row "UMDs": the disc images the catalogs publish,
-   one tile a game, which no other list of the store shows. Its group
-   number, and whether it is the one the store is narrowed to. */
+/* The UMD tab: the disc images the catalogs publish, one tile a game,
+   which no list of the store shows. The group that holds them, and whether
+   the UMD tab is the open one. */
 int view_umd_group(void);
 int view_umd_open(void);
 /* The versions of the game an ISO entry is one of -- the entries with its
@@ -131,6 +132,11 @@ int view_newest(int n, int browse, int *out, int max);
    answers how many those are and leaves the store as it was when none;
    O goes back to the first rows, onto the search's. */
 #define VIEW_ROW_SEARCH (-4)
+/* Over the search, while the store shows what was kept and nothing has
+   connected yet: the row that connects. */
+#define VIEW_ROW_CONNECT (-6)
+void view_set_connect(int on);
+int view_connect_shown(void);
 #define VIEW_SEARCH_SIZE 40
 int view_search_open(const char *word);
 int view_search_close(void);            /* the row to stand on, -1 when none was open */
@@ -153,12 +159,21 @@ int view_home(void);
 
 /* Under the gear the rows are not packages but the things this session can
    do to itself, the first of them the way out to the home menu and then the UI's mode, flipped where it stands: view_index() answers VIEW_ROW_SETTING minus the
-   row's number for them, so the one list draws and walks both kinds. */
+   setting's number (enum view_setting) for them, so the one list draws and
+   walks both kinds. Network is a level of its own: the ways to the
+   catalogs and how the radio is used. */
 #define VIEW_ROW_SETTING (-1000)     /* below every VIEW_ROW_GROUP */
-#define VIEW_SETTINGS 8
+enum view_setting_id {
+    SET_XMB, SET_UI, SET_SOURCES, SET_OPTIONS, SET_CABLE, SET_TUNNEL, SET_FILES, SET_ABOUT,
+    SET_NETWORK, SET_AUTO, SET_CONNECTION, VIEW_SETTINGS
+};
 
-/* The word on a row under the gear. */
+/* The word for a setting under the gear. */
 const char *view_setting(int n);
+/* Into Network and back out of it; the row to stand on after. */
+int view_network_open(void);
+int view_network_close(void);
+int view_network_shown(void);
 
 /* What the action row would do, counted over the rows under it: what can be
    fetched, how much of that is a package already installed and current, what

@@ -27,6 +27,7 @@ enum mark {
     MARK_PILL, MARK_KNOB, MARK_KEY, MARK_RESTORE, /* Options' rows: a switch in two parts, the seed, the way back */
     MARK_SEARCH,                               /* the store's first row */
     MARK_EMULATORS, MARK_PLUGINS,              /* two more categories with a sign of their own */
+    MARK_LAUNCHER,                             /* the launcher's tab: a house */
     MARK_COUNT
 };
 

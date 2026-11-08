@@ -15,6 +15,8 @@
 
 #include "session/view.h"
 
+static int g_network;                    /* the gear showing Network's rows */
+
 /* The tabs on screen, in the order they are shown. Leftmost, where the
    system's own shell keeps its settings, the gear: rows about this session
    and what can be done to it, reached the way a tab is so that they need no
@@ -303,7 +305,7 @@ static void collect_sources(void) {
 static void list_way(void) {
     g_ways = 0;
     for (int n = 0; g_browse >= 0 && n < g_groups; n++)
-        if (g_group[n].kind == g_browse) g_way[g_ways++] = (unsigned char)n;
+        if (g_group[n].kind == g_browse && n != g_umd_group) g_way[g_ways++] = (unsigned char)n;
     /* The cloud keeps the groups' order: the tags most apps carry first,
        so the ones anybody still uses are at the top, not a 2007 contest. */
 }
@@ -351,7 +353,7 @@ static const char *const BROWSE[VIEW_BROWSE] = {
 const char *view_browse_word(int k) { return k >= 0 && k < VIEW_BROWSE ? BROWSE[k] : ""; }
 int view_browse_rows(int k) {
     int n = 0;
-    for (int g = 0; g < g_groups; g++) n += g_group[g].kind == k;
+    for (int g = 0; g < g_groups; g++) n += g_group[g].kind == k && g != g_umd_group;
     return n;
 }
 int view_browse_at(void) { return g_browse; }
@@ -362,8 +364,7 @@ int view_cloud(void) {
 
 int view_umd_group(void) { return g_umd_group; }
 int view_umd_open(void) {
-    return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_HOMEBREW && g_umd_group >= 0 &&
-           g_group_open == g_umd_group && !g_searching;
+    return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_UMD && g_umd_group >= 0;
 }
 int view_grid(void) { return view_umd_open() && g_view_count > 0; }
 
@@ -399,12 +400,16 @@ static int on_store(void) { return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_HOMEBRE
 /* The rows above the packages on the open tab: the search and the three
    ways at the store's first rows, the way's rows while one is open and no
    row of it is, nothing inside a row or among what a search found. */
+static int g_connect;
+void view_set_connect(int on) { g_connect = !!on; }
+int view_connect_shown(void) { return g_connect; }
 static int root_rows(void) {
     if (!on_store() || g_group_open >= 0 || g_searching) return 0;
-    return g_browse < 0 ? 1 + VIEW_BROWSE : g_ways;
+    return g_browse < 0 ? g_connect + 1 + VIEW_BROWSE : g_ways;
 }
 static int root_index(int row) {
     if (g_browse >= 0) return VIEW_ROW_GROUP - g_way[row];
+    if (g_connect && row-- == 0) return VIEW_ROW_CONNECT;
     return row == 0 ? VIEW_ROW_SEARCH : VIEW_ROW_BROWSE - (row - 1);
 }
 int view_group_count(void) { return g_groups; }
@@ -640,7 +645,7 @@ static void build_view(int restart) {
     if (!g_view_of || g_tabs <= 0) return;
     for (int i = 0; i < g_view_of->count; i++) {
         int take;
-        if (tab == TAB_HOMEBREW && view_umd_open())
+        if (tab == TAB_UMD)
             /* One tile per game: the version that stands for it. */
             take = is_umd_face(&g_view_of->apps[i]);
         else if (tab == TAB_HOMEBREW)
@@ -657,7 +662,7 @@ static void build_view(int restart) {
     /* Homebrew, the UMDs among it and the stick list the newest release
        first, by name, or what is installed first, as was chosen; what says
        no release date stands last, and a tie keeps the catalog's order. */
-    if (tab == TAB_HOMEBREW || tab == TAB_STICK)
+    if (tab == TAB_HOMEBREW || tab == TAB_UMD || tab == TAB_STICK)
         qsort(g_view, (size_t)g_view_count, sizeof(*g_view),
               g_sort == VIEW_SORT_NAME ? by_name : g_sort == VIEW_SORT_INSTALLED ? installed_first
                                                                     : newest_first);
@@ -706,15 +711,16 @@ static int collect_tabs(int keep) {
     int installed = 0;
     for (int i = 0; g_view_of && i < g_view_of->count; i++)
         if (g_view_of->apps[i].state != APP_NOT_INSTALLED) installed = 1;
-    /* Updates, the library, the store: the library in the middle. The
-       updates' tab stands whether or not a catalog has said yet what is
-       installed -- a launcher's start has read none, and that tab is how
-       one gets read. */
+    /* In the middle the store, the launcher and the UMDs; at the right,
+       with the gear, the jobs: updates and the basket. The updates' tab
+       stands whether or not a catalog has said yet what is installed -- a
+       start reads none, and that tab is how one gets read. */
     (void)installed;
-    g_tab[g_tabs++] = TAB_STICK;
-    g_tab[g_tabs++] = TAB_LIBRARY;
     g_tab[g_tabs++] = TAB_HOMEBREW;
+    g_tab[g_tabs++] = TAB_LIBRARY;
+    g_tab[g_tabs++] = TAB_UMD;
     if (g_basket_n > 0 || view_download_count()) g_tab[g_tabs++] = TAB_BASKET;
+    g_tab[g_tabs++] = TAB_STICK;
     g_tab[g_tabs++] = TAB_GEAR;
     for (int i = 0; i < g_tabs; i++)
         if (g_tab[i] == keep) { g_tab_at = i; found = 1; }
@@ -775,8 +781,24 @@ int view_tab_open(int tab) {
     return 0;
 }
 
+/* The gear's rows, as settings: the top level, or Network's. */
+static const signed char GEAR_TOP[] = { SET_UI, SET_NETWORK, SET_OPTIONS, SET_FILES, SET_ABOUT, SET_XMB };
+static const signed char GEAR_NETWORK[] = { SET_CONNECTION, SET_AUTO, SET_SOURCES, SET_CABLE, SET_TUNNEL };
+static int gear_rows(const signed char **ids) {
+    if (ids) *ids = g_network ? GEAR_NETWORK : GEAR_TOP;
+    return g_network ? (int)sizeof(GEAR_NETWORK) : (int)sizeof(GEAR_TOP);
+}
+int view_network_shown(void) { return g_network && g_tabs && g_tab[g_tab_at] == TAB_GEAR; }
+int view_network_open(void) { g_network = 1; return 0; }
+int view_network_close(void) {
+    g_network = 0;
+    for (int i = 0; i < (int)sizeof(GEAR_TOP); i++)
+        if (GEAR_TOP[i] == SET_NETWORK) return i;
+    return 0;
+}
+
 int view_count(void) {
-    if (g_tabs && g_tab[g_tab_at] == TAB_GEAR) return VIEW_SETTINGS;
+    if (g_tabs && g_tab[g_tab_at] == TAB_GEAR) return gear_rows(NULL);
     if (g_tabs && g_tab[g_tab_at] == TAB_LIBRARY) return g_library_count;
     return root_rows() + g_view_count + g_view_action;
 }
@@ -785,7 +807,11 @@ static int view_action(int row) { return g_view_action && row == 0; }
 
 int view_index(int row) {
     if (g_tabs && g_tab[g_tab_at] == TAB_GEAR)
-        return row >= 0 && row < VIEW_SETTINGS ? VIEW_ROW_SETTING - row : -1;
+    {
+        const signed char *ids;
+        int n = gear_rows(&ids);
+        return row >= 0 && row < n ? VIEW_ROW_SETTING - ids[row] : -1;
+    }
     if (g_tabs && g_tab[g_tab_at] == TAB_LIBRARY) return -1;
     int roots = root_rows();
     if (row >= 0 && row < roots) return root_index(row);
@@ -806,7 +832,8 @@ enum view_tab_kind view_tab_kind(void) {
     return tab == TAB_GEAR ? VIEW_TAB_GEAR
          : tab == TAB_STICK ? VIEW_TAB_STICK
          : tab == TAB_BASKET ? VIEW_TAB_BASKET
-         : tab == TAB_LIBRARY ? VIEW_TAB_LIBRARY : VIEW_TAB_HOMEBREW;
+         : tab == TAB_LIBRARY ? VIEW_TAB_LIBRARY
+         : tab == TAB_UMD ? VIEW_TAB_UMD : VIEW_TAB_HOMEBREW;
 }
 
 void view_action_plan(struct view_plan *plan) {
@@ -836,6 +863,8 @@ int view_tab_count(void) { return g_tabs; }
 
 void view_tab_move(int step) {
     if (g_tabs <= 1) return;
+    /* Leaving the gear leaves Network too: back at the gear, its top. */
+    if (g_tab[g_tab_at] == TAB_GEAR) g_network = 0;
     g_tab_at = (g_tab_at + step + g_tabs) % g_tabs;
     /* Leaving the store opens it back up: a category is a place inside
        the store, not a state the other tabs know about. */
@@ -873,6 +902,9 @@ static const char *const SETTING[VIEW_SETTINGS] = {
     T_SET_TUNNEL,
     T_SET_FILES,
     T_SET_ABOUT,
+    T_SET_NETWORK,
+    T_SYS_AUTO,
+    T_SET_CONNECTION,
 };
 
 const char *view_setting(int n) {

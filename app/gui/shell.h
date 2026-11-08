@@ -49,6 +49,11 @@ int shell_status_is(const char *text);
 /* The word that stands in the room while there is no catalog: Connecting
    by default, or what the caller says the wait has become. */
 void shell_word(const char *word);
+/* No connection made yet: a store tab says so, with X to connect. */
+void shell_unconnected(int on);
+/* How the network stands, for the gear's Connection row: 0 not connected,
+   1 connecting, 2 connected. */
+void shell_link(int state);
 
 /* A question standing over the browser until it is answered: a title, a line
    under it, and a footer saying which button means what. The shell only draws

@@ -25,6 +25,7 @@
 #include "pspkit-tunnel/tunnel.h"
 #include "session/actions.h"
 #include "gui/shell.h"
+#include "update/wifi.h"
 #include "gui/flags.h"
 #include "gui/shell_internal.h"
 #include "gui/files_view.h"
@@ -188,6 +189,8 @@ static float g_frame_us;                /* frame to frame, eased, for the fps */
 static float g_dt = 1.0f / 60.0f;       /* real seconds since the last shell frame */
 static float g_clock;                   /* animation clock, independent of FPS mode */
 static char g_word[24] = T_WORD_CONNECTING;
+static int g_unconnected;                /* no connection asked for yet */
+static int g_link;                       /* 0 not connected, 1 connecting, 2 connected */
 static const struct catalog *g_catalog;
 static int g_cursor;
 
@@ -300,7 +303,8 @@ static enum mark tab_mark(int tab) {
     case TAB_GEAR: return MARK_GEAR;
     case TAB_BASKET: return view_download_current() >= 0 ? MARK_DOWNLOAD : MARK_BASKET;
     case TAB_HOMEBREW: return MARK_STORE;
-    case TAB_LIBRARY: return MARK_UMD;     /* the disc the UMD tab had */
+    case TAB_LIBRARY: return MARK_LAUNCHER; /* the launcher: the house the console starts in */
+    case TAB_UMD: return MARK_UMD;
     default: return view_updates_waiting() > 0 ? MARK_UPDATE : MARK_INSTALLED;
     }
 }
@@ -310,25 +314,20 @@ static float tab_width(int tab) {
     return tab_counted(tab) ? w + 6 + font_width(FONT_BODY, tab_count(tab)) : w;
 }
 
-/* The tabs stand where they stand. The library -- what the console is
-   for, the games on it -- stands with its middle on the middle of the
-   screen, and the basket appears to its right while it holds something,
-   growing rightward. Homebrew hangs to the library's left, and the stick to
-   the left of Homebrew, growing leftward with its count, so the coming and
-   going of either moves nothing else. The gear stands at the right edge, as
-   far in as the word starts from the left: nothing the eye has learned the
-   place of ever moves. The active one is lit rather than boxed: the sign
+/* The tabs stand where they stand. In the middle the three that list
+   things: the store, the launcher -- its middle on the middle of the
+   screen -- and the UMDs. At the right edge the jobs: the gear last, the
+   basket left of it while it holds something, the updates left of that,
+   growing leftward with its count, so the coming and going of either moves
+   nothing in the middle. The active one is lit rather than boxed: the sign
    in the text colour with the room's own light welling up under it. */
 #define TAB_X (SCR_W / 2.0f - tab_width(TAB_LIBRARY) / 2.0f)
 #define TAB_GAP 16.0f
 
-/* Where the leftmost sign the word must stop short of starts: Homebrew's,
-   or the stick's left of it. */
+/* Where the leftmost sign the word must stop short of starts: the
+   store's, left of the launcher. */
 static float tabs_left(void) {
-    float x = TAB_X - TAB_GAP - tab_width(TAB_HOMEBREW);
-    for (int i = 0; i < view_tab_count(); i++)
-        if (view_tab_at(i) == TAB_STICK) x -= TAB_GAP + tab_width(TAB_STICK);
-    return x;
+    return TAB_X - TAB_GAP - tab_width(TAB_HOMEBREW);
 }
 
 /* The signs stand on the header word's own middle: its capitals run from
@@ -363,28 +362,24 @@ static void draw_tab(int tab, int on, float x, float t) {
 static void draw_tabs(float t) {
     int tabs = view_tab_count(), at = view_tab_active();
     if (tabs <= 1) return;
-    /* From the library out: rightward to the basket, leftward through
-       Homebrew to the stick, in the order they are walked. */
-    float lib = TAB_X;  /* once: tab_width is asked for every sign otherwise */
-    float right = lib, left = lib;
-    int middle = -1;
-    for (int i = 0; i < tabs; i++)
-        if (view_tab_at(i) == TAB_LIBRARY) middle = i;
-    for (int i = middle; middle >= 0 && i < tabs; i++) {
+    /* The middle: the store, the launcher, the UMDs, from the launcher out. */
+    for (int i = 0; i < tabs; i++) {
         int tab = view_tab_at(i);
-        if (tab == TAB_GEAR) continue;
-        draw_tab(tab, i == at, right, t);
-        right += tab_width(tab) + TAB_GAP;
+        float x = tab == TAB_LIBRARY ? TAB_X
+                : tab == TAB_HOMEBREW ? TAB_X - TAB_GAP - tab_width(TAB_HOMEBREW)
+                : tab == TAB_UMD ? TAB_X + tab_width(TAB_LIBRARY) + TAB_GAP : -1;
+        if (x >= 0) draw_tab(tab, i == at, x, t);
     }
-    for (int i = middle - 1; i >= 0; i--) {
+    /* The right edge: the gear, then leftward the basket and the updates,
+       walked from the end so the gear takes the edge. */
+    float x = SCR_W - LIST_X;
+    for (int i = tabs - 1; i >= 0; i--) {
         int tab = view_tab_at(i);
-        left -= TAB_GAP + tab_width(tab);
-        draw_tab(tab, i == at, left, t);
+        if (tab != TAB_GEAR && tab != TAB_BASKET && tab != TAB_STICK) continue;
+        x -= tab_width(tab);
+        draw_tab(tab, i == at, x, t);
+        x -= TAB_GAP;
     }
-    /* The gear at the right edge. */
-    for (int i = 0; i < tabs; i++)
-        if (view_tab_at(i) == TAB_GEAR)
-            draw_tab(TAB_GEAR, i == at, SCR_W - LIST_X - tab_width(TAB_GEAR), t);
 }
 
 /* The open tab's word: what the list under it holds. A view standing over
@@ -422,7 +417,8 @@ static const char *tab_word(int tab) {
     case TAB_GEAR: return T_HEAD_GEAR;
     case TAB_STICK: return T_HEAD_STICK;
     case TAB_BASKET: return T_HEAD_BASKET;
-    case TAB_LIBRARY: return T_HEAD_LIBRARY;
+    case TAB_LIBRARY: return library_heading();
+    case TAB_UMD: return T_HEAD_UMD;
     default: return T_HEAD_HOMEBREW;
     }
 }
@@ -499,10 +495,23 @@ static void draw_action_row(int y, int selected, float t) {
                          action_title(), selected ? hover_age(0, VIEW_ROW_ACTION) : 0.0f);
 }
 
-/* The UI's row is named by the side it is on: Baked at 30, Mercy at 60. */
+/* The connection's row is named by how it stands. */
 static const char *setting_word(int n) {
-    if (n == 1) return options_fps_requested() ? T_SYS_BAKED : T_SYS_MERCY;
+    if (n == SET_CONNECTION) return g_link == 2 ? T_SET_ONLINE : g_link == 1 ? T_SET_CONNECTING : T_SET_CONNECTION;
     return view_setting(n);
+}
+
+/* The connection Auto Connect uses, by the name the system has for it;
+   asked of the system once a choice, not every frame. */
+static const char *auto_connection_name(void) {
+    static char name[64];
+    static int of = -1;
+    if (of != options_auto_connect()) {
+        of = options_auto_connect();
+        if (wifi_profile_name(of, name, sizeof(name)) < 0)
+            snprintf(name, sizeof(name), "%s", T_SYS_NETWORK_NONE);
+    }
+    return name;
 }
 
 /* A row under the gear: a word and, where the word is about something that
@@ -510,7 +519,8 @@ static const char *setting_word(int n) {
    sits, so the column reads as one column whichever tab it is. */
 static void draw_setting_row(int n, int y, int selected, float t) {
     static const signed char SIGN[VIEW_SETTINGS] = {
-        MARK_HOME, MARK_PILL, MARK_WORLD, MARK_SLIDERS, MARK_PLUGINS, MARK_WORLD, MARK_FOLDER, MARK_INFO,
+        MARK_HOME, MARK_PILL, MARK_WORLD, MARK_SLIDERS, MARK_PLUGINS, MARK_GLOBE, MARK_FOLDER, MARK_INFO,
+        MARK_GLOBE, MARK_LIST, MARK_WORLD,
     };
     float dx = g_page_dx;
     float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
@@ -522,16 +532,13 @@ static void draw_setting_row(int n, int y, int selected, float t) {
         /* The switch Options' rows have, its knob easing to the side it
            is on -- off is Mercy at 60, on is Baked at 30 -- and the rate
            at the row's end. */
+        /* The knob only; what the side it is on comes to is said in
+           the panel on the right. */
         static float at;
         at += ((options_fps_requested() ? 4.6f : -4.6f) - at) * 0.45f;
         mark_draw(MARK_KNOB, gx + at, gy, selected ? g_text : faded(g_dim, 170), MARK_PLAIN, 0, t);
-        const char *value = options_fps_requested() ? T_VALUE_FPS30 : T_VALUE_FPS60;
-        float vw = font_width(FONT_META, value);
-        font_print(FONT_META, LIST_X + LIST_W - 8 + dx - vw, y + 21,
-                   faded(g_dim, selected ? 230 : 150), value);
-        w -= (int)vw + 16;
     }
-    if (n == 5 && tunnel_is_set_up()) {
+    if (n == SET_TUNNEL && tunnel_is_set_up()) {
         /* Tailscale says that it is set up, as Mercy UI says its rate --
            or that it was and the tailnet will not have it now. */
         const char *value = tunnel_state(NULL, 0) == TUNNEL_FAILED ? T_VALUE_ERROR : T_VALUE_ON;
@@ -739,18 +746,27 @@ static void draw_cloud(int cursor, float t) {
    to one on whole pixels so they are no softer than they are; the chosen
    one grows a little, and its name stands under the grid. The icons are
    the list's, out of the same cache, so a disc costs what a row does. */
-#define GRID_W 72
-#define GRID_H 40
-#define GRID_POP 18                 /* what the chosen icon grows by, in width */
-#define GRID_COLS 5
+/* Four to a line from the header's word to the gear, three lines whole
+   between the store's top and the name -- the icons a little wider than
+   their own 9:5 for it; the launcher's measures, so the two look alike. */
+#define GRID_COLS 4
 #define GRID_GAP 8
-#define GRID_LEFT ((SCR_W - GRID_COLS * GRID_W - (GRID_COLS - 1) * GRID_GAP) / 2)
+#define GRID_H 54
+#define GRID_W ((SCR_W - 2 * LIST_X - (GRID_COLS - 1) * GRID_GAP) / GRID_COLS)
+#define GRID_POP 16                 /* what the chosen icon grows by, in width */
+/* The header's edges: the first column under its word, the last ending
+   under the gear. */
+#define GRID_LEFT LIST_X
+#define GRID_STEP (GRID_W + GRID_GAP)
 #define GRID_LINE (GRID_H + GRID_GAP)
-#define GRID_LINES 4
-#define GRID_TOP (HEADER_H + 10)
+#define GRID_TOP (LIST_Y - 2)      /* the store's breath under the header */
+/* The room the lines are cut to: three whole, the cursor's line kept among
+   them. */
+#define GRID_ROOM (3 * GRID_LINE - GRID_GAP)
+#define GRID_LINES (GRID_ROOM / GRID_LINE)
 /* The chosen icon grows by GRID_POP / 2 every way: room for that under the
    last line before the name. */
-#define GRID_BOTTOM (GRID_TOP + GRID_LINES * GRID_LINE - GRID_GAP + GRID_POP / 2)
+#define GRID_BOTTOM (GRID_TOP + GRID_ROOM + 18 / 2)
 #define GRID_NAME_Y (GRID_BOTTOM + 12)
 static float g_grid_scroll, g_grid_pop;
 static int g_grid_first, g_grid_last = -1;
@@ -789,15 +805,15 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
 
     /* The discs the grid is going to first, the chosen one before them,
        then a line past either edge; nothing while the grid flies by. */
-    enum { SHOWN = GRID_LINES * GRID_COLS, AHEAD = GRID_COLS };
+    enum { SHOWN = (GRID_LINES + 1) * GRID_COLS, AHEAD = GRID_COLS };
     int wanted[SHOWN + 2 * AHEAD + 1], want_count = 0, visible = 0;
     if (!g_fast) {
         wanted[want_count++] = view_index(cursor);
-        for (int i = g_grid_first * GRID_COLS; i < (g_grid_first + GRID_LINES) * GRID_COLS && i < count; i++)
+        for (int i = g_grid_first * GRID_COLS; i < (g_grid_first + GRID_LINES + 1) * GRID_COLS && i < count; i++)
             if (i != cursor) wanted[want_count++] = view_index(i);
         visible = want_count;
         for (int k = 1; k <= AHEAD; k++) {
-            int around[2] = {(g_grid_first + GRID_LINES) * GRID_COLS - 1 + k, g_grid_first * GRID_COLS - k};
+            int around[2] = {(g_grid_first + GRID_LINES + 1) * GRID_COLS - 1 + k, g_grid_first * GRID_COLS - k};
             for (int j = 0; j < 2; j++)
                 if (around[j] >= 0 && around[j] < count) wanted[want_count++] = view_index(around[j]);
         }
@@ -805,20 +821,19 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
     icons_bind(catalog);
     if (icons_want(wanted, want_count, visible)) icons_poke();
 
-    int from = (int)(g_grid_scroll / GRID_LINE) * GRID_COLS, to = from + (GRID_LINES + 1) * GRID_COLS;
+    int from = (int)(g_grid_scroll / GRID_LINE) * GRID_COLS, to = from + (GRID_LINES + 2) * GRID_COLS;
     if (to > count) to = count;
     /* The chosen disc last, grown a little over its neighbours. The rest
-       are cut to the four lines exactly, so not a pixel of the next one
-       shows below them; only the chosen one has room to grow past them. */
+       are cut to the room; only the chosen one has room to grow past it. */
     for (int pass = 0; pass < 2; pass++) {
         if (pass)
             gfx_clip(0, GRID_TOP - GRID_POP / 2, SCR_W, GRID_BOTTOM - (GRID_TOP - GRID_POP / 2));
         else
-            gfx_clip(0, GRID_TOP, SCR_W, GRID_LINES * GRID_LINE - GRID_GAP);
+            gfx_clip(0, GRID_TOP, SCR_W, GRID_ROOM);
         for (int i = from; i < to; i++) {
             int selected = i == cursor, index = view_index(i);
             if (selected != pass || index < 0) continue;
-            int x = GRID_LEFT + (i % GRID_COLS) * (GRID_W + GRID_GAP) + dx;
+            int x = GRID_LEFT + (i % GRID_COLS) * GRID_STEP + dx;
             int y = GRID_TOP + (int)floorf((i / GRID_COLS) * GRID_LINE - g_grid_scroll + 0.5f);
             int w = GRID_W, h = GRID_H;
             if (selected) {
@@ -963,6 +978,16 @@ static void draw_word_row(int y, int selected, float t) {
         room -= vw + 8;
     }
     font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, room, selected ? g_text : g_dim, T_SEARCH);
+}
+
+/* Over the search while nothing has connected: the row that does. */
+static void draw_connect_row(int y, int selected, float t) {
+    float dx = g_page_dx;
+    float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
+    mark_draw(MARK_GLOBE, gx, gy, selected ? g_text : faded(g_dim, 170),
+              selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+    font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, LIST_X + LIST_W - 8 - NAME_X,
+                       selected ? g_text : g_dim, T_CONNECT);
 }
 
 static void draw_word_panel(void) {
@@ -1154,6 +1179,10 @@ static void draw_list(const struct catalog *catalog, int cursor, float t) {
         if (index == VIEW_ROW_ACTION) { draw_action_row(y, selected, t); continue; }
         if (index == VIEW_ROW_SEARCH) {
             draw_word_row(y, selected, t);
+            continue;
+        }
+        if (index == VIEW_ROW_CONNECT) {
+            draw_connect_row(y, selected, t);
             continue;
         }
         if (index <= VIEW_ROW_SETTING) {
@@ -2273,6 +2302,9 @@ static const char *const SETTING_NOTE[VIEW_SETTINGS] = {
     T_NOTE_TUNNEL,
     T_NOTE_FILES,
     T_NOTE_ABOUT,
+    T_NOTE_NETWORK,
+    T_SYS_AUTO_NOTE,
+    T_NOTE_OFFLINE,
 };
 
 static void draw_info(void) {
@@ -2715,9 +2747,11 @@ static void draw_footer(void) {
     /* Over a list of packages the foot names the one key no row shows:
        SELECT, and the order it has put the lists in. */
     int lists = !g_details && !g_status[0] && !g_info && g_catalog && g_catalog->count > 0 &&
-                (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK) &&
+                (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK ||
+                 view_tab_kind() == VIEW_TAB_UMD) &&
                 !view_cloud();
-    /* The library's keys: X starts, L and R go across. */
+    /* The library's keys: X starts, SQUARE marks a favourite, L and R go
+       across. */
     int library = !g_details && !g_status[0] && !g_info && view_tab_kind() == VIEW_TAB_LIBRARY &&
                   library_count() > 0;
     if (!g_details && !g_status[0] && !gear && !lists && !library) return;
@@ -2728,6 +2762,7 @@ static void draw_footer(void) {
               RGBA(0, 0, 0, 200));
     if (library) {
         float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_HINT_START, g_dim);
+        x = draw_hint(x, FOOTER_BASE, MARK_SQUARE, T_HINT_FAVOURITE, g_dim);
         x = draw_hint(x, FOOTER_BASE, MARK_L, "/", g_dim) - HINT_SPACE;
         draw_hint(x, FOOTER_BASE, MARK_R, T_HINT_TABS, g_dim);
     } else if (gear) {
@@ -2839,12 +2874,30 @@ static const char *tunnel_note(void) {
     return T_NOTE_TUNNEL_ON;
 }
 
+/* A setting that is in a state says it first, then what it does. */
+static const char *state_note(int n) {
+    static char text[256];
+    char state[96];
+    if (n == SET_UI)
+        snprintf(state, sizeof(state), T_STATE_NOW, options_fps_requested() ? T_VALUE_FPS30 : T_VALUE_FPS60);
+    else if (n == SET_AUTO && options_auto_connect())
+        snprintf(state, sizeof(state), T_STATE_AUTO_ON, auto_connection_name());
+    else if (n == SET_AUTO)
+        snprintf(state, sizeof(state), "%s", T_STATE_AUTO_OFF);
+    else if (n == SET_CONNECTION)
+        return g_link == 2 ? T_NOTE_ONLINE : T_NOTE_OFFLINE;
+    else
+        return SETTING_NOTE[n];
+    snprintf(text, sizeof(text), "%s\n%s", state, SETTING_NOTE[n]);
+    return text;
+}
+
 static void draw_setting_panel(int n) {
-    int lines = draw_setting_note(setting_word(n), n == 1 && downloads_busy()
+    int lines = draw_setting_note(setting_word(n), n == SET_UI && downloads_busy()
                                   ? "Downloads temporarily use the 60 FPS UI. Your selected mode returns when the queue is finished."
-                                  : n == 5 && tunnel_is_set_up() ? tunnel_note()
-                                  : SETTING_NOTE[n], 0.0f);
-    if (n == 4) { /* USBNet: illustrate the explanation, not the list row. */
+                                  : n == SET_TUNNEL && tunnel_is_set_up() ? tunnel_note()
+                                  : state_note(n), 0.0f);
+    if (n == SET_CABLE) { /* USBNet: illustrate the explanation, not the list row. */
         static struct gfx_texture icon;
         static int tried;
         if (!tried) {
@@ -2956,6 +3009,16 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         system_view_draw(t);
     } else if (view_tab_kind() == VIEW_TAB_LIBRARY) {
         library_view_draw(cursor, t);
+    } else if (g_unconnected && catalog->count <= 0) {
+        /* Nothing fetched because nothing was asked to connect: said in
+           the middle of the room, and the key that does it under it. */
+        float mid = (HEADER_H + SCR_H) / 2.0f;
+        font_print(FONT_TITLE, SCR_W / 2.0f - font_width(FONT_TITLE, T_OFFLINE_TITLE) / 2.0f,
+                   mid - 3, g_text, T_OFFLINE_TITLE);
+        font_print(FONT_META, SCR_W / 2.0f - font_width(FONT_META, T_OFFLINE_HINT) / 2.0f,
+                   mid + 15, g_dim, T_OFFLINE_HINT);
+        float hw = mark_width(MARK_CROSS) + HINT_GAP + font_width(FONT_META, T_HINT_CONNECT);
+        draw_hint(SCR_W / 2.0f - hw / 2.0f, mid + 40, MARK_CROSS, T_HINT_CONNECT, g_text);
     } else if (catalog->count > 0 && view_umd_open() && view_count() == 0) {
         /* No source lists an ISO: saying so in the middle of the room under
            the header, and below it, smaller, where some would come from. */
@@ -2987,6 +3050,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         if (!suppress_panel) {
             if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
             else if (index == VIEW_ROW_SEARCH) draw_word_panel();
+            else if (index == VIEW_ROW_CONNECT) draw_setting_note(T_CONNECT, T_CONNECT_NOTE, 0.0f);
             else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
             else if (index <= VIEW_ROW_GROUP) draw_group_panel(VIEW_ROW_GROUP - index);
             else if (VIEW_IS_BROWSE(index)) draw_browse_panel(VIEW_ROW_BROWSE - index);
@@ -3119,6 +3183,9 @@ void shell_shot_sync(const struct catalog *catalog, int cursor) {
 }
 
 void shell_reshow_card(void) { g_last_cursor = -1; }
+
+void shell_unconnected(int on) { g_unconnected = on; }
+void shell_link(int state) { g_link = state; }
 
 void shell_word(const char *word) {
     snprintf(g_word, sizeof(g_word), "%s", word ? word : T_WORD_CONNECTING);

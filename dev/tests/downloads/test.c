@@ -321,7 +321,7 @@ int main(void) {
     view_remember(0, -1, 0);
     assert(downloads_enqueue(1) == 0 && forced && paused && downloads_focused());
     assert(downloads_enqueue(0) == 0 && downloads_enqueue(1) == 0 && downloads_count() == 2);
-    assert(view_tab_at(0) == TAB_STICK && view_tab_at(2) == TAB_HOMEBREW && view_tab_count() == 5);
+    assert(view_tab_at(0) == TAB_HOMEBREW && view_tab_at(4) == TAB_STICK && view_tab_count() == 6);
     while (view_tab_kind() != VIEW_TAB_BASKET)
         view_tab_move(1);
     assert(view_index(1) == 1 && view_index(2) == 0);
@@ -355,7 +355,7 @@ int main(void) {
     downloads_focus_queue();
     assert(!paused && !downloads_focused());
     view_tabs_refresh();
-    assert(view_download_count() == 2 && view_tab_at(0) == TAB_STICK);
+    assert(view_download_count() == 2 && view_tab_at(4) == TAB_STICK);
     assert(view_tab_kind() == VIEW_TAB_BASKET);
     struct view_plan finished;
     view_action_plan(&finished);

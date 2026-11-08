@@ -428,13 +428,12 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (!strcmp(argv[1], "umds")) {
-        /* The store's UMDs: the tiles its grid holds, whether it is a grid,
+        /* The UMD tab: the tiles its grid holds, whether it is a grid,
            and the count its category row says. */
         catalog_fetch(&catalog);
         catalog_check_updates(&catalog);
         view_rebuild(&catalog);
-        while (view_tab_kind() != VIEW_TAB_HOMEBREW) view_tab_move(1);
-        view_group_open(view_umd_group());
+        while (view_tab_kind() != VIEW_TAB_UMD) view_tab_move(1);
         printf("umds %d grid %d row %d\n", view_count(), view_grid(), view_group_apps(view_umd_group()));
         return 0;
     }

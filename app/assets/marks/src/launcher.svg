@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- The launcher: the house the console starts in. A rim like the UMD's
+       shell, the roof overhanging the walls, the inside dark, and the one
+       bright thing a door standing on the floor. Rim 1.6; spans 2.2 to
+       17.8 as the disc does. Even-odd. -->
+  <path fill="#ffffff" fill-rule="evenodd" d="M10.00 2.20 L18.20 9.40 H16.00 V17.80 H4.00 V9.40 H1.80 Z M10.00 4.33 L14.40 8.18 V16.20 H5.60 V8.18 Z M8.40 11.20 H11.60 V16.20 H8.40 Z"/>
+</svg>

@@ -20,7 +20,7 @@
 #define LIBRARY_TITLE 64
 #define LIBRARY_PATH 256
 #define LIBRARY_MAX 1024            /* more than any stick holds games */
-#define LIBRARY_COLS 5              /* icons to a line, as the UMD grid has */
+#define LIBRARY_COLS 4              /* places to a line, as the UMD grid has */
 
 enum library_section { LIBRARY_PSP, LIBRARY_PS1, LIBRARY_APPS, LIBRARY_SECTIONS };
 
@@ -50,16 +50,26 @@ int library_find(unsigned key);
 int library_section_first(int s);
 int library_section_count(int s);
 
-/* One step through the sectioned grid: a line holds LIBRARY_COLS items of
-   one section, every section starts a line of its own. Along a line dx
-   stops at its ends; up or down goes to the column below or above, onto
-   the last item of a shorter line, and off the first or last line round to
-   the other end only when ring is set. */
-int library_step(int n, int dx, int dy, int ring);
-/* The line of the grid an item stands on, counting every section's lines;
-   and how many lines there are. */
-int library_line(int n);
+/* What the launcher shows, as places, four to a line: the favourites
+   first, then every section from a new line, its sign in the first place.
+   A place is an item or a section's sign; the cursor stands on both. */
+int library_places(void);
+int library_place_item(int p);       /* the item's index, -1 for a sign */
+int library_place_sign(int p);       /* the sign's section, -1 for an item */
+int library_place_of(int item);      /* -1 when it is not shown */
+/* One step through the places: along a line dx stops at
+   its ends; up or down goes to the column below or above, onto the last
+   place of a shorter line, and off the first or last line round to the
+   other end only when ring is set. */
+int library_step(int p, int dx, int dy, int ring);
+int library_line(int p);
+int library_column(int p);
 int library_lines(void);
+/* The header's word. */
+const char *library_heading(void);
+/* Favourites: marked with SQUARE, first in the list, kept on the stick. */
+int library_favourite(unsigned key);
+void library_favourite_toggle(unsigned key);
 
 /* Icon thread: an item's ICON0 PNG into a malloc'd buffer, out of its
    image or its EBOOT. -1 when it has none. */

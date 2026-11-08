@@ -15,8 +15,10 @@ void menu_open(int index);
    its flag. */
 void basket_pick_open(int index);
 
-/* The one popup under the gear: the two ways a .pspdx comes in directly. */
-enum sub { SUB_NONE, SUB_ADD, SUB_SOURCE };
+/* The popups under the gear, in the panel at the right: the two ways a
+   .pspdx comes in directly, a source's choices, Auto Connect's connections
+   and the two ways back to defaults. */
+enum sub { SUB_NONE, SUB_ADD, SUB_SOURCE, SUB_AUTO, SUB_RESTORE };
 /* The lists' order turned to the next one, and kept on the stick. */
 void options_sort_next(void);
 void sub_open(enum sub which);
@@ -50,6 +52,13 @@ void options_cable_set(int cable);
    is idle (Options, remembered), and its switch. */
 int options_fill_cache(void);
 void options_fill_cache_toggle(void);
+/* Auto Connect (Network, remembered): the system's connection, 1-10, that
+   every start joins in the background, or 0 for off; set at once. */
+int options_auto_connect(void);
+void options_auto_connect_set(int profile);
+/* Network's Auto Connect row: the panel at the right with Off and each
+   connection set up in the system's settings, the one in use marked. */
+void auto_connect_open(void);
 
 /* Options, the view the gear's second row opens in place of the list:
    the frame rate, the switches for development, the seed's renewal and

@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "update/sync.h"
+#include "update/wifi.h"
 #include "pspkit-https/https.h"
 #include "util/runtime.h"
 
@@ -26,6 +27,19 @@ static SceUID g_thread = -1;
 static int g_force_offline;
 void sync_set_offline(int on) { g_force_offline = on; }
 
+/* Auto Connect: the connection to join before the fetch, without the
+   system's dialog, and its name for the foot. 0 when the dialog has
+   already joined one. */
+static int g_profile;
+static volatile int g_online;
+int sync_online(void) { return g_online; }
+static char g_profile_name[64];
+void sync_set_profile(int profile, const char *name) {
+    g_profile = profile;
+    g_profile_name[0] = '\0';
+    if (name) snprintf(g_profile_name, sizeof(g_profile_name), T_STATUS_JOINING, name);
+}
+
 /* The WLAN switch on the side of the console. Off, there is no radio to
    bring up and sceNetApctlConnect would only sit out its timeout (~10 s,
    blocking the shell) before failing anyway -- so the saved catalogs are
@@ -39,8 +53,10 @@ static int run(SceSize args, void *argp) {
     g_state = SYNC_CONNECTING;
     int radio = wlan_switch_on();
     if (!radio) logline("wlan: switch is off, skipping the connect");
+    if (!g_force_offline && radio && g_profile) wifi_join(g_profile);
     int online = !g_force_offline && radio && https_net_connect() >= 0;
     catalog_offline(!online);
+    g_online = online;
     if(!online)logline("offline: using saved catalogs and installed apps");
     g_state = SYNC_FETCHING;
     int count = catalog_fetch(g_catalog);
@@ -88,7 +104,7 @@ const char *sync_message(void) {
     const char *progress = catalog_progress();
     switch (g_state) {
     case SYNC_IDLE:       return T_STATUS_CONNECTING;
-    case SYNC_CONNECTING: return T_STATUS_CONNECTING;
+    case SYNC_CONNECTING: return g_profile && g_profile_name[0] ? g_profile_name : T_STATUS_CONNECTING;
     /* A list being walked is one fetch per repository, and where it has
        got to says more than which of them is mid-handshake. */
     case SYNC_FETCHING:   return progress[0] ? progress : T_STATUS_LOADING;

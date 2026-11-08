@@ -21,6 +21,11 @@ enum sync_state {
 
 int sync_start(struct catalog *catalog);
 void sync_set_offline(int on);          /* skip the radio on the next sync */
+/* Auto Connect: join this connection (1-10) first, without the system's
+   dialog, saying its name at the foot meanwhile; 0 for none. */
+void sync_set_profile(int profile, const char *name);
+/* Whether the last sync reached the network, or used what was kept. */
+int sync_online(void);
 enum sync_state sync_state(void);
 int sync_done(void);                    /* DONE or FAILED */
 

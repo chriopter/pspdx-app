@@ -47,6 +47,7 @@
 #include "session/options.h"
 #include "update/catalog.h"
 #include "update/sync.h"
+#include "update/wifi.h"
 #include "util/runtime.h"
 
 PSP_MODULE_INFO("pspdx", 0, 1, 0);
@@ -371,6 +372,7 @@ static void go_online(int midway) {
     /* Mid-session the media thread is parked for the dialog, as every
        connection asked for later is. */
     if (midway) preview_quiesce();
+    sync_set_profile(0, NULL);
     /* Before anything connects: how, where the release's copy of the
        cable's plugin makes that a question, and the cable set up if so. */
     if (!offline) offline = !cable_at_start();
@@ -380,6 +382,49 @@ static void go_online(int midway) {
     shell_word(T_WORD_CONNECTING);
     sync_set_offline(offline);
     sync_start(&catalog);
+}
+
+/* Auto Connect, at the start: the connection chosen under Options joined
+   on the sync thread, with no dialog, while the launcher is used; the foot
+   says how far it got. Only where nothing would have to be asked first --
+   the cable's question, or the gateway of a cable never connected -- and
+   only while the connection is still in the system's settings. 1 when
+   it has started. */
+static int auto_connect(void) {
+    char name[64];
+    int profile = options_auto_connect(), cable = options_cable();
+    if (!profile || wifi_profile_name(profile, name, sizeof(name)) < 0) return 0;
+    if (cable == CABLE_USB || cable_asks((enum cable)cable)) return 0;
+    cable_start((enum cable)cable);
+    if (cable_restart_needed()) return 0;
+    shell_word(T_WORD_CONNECTING);
+    sync_set_offline(storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.OFFLINE")));
+    sync_set_profile(profile, name);
+    sync_start(&catalog);
+    return 1;
+}
+
+/* Connect, asked for: the system's dialog, then the sync again over the
+   network. Not while the last sync still runs. */
+static void connect_now(int *online_asked, int *synced) {
+    if (!sync_done()) { shell_status(T_CONNECT_WAIT); return; }
+    *online_asked = 1;
+    *synced = 0;
+    go_online(1);
+}
+
+/* Disconnect, asked for: the tunnel and every connection closed and the
+   radio let go; what was fetched stays, and the Connect row comes back.
+   Not while anything is fetching. */
+static void disconnect_now(int *online_asked) {
+    if (!sync_done() || downloads_busy()) { error_busy(); return; }
+    preview_quiesce();
+    tunnel_stop();
+    https_net_disconnect();
+    preview_resume();
+    catalog_offline(1);
+    *online_asked = 0;
+    shell_status(T_DISCONNECTED);
 }
 
 /* Whether the open tab has rows to walk: the store's and the stick's are
@@ -540,6 +585,7 @@ int main(int argc, char *argv[]) {
        system's dialog and the sync come with the first tab that lists what
        is published (or a gear row that needs them). */
     int net_started = 0;
+    int online_asked = 0;               /* a connection asked for: Connect, or Auto Connect */
     net_ms = now_ms();
     /* The tabs there are before any catalog -- the store waiting, the
        library, the gear -- and with the launcher on, the library open. */
@@ -598,13 +644,15 @@ int main(int argc, char *argv[]) {
         /* A reading of the stick finished: the library's rows are the new
            ones, the cursor on the item it was on if it is still there. */
         {
-            const struct library_item *was = view_tab_kind() == VIEW_TAB_LIBRARY ? library_item(cursor) : 0;
+            const struct library_item *was = view_tab_kind() == VIEW_TAB_LIBRARY
+                                             ? library_item(library_place_item(cursor)) : 0;
             unsigned key = was ? was->key : 0;
             if (library_poll()) {
-                view_library_count(library_count());
+                view_library_count(library_places());
                 if (view_tab_kind() == VIEW_TAB_LIBRARY) {
-                    int at = was ? library_find(key) : -1;
-                    cursor = at >= 0 ? at : cursor < library_count() ? cursor : library_count() > 0 ? library_count() - 1 : 0;
+                    int at = was ? library_place_of(library_find(key)) : -1;
+                    int places = library_places();
+                    cursor = at >= 0 ? at : cursor < places ? cursor : places > 0 ? places - 1 : 0;
                 }
             }
         }
@@ -988,12 +1036,40 @@ int main(int argc, char *argv[]) {
             library_asked = 1;
             library_rescan();
         }
-        /* The launcher's start made no connection: the first tab that lists
-           what is published makes it, exactly as a start would have. */
-        if (!net_started && !on_library && view_tab_kind() != VIEW_TAB_GEAR && !modal) {
+        /* The start made no connection. Once the first frame is up, Auto
+           Connect makes one in the background; without it, what was kept
+           from the last time is read, and the store's first row connects
+           -- the system's dialog comes when asked for, not with a tab. */
+        if (!net_started && !first_frame) {
             net_started = 1;
             synced = 0;
-            go_online(1);
+            if (auto_connect()) online_asked = 1;
+            else {
+                shell_word(T_WORD_OFFLINE);
+                sync_set_profile(0, NULL);
+                sync_set_offline(1);
+                sync_start(&catalog);
+            }
+        }
+        /* The Connect row: there until a connection is asked for, and again
+           when one did not come. The cursor stays on the row it was on. */
+        {
+            int want = synced && (!online_asked || !sync_online());
+            if (want != view_connect_shown()) {
+                int on_root = view_index(cursor) < 0;
+                view_set_connect(want);
+                if (view_tab_kind() == VIEW_TAB_HOMEBREW && !(on_root && cursor == 0))
+                    cursor += want ? 1 : -1;
+                if (cursor < 0) cursor = 0;
+                count = browsable() ? view_count() : 0;
+            }
+        }
+        shell_link(!online_asked ? 0 : !synced ? 1 : sync_online() ? 2 : 0);
+        int unconnected = !online_asked && !on_library && view_tab_kind() != VIEW_TAB_GEAR;
+        shell_unconnected(unconnected);
+        if (unconnected && !modal && (pressed & PSP_CTRL_CROSS) && catalog.count <= 0) {
+            pressed &= ~(unsigned)PSP_CTRL_CROSS;
+            connect_now(&online_asked, &synced);
         }
         modal = modal || info;
         /* The list is a ring for a press: past the last entry comes the
@@ -1117,6 +1193,10 @@ int main(int argc, char *argv[]) {
                     }
                 }
             }
+        } else if ((pressed & PSP_CTRL_CIRCLE) && view_network_shown()) {
+            /* O out of Network, onto its row. */
+            cues_post(CUE_MOVE, cursor = view_network_close());
+            count = view_count();
         } else if ((pressed & PSP_CTRL_CIRCLE) && view_search()) {
             /* O out of what a search found: back to the store's first
                rows, on the search's. */
@@ -1137,12 +1217,17 @@ int main(int argc, char *argv[]) {
                launcher comes up must not drop anyone into a game. The
                question holds the item's key, not its place: the stick can be
                read again while it stands. */
-            const struct library_item *item = library_item(cursor);
-            if ((pressed & PSP_CTRL_CROSS) && item) {
-                char title[LIBRARY_TITLE + 32];
-                snprintf(title, sizeof(title), T_RUN_ASK, item->title);
-                pspdx_utf8_mend(title);
-                ask(ASK_LIBRARY, (int)item->key, title, T_RUN_LINE);
+            /* X or START starts it at once -- but not with a key still
+               down from before the launcher came up -- and SQUARE marks it
+               a favourite, first in the list, the cursor going with it. */
+            const struct library_item *item = library_item(library_place_item(cursor));
+            if ((pressed & (PSP_CTRL_CROSS | PSP_CTRL_START)) && item && expired(start_ms, 1000)) {
+                launch_local(item->path, item->kind);
+            } else if ((pressed & PSP_CTRL_SQUARE) && item) {
+                unsigned key = item->key;
+                library_favourite_toggle(key);
+                shell_status(library_favourite(key) ? T_FAVOURITE_ON : T_FAVOURITE_OFF);
+                cues_post(CUE_MOVE, cursor = library_place_of(library_find(key)));
             }
         } else if (count > 0) {
             int at = view_index(cursor);
@@ -1161,6 +1246,8 @@ int main(int argc, char *argv[]) {
                         shell_status(line);
                     }
                 }
+            } else if ((pressed & PSP_CTRL_CROSS) && at == VIEW_ROW_CONNECT) {
+                connect_now(&online_asked, &synced);
             } else if ((pressed & PSP_CTRL_CROSS) && VIEW_IS_BROWSE(at)) {
                 /* A way to browse by lists its rows in the store's place. */
                 view_browse_open(VIEW_ROW_BROWSE - at);
@@ -1183,29 +1270,39 @@ int main(int argc, char *argv[]) {
                 /* Sources, USBNet and Tailscale need the connection the
                    start did not make: asked for here, they make it, and
                    are there to be taken once the sync is through. */
-                if (!net_started && (which == 2 || which == 4 || which == 5)) {
-                    net_started = 1;
-                    synced = 0;
-                    go_online(1);
-                }
-                if (which == 0) leave_to_xmb();
-                else if (which == 1) {
+                if (!online_asked && synced && (which == SET_CABLE || which == SET_TUNNEL))
+                    connect_now(&online_asked, &synced);
+                if (which == SET_XMB) leave_to_xmb();
+                else if (which == SET_NETWORK) {
+                    /* Network is a level of its own; O comes back out. */
+                    view_network_open();
+                    cues_post(CUE_MOVE, cursor = 0);
+                    count = view_count();
+                } else if (which == SET_CONNECTION) {
+                    /* Connected, X disconnects; otherwise it connects, the
+                       system's dialog choosing the network. */
+                    if (online_asked && synced && sync_online()) disconnect_now(&online_asked);
+                    else if (!online_asked || synced) connect_now(&online_asked, &synced);
+                } else if (which == SET_AUTO) {
+                    /* Which connection, or none: the sidebar asks. */
+                    auto_connect_open();
+                } else if (which == SET_UI) {
                     /* The UI's mode flips where it stands, and is kept. */
                     options_fps_toggle_saved();
                     cues_post(CUE_MOVE, cursor);
-                } else if (which == 2 && synced) sources_open();
-                else if (which == 3) system_open();
-                else if (which == 4 && synced) {
+                } else if (which == SET_SOURCES && synced) sources_open();
+                else if (which == SET_OPTIONS) system_open();
+                else if (which == SET_CABLE && synced) {
                     /* How to connect, asked again as at the first start;
                        it ends in a new connection, so it waits for a sync
                        as Sources does. */
                     cable_set_up_again();
                     count = view_count();
-                } else if (which == 5 && synced) {
+                } else if (which == SET_TUNNEL && synced) {
                     if (tunnel_set_up()) refetch_now(cursor, keep, sizeof(keep), &synced, &refreshing);
                 }
-                else if (which == 6) files_view_open();
-                else if (which == 7) shell_info(info = 1);
+                else if (which == SET_FILES) files_view_open();
+                else if (which == SET_ABOUT) shell_info(info = 1);
             } else if (pressed & PSP_CTRL_CROSS) {
                 /* X opens the package's page; the job rows do their job.
                    The options, with the same things and the rest, are on

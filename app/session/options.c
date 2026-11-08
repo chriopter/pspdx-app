@@ -31,6 +31,7 @@
 #include "update/reach.h"
 #include "update/sources.h"
 #include "update/sync.h"
+#include "update/wifi.h"
 #include "util/storage.h"
 
 #define SETTINGS_PATH "PSP/PSPDX/settings.txt"
@@ -39,6 +40,7 @@ static int g_settings_dirty;
 static int g_settings_fps_cap30;
 static int g_cable;
 static int g_fill_cache = 1;             /* fetch every icon ahead while idle */
+static int g_auto_connect;               /* Auto Connect: the connection, 1-10, or 0 */
 static int g_runtime_fps_cap30, g_download_mode;
 static void apply_fps(void) {
     gfx_set_fps_cap30(g_download_mode ? 0 : g_runtime_fps_cap30);
@@ -51,7 +53,7 @@ void options_download_mode(int on) {
 
 void options_settings_load(void) {
     char *text = NULL;
-    int n = storage_read(storage_path(SETTINGS_PATH), &text, 96);
+    int n = storage_read(storage_path(SETTINGS_PATH), &text, 128);
     /* A line a setting. Missing or invalid settings use Mercy UI at 60 FPS
        and fill the cache when idle; an explicit 30 FPS or fill=0 is kept. */
     g_settings_fps_cap30 = n > 0 && strstr(text, "fps=30\n") == text;
@@ -62,6 +64,9 @@ void options_settings_load(void) {
     g_cable = n <= 0 ? CABLE_UNASKED : strstr(text, "\ncable=wifi\n") ? CABLE_WIFI
               : strstr(text, "\ncable=usb\n") ? CABLE_USB
               : strstr(text, "\ncable=usb,known\n") ? CABLE_USB_KNOWN : CABLE_UNASKED;
+    const char *at = n > 0 ? strstr(text, "\nauto=") : NULL;
+    g_auto_connect = at ? atoi(at + 6) : 0;
+    if (g_auto_connect < 0 || g_auto_connect > WIFI_PROFILES) g_auto_connect = 0;
     g_runtime_fps_cap30 = g_settings_fps_cap30;
     apply_fps();
     free(text);
@@ -71,11 +76,12 @@ void options_settings_load(void) {
 void options_settings_save(void) {
     if (!g_settings_dirty) return;
     static const char *const cable[] = {"", "cable=wifi\n", "cable=usb\n", "cable=usb,known\n"};
-    char text[72];
-    int n = snprintf(text, sizeof(text), "fps=%d\nfill=%d\nsort=%s\n%s", g_settings_fps_cap30 ? 30 : 60,
+    char text[96], auto_line[16] = "";
+    if (g_auto_connect) snprintf(auto_line, sizeof(auto_line), "auto=%d\n", g_auto_connect);
+    int n = snprintf(text, sizeof(text), "fps=%d\nfill=%d\nsort=%s\n%s%s", g_settings_fps_cap30 ? 30 : 60,
                      g_fill_cache,
                      view_sort() == VIEW_SORT_NAME ? "name" : view_sort() == VIEW_SORT_INSTALLED ? "installed" : "new",
-                     cable[g_cable]);
+                     cable[g_cable], auto_line);
     if (storage_write(storage_path(SETTINGS_PATH), text, (size_t)n) == 0)
         g_settings_dirty = 0;
 }
@@ -95,6 +101,14 @@ void options_sort_next(void) {
 }
 
 int options_fill_cache(void) { return g_fill_cache; }
+
+int options_auto_connect(void) { return g_auto_connect; }
+void options_auto_connect_set(int profile) {
+    if (profile < 0 || profile > WIFI_PROFILES || profile == g_auto_connect) return;
+    g_auto_connect = profile;
+    g_settings_dirty = 1;
+    options_settings_save();
+}
 /* A setting chosen in Options is on the stick at once: a console switched
    off or run flat never passes through the exit that would save it. */
 void options_fill_cache_toggle(void) {
@@ -314,8 +328,14 @@ void options_fps_runtime_toggle(void) {
 static char g_sub_url[SOURCE_URL];
 static int g_sub_source;
 
+/* Auto Connect's rows past Off: which connection each is, and its name. */
+static int g_auto_profile[WIFI_PROFILES];
+static char g_auto_name[WIFI_PROFILES][64];
+
 static void sub_push(void) {
-    g_menu.title = g_sub == SUB_SOURCE ? g_sub_url + sources_web(g_sub_url) : T_SUB_DIRECT;
+    g_menu.title = g_sub == SUB_SOURCE ? g_sub_url + sources_web(g_sub_url)
+                 : g_sub == SUB_AUTO ? T_SYS_AUTO
+                 : g_sub == SUB_RESTORE ? T_SYS_RESET_ALL : T_SUB_DIRECT;
     memset(g_menu.flag, 0, sizeof(g_menu.flag));
     shell_menu(&g_menu);
 }
@@ -371,6 +391,20 @@ void sub_open(enum sub which) {
         g_menu.item[g_menu.count++] = T_SOURCE_TUNNEL;
         g_menu.item[g_menu.count++] = T_SOURCE_TEST;
         g_menu.item[g_menu.count++] = T_SOURCE_DELETE;
+    } else if (which == SUB_AUTO) {
+        /* Off, then every connection the system has, by its name; the
+           one in use says so at its end and the cursor starts on it. */
+        g_menu.item[g_menu.count++] = T_SUB_AUTO_OFF;
+        for (int p = wifi_profile_next(0), n = 0; p && n < WIFI_PROFILES && g_menu.count < MENU_ROWS;
+             p = wifi_profile_next(p), n++) {
+            g_auto_profile[n] = p;
+            if (wifi_profile_name(p, g_auto_name[n], sizeof(g_auto_name[n])) < 0) break;
+            g_menu.item[g_menu.count++] = g_auto_name[n];
+        }
+        if (g_menu.count == 1) shell_status(T_SYS_NO_NETWORKS);
+    } else if (which == SUB_RESTORE) {
+        g_menu.item[g_menu.count++] = T_RESET_SETTINGS;
+        g_menu.item[g_menu.count++] = T_SYS_SWEEP;
     } else {
         g_menu.item[g_menu.count++] = T_SUB_FROM_GITHUB;
         g_menu.item[g_menu.count++] = T_SUB_FROM_INBOX;
@@ -378,6 +412,13 @@ void sub_open(enum sub which) {
     for (int i = 0; i < g_menu.count; i++) { g_menu.on[i] = 1; g_menu.key[i] = -1; g_menu.value[i] = NULL; }
     if (which == SUB_SOURCE) g_menu.value[2] = sources_tunneled(g_sub_url) ? T_VALUE_ON : T_VALUE_OFF;
     g_menu.cursor = 0;
+    if (which == SUB_AUTO) {
+        int at = 0;
+        for (int i = 1; i < g_menu.count; i++)
+            if (g_auto_profile[i - 1] == g_auto_connect) at = i;
+        g_menu.value[at] = T_VALUE_ON;
+        g_menu.cursor = at;
+    }
     sub_push();
 }
 
@@ -385,6 +426,8 @@ static void sub_close(void) {
     g_sub = SUB_NONE;
     shell_menu(NULL);
 }
+
+void auto_connect_open(void) { sub_open(SUB_AUTO); }
 
 void system_open(void) {
     system_view_open();
@@ -440,7 +483,13 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             int chosen = g_menu.cursor;
             enum sub was = g_sub;
             sub_close();
-            if (was == SUB_SOURCE) {
+            if (was == SUB_AUTO) {
+                options_auto_connect_set(chosen > 0 ? g_auto_profile[chosen - 1] : 0);
+                cues_post(CUE_MOVE, 0);
+            } else if (was == SUB_RESTORE) {
+                if (chosen == 0) ask(ASK_RESET, -1, T_RESET_ASK, T_RESET_LINE);
+                else sweep_again();
+            } else if (was == SUB_SOURCE) {
                 if (chosen == 0 && *synced && edit_source(g_sub_url))
                     refetch_now(*cursor, keep, keep_size, synced, refreshing);
                 else if (chosen == 1 && *synced) {
@@ -538,13 +587,11 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
         if (pressed & PSP_CTRL_DOWN) { system_view_move(1); cues_post(CUE_MOVE, 0); }
         else if (pressed & PSP_CTRL_UP) { system_view_move(-1); cues_post(CUE_MOVE, 0); }
         else if (pressed & PSP_CTRL_CIRCLE) system_view_close();
-        else if ((pressed & PSP_CTRL_CROSS) && row == SYS_SWEEP) {
-            /* The seed's renewal: the sweep runs over the view, which is
-               there again after. */
-            sweep_again();
-        }
         else if ((pressed & PSP_CTRL_CROSS) && row == SYS_RESET) {
-            ask(ASK_RESET, -1, T_RESET_ASK, T_RESET_LINE);
+            /* The way back: the settings to their defaults, or the seed's
+               renewal, whose sweep runs over the view and leaves it there
+               again after. */
+            sub_open(SUB_RESTORE);
         }
         else if ((pressed & PSP_CTRL_CROSS) && row == SYS_LAUNCHER) {
             /* ARK's files, not ours: the switch moves only once they say
@@ -566,9 +613,15 @@ int options_handle(unsigned pressed, int *cursor, int *count, char *keep,
             /* A value or a switch flips and the view stays, its value or
                tick with it. */
             if (row == SYS_SHOW_FPS) shell_toggle_fps();
-            else if (row == SYS_UNRELEASED) view_show_unreleased(!view_unreleased_shown());
             else if (row == SYS_FILL_CACHE) options_fill_cache_toggle();
-            else { shell_toggle_dev(); fake_updates(shell_dev_updates()); }
+            else if (row == SYS_DEVELOPER) {
+                /* Both or neither: unreleased apps listed and every
+                   installed one pretending to have an update. */
+                int on = !(shell_dev_updates() && view_unreleased_shown());
+                view_show_unreleased(on);
+                if (shell_dev_updates() != on) shell_toggle_dev();
+                fake_updates(on);
+            }
             cues_post(CUE_MOVE, 0);
         }
     } else if (g_manage_open) {
