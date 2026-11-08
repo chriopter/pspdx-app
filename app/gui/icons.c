@@ -27,8 +27,9 @@
 
 enum icon_state { ICON_NONE, ICON_WANTED, ICON_READY, ICON_MISSING };
 
-/* A screenful and three rows past either edge. */
-#define WANTED 16
+/* A screenful and what is just past its edges: the list's rows and three
+   beyond, or the UMD grid's twenty discs and a line of five either side. */
+#define WANTED 32
 /* Ten screens of rows: scrolling back finds them still here, not on the
    stick. 64 of 32 KB. */
 #define SLOTS 64
