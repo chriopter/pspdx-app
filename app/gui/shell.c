@@ -3479,10 +3479,12 @@ void shell_download_draw(const struct app_entry *entry, const struct download_st
     if (s->total) snprintf(amount, sizeof(amount), "%.2f / %.2f MB", s->done / 1048576.0, s->total / 1048576.0);
     else snprintf(amount, sizeof(amount), "Your download will continue if you leave this screen.");
     font_print(FONT_META, 40, 175, dim, amount);
-    const char *left = stick_free(s->done);
-    font_print(FONT_META, 440 - font_width(FONT_META, left), 175, dim, left);
+    /* The rate on the left of the line under it, the stick's room on the
+       right: the line above can be a whole sentence. */
     download_speed(speed, s);
     font_print(FONT_META, 40, 195, dim, speed);
+    const char *left = stick_free(s->done);
+    font_print(FONT_META, 440 - font_width(FONT_META, left), 195, dim, left);
     mark_draw(MARK_CIRCLE, 46, 221, text, MARK_PLAIN, 0, 0);
     font_print(FONT_BODY, 60, 226, text, "Continue in background");
     mark_draw(MARK_SQUARE, 46, 246, dim, MARK_PLAIN, 0, 0);
