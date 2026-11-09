@@ -80,7 +80,7 @@ int view_updates_waiting(void);
 #define VIEW_TAGS 128           /* the most tags there are */
 #define VIEW_TAG_MIN 2          /* and the fewest apps one stands for */
 #define VIEW_CATEGORIES_MORE 12  /* categories the catalogs name beyond the store's own four */
-#define VIEW_GROUPS (4 + 1 + VIEW_CATEGORIES_MORE + VIEW_TAGS + 16)   /* the UMDs among them */
+#define VIEW_GROUPS (4 + 1 + VIEW_CATEGORIES_MORE + VIEW_TAGS + 16 + VIEW_GENRES + 16)   /* the UMDs' among them */
 enum view_group_kind { VIEW_GROUP_CATEGORY, VIEW_GROUP_TAG, VIEW_GROUP_SOURCE };
 int view_group_count(void);                 /* rows there are to browse by, of every way */
 const char *view_group_word(int n);         /* the word, as the catalogs write it */
@@ -135,6 +135,16 @@ int view_newest(int n, int browse, int *out, int max);
 /* Over the search, while the store shows what was kept and nothing has
    connected yet: the row that connects. */
 #define VIEW_ROW_CONNECT (-6)
+/* The UMDs' list (SELECT) starts with Search, Genres and Sources, the
+   store's way of browsing for the discs; a genre or source chosen there
+   narrows the list and the icons alike. */
+#define VIEW_GENRES 32          /* the most genres the UMDs' list has rows for */
+int view_umd_list(void);
+/* SELECT: the store or the UMDs from icons to list and back; 0 elsewhere. */
+int view_grid_toggle(void);
+/* Whether a group is one of this tab's rows: the UMDs' own on the UMD tab,
+   the store's elsewhere. */
+int view_group_here(int n);
 void view_set_connect(int on);
 int view_connect_shown(void);
 #define VIEW_SEARCH_SIZE 40

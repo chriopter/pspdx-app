@@ -93,6 +93,7 @@ struct group {
     int apps;
     unsigned char kind;
     unsigned short sources;         /* a source row: the lines of sources.txt it stands for, a bit each */
+    unsigned char umd;              /* a genre or source row of the UMDs' list, not the store's */
 };
 static struct group g_group[VIEW_GROUPS];
 static int g_groups;
@@ -102,6 +103,16 @@ static int g_browse = -1;               /* the way open, -1 at the store's first
    typed, which the keyboard opens with again. */
 static char g_search[VIEW_SEARCH_SIZE];
 static int g_searching;
+/* The UMD tab's own: a typed word the grid is narrowed to, and whether
+   its list is open in the grid's place -- Search, Genres and Sources, the
+   store's way of browsing for the discs. A genre or a source chosen there
+   is g_group_open, as in the store; its rows are groups of their own,
+   counted over the discs only. */
+static char g_umd_search[VIEW_SEARCH_SIZE];
+static int g_umd_searching;
+static int g_umd_list;
+static int g_store_grid;               /* the store as icons, SELECT's other view */
+static int on_umds(void) { return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_UMD; }
 /* The order of every list of packages: newest first, or by name. */
 static int g_sort = VIEW_SORT_NEWEST;
 /* The rows of the way open, as group numbers, in their order. */
@@ -216,15 +227,20 @@ static int dated_tag(const char *p, size_t k) {
     return 0;
 }
 
-static void collect_tags(void) {
+static int is_umd_face(const struct app_entry *entry);
+/* What a row of the store, or with umd of the UMDs' list, counts. */
+static int counted(const struct app_entry *e, int umd) { return umd ? is_umd_face(e) : !view_hidden(e); }
+static int tab_word(const char *word, size_t k);
+
+static void collect_tags(int umd, int most) {
     memset(g_tag_place, 0, sizeof(g_tag_place));
     for (int i = 0; i < g_view_of->count; i++) {
         const struct app_entry *e = &g_view_of->apps[i];
-        if (view_hidden(e)) continue;
+        if (!counted(e, umd)) continue;
         for (const char *p = txt(e->tags); *p; p += *p == '\n') {
             size_t k = strcspn(p, "\n");
             if (k && k < PSPDX_CATEGORY_SIZE && !(k == 10 && same_len_word(p, "unreleased", 10)) &&
-                !dated_tag(p, k)) {
+                !dated_tag(p, k) && !(umd && tab_word(p, k))) {
                 unsigned h = 2166136261u;
                 for (size_t j = 0; j < k; j++) h = (h ^ fold((unsigned char)p[j])) * 16777619u;
                 for (unsigned at = h % TAG_PLACES, tries = 0; tries < TAG_PLACES;
@@ -244,10 +260,10 @@ static void collect_tags(void) {
             p += k;
         }
     }
-    for (int n = 0; n < VIEW_TAGS && g_groups < VIEW_GROUPS; n++) {
+    for (int n = 0; n < most && g_groups < VIEW_GROUPS; n++) {
         int best = -1;
         for (int at = 0; at < TAG_PLACES; at++) {
-            if (g_tag_place[at].apps < VIEW_TAG_MIN) continue;
+            if (g_tag_place[at].apps < (umd ? 1 : VIEW_TAG_MIN)) continue;
             if (best < 0 || g_tag_place[at].apps > g_tag_place[best].apps) { best = at; continue; }
             /* A tie goes to the word first in the alphabet, so the order
                is the same whatever places the words fell into. */
@@ -260,8 +276,10 @@ static void collect_tags(void) {
         }
         if (best < 0) break;
         struct group *g = &g_group[g_groups++];
+        memset(g, 0, sizeof(*g));
         snprintf(g->word, sizeof(g->word), "%.*s", g_tag_place[best].len, g_tag_place[best].at);
         g->kind = VIEW_GROUP_TAG;
+        g->umd = (unsigned char)umd;
         g->apps = g_tag_place[best].apps;
         g_tag_place[best].apps = 0;
     }
@@ -270,12 +288,12 @@ static void collect_tags(void) {
 /* One row a name: sources the same name stands for -- every repository
    typed into Direct Install -- are one row. The most apps first; a source
    no package the store shows came from has no row. */
-static void collect_sources(void) {
+static void collect_sources(int umd) {
     int first = g_groups, count[SOURCES_MAX] = {0};
     for (int i = 0; i < g_view_of->count; i++) {
         const struct app_entry *e = &g_view_of->apps[i];
         if (e->source > 0 && e->source <= g_view_of->sources && e->source <= SOURCES_MAX &&
-            !view_hidden(e))
+            counted(e, umd))
             count[e->source - 1]++;
     }
     for (int s = 0; s < g_view_of->sources && s < SOURCES_MAX; s++) {
@@ -289,6 +307,7 @@ static void collect_sources(void) {
             memset(&g_group[at], 0, sizeof(g_group[at]));
             snprintf(g_group[at].word, sizeof(g_group[at].word), "%s", name);
             g_group[at].kind = VIEW_GROUP_SOURCE;
+            g_group[at].umd = (unsigned char)umd;
         }
         g_group[at].apps += count[s];
         g_group[at].sources |= (unsigned short)(1u << s);
@@ -305,7 +324,8 @@ static void collect_sources(void) {
 static void list_way(void) {
     g_ways = 0;
     for (int n = 0; g_browse >= 0 && n < g_groups; n++)
-        if (g_group[n].kind == g_browse && n != g_umd_group) g_way[g_ways++] = (unsigned char)n;
+        if (g_group[n].kind == g_browse && n != g_umd_group && g_group[n].umd == on_umds())
+            g_way[g_ways++] = (unsigned char)n;
     /* The cloud keeps the groups' order: the tags most apps carry first,
        so the ones anybody still uses are at the top, not a 2007 contest. */
 }
@@ -340,8 +360,11 @@ static void collect_groups(void) {
             }
             if (c >= 0) g_group[c].apps++;
         }
-        collect_tags();
-        collect_sources();
+        collect_tags(0, VIEW_TAGS);
+        collect_sources(0);
+        /* And the UMDs' own: their genres and where they come from. */
+        collect_tags(1, VIEW_GENRES);
+        collect_sources(1);
     }
     if (g_group_open >= g_groups) g_group_open = -1;
     list_way();
@@ -350,12 +373,16 @@ static void collect_groups(void) {
 static const char *const BROWSE[VIEW_BROWSE] = {
     T_BROWSE_CATEGORY, T_BROWSE_TAG, T_BROWSE_SOURCE,
 };
-const char *view_browse_word(int k) { return k >= 0 && k < VIEW_BROWSE ? BROWSE[k] : ""; }
+const char *view_browse_word(int k) {
+    if (on_umds() && k == VIEW_GROUP_TAG) return T_BROWSE_GENRE;
+    return k >= 0 && k < VIEW_BROWSE ? BROWSE[k] : "";
+}
 int view_browse_rows(int k) {
     int n = 0;
-    for (int g = 0; g < g_groups; g++) n += g_group[g].kind == k && g != g_umd_group;
+    for (int g = 0; g < g_groups; g++) n += g_group[g].kind == k && g != g_umd_group && g_group[g].umd == on_umds();
     return n;
 }
+int view_group_here(int n) { return n >= 0 && n < g_groups && g_group[n].umd == on_umds(); }
 int view_browse_at(void) { return g_browse; }
 int view_cloud(void) {
     return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_HOMEBREW && g_browse == VIEW_GROUP_TAG &&
@@ -366,7 +393,20 @@ int view_umd_group(void) { return g_umd_group; }
 int view_umd_open(void) {
     return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_UMD && g_umd_group >= 0;
 }
-int view_grid(void) { return view_umd_open() && g_view_count > 0; }
+static int on_store(void);
+static void build_view(int restart);
+/* SELECT turns the store and the UMDs between their icons and their list:
+   the store is a list until turned, the UMDs icons. */
+int view_grid(void) {
+    return (on_umds() ? !g_umd_list : on_store() && g_store_grid) && g_view_count > 0;
+}
+int view_grid_toggle(void) {
+    if (on_umds()) g_umd_list = !g_umd_list;
+    else if (on_store()) g_store_grid = !g_store_grid;
+    else return 0;
+    build_view(1);
+    return 1;
+}
 
 static unsigned published(int index);
 int view_newest(int n, int browse, int *out, int max) {
@@ -374,14 +414,15 @@ int view_newest(int n, int browse, int *out, int max) {
     if (!g_view_of || max <= 0) return 0;
     for (int i = 0; i < g_view_of->count; i++) {
         const struct app_entry *e = &g_view_of->apps[i];
-        /* The UMDs' row stands for what the rest of the store hides. */
-        if (n >= 0 && n == g_umd_group ? !is_umd_face(e) : view_hidden(e)) continue;
+        /* The UMDs' rows stand for what the rest of the store hides. */
+        int umd = n >= 0 ? n == g_umd_group || g_group[n].umd : on_umds();
+        if (!counted(e, umd)) continue;
         int in = 0;
         if (n >= 0) in = view_in_group(e, n);
         else if (browse == VIEW_GROUP_CATEGORY) in = category_of(e) >= 0;
         else
             for (int g = 0; !in && g < g_groups; g++)
-                in = g_group[g].kind == browse && view_in_group(e, g);
+                in = g_group[g].kind == browse && g_group[g].umd == umd && view_in_group(e, g);
         if (!in) continue;
         /* Kept newest first, a tie in the catalog's order, as the store
            lists them. */
@@ -403,11 +444,33 @@ static int on_store(void) { return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_HOMEBRE
 static int g_connect;
 void view_set_connect(int on) { g_connect = !!on; }
 int view_connect_shown(void) { return g_connect; }
+/* The ways the UMDs' list offers past its search: genres and sources,
+   each where there is a row of it. */
+static int umd_ways(int *ways) {
+    int n = 0;
+    static const int KINDS[2] = { VIEW_GROUP_TAG, VIEW_GROUP_SOURCE };
+    for (int k = 0; k < 2; k++)
+        if (view_browse_rows(KINDS[k]) > 0) {
+            if (ways) ways[n] = KINDS[k];
+            n++;
+        }
+    return n;
+}
 static int root_rows(void) {
-    if (!on_store() || g_group_open >= 0 || g_searching) return 0;
+    /* The UMDs' grid starts with the tile that opens its list -- only
+       over discs, never an empty room; the list itself is rows: Search,
+       Genres and Sources where the discs have them, or a way's rows. */
+    if (on_umds() && (!g_umd_list || g_group_open >= 0 || g_umd_searching)) return 0;
+    if (on_umds()) return g_browse >= 0 ? g_ways : 1 + umd_ways(NULL);
+    if (!on_store() || g_store_grid || g_group_open >= 0 || g_searching) return 0;
     return g_browse < 0 ? g_connect + 1 + VIEW_BROWSE : g_ways;
 }
 static int root_index(int row) {
+    if (on_umds() && g_browse < 0) {
+        int ways[2];
+        umd_ways(ways);
+        return row == 0 ? VIEW_ROW_SEARCH : VIEW_ROW_BROWSE - ways[row - 1];
+    }
     if (g_browse >= 0) return VIEW_ROW_GROUP - g_way[row];
     if (g_connect && row-- == 0) return VIEW_ROW_CONNECT;
     return row == 0 ? VIEW_ROW_SEARCH : VIEW_ROW_BROWSE - (row - 1);
@@ -435,6 +498,13 @@ int view_browse_close(void) {
     g_group_open = -1;
     list_way();
     build_view(1);
+    if (on_umds()) {
+        /* The UMDs' list: its search, then the ways it has. */
+        int ways[2], n = umd_ways(ways);
+        for (int i = 0; i < n; i++)
+            if (ways[i] == was) return 1 + i;
+        return 0;
+    }
     return 1 + was;     /* under the search's row */
 }
 
@@ -453,7 +523,30 @@ static int matches(const struct app_entry *e) {
            found_in(txt(e->tags), g_search) || found_in(entry_category(e), g_search) ||
            found_in(txt(e->summary), g_search) || found_in(e->description, g_search);
 }
+static int umd_matches(const struct app_entry *e) {
+    return found_in(e->name, g_umd_search) || found_in(txt(e->tags), g_umd_search) ||
+           found_in(txt(e->summary), g_umd_search);
+}
 int view_search_open(const char *word) {
+    if (word && word[0] && on_umds()) {
+        /* The UMDs' grid narrowed the same way, to the discs the word is
+           in: name, genre or disc id. */
+        char was[VIEW_SEARCH_SIZE];
+        int was_on = g_umd_searching;
+        snprintf(was, sizeof(was), "%s", g_umd_search);
+        snprintf(g_umd_search, sizeof(g_umd_search), "%s", word);
+        g_umd_searching = 1;
+        g_group_open = -1;
+        build_view(0);
+        if (g_view_count > 0) {
+            g_generation++;
+            return g_view_count;
+        }
+        snprintf(g_umd_search, sizeof(g_umd_search), "%s", was);
+        g_umd_searching = was_on;
+        build_view(0);
+        return 0;
+    }
     if (!word || !word[0] || !on_store()) return 0;
     snprintf(g_search, sizeof(g_search), "%s", word);
     int was_browse = g_browse, was_group = g_group_open;
@@ -475,13 +568,35 @@ int view_search_open(const char *word) {
     return 0;
 }
 int view_search_close(void) {
+    if (on_umds()) {
+        /* Back to the list the search was typed in, on its row. */
+        if (!g_umd_searching) return -1;
+        g_umd_searching = 0;
+        g_browse = -1;
+        list_way();
+        build_view(1);
+        return 0;
+    }
     if (!g_searching) return -1;
     g_searching = 0;
     build_view(1);
     return 0;
 }
-const char *view_search(void) { return g_searching ? g_search : NULL; }
-const char *view_search_last(void) { return g_search; }
+const char *view_search(void) {
+    if (on_umds()) return g_umd_searching ? g_umd_search : NULL;
+    return g_searching ? g_search : NULL;
+}
+const char *view_search_last(void) { return on_umds() ? g_umd_search : g_search; }
+
+/* The console's own tab words, which are no genre. */
+static int tab_word(const char *word, size_t k) {
+    static const char *const WORDS[] = { "game", "demo", "app", "emulator" };
+    for (size_t i = 0; i < sizeof(WORDS) / sizeof(*WORDS); i++)
+        if (strlen(WORDS[i]) == k && same_len_word(word, WORDS[i], k)) return 1;
+    return 0;
+}
+
+int view_umd_list(void) { return on_umds() && g_umd_list; }
 
 int view_sort(void) { return g_sort; }
 void view_sort_set(int sort) {
@@ -646,8 +761,11 @@ static void build_view(int restart) {
     for (int i = 0; i < g_view_of->count; i++) {
         int take;
         if (tab == TAB_UMD)
-            /* One tile per game: the version that stands for it. */
-            take = is_umd_face(&g_view_of->apps[i]);
+            /* One tile per game: the version that stands for it -- of the
+               genre chosen and with the word typed, where there are. */
+            take = is_umd_face(&g_view_of->apps[i]) && (!g_umd_list || g_browse < 0 || g_group_open >= 0) &&
+                   (!g_umd_searching || umd_matches(&g_view_of->apps[i])) &&
+                   (g_group_open < 0 || view_in_group(&g_view_of->apps[i], g_group_open));
         else if (tab == TAB_HOMEBREW)
             take = !view_hidden(&g_view_of->apps[i]) &&
                    (g_searching ? matches(&g_view_of->apps[i])
@@ -871,6 +989,7 @@ void view_tab_move(int step) {
     g_group_open = -1;
     g_browse = -1;
     g_searching = 0;
+    g_umd_searching = 0;
     list_way();
     build_view(1);
 }

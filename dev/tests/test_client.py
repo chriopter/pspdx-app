@@ -455,7 +455,7 @@ class ClientTests(unittest.TestCase):
   self.assertEqual(rows,['0 3 broken ms0:/ISO/broken.iso','0 3 LocoRoco ms0:/ISO/Sub/Second.cso','0 1 Minis ms0:/PSP/GAME/NPUZ00001/EBOOT.PBP',
                          '0 3 Patapon ms0:/ISO/Game One.iso','0 3 Zeta ef0:/ISO/third.zso','1 2 "Final" Fantasy VII ms0:/PSP/GAME/SLUS00001/EBOOT.PBP',
                          '2 0 Another ms0:/PSP/APPS/App2/EBOOT.PBP','2 0 homebrew B ms0:/PSP/GAME/HB/EBOOT.PBP','2 0 NOSFO ms0:/PSP/GAME/NOSFO/EBOOT.PBP',
-                         # The launcher's places, four to a line: each section from a new line, its sign first, a place like the others so a column stays one. Down from the discs' sign to the fourth disc, down onto the PS1 sign, right to its game and no further, up to the fifth disc, up to the first, and left onto the sign.
+                         # The launcher's places as icons, four to a line: each section from a new line, its sign first, a place like the others so a column stays one. Down from the discs' sign to the fourth disc, down onto the PS1 sign, right to its game and no further, up to the fifth disc, up to the first, and left onto the sign.
                          'walk 4 6 7 7 7 5 1 0'],r.stderr)
   self.assertIn('library: 10 found, 10 read',r.stderr)
   r=self.run_client('library',VERBOSE=1);self.assertEqual(r.stdout.splitlines(),rows[:-1]);self.assertIn('library: 10 found, 0 read',r.stderr)
@@ -1537,6 +1537,14 @@ class ClientTests(unittest.TestCase):
   r=self.run_client('fetch',CATALOG_DOWN=1,FORCE=1,VERBOSE=1);self.assertIn('outside GitHub',r.stderr)
   plug={k:v for k,v in dict(SPEC,type='iso',source='https://github.com/test/disc').items() if k!='installdir'}
   self.write('ms0:/PSP/PSPDX/INBOX/disc.pspdx',plug);r=self.run_client('inbox',VERBOSE=1);self.assertNotIn('cannot install yet',r.stderr)
+ def test_the_umds_are_browsed_by_genre_and_searched(self):
+  # The UMDs start as icons; SELECT turns them to their list: Search, then Genres where the discs carry tags, then Sources, over the discs; a genre's row counts its discs and narrows the list to them, O goes back on its row; a search narrows it and O takes it away.
+  self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink()
+  def disc(key,name,tags):
+   return dict(name=name,type='iso',category='game',tags=tags,summary=key,source='https://psp.lan/discs/'+key,releases=[dict(tag='1.00',published_at='2023-11-14T22:13:20Z',url='https://psp.lan/discs/%s.iso'%key,size=1000,sha256='2'*64)])
+  self.write('catalog.json',dict(catalog,apps=[first,disc('ULUS-10001','Loco Kart',['Racing']),disc('ULUS-10002','Tennis Pro',['Sports']),disc('ULUS-10003','Golf Pro',['Sports'])]))
+  out=self.run_client('umdlist','pro').stdout.splitlines()
+  self.assertEqual(out,['grid 3 icons 1','list -4 -11 -12 discs 3','genre Sports 2','genre Racing 1','narrowed 2 list 1','back row 0 list 1','search 2','closed 0 list 1'])
  def test_versions_of_one_game_are_one_umd_tile(self):
   # Two ISO entries with the same "game" are one tile among the store's UMDs, the EU version standing for it; without "game" each stands alone, and a "game" on anything but an ISO is not read.
   self.fixtures();catalog=json.loads((self.root/'catalog.json').read_text());first=catalog['apps'][0];(self.root/'manifest.json').unlink()

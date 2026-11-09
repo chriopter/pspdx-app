@@ -35,6 +35,7 @@
 
 /* Each section's sign, in its first place. */
 static const signed char SECTION_SIGN[LIBRARY_SECTIONS] = { MARK_UMD, MARK_GAMES, MARK_APPS };
+static const char *const SECTION_WORD[LIBRARY_SECTIONS] = { T_LIBRARY_PSP, T_LIBRARY_PS1, T_LIBRARY_APPS };
 
 /* Where each line stands, from the grid's top. */
 static float g_scroll, g_pop;
@@ -42,6 +43,65 @@ static int g_last = -1;
 
 static void centred(enum font_style style, float y, unsigned color, const char *text) {
     font_print(style, SCR_W / 2.0f - font_width(style, text) / 2.0f, y, color, text);
+}
+
+/* The list: one place a row, the search's, a section's sign and word, or
+   an item with its icon at the store's row size; the chosen one's film or
+   icon large on the right, as the store shows a package's picture. */
+static void draw_rows(int cursor, float t) {
+    static float top;
+    int places = library_places();
+    float want = top;
+    if (cursor < want) want = cursor;
+    if (cursor >= want + VISIBLE) want = cursor - VISIBLE + 1;
+    top = want;
+    gfx_clip(0, LIST_Y, SCR_W, VISIBLE * ITEM_H);
+    for (int p = (int)top; p < places && p < (int)top + VISIBLE; p++) {
+        int y = LIST_Y + (p - (int)top) * ITEM_H, selected = p == cursor;
+        unsigned color = selected ? g_text : g_dim;
+        if (selected) gfx_rect(LIST_X - 6, y, LIST_W + 12, ITEM_H, RGBA(255, 255, 255, 22));
+        float gx = LIST_X + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
+        int w = LIST_X + LIST_W - NAME_X;
+        if (library_place_search(p)) {
+            mark_draw(MARK_SEARCH, gx, gy, color, selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+            char word[16 + LIBRARY_TITLE];
+            if (library_searched()) snprintf(word, sizeof(word), T_SEARCH_HEAD, library_searched());
+            else snprintf(word, sizeof(word), "%s", T_SEARCH);
+            font_print_clipped(FONT_TITLE, NAME_X, y + 21, w, color, word);
+            continue;
+        }
+        int s = library_place_sign(p), fav = library_place_favourites(p);
+        if (s >= 0 || fav) {
+            /* A row that opens its games: the sign, the word, and how many
+               at the row's end, as the store's ways of browsing stand. */
+            mark_draw(fav ? MARK_TICK : (enum mark)SECTION_SIGN[s], gx, gy, color,
+                      selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+            char count[16];
+            snprintf(count, sizeof(count), "%d", fav ? library_favourites_count() : library_section_count(s));
+            float cw = font_width(FONT_META, count);
+            font_print(FONT_META, LIST_X + LIST_W - cw, y + 21, faded(g_dim, selected ? 230 : 150), count);
+            font_print_clipped(FONT_TITLE, NAME_X, y + 21, w - cw - 8, color,
+                               fav ? T_LIBRARY_FAVOURITES : SECTION_WORD[s]);
+            continue;
+        }
+        const struct library_item *item = library_item(library_place_item(p));
+        if (!item) continue;
+        const struct gfx_texture *icon = icons_library_get(item->key);
+        if (icon) gfx_texture_draw(icon, LIST_X, y + 4, ICON_W, ITEM_H - 8, selected ? RGB(255, 255, 255) : RGB(170, 170, 170));
+        else gfx_rect(LIST_X, y + 4, ICON_W, ITEM_H - 8, RGBA(255, 255, 255, 12));
+        font_print_scrolling(FONT_TITLE, NAME_X, y + 21, w, color, item->title,
+                             selected ? hover_age(5, (int)item->key) : 0.0f);
+    }
+    gfx_unclip();
+    const struct library_item *chosen = library_item(library_place_item(cursor));
+    if (!chosen) return;
+    int film_alpha = 0;
+    const struct gfx_texture *film = preview_film(&film_alpha);
+    const struct gfx_texture *icon = icons_library_get(chosen->key);
+    int h = SHOT_W * 5 / 9;
+    if (film) gfx_texture_draw(film, PANEL_X, SHOT_Y + 8, SHOT_W, h, RGB(255, 255, 255));
+    else if (icon) gfx_texture_draw(icon, PANEL_X, SHOT_Y + 8, SHOT_W, h, RGB(255, 255, 255));
+    draw_wrapped(FONT_TITLE, PANEL_X, SHOT_Y + 8 + h + 24, SHOT_W, 18, 3, g_text, chosen->title);
 }
 
 void library_view_draw(int cursor, float t) {
@@ -91,6 +151,10 @@ void library_view_draw(int cursor, float t) {
        XMB plays a game's over its icon; the request is the same one every
        frame and only goes out when it changes. */
     if (chosen) preview_show_file(chosen->path, PREVIEW_FILE_TITLE);
+    if (library_list()) {
+        draw_rows(cursor, t);
+        return;
+    }
 
     /* The places: the chosen one last, grown over its neighbours, the rest
        cut to the room. A sign stands on a tile of its own, lit while the
@@ -136,19 +200,30 @@ void library_view_draw(int cursor, float t) {
     gfx_unclip();
 
     /* Under the grid the chosen one's name, and where it is among them
-       when there are more than the room shows. */
+       when there are more than the room shows; on the search's row, the
+       word in force. */
+    char search[16 + LIBRARY_TITLE];
     const char *name = chosen ? chosen->title : NULL;
+    if (library_place_search(cursor)) {
+        if (library_searched()) snprintf(search, sizeof(search), T_SEARCH_HEAD, library_searched());
+        else snprintf(search, sizeof(search), "%s", T_SEARCH);
+        name = search;
+    }
     if (name) {
         float w = font_width(FONT_TITLE, name), room = SCR_W - 2 * LIST_X;
         font_print_scrolling(FONT_TITLE, LIST_X + (w < room ? (int)((room - w) / 2) : 0), NAME_Y, room,
-                             g_text, name, hover_age(5, (int)chosen->key));
+                             g_text, name, hover_age(5, chosen ? (int)chosen->key : -1));
     }
     if (height > ROOM_H && chosen) {
-        /* Where it is among the items, the signs not counted. */
-        int at = 0;
-        for (int p = 0; p < cursor; p++) at += library_place_item(p) >= 0;
+        /* Where it is among the items shown, the signs not counted. */
+        int at = 0, shown = 0;
+        for (int p = 0; p < places; p++) {
+            int item = library_place_item(p) >= 0;
+            at += item && p < cursor;
+            shown += item;
+        }
         char where[32];
-        snprintf(where, sizeof(where), "%d / %d", at + 1, library_count());
+        snprintf(where, sizeof(where), "%d / %d", at + 1, shown);
         font_print(FONT_CAPTION, SCR_W - LIST_X - font_width(FONT_CAPTION, where), NAME_Y,
                    faded(g_dim, 170), where);
     }

@@ -434,7 +434,33 @@ int main(int argc, char **argv) {
         catalog_check_updates(&catalog);
         view_rebuild(&catalog);
         while (view_tab_kind() != VIEW_TAB_UMD) view_tab_move(1);
-        printf("umds %d grid %d row %d\n", view_count(), view_grid(), view_group_apps(view_umd_group()));
+        printf("umds %d grid %d row %d\n", view_count() - view_home(), view_grid(), view_group_apps(view_umd_group()));
+        return 0;
+    }
+    if (!strcmp(argv[1], "umdlist")) {
+        /* The UMDs as icons, then their list (SELECT): its rows over the
+           discs, the genres' rows with their counts, the list narrowed to
+           the first genre, a search, and back. */
+        catalog_fetch(&catalog);
+        catalog_check_updates(&catalog);
+        view_rebuild(&catalog);
+        while (view_tab_kind() != VIEW_TAB_UMD) view_tab_move(1);
+        printf("grid %d icons %d\n", view_count() - view_home(), view_grid());
+        view_grid_toggle();
+        printf("list");
+        for (int i = 0; i < view_home(); i++) printf(" %d", view_index(i));
+        printf(" discs %d\n", view_count() - view_home());
+        view_browse_open(VIEW_GROUP_TAG);
+        for (int i = 0; i < view_count(); i++) {
+            int n = VIEW_ROW_GROUP - view_index(i);
+            printf("genre %s %d\n", view_group_word(n), view_group_apps(n));
+        }
+        view_group_open(VIEW_ROW_GROUP - view_index(0));
+        printf("narrowed %d list %d\n", view_count() - view_home(), view_umd_list());
+        printf("back row %d list %d\n", view_group_close(), view_umd_list());
+        view_browse_close();
+        printf("search %d\n", view_search_open(argc > 2 ? argv[2] : "zzz"));
+        printf("closed %d list %d\n", view_search_close(), view_umd_list());
         return 0;
     }
     if (!strcmp(argv[1], "library")) {

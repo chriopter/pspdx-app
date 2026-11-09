@@ -660,6 +660,14 @@ int main(int argc, char *argv[]) {
                     int at = was ? library_place_of(library_find(key)) : -1;
                     int places = library_places();
                     cursor = at >= 0 ? at : cursor < places ? cursor : places > 0 ? places - 1 : 0;
+                    /* The first reading puts the cursor on the first game,
+                       past the search's row and a section's sign. */
+                    static int placed;
+                    if (!placed && !was) {
+                        placed = 1;
+                        cursor = 0;
+                        while (cursor < places - 1 && library_place_item(cursor) < 0) cursor++;
+                    }
                 }
             }
         }
@@ -918,14 +926,19 @@ int main(int argc, char *argv[]) {
         if (steps) pressed |= vertical;
         shell_scroll_fast(g_scroll_fast);
         pressed |= keys_pressed();          /* none before they are loaded */
-        /* SELECT over a list of packages turns its order, newest first, by
-           name or what is installed first, for every list and for good; the
-           foot says which. The
-           cursor goes to the head of the list, where the new order starts. */
-        if ((pressed & PSP_CTRL_SELECT) && !info && shown()->count > 0 &&
-            (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_STICK) &&
-            !view_cloud() && !asking() && !menu_shown() && !popup_shown() && !details &&
-            !gear_view_shown()) {
+        /* SELECT turns the store and the UMDs between their icons and their
+           list -- the list is where they are searched and browsed by --
+           and over the updates turns their order, newest first, by name or
+           what is installed first; the foot says which. The cursor goes to
+           the head, where the new view starts. */
+        int select_here = (pressed & PSP_CTRL_SELECT) && !info && shown()->count > 0 &&
+                          !view_cloud() && !asking() && !menu_shown() && !popup_shown() && !details &&
+                          !gear_view_shown();
+        if (select_here && (view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_UMD)) {
+            view_grid_toggle();
+            cues_post(CUE_MOVE, cursor = 0);
+            pressed &= ~(unsigned)PSP_CTRL_SELECT;
+        } else if (select_here && view_tab_kind() == VIEW_TAB_STICK) {
             options_sort_next();
             if (view_index(cursor) >= 0) cursor = view_home();
             cues_post(CUE_MOVE, cursor);
@@ -1206,7 +1219,7 @@ int main(int argc, char *argv[]) {
             count = view_count();
         } else if ((pressed & PSP_CTRL_CIRCLE) && view_search()) {
             /* O out of what a search found: back to the store's first
-               rows, on the search's. */
+               rows, on the search's -- in the UMDs' grid, its tile. */
             cues_post(CUE_MOVE, cursor = view_search_close());
             count = view_count();
         } else if ((pressed & PSP_CTRL_CIRCLE) &&
@@ -1219,16 +1232,56 @@ int main(int argc, char *argv[]) {
             cues_post(CUE_MOVE, cursor = was);
             count = view_count();
         } else if (on_library && count > 0) {
-            /* X asks before the game is started, as a package's Run does,
-               and nothing starts one unasked: a START pressed while the
-               launcher comes up must not drop anyone into a game. The
-               question holds the item's key, not its place: the stick can be
-               read again while it stands. */
             /* X or START starts it at once -- but not with a key still
                down from before the launcher came up -- and SQUARE marks it
                a favourite, first in the list, the cursor going with it. */
             const struct library_item *item = library_item(library_place_item(cursor));
-            if ((pressed & (PSP_CTRL_CROSS | PSP_CTRL_START)) && item && expired(start_ms, 1000)) {
+            if (pressed & PSP_CTRL_SELECT) {
+                /* SELECT: icons or the list, the cursor staying on its game. */
+                const struct library_item *was = library_item(library_place_item(cursor));
+                unsigned key = was ? was->key : 0;
+                library_list_toggle();
+                int at = was ? library_place_of(library_find(key)) : -1;
+                cursor = at >= 0 ? at : 0;
+                view_library_count(library_places());
+                count = library_places();
+                cues_post(CUE_MOVE, cursor);
+            } else if ((pressed & PSP_CTRL_CROSS) && library_list() &&
+                       (library_place_sign(cursor) >= 0 || library_place_favourites(cursor))) {
+                /* A row of the list: its games in the list's place. */
+                library_list_open(library_place_favourites(cursor) ? -2 : library_place_sign(cursor));
+                cursor = 0;
+                view_library_count(count = library_places());
+                cues_post(CUE_MOVE, cursor);
+            } else if ((pressed & PSP_CTRL_CIRCLE) && library_list_opened() && !library_searched()) {
+                /* O back to the list's rows, on the one it opened. */
+                cursor = library_list_close();
+                view_library_count(count = library_places());
+                cues_post(CUE_MOVE, cursor);
+            } else if ((pressed & PSP_CTRL_CROSS) && library_place_search(cursor)) {
+                /* The list's search row: a word typed, and only the games with
+                   it in their title stay. With none, the foot says so. */
+                char word[LIBRARY_TITLE];
+                if (osk_read(T_OSK_SEARCH_GAMES, library_search_last(), word, sizeof(word)) > 0 && word[0]) {
+                    if (library_search(word) > 0) {
+                        /* Onto the first game found. */
+                        view_library_count(library_places());
+                        cursor = 0;
+                        while (cursor < library_places() - 1 && library_place_item(cursor) < 0) cursor++;
+                        cues_post(CUE_MOVE, cursor);
+                    } else {
+                        char line[96];
+                        snprintf(line, sizeof(line), T_SEARCH_NONE_GAMES, word);
+                        shell_status(line);
+                    }
+                }
+            } else if ((pressed & PSP_CTRL_CIRCLE) && library_searched()) {
+                /* O out of what the search found: everything again, on
+                   the search's row. */
+                library_search_close();
+                view_library_count(library_places());
+                cues_post(CUE_MOVE, cursor = 0);
+            } else if ((pressed & (PSP_CTRL_CROSS | PSP_CTRL_START)) && item && expired(start_ms, 1000)) {
                 launch_local(item->path, item->kind);
             } else if ((pressed & PSP_CTRL_TRIANGLE) && item) {
                 /* TRIANGLE: Start, Favorite and Delete, in the popup. */
@@ -1246,13 +1299,16 @@ int main(int argc, char *argv[]) {
                    packages it is found in. With none, the foot says so and
                    the store stays. */
                 char word[VIEW_SEARCH_SIZE];
-                if (osk_read(T_OSK_SEARCH, view_search_last(), word, sizeof(word)) > 0 && word[0]) {
+                int umds = view_umd_open();
+                if (osk_read(umds ? T_OSK_SEARCH_UMD : T_OSK_SEARCH, view_search_last(), word, sizeof(word)) > 0 &&
+                    word[0]) {
                     if (view_search_open(word) > 0) {
                         cues_post(CUE_MOVE, cursor = view_home());
                         count = view_count();
                     } else {
                         char line[96];
-                        snprintf(line, sizeof(line), T_SEARCH_NONE, word);
+                        if (umds) snprintf(line, sizeof(line), T_SEARCH_NONE_UMD, word);
+                        else snprintf(line, sizeof(line), T_SEARCH_NONE, word);
                         shell_status(line);
                     }
                 }

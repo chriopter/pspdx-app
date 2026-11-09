@@ -88,21 +88,36 @@ static void adopt(void) {
 /* ------------------------------------------------------------- the grid */
 
 /* What the launcher shows is places, not items: one list, four to a line.
-   The favourites come first, by title, with no sign of their own; then
-   every section starts a line, its sign in the first place -- a place the
-   cursor stands on too, so a column stays a column -- and the rest of it
-   by title.
-   A place holds an item's index, or PLACE_SIGN - section for a sign. */
+   In the list (SELECT) the search comes first; then the favourites, by title, with no sign of
+   their own; then every section starts a line, its sign in the first
+   place -- a place the cursor stands on too, so a column stays a column --
+   and the rest of it by title. A word typed in the search keeps only the
+   items whose title has it, and the signs of the sections that still have
+   some.
+   A place holds an item's index, PLACE_SEARCH for the search, or
+   PLACE_SIGN - section for a sign. */
+#define PLACE_SEARCH (-1)
 #define PLACE_SIGN (-2)
+#define PLACE_FAVOURITES (-20)
 #define FAVOURITES_PATH "PSP/PSPDX/favorites.txt"
 #define FAVOURITES_MAX 256
 
-static int g_place[LIBRARY_MAX + LIBRARY_SECTIONS];
-static int g_place_line[LIBRARY_MAX + LIBRARY_SECTIONS];
-static int g_place_col[LIBRARY_MAX + LIBRARY_SECTIONS];
+static int g_place[LIBRARY_MAX + LIBRARY_SECTIONS + 1];
+static int g_place_line[LIBRARY_MAX + LIBRARY_SECTIONS + 1];
+static int g_place_col[LIBRARY_MAX + LIBRARY_SECTIONS + 1];
 static int g_places, g_lines;
 static unsigned g_favourite[FAVOURITES_MAX];   /* keys */
 static int g_favourites, g_favourites_loaded;
+static char g_find[LIBRARY_TITLE];      /* the word searched for, empty for all */
+static char g_found[LIBRARY_TITLE];     /* the last one, which the keyboard opens with */
+
+/* Whether the title has the word, case aside. */
+static int titled(const char *title, const char *word) {
+    size_t n = strlen(word);
+    for (; *title; title++)
+        if (!strncasecmp(title, word, n)) return 1;
+    return !n;
+}
 
 static void favourites_load(void) {
     if (g_favourites_loaded) return;
@@ -127,24 +142,60 @@ int library_favourite(unsigned key) {
     return 0;
 }
 
+/* SELECT's other view: the same places one to a line, the search first. */
+static int g_list;
+int library_list(void) { return g_list; }
+
 static void place(int item, int *line, int *col) {
-    if (*col == LIBRARY_COLS) { ++*line; *col = 0; }
+    if (*col == (g_list ? 1 : LIBRARY_COLS)) { ++*line; *col = 0; }
     g_place[g_places] = item;
     g_place_line[g_places] = *line;
     g_place_col[g_places] = (*col)++;
     g_places++;
 }
 
+/* The list's way in: its rows -- Search, Favorites, a section each -- or
+   with one of them open (LIST_FAVOURITES, or a section) its games. */
+#define LIST_ROOT (-1)
+#define LIST_FAVOURITES (-2)
+static int g_open = LIST_ROOT;
+
+static void lay_list(int *line, int *col) {
+    int favourites = 0;
+    for (int n = 0; n < g_count; n++) favourites += library_favourite(g_items[n].key);
+    if (g_find[0]) {
+        /* A word typed: the games that have it, whatever their section. */
+        for (int n = 0; n < g_count; n++)
+            if (titled(g_items[n].title, g_find)) place(n, line, col);
+        return;
+    }
+    if (g_open == LIST_ROOT) {
+        place(PLACE_SEARCH, line, col);
+        if (favourites) place(PLACE_FAVOURITES, line, col);
+        for (int s = 0; s < LIBRARY_SECTIONS; s++)
+            if (g_in[s]) place(PLACE_SIGN - s, line, col);
+        return;
+    }
+    for (int n = 0; n < g_count; n++)
+        if (g_open == LIST_FAVOURITES ? library_favourite(g_items[n].key) : g_items[n].section == g_open)
+            place(n, line, col);
+}
+
 static void lay_places(void) {
     favourites_load();
     g_places = 0;
     int line = 0, col = 0;
+    if (g_list) {
+        lay_list(&line, &col);
+        g_lines = g_places ? line + 1 : 0;
+        return;
+    }
     for (int n = 0; n < g_count; n++)
-        if (library_favourite(g_items[n].key)) place(n, &line, &col);
+        if (library_favourite(g_items[n].key) && titled(g_items[n].title, g_find)) place(n, &line, &col);
     for (int s = 0; s < LIBRARY_SECTIONS; s++) {
         int first = 1;
         for (int n = g_first[s]; n < g_first[s] + g_in[s]; n++) {
-            if (library_favourite(g_items[n].key)) continue;
+            if (library_favourite(g_items[n].key) || !titled(g_items[n].title, g_find)) continue;
             if (first) {
                 if (col) { line++; col = 0; }
                 place(PLACE_SIGN - s, &line, &col);
@@ -154,6 +205,28 @@ static void lay_places(void) {
         }
     }
     g_lines = g_places ? line + 1 : 0;
+}
+
+int library_place_favourites(int p) { return p >= 0 && p < g_places && g_place[p] == PLACE_FAVOURITES; }
+int library_favourites_count(void) {
+    int n = 0;
+    for (int i = 0; i < g_count; i++) n += library_favourite(g_items[i].key);
+    return n;
+}
+/* A row of the list opened: a section, or with -2 the favourites. */
+void library_list_open(int what) {
+    g_open = what;
+    lay_places();
+}
+int library_list_opened(void) { return g_list && g_open != LIST_ROOT; }
+/* Back to the list's rows, onto the one that was open. */
+int library_list_close(void) {
+    int was = g_open;
+    g_open = LIST_ROOT;
+    lay_places();
+    for (int p = 0; p < g_places; p++)
+        if (g_place[p] == (was == LIST_FAVOURITES ? PLACE_FAVOURITES : PLACE_SIGN - was)) return p;
+    return 0;
 }
 
 /* Marked or unmarked, kept on the stick at once, and the list laid out
@@ -181,15 +254,50 @@ int library_lines(void) { return g_lines; }
 int library_line(int p) { return p >= 0 && p < g_places ? g_place_line[p] : 0; }
 int library_column(int p) { return p >= 0 && p < g_places ? g_place_col[p] : 0; }
 int library_place_item(int p) { return p >= 0 && p < g_places && g_place[p] >= 0 ? g_place[p] : -1; }
+void library_list_toggle(void) {
+    g_list = !g_list;
+    g_open = LIST_ROOT;
+    lay_places();
+}
+int library_place_search(int p) { return p >= 0 && p < g_places && g_place[p] == PLACE_SEARCH; }
+
+int library_search(const char *word) {
+    if (!word || !word[0]) return 0;
+    int found = 0;
+    for (int n = 0; n < g_count; n++) found += titled(g_items[n].title, word);
+    snprintf(g_found, sizeof(g_found), "%s", word);
+    if (!found) return 0;
+    snprintf(g_find, sizeof(g_find), "%s", word);
+    lay_places();
+    return found;
+}
+int library_search_close(void) {
+    if (!g_find[0]) return -1;
+    g_find[0] = '\0';
+    lay_places();
+    return 0;
+}
+const char *library_searched(void) { return g_find[0] ? g_find : NULL; }
+const char *library_search_last(void) { return g_found; }
+
 int library_place_sign(int p) {
-    return p >= 0 && p < g_places && g_place[p] <= PLACE_SIGN ? PLACE_SIGN - g_place[p] : -1;
+    return p >= 0 && p < g_places && g_place[p] <= PLACE_SIGN && g_place[p] > PLACE_SIGN - LIBRARY_SECTIONS
+           ? PLACE_SIGN - g_place[p] : -1;
 }
 int library_place_of(int item) {
     for (int p = 0; p < g_places; p++)
         if (g_place[p] == item) return p;
     return -1;
 }
-const char *library_heading(void) { return T_HEAD_LIBRARY; }
+const char *library_heading(void) {
+    static char head[16 + LIBRARY_TITLE];
+    static const char *const WORD[LIBRARY_SECTIONS] = { T_LIBRARY_PSP, T_LIBRARY_PS1, T_LIBRARY_APPS };
+    if (!g_find[0] && g_list && g_open == LIST_FAVOURITES) return T_LIBRARY_FAVOURITES;
+    if (!g_find[0] && g_list && g_open >= 0) return WORD[g_open];
+    if (!g_find[0]) return T_HEAD_LIBRARY;
+    snprintf(head, sizeof(head), T_SEARCH_HEAD, g_find);
+    return head;
+}
 
 /* A folder and everything in it. */
 static int remove_tree(const char *path) {

@@ -405,14 +405,15 @@ static const char *tab_word(int tab) {
     if (sources_view_shown()) return T_HEAD_SOURCES;
     if (system_view_shown()) return T_HEAD_SYSTEM;
     if (g_info) return T_HEAD_ABOUT;
-    if (tab == TAB_HOMEBREW && view_search()) {
+    if ((tab == TAB_HOMEBREW || tab == TAB_UMD) && view_search()) {
         static char head[16 + VIEW_SEARCH_SIZE];
         snprintf(head, sizeof(head), T_SEARCH_HEAD, view_search());
         return head;
     }
-    if (tab == TAB_HOMEBREW && view_group_open_at() >= 0)
+    if ((tab == TAB_HOMEBREW || tab == TAB_UMD) && view_group_open_at() >= 0)
         return group_word(view_group_open_at());
-    if (tab == TAB_HOMEBREW && view_browse_at() >= 0) return BROWSE_HEAD[view_browse_at()];
+    if (tab == TAB_UMD && view_browse_at() == VIEW_GROUP_TAG) return T_HEAD_GENRES;
+    if ((tab == TAB_HOMEBREW || tab == TAB_UMD) && view_browse_at() >= 0) return BROWSE_HEAD[view_browse_at()];
     switch (tab) {
     case TAB_GEAR: return T_HEAD_GEAR;
     case TAB_STICK: return T_HEAD_STICK;
@@ -813,15 +814,17 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
        then a line past either edge; nothing while the grid flies by. */
     enum { SHOWN = (GRID_LINES + 1) * GRID_COLS, AHEAD = GRID_COLS };
     int wanted[SHOWN + 2 * AHEAD + 1], want_count = 0, visible = 0;
+    /* The search's and the genre's tiles have no icon to fetch. */
     if (!g_fast) {
-        wanted[want_count++] = view_index(cursor);
+        if (view_index(cursor) >= 0) wanted[want_count++] = view_index(cursor);
         for (int i = g_grid_first * GRID_COLS; i < (g_grid_first + GRID_LINES + 1) * GRID_COLS && i < count; i++)
-            if (i != cursor) wanted[want_count++] = view_index(i);
+            if (i != cursor && view_index(i) >= 0) wanted[want_count++] = view_index(i);
         visible = want_count;
         for (int k = 1; k <= AHEAD; k++) {
             int around[2] = {(g_grid_first + GRID_LINES + 1) * GRID_COLS - 1 + k, g_grid_first * GRID_COLS - k};
             for (int j = 0; j < 2; j++)
-                if (around[j] >= 0 && around[j] < count) wanted[want_count++] = view_index(around[j]);
+                if (around[j] >= 0 && around[j] < count && view_index(around[j]) >= 0)
+                    wanted[want_count++] = view_index(around[j]);
         }
     }
     icons_bind(catalog);
@@ -838,9 +841,10 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
             gfx_clip(0, GRID_TOP, SCR_W, GRID_ROOM);
         for (int i = from; i < to; i++) {
             int selected = i == cursor, index = view_index(i);
-            if (selected != pass || index < 0) continue;
+            if (selected != pass) continue;
             int x = GRID_LEFT + (i % GRID_COLS) * GRID_STEP + dx;
             int y = GRID_TOP + (int)floorf((i / GRID_COLS) * GRID_LINE - g_grid_scroll + 0.5f);
+            if (index < 0) continue;
             int w = GRID_W, h = GRID_H;
             if (selected) {
                 /* Grown about its middle, kept to the icon's shape and to
@@ -919,9 +923,10 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
         font_print_scrolling(FONT_TITLE, LIST_X + dx + (w < room ? (int)((room - w) / 2) : 0),
                              GRID_NAME_Y, room, g_text, name, hover_age(4, index));
     }
-    if (lines > GRID_LINES) {
+    if (lines > GRID_LINES && index >= 0) {
         char where[32];
-        snprintf(where, sizeof(where), "%d / %d", cursor + 1, count);   /* the game, not the row */
+        int home = view_home();     /* the game, not the tile at the head */
+        snprintf(where, sizeof(where), "%d / %d", cursor - home + 1, count - home);
         font_print(FONT_CAPTION, SCR_W - LIST_X - font_width(FONT_CAPTION, where) + dx, GRID_NAME_Y,
                    faded(g_dim, 170), where);
     }
@@ -964,8 +969,9 @@ static void draw_browse_row(int k, int y, int selected, float t) {
     float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
     mark_draw((enum mark)BROWSE_SIGN[k], gx, gy, selected ? g_text : faded(g_dim, 170),
               selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+    const char *word = view_umd_open() && k == VIEW_GROUP_TAG ? T_HEAD_GENRES : BROWSE_HEAD[k];
     font_print_scrolling(FONT_TITLE, NAME_X + dx, y + 21, LIST_X + LIST_W - NAME_X,
-                         selected ? g_text : g_dim, BROWSE_HEAD[k],
+                         selected ? g_text : g_dim, word,
                          selected ? hover_age(0, VIEW_ROW_BROWSE - k) : 0.0f);
 }
 
@@ -1018,7 +1024,7 @@ static void draw_browse_panel(int k) {
         size_t at = 0;
         note[0] = '\0';
         for (int n = 0; n < view_group_count() && at < sizeof(note) - 1; n++) {
-            if ((int)view_group_kind(n) != k) continue;
+            if ((int)view_group_kind(n) != k || !view_group_here(n)) continue;
             at += (size_t)snprintf(note + at, sizeof(note) - at, "%s%s", at ? ", " : "",
                                    group_word(n));
         }
@@ -2793,9 +2799,18 @@ static void draw_footer(void) {
     gfx_vgrad(0, FOOTER_Y, SCR_W, SCR_H - FOOTER_Y, RGBA(0, 0, 0, 120),
               RGBA(0, 0, 0, 200));
     if (library) {
-        float x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_HINT_START, g_dim);
-        x = draw_hint(x, FOOTER_BASE, MARK_SQUARE, T_HINT_FAVOURITE, g_dim);
-        x = draw_hint(x, FOOTER_BASE, MARK_TRIANGLE, T_HINT_OPTIONS, g_dim);
+        /* On the search's row X searches; while a word is in force, O
+           shows everything again. */
+        float x;
+        if (library_place_search(g_cursor)) {
+            x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_SEARCH, g_dim);
+        } else {
+            x = draw_hint(LIST_X, FOOTER_BASE, MARK_CROSS, T_HINT_START, g_dim);
+            x = draw_hint(x, FOOTER_BASE, MARK_SQUARE, T_HINT_FAVOURITE, g_dim);
+            x = draw_hint(x, FOOTER_BASE, MARK_TRIANGLE, T_HINT_OPTIONS, g_dim);
+        }
+        if (library_searched()) x = draw_hint(x, FOOTER_BASE, MARK_CIRCLE, T_HINT_ALL, g_dim);
+        x = draw_hint(x, FOOTER_BASE, MARK_SELECT, library_list() ? T_HINT_GRID : T_HINT_LIST, g_dim);
         x = draw_hint(x, FOOTER_BASE, MARK_L, "/", g_dim) - HINT_SPACE;
         draw_hint(x, FOOTER_BASE, MARK_R, T_HINT_TABS, g_dim);
     } else if (gear) {
@@ -2809,11 +2824,19 @@ static void draw_footer(void) {
         static float shown = 1.0f;
         int top = view_grid() ? g_grid_first == 0 : g_first == 0;
         shown += ((top ? 1.0f : 0.0f) - shown) * 0.2f;
-        if (shown > 0.05f)
-            draw_hint(LIST_X, FOOTER_BASE, MARK_SELECT,
-                      view_sort() == VIEW_SORT_NAME ? T_SORT_NAME
-                      : view_sort() == VIEW_SORT_INSTALLED ? T_SORT_INSTALLED : T_SORT_NEWEST,
-                      faded(g_dim, (int)(255 * shown)));
+        if (shown > 0.05f) {
+            /* SELECT: the other view in the store and the UMDs, the order
+               over the updates. */
+            int turns = view_tab_kind() == VIEW_TAB_HOMEBREW || view_tab_kind() == VIEW_TAB_UMD;
+            float x = draw_hint(LIST_X, FOOTER_BASE, MARK_SELECT,
+                                turns ? (view_grid() ? T_HINT_LIST : T_HINT_GRID)
+                                : view_sort() == VIEW_SORT_NAME ? T_SORT_NAME
+                                : view_sort() == VIEW_SORT_INSTALLED ? T_SORT_INSTALLED : T_SORT_NEWEST,
+                                faded(g_dim, (int)(255 * shown)));
+            /* Narrowed or browsing: O goes back a step. */
+            if (view_umd_open() && (view_search() || view_group_open_at() >= 0 || view_browse_at() >= 0))
+                draw_hint(x, FOOTER_BASE, MARK_CIRCLE, T_HINT_BACK, faded(g_dim, (int)(255 * shown)));
+        }
     } else if (g_details) {
         const struct app_entry *e = g_details;
         float x = LIST_X;

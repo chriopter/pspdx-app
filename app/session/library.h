@@ -50,12 +50,30 @@ int library_find(unsigned key);
 int library_section_first(int s);
 int library_section_count(int s);
 
-/* What the launcher shows, as places, four to a line: the favourites
-   first, then every section from a new line, its sign in the first place.
+/* What the launcher shows, as places, four to a line: the search first,
+   the favourites after it, then every section from a new line, its sign in
+   the first place.
    A place is an item or a section's sign; the cursor stands on both. */
 int library_places(void);
 int library_place_item(int p);       /* the item's index, -1 for a sign */
 int library_place_sign(int p);       /* the sign's section, -1 for an item */
+int library_place_search(int p);     /* whether it is the search's, the first */
+/* The search: only the items whose title has the word, how many; 0 and
+   nothing changed when none has. Closed again, 0, or -1 when none was open.
+   The word in force, NULL for none, and the last one typed. */
+/* SELECT: the places as icons, or one to a line with the search first. */
+int library_list(void);
+void library_list_toggle(void);
+/* The list's rows: Favorites and a section each open as their games. */
+int library_place_favourites(int p);
+int library_favourites_count(void);
+void library_list_open(int what);       /* a section, or -2 for the favourites */
+int library_list_opened(void);
+int library_list_close(void);           /* the row to stand on after */
+int library_search(const char *word);
+int library_search_close(void);
+const char *library_searched(void);
+const char *library_search_last(void);
 int library_place_of(int item);      /* -1 when it is not shown */
 /* One step through the places: along a line dx stops at
    its ends; up or down goes to the column below or above, onto the last
