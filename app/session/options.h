@@ -58,6 +58,10 @@ void options_fill_cache_toggle(void);
    every start joins in the background, or 0 for off; set at once. */
 int options_auto_connect(void);
 void options_auto_connect_set(int profile);
+/* Whether Auto Connect has been offered after a connection made through
+   the system's dialog: once, yes or no, never again. */
+int options_auto_offered(void);
+void options_auto_offered_set(void);
 /* Network's Auto Connect row: the panel at the right with Off and each
    connection set up in the system's settings, the one in use marked. */
 void auto_connect_open(void);

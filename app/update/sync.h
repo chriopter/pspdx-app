@@ -26,6 +26,9 @@ void sync_set_offline(int on);          /* skip the radio on the next sync */
 void sync_set_profile(int profile, const char *name);
 /* Whether the last sync reached the network, or used what was kept. */
 int sync_online(void);
+/* The link lost after the sync, or found again: online or not from now on,
+   for the catalog's fetches as well. */
+void sync_set_online(int on);
 enum sync_state sync_state(void);
 int sync_done(void);                    /* DONE or FAILED */
 

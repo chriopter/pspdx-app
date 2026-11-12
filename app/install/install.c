@@ -603,6 +603,11 @@ static int archive_moved(const struct manifest *m, char out[512]) {
    times, waiting a little longer each time. */
 #define DL_RETRIES 5
 static const unsigned DL_BACKOFF_S[DL_RETRIES] = {2, 5, 10, 20, 30};
+/* The longest a try is held for the link, which may need someone to
+   press Reconnect: the radio off in standby, the dialog to go through. */
+#define DL_LINK_HOLD_S 300
+static int (*g_link_waiting)(void);
+void install_set_link_wait(int (*waiting)(void)) { g_link_waiting = waiting; }
 
 static int ok_status(long status) { return status == 200 || status == 206; }
 
@@ -647,6 +652,13 @@ static int download(const struct manifest *m, const char *path, https_progress p
         for (unsigned waited = 0; waited < DL_BACKOFF_S[attempt] * 10 && !g_abort; waited++) {
             if (progress) progress(pctx, at, m->size);
             sceKernelDelayThread(100 * 1000);
+        }
+        if (g_link_waiting && g_link_waiting()) {
+            logline("download: holding for the link");
+            for (unsigned held = 0; held < DL_LINK_HOLD_S * 10 && !g_abort && g_link_waiting(); held++) {
+                if (progress) progress(pctx, at, m->size);
+                sceKernelDelayThread(100 * 1000);
+            }
         }
         if (g_abort) break;
         rc = fetch_archive(path, url, &d, progress, pctx, &r, &close_rc, at);

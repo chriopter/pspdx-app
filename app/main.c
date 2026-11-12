@@ -42,6 +42,7 @@
 #include "session/downloads.h"
 #include "session/launcher.h"
 #include "session/library.h"
+#include "session/link.h"
 #include "session/questions.h"
 #include "update/sources.h"
 #include "session/options.h"
@@ -75,10 +76,20 @@ static int exit_callback(int a, int b, void *c) {
     return 0;
 }
 
+/* Back from standby: the radio went down under PSPDX and nothing said so,
+   so the link is looked at at once. */
+static int power_callback(int unknown, int flags, void *arg) {
+    (void)unknown; (void)arg;
+    if (flags & PSP_POWER_CB_RESUME_COMPLETE) link_note_resume();
+    return 0;
+}
+
 static int callback_thread(SceSize args, void *argp) {
     (void)args; (void)argp;
     int callback = sceKernelCreateCallback("Exit", exit_callback, NULL);
     if (callback >= 0) sceKernelRegisterExitCallback(callback);
+    int power = sceKernelCreateCallback("Power", power_callback, NULL);
+    if (power >= 0) scePowerRegisterCallback(-1, power);
     sceKernelSleepThreadCB();
     return 0;
 }
@@ -378,6 +389,8 @@ static void go_online(int midway) {
     if (!offline) offline = !cable_at_start();
     if (!offline) offline = netconf_connect() < 0;
     if (!offline) cable_connected();
+    /* Made through the dialog: offered to Auto Connect, once. */
+    if (!offline) link_offer_check();
     if (midway) preview_resume();
     shell_word(T_WORD_CONNECTING);
     sync_set_offline(offline);
@@ -429,7 +442,8 @@ static void disconnect_now(int *online_asked) {
     tunnel_stop();
     https_net_disconnect();
     preview_resume();
-    catalog_offline(1);
+    sync_set_online(0);
+    link_forget();
     *online_asked = 0;
     shell_status(T_DISCONNECTED);
 }
@@ -588,6 +602,7 @@ int main(int argc, char *argv[]) {
        sweeps; it lives on its own thread and never waits for a frame. */
     audio_start();
     actions_init(&catalog);
+    install_set_link_wait(link_waiting);
     /* No connection at the start, the launcher's or any other: the
        system's dialog and the sync come with the first tab that lists what
        is published (or a gear row that needs them). */
@@ -1071,20 +1086,25 @@ int main(int argc, char *argv[]) {
                 sync_start(&catalog);
             }
         }
-        /* The Connect row: there until a connection is asked for, and again
-           when one did not come. The cursor stays on the row it was on. */
+        /* The connection watched once it is there: standby or the access
+           point out of range take it, Auto Connect brings it back. */
+        link_tick(online_asked && synced);
+        /* The Connect row: there until a connection is asked for, again
+           when one did not come, and when it was lost. The cursor stays on
+           the entry it was on; from the first, it goes onto the row. */
         {
             int want = synced && (!online_asked || !sync_online());
             if (want != view_connect_shown()) {
-                int on_root = view_index(cursor) < 0;
+                int had = view_count();
                 view_set_connect(want);
-                if (view_tab_kind() == VIEW_TAB_HOMEBREW && !(on_root && cursor == 0))
+                int kind = view_tab_kind();
+                if ((kind == VIEW_TAB_HOMEBREW || kind == VIEW_TAB_UMD) && cursor > 0 && view_count() != had)
                     cursor += want ? 1 : -1;
                 if (cursor < 0) cursor = 0;
                 count = browsable() ? view_count() : 0;
             }
         }
-        shell_link(!online_asked ? 0 : !synced ? 1 : sync_online() ? 2 : 0);
+        shell_link(!online_asked ? 0 : !synced || link_state() == LINK_JOINING ? 1 : sync_online() ? 2 : 0);
         int unconnected = !online_asked && !on_library && view_tab_kind() != VIEW_TAB_GEAR;
         shell_unconnected(unconnected);
         if (unconnected && !modal && (pressed & PSP_CTRL_CROSS) && catalog.count <= 0) {
@@ -1313,7 +1333,9 @@ int main(int argc, char *argv[]) {
                     }
                 }
             } else if ((pressed & PSP_CTRL_CROSS) && at == VIEW_ROW_CONNECT) {
-                connect_now(&online_asked, &synced);
+                /* Lost: the link alone comes back, the catalog stays. */
+                if (online_asked && link_was_up()) link_reconnect();
+                else connect_now(&online_asked, &synced);
             } else if ((pressed & PSP_CTRL_CROSS) && VIEW_IS_BROWSE(at)) {
                 /* A way to browse by lists its rows in the store's place. */
                 view_browse_open(VIEW_ROW_BROWSE - at);
@@ -1348,6 +1370,7 @@ int main(int argc, char *argv[]) {
                     /* Connected, X disconnects; otherwise it connects, the
                        system's dialog choosing the network. */
                     if (online_asked && synced && sync_online()) disconnect_now(&online_asked);
+                    else if (online_asked && synced && link_was_up()) link_reconnect();
                     else if (!online_asked || synced) connect_now(&online_asked, &synced);
                 } else if (which == SET_AUTO) {
                     /* Which connection, or none: the sidebar asks. */

@@ -1339,6 +1339,10 @@ class ClientTests(unittest.TestCase):
    broken=lines(text[key]);self.assertLessEqual(len(broken),3,broken);self.assertTrue(all(font.width(l,1.2)*wide<=(440 if ' ' not in l else 400) for l in broken),broken);self.assertLess(len(text[key]),200)
   # The address is whole and on one line in either face.
   for key in ('T_CABLE_GATEWAY_LINE','T_CABLE_NONE_LINE'):self.assertTrue(any(url in l.split() for l in lines(text[key])),lines(text[key]))
+  # Auto Connect offered after the first connection through the dialog: the question, and its line with a long connection name, in the band; the foot's lines about the link in one line, with a router's usual name.
+  self.assertLessEqual(font.width(text['T_AUTO_OFFER_ASK'],1.2)*wide,440)
+  broken=lines(fill(text['T_AUTO_OFFER_LINE'],'Living Room Fritz!Box 7590 5 GHz'));self.assertLessEqual(len(broken),3,broken);self.assertTrue(all(font.width(l,1.2)*wide<=400 for l in broken),broken)
+  for shown in (text['T_LINK_LOST'],text['T_LINK_BACK'],text['T_LINK_SWITCH_OFF'],fill(text['T_LINK_NOT_JOINED'],'FRITZ!Box 7590 XY')):self.assertLessEqual(font.width(shown)*wide,448,shown)
   # The menu's row, in the 32 bytes it is kept in; and the card's line, no longer than the one it stands in for.
   for key in ('T_MENU_PLUGIN_ON','T_MENU_PLUGIN_OFF'):self.assertLessEqual(font.width(text[key]),font.width(text['T_MENU_REBUILD']),key)
   self.assertLess(font.width(fill(text['T_PANEL_PLUGIN_OFF'],version)),font.width(fill(text['T_PANEL_REBUILD'],version,'1.2 MB')))

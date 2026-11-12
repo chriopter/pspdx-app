@@ -33,6 +33,10 @@ void sync_set_offline(int on) { g_force_offline = on; }
 static int g_profile;
 static volatile int g_online;
 int sync_online(void) { return g_online; }
+void sync_set_online(int on) {
+    g_online = !!on;
+    catalog_offline(!on);
+}
 static char g_profile_name[64];
 void sync_set_profile(int profile, const char *name) {
     g_profile = profile;

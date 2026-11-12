@@ -21,6 +21,8 @@
 #include "session/actions.h"
 #include "session/launcher.h"
 #include "session/library.h"
+#include "session/link.h"
+#include "session/options.h"
 #include "session/questions.h"
 #include "session/view.h"
 #include "update/inbox.h"
@@ -281,6 +283,20 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
         }
     }
 
+    /* The first connection made through the system's dialog: whether to
+       make it without from now on. Asked once, whatever the answer. */
+    if (g_question == ASK_NOTHING && *synced) {
+        char name[64], line[200];
+        int profile = link_offer_take(name, sizeof(name));
+        if (profile) {
+            options_auto_offered_set();
+            snprintf(line, sizeof(line), T_AUTO_OFFER_LINE, name);
+            shell_ask(T_AUTO_OFFER_ASK, line);
+            g_question = ASK_AUTO;
+            g_question_of = profile;
+        }
+    }
+
     /* What went wrong, once nothing else is asked: it stands until X. */
     if (g_question == ASK_NOTHING && g_error_count) {
         shell_ask_error(g_errors[0].text, g_errors[0].detail);
@@ -316,6 +332,10 @@ int questions_handle(unsigned pressed, int *cursor, int *count, char *keep,
             else error_show(T_LIBRARY_DELETE_FAILED, "library delete %08x", (unsigned)index);
         }
         else if (asked == ASK_PLUGIN) switch_plugin(index);
+        else if (asked == ASK_AUTO) {
+            options_auto_connect_set(index);
+            shell_status(T_AUTO_OFFER_ON);
+        }
         else if (asked == ASK_TRUST) {
             https_doubt_accept();
             trust_remember(g_trust_host);

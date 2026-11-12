@@ -42,6 +42,7 @@ static int g_settings_fps_cap30;
 static int g_cable;
 static int g_fill_cache = 1;             /* fetch every icon ahead while idle */
 static int g_auto_connect;               /* Auto Connect: the connection, 1-10, or 0 */
+static int g_auto_offered;               /* Auto Connect offered once, after a connection */
 static int g_runtime_fps_cap30, g_download_mode;
 static void apply_fps(void) {
     gfx_set_fps_cap30(g_download_mode ? 0 : g_runtime_fps_cap30);
@@ -68,6 +69,7 @@ void options_settings_load(void) {
     const char *at = n > 0 ? strstr(text, "\nauto=") : NULL;
     g_auto_connect = at ? atoi(at + 6) : 0;
     if (g_auto_connect < 0 || g_auto_connect > WIFI_PROFILES) g_auto_connect = 0;
+    g_auto_offered = n > 0 && strstr(text, "\noffered=1\n");
     g_runtime_fps_cap30 = g_settings_fps_cap30;
     apply_fps();
     free(text);
@@ -77,12 +79,12 @@ void options_settings_load(void) {
 void options_settings_save(void) {
     if (!g_settings_dirty) return;
     static const char *const cable[] = {"", "cable=wifi\n", "cable=usb\n", "cable=usb,known\n"};
-    char text[96], auto_line[16] = "";
+    char text[112], auto_line[16] = "";
     if (g_auto_connect) snprintf(auto_line, sizeof(auto_line), "auto=%d\n", g_auto_connect);
-    int n = snprintf(text, sizeof(text), "fps=%d\nfill=%d\nsort=%s\n%s%s", g_settings_fps_cap30 ? 30 : 60,
+    int n = snprintf(text, sizeof(text), "fps=%d\nfill=%d\nsort=%s\n%s%s%s", g_settings_fps_cap30 ? 30 : 60,
                      g_fill_cache,
                      view_sort() == VIEW_SORT_NAME ? "name" : view_sort() == VIEW_SORT_INSTALLED ? "installed" : "new",
-                     cable[g_cable], auto_line);
+                     cable[g_cable], auto_line, g_auto_offered ? "offered=1\n" : "");
     if (storage_write(storage_path(SETTINGS_PATH), text, (size_t)n) == 0)
         g_settings_dirty = 0;
 }
@@ -107,6 +109,13 @@ int options_auto_connect(void) { return g_auto_connect; }
 void options_auto_connect_set(int profile) {
     if (profile < 0 || profile > WIFI_PROFILES || profile == g_auto_connect) return;
     g_auto_connect = profile;
+    g_settings_dirty = 1;
+    options_settings_save();
+}
+int options_auto_offered(void) { return g_auto_offered; }
+void options_auto_offered_set(void) {
+    if (g_auto_offered) return;
+    g_auto_offered = 1;
     g_settings_dirty = 1;
     options_settings_save();
 }

@@ -132,8 +132,9 @@ int view_newest(int n, int browse, int *out, int max);
    answers how many those are and leaves the store as it was when none;
    O goes back to the first rows, onto the search's. */
 #define VIEW_ROW_SEARCH (-4)
-/* Over the search, while the store shows what was kept and nothing has
-   connected yet: the row that connects. */
+/* The first entry of the store and the UMDs, list or icons, while what
+   they show was kept and there is no connection -- none yet, or one that
+   was lost: the row that connects. */
 #define VIEW_ROW_CONNECT (-6)
 /* The UMDs' list (SELECT) starts with Search, Genres and Sources, the
    store's way of browsing for the discs; a genre or source chosen there

@@ -37,6 +37,7 @@
 #include "gui/lattice.h"
 #include "gui/library_view.h"
 #include "session/library.h"
+#include "session/link.h"
 
 /* The full-frame bloom (a screen readback plus a spread of additive quads) is
    the most visible frame-time trade in the browser. 1 = keep, 0 = off; off on
@@ -796,6 +797,15 @@ int shell_grid_step(int cursor, int dx, int dy, int ring) {
     return to < count ? to : count - 1;
 }
 
+/* The Connect entry's sign, in the list and the grid alike: the globe,
+   breathing while the connection is joined again. */
+static void draw_connect_globe(float x, float y, int selected, float t) {
+    int joining = link_state() == LINK_JOINING;
+    int a = joining ? 120 + (int)(100 * (0.5f + 0.5f * sinf(t * 4.0f))) : 255;
+    mark_draw(MARK_GLOBE, x, y, selected ? faded(g_text, a) : faded(g_dim, a * 170 / 255),
+              selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+}
+
 static void draw_grid(const struct catalog *catalog, int cursor, float t) {
     int count = view_count();
     int dx = (int)g_page_dx;
@@ -844,6 +854,13 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
             if (selected != pass) continue;
             int x = GRID_LEFT + (i % GRID_COLS) * GRID_STEP + dx;
             int y = GRID_TOP + (int)floorf((i / GRID_COLS) * GRID_LINE - g_grid_scroll + 0.5f);
+            if (index == VIEW_ROW_CONNECT) {
+                /* Connect, or Reconnect, as a disc of its own: a plate
+                   with the globe on it. */
+                gfx_rect(x, y, GRID_W, GRID_H, RGBA(255, 255, 255, selected ? 40 : 18));
+                draw_connect_globe(x + GRID_W / 2.0f, y + GRID_H / 2.0f, selected, t);
+                continue;
+            }
             if (index < 0) continue;
             int w = GRID_W, h = GRID_H;
             if (selected) {
@@ -905,6 +922,12 @@ static void draw_grid(const struct catalog *catalog, int cursor, float t) {
     /* Under the grid the chosen disc's name, and which of how many it is
        when there is more of it than the room shows. */
     int index = view_index(cursor);
+    if (index == VIEW_ROW_CONNECT) {
+        const char *word = link_label();
+        float w = font_width(FONT_TITLE, word), room = SCR_W - 2 * LIST_X;
+        font_print_scrolling(FONT_TITLE, LIST_X + dx + (w < room ? (int)((room - w) / 2) : 0),
+                             GRID_NAME_Y, room, g_text, word, hover_age(4, VIEW_ROW_CONNECT));
+    }
     if (index >= 0) {
         /* The game's name: the version's without the region it ends in,
            where it is one of several. */
@@ -995,11 +1018,9 @@ static void draw_word_row(int y, int selected, float t) {
 /* Over the search while nothing has connected: the row that does. */
 static void draw_connect_row(int y, int selected, float t) {
     float dx = g_page_dx;
-    float gx = LIST_X + dx + ICON_W / 2.0f, gy = y + ITEM_H / 2.0f;
-    mark_draw(MARK_GLOBE, gx, gy, selected ? g_text : faded(g_dim, 170),
-              selected ? MARK_LIT : MARK_PLAIN, rgb_pack(g_tint, 255), t);
+    draw_connect_globe(LIST_X + dx + ICON_W / 2.0f, y + ITEM_H / 2.0f, selected, t);
     font_print_clipped(FONT_TITLE, NAME_X + dx, y + 21, LIST_X + LIST_W - 8 - NAME_X,
-                       selected ? g_text : g_dim, T_CONNECT);
+                       selected ? g_text : g_dim, link_label());
 }
 
 static void draw_word_panel(void) {
@@ -3106,7 +3127,7 @@ void shell_draw(const struct catalog *catalog, int cursor) {
         if (!suppress_panel) {
             if (index == VIEW_ROW_ACTION) draw_action_panel(catalog, t);
             else if (index == VIEW_ROW_SEARCH) draw_word_panel();
-            else if (index == VIEW_ROW_CONNECT) draw_setting_note(T_CONNECT, T_CONNECT_NOTE, 0.0f);
+            else if (index == VIEW_ROW_CONNECT) draw_setting_note(link_label(), link_note(), 0.0f);
             else if (index <= VIEW_ROW_SETTING) draw_setting_panel(VIEW_ROW_SETTING - index);
             else if (index <= VIEW_ROW_GROUP) draw_group_panel(VIEW_ROW_GROUP - index);
             else if (VIEW_IS_BROWSE(index)) draw_browse_panel(VIEW_ROW_BROWSE - index);

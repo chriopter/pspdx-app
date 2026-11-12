@@ -394,6 +394,7 @@ int view_umd_open(void) {
     return (g_tabs ? g_tab[g_tab_at] : 0) == TAB_UMD && g_umd_group >= 0;
 }
 static int on_store(void);
+static int connect_rows(void);
 static void build_view(int restart);
 /* SELECT turns the store and the UMDs between their icons and their list:
    the store is a list until turned, the UMDs icons. */
@@ -463,7 +464,13 @@ static int root_rows(void) {
     if (on_umds() && (!g_umd_list || g_group_open >= 0 || g_umd_searching)) return 0;
     if (on_umds()) return g_browse >= 0 ? g_ways : 1 + umd_ways(NULL);
     if (!on_store() || g_store_grid || g_group_open >= 0 || g_searching) return 0;
-    return g_browse < 0 ? g_connect + 1 + VIEW_BROWSE : g_ways;
+    return g_browse < 0 ? 1 + VIEW_BROWSE : g_ways;
+}
+/* Connect, or Reconnect, over everything else the store and the UMDs
+   show, list or icons, wherever in them one is -- only not among the tag
+   cloud's chips, and never alone in an empty room. */
+static int connect_rows(void) {
+    return g_connect && (on_store() || on_umds()) && !view_cloud() && (g_view_count > 0 || root_rows() > 0);
 }
 static int root_index(int row) {
     if (on_umds() && g_browse < 0) {
@@ -472,7 +479,6 @@ static int root_index(int row) {
         return row == 0 ? VIEW_ROW_SEARCH : VIEW_ROW_BROWSE - ways[row - 1];
     }
     if (g_browse >= 0) return VIEW_ROW_GROUP - g_way[row];
-    if (g_connect && row-- == 0) return VIEW_ROW_CONNECT;
     return row == 0 ? VIEW_ROW_SEARCH : VIEW_ROW_BROWSE - (row - 1);
 }
 int view_group_count(void) { return g_groups; }
@@ -502,10 +508,10 @@ int view_browse_close(void) {
         /* The UMDs' list: its search, then the ways it has. */
         int ways[2], n = umd_ways(ways);
         for (int i = 0; i < n; i++)
-            if (ways[i] == was) return 1 + i;
-        return 0;
+            if (ways[i] == was) return connect_rows() + 1 + i;
+        return connect_rows();
     }
-    return 1 + was;     /* under the search's row */
+    return connect_rows() + 1 + was;     /* under the search's row */
 }
 
 /* Whether the word stands anywhere in the text, case aside. */
@@ -575,12 +581,12 @@ int view_search_close(void) {
         g_browse = -1;
         list_way();
         build_view(1);
-        return 0;
+        return connect_rows();
     }
     if (!g_searching) return -1;
     g_searching = 0;
     build_view(1);
-    return 0;
+    return connect_rows();
 }
 const char *view_search(void) {
     if (on_umds()) return g_umd_searching ? g_umd_search : NULL;
@@ -605,7 +611,7 @@ void view_sort_set(int sort) {
     build_view(1);
 }
 int view_home(void) {
-    return root_rows() + g_view_action;
+    return connect_rows() + root_rows() + g_view_action;
 }
 void view_group_open(int n) {
     if (n < 0 || n >= g_groups) return;
@@ -622,8 +628,8 @@ int view_group_close(void) {
     g_group_open = -1;
     build_view(1);
     for (int row = 0; row < g_ways; row++)
-        if (g_way[row] == was) return row;
-    return 0;
+        if (g_way[row] == was) return connect_rows() + row;
+    return connect_rows();
 }
 
 static unsigned published(int index) {
@@ -918,7 +924,7 @@ int view_network_close(void) {
 int view_count(void) {
     if (g_tabs && g_tab[g_tab_at] == TAB_GEAR) return gear_rows(NULL);
     if (g_tabs && g_tab[g_tab_at] == TAB_LIBRARY) return g_library_count;
-    return root_rows() + g_view_count + g_view_action;
+    return connect_rows() + root_rows() + g_view_count + g_view_action;
 }
 
 static int view_action(int row) { return g_view_action && row == 0; }
@@ -931,6 +937,10 @@ int view_index(int row) {
         return row >= 0 && row < n ? VIEW_ROW_SETTING - ids[row] : -1;
     }
     if (g_tabs && g_tab[g_tab_at] == TAB_LIBRARY) return -1;
+    if (connect_rows()) {
+        if (row == 0) return VIEW_ROW_CONNECT;
+        row--;
+    }
     int roots = root_rows();
     if (row >= 0 && row < roots) return root_index(row);
     row -= roots;

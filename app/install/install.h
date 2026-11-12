@@ -265,6 +265,10 @@ struct install_layout {
    layout the rule decides goes ahead. */
 typedef int (*install_layout_cb)(void *ctx, const struct install_layout *layout);
 void install_set_layout_check(install_layout_cb check);
+/* Whether the link is down and on its way back (or waiting to be asked
+   back): a download that broke off holds its next try meanwhile, up to a
+   few minutes, instead of spending its tries on a radio that is off. */
+void install_set_link_wait(int (*waiting)(void));
 
 /* What install_release returns when it was called off. */
 #define INSTALL_CANCELLED (-9)
