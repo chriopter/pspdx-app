@@ -3,6 +3,7 @@
 #include "storage_paths.inc"
 #include <ctype.h>
 #include <pspiofilemgr.h>
+#include <pspkernel.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -122,6 +123,18 @@ int storage_read(const char *path, char **text, size_t limit) {
    with none of storage_write's syncing and backing up. A power cut leaves
    at most a .part that is never read. Two syncs of the whole stick per
    file made a cached icon cost two seconds. */
+int storage_write_all(int fd, const void *data, size_t len) {
+    size_t at = 0;
+    while (at < len) {
+        if (at) sceKernelDelayThread(STORAGE_BREATH_US);
+        size_t want = len - at < STORAGE_CHUNK ? len - at : STORAGE_CHUNK;
+        int n = sceIoWrite(fd, (const char *)data + at, want);
+        if (n <= 0) return -1;
+        at += (size_t)n;
+    }
+    return 0;
+}
+
 int storage_write_cache(const char *path, const void *data, size_t len) {
     char tmp[512];
     if (strlen(path) > 500)
@@ -130,15 +143,10 @@ int storage_write_cache(const char *path, const void *data, size_t len) {
     int fd = sceIoOpen(tmp, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
     if (fd < 0)
         return -1;
-    size_t at = 0;
-    while (at < len) {
-        int n = sceIoWrite(fd, (const char *)data + at, len - at);
-        if (n <= 0) {
-            sceIoClose(fd);
-            sceIoRemove(tmp);
-            return -1;
-        }
-        at += n;
+    if (storage_write_all(fd, data, len) < 0) {
+        sceIoClose(fd);
+        sceIoRemove(tmp);
+        return -1;
     }
     if (sceIoClose(fd) < 0) {
         sceIoRemove(tmp);
@@ -164,15 +172,10 @@ int storage_write(const char *path, const void *data, size_t len) {
     int fd = sceIoOpen(tmp, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
     if (fd < 0)
         return -1;
-    size_t at = 0;
-    while (at < len) {
-        int n = sceIoWrite(fd, (const char *)data + at, len - at);
-        if (n <= 0) {
-            sceIoClose(fd);
-            sceIoRemove(tmp);
-            return -1;
-        }
-        at += n;
+    if (storage_write_all(fd, data, len) < 0) {
+        sceIoClose(fd);
+        sceIoRemove(tmp);
+        return -1;
     }
     if (sceIoClose(fd) < 0 || sceIoSync(device, 0) < 0)
         return -1;

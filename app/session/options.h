@@ -21,6 +21,9 @@ void basket_pick_open(int index);
 enum sub { SUB_NONE, SUB_ADD, SUB_SOURCE, SUB_AUTO, SUB_RESTORE, SUB_LIBRARY };
 /* The lists' order turned to the next one, and kept on the stick. */
 void options_sort_next(void);
+/* Once a frame: a sort chosen with SELECT reaches the stick when the key
+   has been left alone. */
+void options_tick(void);
 void sub_open(enum sub which);
 /* The launcher's TRIANGLE: Start, Favorite and Delete for one item. */
 void library_menu_open(unsigned key);

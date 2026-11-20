@@ -397,11 +397,12 @@ ms0:/
         │   ├── transaction.json
         │   └── cleanup.txt              # Leftovers retried at start
         ├── LOGS/
-        │   ├── pspdx.log
-        │   └── http.txt
+        │   ├── pspdx.log                # Kept in RAM, written at events and at most every 5 min
+        │   └── http.txt                 # Test rig only
         ├── DEBUG/
         │   ├── PSPDX.BMP
         │   ├── PSPDX.KEYS
+        │   ├── PSPDX.LOG                # The log written every 10 s, as on the test rig
         │   ├── PSPDX.NOFONT             # A test: start without the firmware's fonts
         │   ├── PSPDX.REPLAY
         │   ├── PSPDX.TRACE

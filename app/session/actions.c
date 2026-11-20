@@ -66,9 +66,13 @@ struct catalog *actions_catalog(void) {
 static int g_http_dumped;
 
 void dump_diagnostics(void) {
-    if (downloads_busy()) { log_dump_later(); return; }
-    log_dump();
-    if (!g_http_dumped && sync_done()) {
+    /* On the flush thread: the first dump of a session is the whole ring,
+       and the main thread would stand still while the stick takes it. */
+    log_dump_later();
+    if (downloads_busy()) return;
+    /* The raw catalog is for the test rig; the saved catalogs on the stick
+       hold the same bytes, and half a megabyte every start is wear. */
+    if (!g_http_dumped && sync_done() && log_rig()) {
         catalog_dump_http();
         g_http_dumped = 1;
     }

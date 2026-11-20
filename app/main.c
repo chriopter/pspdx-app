@@ -68,10 +68,13 @@ static int exit_callback(int a, int b, void *c) {
        pool has been sitting in RAM until here, so this is where it reaches the
        stick -- 32 bytes, once, instead of the same sector every few
        seconds. */
+    logline("exit: asked by the system");
     downloads_shutdown();
     tunnel_stop();
     entropy_save(entropy_screen_is_replay());
     options_settings_save();
+    /* The log is kept in RAM between its moments; this is the last one. */
+    log_dump();
     sceKernelExitGame();
     return 0;
 }
@@ -80,6 +83,16 @@ static int exit_callback(int a, int b, void *c) {
    so the link is looked at at once. */
 static int power_callback(int unknown, int flags, void *arg) {
     (void)unknown; (void)arg;
+    /* Standby, a power switch or a battery the system gives up on all
+       come through here first: said, so a console that went dark leaves
+       a word behind. The battery's level changes are not. */
+    if (flags & (PSP_POWER_CB_POWER_SWITCH | PSP_POWER_CB_HOLD_SWITCH | PSP_POWER_CB_STANDBY |
+                 PSP_POWER_CB_RESUME_COMPLETE | PSP_POWER_CB_RESUMING | PSP_POWER_CB_SUSPENDING |
+                 PSP_POWER_CB_BATTERY_LOW)) {
+        logline("power: %08x", (unsigned)flags);
+        if (flags & (PSP_POWER_CB_SUSPENDING | PSP_POWER_CB_STANDBY | PSP_POWER_CB_POWER_SWITCH))
+            log_dump();
+    }
     if (flags & PSP_POWER_CB_RESUME_COMPLETE) link_note_resume();
     return 0;
 }
@@ -212,10 +225,10 @@ static void keys_load(void) {
 }
 
 /* The system sleeps after its idle minutes whatever is going on: a basket
-   of fifty installs left to run, or a catalog still coming, would be cut off
-   with the radio. While either is under way, and while a key is down --
-   which a key injected by a host tool does not tell the system on its own --
-   the console is kept awake. The screen may still dim. */
+   of fifty installs left to run, a catalog still coming, or the cache
+   being filled would be cut off with the radio, and a store left open
+   would come back from standby without its connection. While PSPDX runs
+   the console does not sleep; the screen may still dim. */
 static void keep_awake(void) {
     static unsigned awake_ms;
     if (now_ms() - awake_ms < 1000) return;
@@ -656,7 +669,7 @@ int main(int argc, char *argv[]) {
     unsigned bucket[4] = { 0, 0, 0, 0 };
     osk_frame(osk_draw, &cursor);
     for (;;) {
-        if ((net_started && !synced) || downloads_busy()) keep_awake();
+        keep_awake();
         int download_modal = asking() || menu_shown() || popup_shown();
         if (synced && downloads_tick(cursor, download_modal)) {
             view_settled(&cursor);
@@ -723,7 +736,7 @@ int main(int argc, char *argv[]) {
                 logline("downloads: %u queued, battery %d%% %d mV, heap %u KB",
                         (unsigned)view_download_count(), battery_percent(), battery_mv(),
                         (unsigned)mallinfo().uordblks / 1024);
-                log_dump_later();
+                log_dump_periodic();
             }
             continue;
         }
@@ -778,7 +791,7 @@ int main(int argc, char *argv[]) {
             g_worst_tick = 0;
             frames = worst = late = total = 0;
             bucket[0] = bucket[1] = bucket[2] = bucket[3] = 0;
-            log_dump_later();
+            log_dump_periodic();
         }
         g_mark[0] = now_us();
 
@@ -929,7 +942,6 @@ int main(int argc, char *argv[]) {
             shell_details_scroll((pad.Ly - 128) / 127.0f);
         unsigned pressed = (pad.Buttons & ~last_buttons) | tapped;
         last_buttons = pad.Buttons;
-        if (pad.Buttons) keep_awake();
         shell_hold((pad.Buttons & (PSP_CTRL_UP | PSP_CTRL_DOWN)) != 0);
         pressed |= repeat(pad.Buttons & (PSP_CTRL_LEFT | PSP_CTRL_RIGHT |
                                          PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER));
@@ -1019,8 +1031,8 @@ int main(int argc, char *argv[]) {
         int fill = synced && sync_state() == SYNC_DONE && options_fill_cache() && !modal && !info &&
                    !downloads_busy() && now_ms() - idle_since > 4000 && icons_fill_progress() >= 0;
         icons_fill(fill);
+        options_tick();
         if (fill) {
-            keep_awake();
             if (shell_status_is("") || (fill_text[0] && shell_status_is(fill_text))) {
                 snprintf(fill_text, sizeof(fill_text), T_FILLING, icons_fill_progress());
                 shell_status(fill_text);

@@ -29,6 +29,7 @@ static struct {const char *relative; char absolute[256];} paths[] = {
     {"PSP/PSPDX/DEBUG/PSPDX.RECORD", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.REPLAY", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.SHOTS", ""},     /* the rig wants the settled screenshot */
+    {"PSP/PSPDX/DEBUG/PSPDX.LOG", ""},       /* the log written every ten seconds */
     {"PSP/PSPDX/DEBUG/PSPDX.SLOW", ""},
     {"PSP/PSPDX/DEBUG/PSPDX.TRACE", ""},
     {"PSP/PSPDX/DEBUG/PSPDX0.BMP", ""},

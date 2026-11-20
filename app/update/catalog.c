@@ -1503,6 +1503,27 @@ static int fetch_text(const char *url, struct https_result *out) {
 
 /* A cache fetched and merged in. Returns the entries taken, or -1 when
    the cache did not answer or was not a catalog. */
+/* Whether the saved copy is these bytes: a catalog mostly says the same
+   as yesterday, and reading it back costs the stick nothing, where writing
+   half a megabyte again, with its syncs, is wear and a stall. */
+static int saved_same(const char *path, const char *data, size_t len) {
+    SceIoStat st;
+    if (sceIoGetstat(path, &st) < 0 || (long long)st.st_size != (long long)len) return 0;
+    int fd = sceIoOpen(path, PSP_O_RDONLY, 0);
+    if (fd < 0) return 0;
+    static char chunk[16 * 1024];
+    size_t at = 0;
+    int same = 1;
+    while (same && at < len) {
+        size_t want = len - at < sizeof(chunk) ? len - at : sizeof(chunk);
+        int got = sceIoRead(fd, chunk, (SceSize)want);
+        same = got == (int)want && !memcmp(chunk, data + at, want);
+        at += want;
+    }
+    sceIoClose(fd);
+    return same;
+}
+
 enum cache_mode { CACHE_LIVE, CACHE_LIVE_OR_SAVED, CACHE_SAVED_ONLY };
 static int take_cache(struct catalog *catalog, const char *url, enum cache_mode mode) {
     unsigned char digest[20];
@@ -1522,6 +1543,8 @@ static int take_cache(struct catalog *catalog, const char *url, enum cache_mode 
                remember over what it had. */
             if (g_parsed_empty && storage_exists(path))
                 logline("catalog: %s names no apps, the saved one is kept", url);
+            else if (saved_same(path, response, response_len))
+                ;   /* the stick has these bytes already: nothing written */
             else if (storage_write(path, response, response_len) == 0)
                 storage_trim_cache(storage_path("PSP/PSPDX/CACHE/catalogs"), 4u * 1024u * 1024u,
                                    path);

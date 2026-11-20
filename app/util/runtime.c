@@ -23,6 +23,7 @@ static char latest_perf[LOGCOLS];
    of every thread of PSPDX: the ring whole, some 100 KB, was a frame of
    70-90 ms every ten seconds; what is new is a few KB. */
 static unsigned line_seq, perf_seq;
+#define LOG_PERIOD_MS (5 * 60 * 1000)
 static unsigned dumped_line_seq, dumped_perf_seq;
 static int dumped_once;
 static unsigned file_bytes;
@@ -80,6 +81,28 @@ void log_dump_later(void) {
         sceKernelStartThread(g_flush_thread, 0, 0);
     }
     sceKernelSignalSema(g_flush_sema, 1);
+}
+
+int log_rig(void) {
+    static int rig = -1;
+    /* dev/rig always leaves PSPDX.SHOTS; PSPDX.LOG asks for it alone, on
+       a console on the bench. The DEBUG directory itself is made on every
+       stick and says nothing. */
+    if (rig < 0)
+        rig = storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.SHOTS")) ||
+              storage_exists(storage_path("PSP/PSPDX/DEBUG/PSPDX.LOG"));
+    return rig;
+}
+
+void log_dump_periodic(void) {
+    static unsigned last_ms;
+    if (log_rig()) { log_dump_later(); return; }
+    pthread_mutex_lock(&log_lock);
+    int fresh = line_seq != dumped_line_seq;
+    pthread_mutex_unlock(&log_lock);
+    if (!fresh || now_ms() - last_ms < LOG_PERIOD_MS) return;
+    last_ms = now_ms();
+    log_dump_later();
 }
 
 int log_count(void) {

@@ -22,6 +22,16 @@ void log_dump(void);
 /* The same, from a thread of its own below everything else: a frame does
    not wait for the stick. */
 void log_dump_later(void);
+/* The main loop's every ten seconds. On the test rig (PSPDX.SHOTS, which
+   dev/rig leaves, or PSPDX.LOG in PSP/PSPDX/DEBUG) the log is written
+   then, since the emulator only shows a file once it is closed; anywhere else it stays in RAM and
+   reaches the stick at the moments that matter (log_dump_later from an
+   event, the exit) or, when lines other than the frame timing came, once
+   every five minutes, so a console that runs for hours does not write the
+   same sectors every few seconds. */
+void log_dump_periodic(void);
+/* True on the test rig: PSPDX.SHOTS or PSPDX.LOG in PSP/PSPDX/DEBUG. */
+int log_rig(void);
 int log_count(void);
 /* Copies a terminated line so concurrent logging cannot overwrite it. */
 void log_at(int index, char *out, size_t size);

@@ -232,7 +232,7 @@ static void flush_locked(void) {
         return;
     pack_close_read();
     int fd = sceIoOpen(PACK_PATH, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_APPEND, 0777);
-    int ok = fd >= 0 && sceIoWrite(fd, g_hold, g_hold_len) == (int)g_hold_len;
+    int ok = fd >= 0 && storage_write_all(fd, g_hold, g_hold_len) == 0;
     if (fd >= 0)
         sceIoClose(fd);
     if (ok) {

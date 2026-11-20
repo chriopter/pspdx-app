@@ -33,6 +33,7 @@
 #include "update/sources.h"
 #include "update/sync.h"
 #include "update/wifi.h"
+#include "util/runtime.h"
 #include "util/storage.h"
 
 #define SETTINGS_PATH "PSP/PSPDX/settings.txt"
@@ -97,9 +98,21 @@ void options_cable_set(int cable) {
     options_settings_save();
 }
 
+/* SELECT is pressed a few times in a row to get to a sort: the one it
+   lands on is saved once the key has been left alone for three seconds,
+   not every one passed on the way. */
+static unsigned g_sort_save_at;
+
 void options_sort_next(void) {
     view_sort_set((view_sort() + 1) % VIEW_SORTS);
     g_settings_dirty = 1;
+    g_sort_save_at = now_ms() + 3000;
+    if (!g_sort_save_at) g_sort_save_at = 1;
+}
+
+void options_tick(void) {
+    if (!g_sort_save_at || (int)(now_ms() - g_sort_save_at) < 0) return;
+    g_sort_save_at = 0;
     options_settings_save();
 }
 
