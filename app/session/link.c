@@ -41,6 +41,13 @@ static int g_join_profile;
 static volatile int g_join_rc, g_join_done;
 static char g_join_name[64];
 
+/* Lost with Auto Connect on: tried again by itself, first after a few
+   seconds, then less often, so an access point that comes back is found
+   without anyone pressing Reconnect. */
+#define RETRY_FIRST_MS 5000
+#define RETRY_MAX_MS 60000
+static unsigned g_retry_at, g_retry_wait;
+
 static int g_offer;
 static char g_offer_name[64];
 
@@ -91,6 +98,7 @@ static int join_start(void) {
 static void back(void) {
     sync_set_online(1);
     g_state = LINK_UP;
+    g_retry_at = g_retry_wait = 0;
     g_polled = now_ms();
     shell_status(T_LINK_BACK);
     logline("link: back");
@@ -101,6 +109,7 @@ static void lose(const char *why) {
     sync_set_online(0);
     g_state = LINK_LOST;
     shell_status(T_LINK_LOST);
+    g_retry_at = g_retry_wait = 0;
     join_start();
 }
 
@@ -120,6 +129,9 @@ void link_tick(int watching) {
             if (g_join_rc == -2) snprintf(line, sizeof(line), "%s", T_LINK_SWITCH_OFF);
             else snprintf(line, sizeof(line), T_LINK_NOT_JOINED, g_join_name);
             shell_status(line);
+            g_retry_wait = g_retry_wait ? g_retry_wait * 2 : RETRY_FIRST_MS;
+            if (g_retry_wait > RETRY_MAX_MS) g_retry_wait = RETRY_MAX_MS;
+            g_retry_at = now_ms() + g_retry_wait;
         }
         return;
     }
@@ -131,8 +143,10 @@ void link_tick(int watching) {
             g_state = LINK_UP;
             g_was_up = 1;
             g_polled = now_ms();
-        } else if (g_state == LINK_LOST && resumed) {
-            /* Woken again with it still gone: another try of its own. */
+        } else if (g_state == LINK_LOST && (resumed || (g_retry_at && (int)(now_ms() - g_retry_at) >= 0))) {
+            /* Woken again with it still gone, or its wait over: another
+               try of its own. */
+            g_retry_at = 0;
             join_start();
         }
         return;
@@ -165,6 +179,7 @@ void link_reconnect(void) {
 
 void link_forget(void) {
     if (g_state == LINK_JOINING) return;
+    g_retry_at = g_retry_wait = 0;
     g_state = LINK_NONE;
     g_was_up = 0;
 }

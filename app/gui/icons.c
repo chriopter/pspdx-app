@@ -21,6 +21,7 @@
 
 #include "gui/icons.h"
 #include "gui/image.h"
+#include "gui/preview.h"
 #include "pspkit-https/https.h"
 #include "session/library.h"
 #include "update/assets.h"
@@ -718,7 +719,12 @@ static int fill_thread(SceSize args, void *argp) {
         g_fbusy[me] = 1;
         struct fill_buf *f = &g_fill[me];
         int at = -1;
-        if (!g_ihold && g_fill_on && !f->ready) at = fill_claim();
+        /* What is on screen comes first: no new icon is begun while the
+           selected entry's pictures or a row's icon are still on their
+           way, or the fill, a catalog from the top down, takes the radio
+           from what is being looked at. */
+        if (!g_ihold && g_fill_on && !f->ready && icons_pending() < 0 && !preview_fetching())
+            at = fill_claim();
         if (at < 0) {
             g_fbusy[me] = 0;
             sceKernelDelayThread(200 * 1000);

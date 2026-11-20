@@ -64,6 +64,10 @@ enum preview_state preview_state(void);
 /* True when nothing is mid-fade or mid-fetch for the current entry. */
 int preview_settled(void);
 
+/* True while the media thread has not finished the entry asked for last:
+   its still and film are still on their way. Safe from any thread. */
+int preview_fetching(void);
+
 /* True while a film is on the card. */
 int preview_playing(void);
 

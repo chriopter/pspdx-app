@@ -17,6 +17,17 @@
 static char lines[LOGLINES][LOGCOLS];
 static int line_count, line_next;
 static char latest_perf[LOGCOLS];
+/* Lines and perf records ever logged, and how far the file on the stick
+   has them: a dump appends what is new instead of writing the whole ring
+   again. A Memory Stick write holds the bus in the kernel's driver, ahead
+   of every thread of PSPDX: the ring whole, some 100 KB, was a frame of
+   70-90 ms every ten seconds; what is new is a few KB. */
+static unsigned line_seq, perf_seq;
+static unsigned dumped_line_seq, dumped_perf_seq;
+static int dumped_once;
+static unsigned file_bytes;
+#define LOG_FILE_MAX (256 * 1024)
+#define LOG_CHUNK (8 * 1024)
 static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t dump_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -30,6 +41,7 @@ void logline(const char *fmt, ...) {
     strcpy(lines[line_next], line);
     line_next = (line_next + 1) % LOGLINES;
     if (line_count < LOGLINES) line_count++;
+    line_seq++;
     sceIoWrite(1, line, strlen(line));
     sceIoWrite(1, "\n", 1);
     pthread_mutex_unlock(&log_lock);
@@ -42,6 +54,7 @@ void logperf(const char *fmt, ...) {
     pthread_mutex_lock(&log_lock);
     vsnprintf(latest_perf, sizeof(latest_perf), fmt, ap);
     va_end(ap);
+    perf_seq++;
     sceIoWrite(1, latest_perf, strlen(latest_perf));
     sceIoWrite(1, "\n", 1);
     pthread_mutex_unlock(&log_lock);
@@ -91,25 +104,44 @@ void log_dump(void) {
     static char out[(LOGLINES + 1) * LOGCOLS];
     pthread_mutex_lock(&dump_lock);
     pthread_mutex_lock(&log_lock);
+    unsigned fresh = line_seq - dumped_line_seq;
+    /* The whole ring at the first dump of a session, when lines went by
+       that the ring no longer holds, or when the file has grown to its
+       limit; else only what came since the last dump. */
+    int whole = !dumped_once || fresh > (unsigned)line_count || file_bytes >= LOG_FILE_MAX;
+    int from = whole ? 0 : line_count - (int)fresh;
     size_t n = 0;
-    for (int i = 0; i < line_count; i++) {
+    for (int i = from; i < line_count; i++) {
         const char *l = lines[(line_next + LOGLINES - line_count + i) % LOGLINES];
         size_t len = strlen(l);
         memcpy(out + n, l, len);
         n += len;
         out[n++] = '\n';
     }
-    if (latest_perf[0]) {
+    if (latest_perf[0] && (whole || perf_seq != dumped_perf_seq)) {
         size_t len = strlen(latest_perf);
         memcpy(out + n, latest_perf, len);
         n += len;
         out[n++] = '\n';
     }
+    dumped_line_seq = line_seq;
+    dumped_perf_seq = perf_seq;
     pthread_mutex_unlock(&log_lock);
-    int fd = sceIoOpen(storage_path("PSP/PSPDX/LOGS/pspdx.log"), PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0777);
-    if (fd >= 0) {
-        sceIoWrite(fd, out, (SceSize)n);
-        sceIoClose(fd);
+    if (n || whole) {
+        int fd = sceIoOpen(storage_path("PSP/PSPDX/LOGS/pspdx.log"),
+                           PSP_O_WRONLY | PSP_O_CREAT | (whole ? PSP_O_TRUNC : PSP_O_APPEND), 0777);
+        int ok = fd >= 0;
+        /* In pieces, with a breath between: the bus is let go for the
+           main thread's frame between them. */
+        for (size_t at = 0; ok && at < n; at += LOG_CHUNK) {
+            size_t len = n - at < LOG_CHUNK ? n - at : LOG_CHUNK;
+            if (at) sceKernelDelayThread(2000);
+            ok = sceIoWrite(fd, out + at, (SceSize)len) == (int)len;
+        }
+        if (fd >= 0) sceIoClose(fd);
+        /* A write that did not go through is made whole next time. */
+        dumped_once = ok;
+        file_bytes = ok ? (whole ? 0 : file_bytes) + (unsigned)n : 0;
     }
     pthread_mutex_unlock(&dump_lock);
 }

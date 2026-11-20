@@ -36,8 +36,20 @@ int wifi_join(int profile) {
     int state = 0;
     if (https_net_init() < 0) return -1;
     if (sceNetApctlGetState(&state) >= 0 && state == 4) return 0;
-    if (sceNetApctlConnect(profile) < 0) {
-        logline("wifi: connection %d would not start", profile);
+    /* A link that dropped leaves apctl part way, scanning or joining on
+       its own, and a connect then is refused at once: it is let go first,
+       and given a moment to be back at 0. */
+    if (state != 0) {
+        sceNetApctlDisconnect();
+        unsigned t = sceKernelGetSystemTimeLow();
+        while (sceNetApctlGetState(&state) >= 0 && state != 0 &&
+               sceKernelGetSystemTimeLow() - t < 3 * 1000000u)
+            sceKernelDelayThread(50 * 1000);
+    }
+    int rc = sceNetApctlConnect(profile);
+    if (rc < 0) {
+        logline("wifi: connection %d would not start, %08x, state %d", profile, (unsigned)rc, state);
+        sceNetApctlDisconnect();
         return -1;
     }
     /* The state climbs to 4, an address; back at 0 after it had moved,

@@ -606,6 +606,8 @@ enum preview_state preview_state(void) {
     return PREVIEW_EMPTY;
 }
 
+int preview_fetching(void) { return g_want.gen != g_done_gen; }
+
 int preview_settled(void) {
     /* Nothing asked for is nothing to wait for. */
     if (g_nothing) return 1;
